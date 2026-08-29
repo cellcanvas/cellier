@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import uuid4
 
@@ -10,6 +11,16 @@ import numpy as np
 from cellier.events import DimsChangedEvent, EventBus
 from cellier.events._events import ViewRay, _CanvasRawPointerEvent
 from cellier.render._config import RenderManagerConfig
+from cellier.render._outline_lut import (
+    KIND_WHOLE_OBJECT,
+    MAX_SLOT,
+    PLACEMENT_INWARD,
+    PLACEMENT_NAMES,
+    PLACEMENT_OUTWARD,
+    encode_entry,
+    get_shared_outline_lut,
+    peek_shared_outline_lut,
+)
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render.canvas_view import CanvasView
 from cellier.render.scene_manager import SceneManager
@@ -102,6 +113,10 @@ class RenderManager:
         self._event_bus: EventBus | None = None
         self._active_gestures: dict[UUID, UUID] = {}
         self._pick_details_enabled: dict[UUID, bool] = {}
+        # Authoritative per-visual outline assignments,
+        # ``{visual_id: (slot, placement, kind)}``.  The GPU LUT is derived
+        # from this every frame; see ``_sync_outline_lut``.
+        self._outline_assignments: dict[UUID, tuple[int, int, int]] = {}
         self._slicer = AsyncSlicer(
             batch_size=config.slicing.batch_size,
             render_every=config.slicing.render_every,
@@ -157,6 +172,275 @@ class RenderManager:
         self._config.temporal.enabled = value
         for canvas in self._canvases.values():
             canvas._accum_pass.enabled = value
+
+    # ------------------------------------------------------------------
+    # Screen-space outlines
+    # ------------------------------------------------------------------
+
+    @property
+    def outline_enabled(self) -> bool:
+        """Whether the screen-space outline pass is active."""
+        return self._config.outline.enabled
+
+    @outline_enabled.setter
+    def outline_enabled(self, value: bool) -> None:
+        value = bool(value)
+        self._config.outline.enabled = value
+        if value:
+            self._warn_if_outline_unavailable()
+        for canvas in self._canvases.values():
+            canvas._outline_pass.enabled = value
+
+    @property
+    def outline_boundaries_enabled(self) -> bool:
+        """Whether the boundaries layer (every outlined region) draws."""
+        return self._config.outline.boundaries.enabled
+
+    @outline_boundaries_enabled.setter
+    def outline_boundaries_enabled(self, value: bool) -> None:
+        value = bool(value)
+        self._config.outline.boundaries.enabled = value
+        for canvas in self._canvases.values():
+            canvas._outline_pass._quad_pass.set_uniform(
+                "boundaries_enabled", int(value)
+            )
+
+    @property
+    def outline_selection_enabled(self) -> bool:
+        """Whether the selection layer (regions with a palette slot) draws."""
+        return self._config.outline.selection.enabled
+
+    @outline_selection_enabled.setter
+    def outline_selection_enabled(self, value: bool) -> None:
+        value = bool(value)
+        self._config.outline.selection.enabled = value
+        for canvas in self._canvases.values():
+            canvas._outline_pass._quad_pass.set_uniform("selection_enabled", int(value))
+
+    def apply_outline_config(self) -> None:
+        """Push the current ``config.outline`` onto every canvas's pass."""
+        for canvas in self._canvases.values():
+            canvas._outline_pass.apply_config(self._config.outline)
+
+    def set_visual_outline(
+        self,
+        visual_id: UUID,
+        slot: int = 1,
+        placement: str | int = PLACEMENT_INWARD,
+        kind: int = KIND_WHOLE_OBJECT,
+    ) -> None:
+        """Record the outline assignment for one visual.
+
+        The GPU table is not written here: it is derived from these
+        assignments once per frame, because cellier rebuilds world objects
+        (2D/3D switches, multiscale brick groups, channel changes) and each
+        rebuild hands out fresh ``global_id``s.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The cellier visual to outline.
+        slot : int
+            0 removes the outline.  ``1..15`` selects palette entry
+            ``slot - 1`` for the selection layer; any nonzero slot also
+            makes the visual visible to the boundaries layer.
+        placement : str or int
+            ``"inward"`` or ``"outward"`` (or the corresponding constant).
+        kind : int
+            ``KIND_WHOLE_OBJECT`` keys the edge test on the pygfx object id,
+            giving one silhouette per visual.  ``KIND_LABEL`` keys it on the
+            per-pixel label field instead, so boundaries appear *between*
+            labels inside one volume.  Requires the ``outline_id`` target;
+            without it a label visual falls back to a whole-object
+            silhouette.
+
+        Raises
+        ------
+        ValueError
+            If *slot* or *placement* is out of range.
+        """
+        slot = int(slot)
+        if not 0 <= slot <= MAX_SLOT:
+            raise ValueError(f"slot must be in [0, {MAX_SLOT}], got {slot}")
+        if isinstance(placement, str):
+            try:
+                placement = PLACEMENT_NAMES[placement]
+            except KeyError:
+                raise ValueError(
+                    f"placement must be one of {sorted(PLACEMENT_NAMES)}, "
+                    f"got {placement!r}"
+                ) from None
+        if placement not in (PLACEMENT_INWARD, PLACEMENT_OUTWARD):
+            raise ValueError(f"unknown outline placement: {placement}")
+
+        if slot == 0:
+            self._outline_assignments.pop(visual_id, None)
+        else:
+            self._outline_assignments[visual_id] = (
+                slot,
+                int(placement),
+                int(kind),
+            )
+        self._sync_outline_lut()
+
+    def get_visual_outline(self, visual_id: UUID) -> tuple[int, int, int] | None:
+        """Return ``(slot, placement, kind)`` for *visual_id*, or ``None``."""
+        return self._outline_assignments.get(visual_id)
+
+    def set_label_selection(self, visual_id: UUID, selection: dict[int, int]) -> None:
+        """Set which label values the selection layer outlines.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            A labels visual.
+        selection : dict[int, int]
+            ``{label value: palette slot}``, slots in ``1..15``.  An empty
+            dict clears the selection.
+
+        Notes
+        -----
+        Writes into the material's fixed-capacity selection texture rather
+        than replacing it, so a selection change is a data upload and never
+        a pipeline rebuild.  Materials that carry no such texture (every
+        non-label visual) are skipped.
+        """
+        from cellier.render.shaders._label_colormap import (
+            update_outline_selection,
+        )
+
+        scene_id = self._visual_to_scene.get(visual_id)
+        if scene_id is None:
+            return
+        scene = self._scenes.get(scene_id)
+        if scene is None:
+            return
+        try:
+            gfx_visual = scene.get_visual(visual_id)
+        except KeyError:
+            return
+
+        for material in self._label_materials(gfx_visual):
+            count = update_outline_selection(
+                material.outline_selection_texture, selection
+            )
+            buffer = material.label_params_buffer
+            buffer.data["n_outline_entries"] = np.uint32(count)
+            buffer.update_full()
+
+    @staticmethod
+    def _label_materials(gfx_visual: _GFXVisual):
+        """Yield each material on *gfx_visual* that carries a label key.
+
+        Deliberately duck-typed rather than keyed on visual class: the 2D
+        and 3D nodes of one labels visual hold different material types, and
+        multiscale visuals nest theirs inside a ``gfx.Group``.
+        """
+        seen: set[int] = set()
+        for mode in ("2d", "3d"):
+            try:
+                node = gfx_visual.get_node(mode)
+            except (AttributeError, KeyError, ValueError):
+                node = None
+            if node is None:
+                continue
+            for obj in node.iter():
+                material = getattr(obj, "material", None)
+                if material is None or id(material) in seen:
+                    continue
+                if getattr(material, "outline_selection_texture", None) is None:
+                    continue
+                if getattr(material, "label_params_buffer", None) is None:
+                    continue
+                seen.add(id(material))
+                yield material
+
+    def _warn_if_outline_unavailable(self) -> None:
+        """Warn once if no canvas could grant the pick texture binding."""
+        canvases = list(self._canvases.values())
+        if canvases and not any(c._outline_available for c in canvases):
+            warnings.warn(
+                "screen-space outlines are unavailable: the pick texture could "
+                "not be granted TEXTURE_BINDING on any canvas. This usually "
+                "means the pinned pygfx no longer exposes the blender internals "
+                "cellier.render._pick_buffer relies on.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+
+    def _sync_outline_lut(self) -> None:
+        """Rebuild the GPU outline table from ``_outline_assignments``.
+
+        Runs once per canvas draw.  Resolves every outlined visual to all
+        the pygfx world objects it currently owns and writes one entry per
+        id; ids that have gone away are cleared.  Only texels that actually
+        differ are uploaded, so a steady frame does no GPU work.
+        """
+        if not self._outline_assignments and peek_shared_outline_lut() is None:
+            # Nothing has ever been outlined on this process, so there is no
+            # table to keep in sync and no reason to allocate one.
+            return
+
+        entries: dict[int, int] = {}
+        has_inward = False
+        has_outward = False
+
+        for visual_id, (slot, placement, kind) in self._outline_assignments.items():
+            scene_id = self._visual_to_scene.get(visual_id)
+            if scene_id is None:
+                continue
+            scene = self._scenes.get(scene_id)
+            if scene is None:
+                continue
+            try:
+                gfx_visual = scene.get_visual(visual_id)
+            except KeyError:
+                continue
+            value = encode_entry(slot, kind, placement)
+            for object_id in self._world_object_ids(gfx_visual):
+                entries[object_id] = value
+            if placement == PLACEMENT_OUTWARD:
+                has_outward = True
+            else:
+                has_inward = True
+
+        get_shared_outline_lut().apply(entries)
+        for canvas in self._canvases.values():
+            canvas._outline_pass.set_placements(
+                has_inward=has_inward, has_outward=has_outward
+            )
+
+    @staticmethod
+    def _world_object_ids(gfx_visual: _GFXVisual) -> set[int]:
+        """Return every pygfx id the pick buffer can carry for *gfx_visual*.
+
+        One cellier visual owns several world objects: the 2D and 3D node
+        pair, ``gfx.Group`` children for multiscale bricks, per-channel
+        objects for multichannel visuals.  All of them get the same entry.
+
+        Instanced objects are the exception: ``mesh.wgsl`` writes
+        ``instance_info.global_id``, not the world object's own id, so the
+        instance ids are collected instead.  Writing the world-object id
+        for an instanced mesh would leave it with no outline at all.
+        """
+        ids: set[int] = set()
+        for mode in ("2d", "3d"):
+            try:
+                node = gfx_visual.get_node(mode)
+            except (AttributeError, KeyError, ValueError):
+                node = None
+            if node is None:
+                continue
+            for obj in node.iter():
+                instance_buffer = getattr(obj, "instance_buffer", None)
+                if instance_buffer is not None:
+                    ids.update(
+                        int(v) for v in instance_buffer.data["global_id"].ravel()
+                    )
+                else:
+                    ids.add(int(obj.id))
+        ids.discard(0)
+        return ids
 
     def add_scene(self, scene_id: UUID, lighting: str = "none") -> SceneManager:
         """Create and register a new scene.
@@ -216,12 +500,18 @@ class RenderManager:
             scene_id=scene_id,
             get_scene_fn=self.get_scene,
             parent=parent,
+            outline_enabled=self._config.outline.enabled,
             **canvas_view_kwargs,
         )
         # Apply temporal config to the canvas's accumulation pass.
         canvas_view._accum_pass.alpha = self._config.temporal.alpha
         if not self._config.temporal.enabled:
             canvas_view._accum_pass.enabled = False
+        # Apply outline config, and wire the per-frame LUT re-sync.
+        canvas_view._outline_pass.apply_config(self._config.outline)
+        canvas_view._outline_sync_fn = self._sync_outline_lut
+        if self._config.outline.enabled:
+            self._warn_if_outline_unavailable()
         # Wire up per-frame tick for visuals (e.g. jitter seed advance).
         canvas_view._tick_visuals_fn = self._make_tick_fn(scene_id)
         self._canvases[canvas_id] = canvas_view

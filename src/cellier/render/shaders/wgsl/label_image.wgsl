@@ -28,12 +28,13 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
     }
 }
 
+{$ include 'cellier.label_outline_key.wgsl' $}
+
 // ── Hash-based random colormap ────────────────────────────────────────────
 fn random_label_color(label_id: i32, salt: u32) -> vec4<f32> {
-    var x = bitcast<u32>(label_id) ^ salt;
-    x = (x ^ (x >> 16u)) * 0x45d9f3bu;
-    x = (x ^ (x >> 16u)) * 0x45d9f3bu;
-    x = x ^ (x >> 16u);
+    // Shared with the outline key, so a key collision is also a hue
+    // collision; see cellier.label_outline_key.wgsl.
+    let x = random_label_hash(label_id, salt);
     let hue  = f32(x & 0xFFFFu) / 65535.0;
     let sat  = 0.9 + 0.1 * f32((x >> 16u) & 0x3Fu) / 63.0;
     let val_ = 0.7 + 0.3 * f32((x >> 22u) & 0xFu)  / 15.0;
@@ -97,6 +98,11 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
 
     var out: FragmentOutput;
     out.color = vec4<f32>(color.rgb, color.a * u_material.opacity);
+    $$ if write_outline_id
+    // Label key for the screen-space outline pass.  Zero-initialised
+    // to 0 (= not outlined) on canvases without the outline_id target.
+    out.outline_id = label_outline_key(label_id);
+    $$ endif
     $$ if write_pick
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +

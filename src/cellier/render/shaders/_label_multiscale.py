@@ -25,10 +25,15 @@ from pygfx.renderers.wgpu import (
 from pygfx.renderers.wgpu.shaders.imageshader import ImageShader
 from pygfx.renderers.wgpu.shaders.volumeshader import BaseVolumeShader
 
+from cellier.render.shaders._label_colormap import (
+    build_outline_selection_texture,
+)
+
 if TYPE_CHECKING:
     from pygfx.resources import Buffer
 
 _WGSL_DIR = Path(__file__).parent / "wgsl"
+
 _LABEL_VOLUME_BRICK_WGSL = (_WGSL_DIR / "label_volume_brick.wgsl").read_text()
 _LABEL_BLOCK_WGSL = (_WGSL_DIR / "label_block.wgsl").read_text()
 
@@ -91,6 +96,7 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
         salt: int = 0,
         render_mode: str = "iso_categorical",
         n_entries: int = 0,
+        outline_selection_texture: gfx.Texture | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -107,6 +113,15 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
         self.salt = salt
         self.render_mode = render_mode
         self.n_entries = n_entries
+        # Sorted (label, slot) pairs the outline key binary-searches.  Always
+        # present so ``has_outline_selection`` never flips: the texture is
+        # bound at shader-build time, so swapping it in later would force a
+        # pipeline rebuild.  ``n_outline_entries`` bounds the search instead.
+        self.outline_selection_texture = (
+            outline_selection_texture
+            if outline_selection_texture is not None
+            else build_outline_selection_texture()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +139,12 @@ class LabelVolumeBrickShader(BaseVolumeShader):
         super().__init__(wobject)
         m = wobject.material
         self["colormap_mode"] = m.colormap_mode
+        # Defaults for the outline_id target.  ``write_outline_id`` is
+        # overridden by OutlineBlender.get_shader_kwargs when the target
+        # exists; without it the write compiles away, so the same shader
+        # stays valid on a canvas using the stock blender.
+        self["write_outline_id"] = False
+        self["has_outline_selection"] = m.outline_selection_texture is not None
         self["render_mode"] = m.render_mode
 
     def get_bindings(self, wobject, shared, scene):
@@ -212,6 +233,17 @@ class LabelVolumeBrickShader(BaseVolumeShader):
                 )
             )
 
+        # Outline selection lookup (omitted when nothing is selected, to
+        # avoid a binding mismatch -- same pattern as the direct-mode LUT).
+        if material.outline_selection_texture is not None:
+            bindings.append(
+                Binding(
+                    "t_outline_selection",
+                    "texture/auto",
+                    GfxTextureView(material.outline_selection_texture),
+                    "FRAGMENT",
+                )
+            )
         bindings = dict(enumerate(bindings))
         self.define_bindings(0, bindings)
         return {0: bindings}
@@ -277,6 +309,7 @@ class LabelBlockMaterial(gfx.ImageBasicMaterial):
         colormap_mode: str = "random",
         background_label: int = 0,
         n_entries: int = 0,
+        outline_selection_texture: gfx.Texture | None = None,
         **kwargs,
     ) -> None:
         super().__init__(interpolation="nearest", **kwargs)
@@ -292,6 +325,15 @@ class LabelBlockMaterial(gfx.ImageBasicMaterial):
         self.colormap_mode = colormap_mode
         self.background_label = background_label
         self.n_entries = n_entries
+        # Sorted (label, slot) pairs the outline key binary-searches.  Always
+        # present so ``has_outline_selection`` never flips: the texture is
+        # bound at shader-build time, so swapping it in later would force a
+        # pipeline rebuild.  ``n_outline_entries`` bounds the search instead.
+        self.outline_selection_texture = (
+            outline_selection_texture
+            if outline_selection_texture is not None
+            else build_outline_selection_texture()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +351,12 @@ class LabelBlockShader(ImageShader):
         super().__init__(wobject)
         m = wobject.material
         self["colormap_mode"] = m.colormap_mode
+        # Defaults for the outline_id target.  ``write_outline_id`` is
+        # overridden by OutlineBlender.get_shader_kwargs when the target
+        # exists; without it the write compiles away, so the same shader
+        # stays valid on a canvas using the stock blender.
+        self["write_outline_id"] = False
+        self["has_outline_selection"] = m.outline_selection_texture is not None
         self["use_colormap"] = False
 
     def get_bindings(self, wobject, shared, scene):
@@ -413,6 +461,17 @@ class LabelBlockShader(ImageShader):
             Binding("t_paint_lut", "texture/auto", paint_lut_view, "FRAGMENT")
         )
 
+        # Outline selection lookup (omitted when nothing is selected, to
+        # avoid a binding mismatch -- same pattern as the direct-mode LUT).
+        if material.outline_selection_texture is not None:
+            bindings.append(
+                Binding(
+                    "t_outline_selection",
+                    "texture/auto",
+                    GfxTextureView(material.outline_selection_texture),
+                    "FRAGMENT",
+                )
+            )
         bindings = dict(enumerate(bindings))
         self.define_bindings(0, bindings)
         return {0: bindings}

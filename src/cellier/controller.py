@@ -45,6 +45,12 @@ from cellier.events._events import (
     _CanvasRawPointerEvent,
 )
 from cellier.logging import _CAMERA_LOGGER, _SOURCE_ID_LOGGER
+from cellier.render._config import RenderManagerConfig
+from cellier.render._outline_lut import (
+    KIND_LABEL,
+    KIND_WHOLE_OBJECT,
+    PLACEMENT_OUTWARD,
+)
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render.render_manager import RenderManager
 from cellier.render.visuals._canvas_overlay import GFXCenteredAxes2D
@@ -2768,6 +2774,53 @@ class CellierController:
             self._settle_tasks.clear()
 
     @property
+    def render_config(self) -> RenderManagerConfig:
+        """Live rendering configuration.
+
+        Mutating a field here changes the model but not the GPU state; for
+        the outline pass, follow a mutation with
+        :meth:`apply_outline_config`.  The dedicated properties
+        (``outline_enabled`` and friends) do both in one step.
+        """
+        return self._render_manager.config
+
+    @property
+    def outline_enabled(self) -> bool:
+        """Whether the screen-space outline pass is active."""
+        return self._render_manager.outline_enabled
+
+    @outline_enabled.setter
+    def outline_enabled(self, value: bool) -> None:
+        self._render_manager.outline_enabled = value
+
+    @property
+    def outline_boundaries_enabled(self) -> bool:
+        """Whether the boundaries layer (every outlined region) draws."""
+        return self._render_manager.outline_boundaries_enabled
+
+    @outline_boundaries_enabled.setter
+    def outline_boundaries_enabled(self, value: bool) -> None:
+        self._render_manager.outline_boundaries_enabled = value
+
+    @property
+    def outline_selection_enabled(self) -> bool:
+        """Whether the selection layer (regions with a palette slot) draws."""
+        return self._render_manager.outline_selection_enabled
+
+    @outline_selection_enabled.setter
+    def outline_selection_enabled(self, value: bool) -> None:
+        self._render_manager.outline_selection_enabled = value
+
+    def apply_outline_config(self) -> None:
+        """Push ``render_config.outline`` onto every canvas's outline pass.
+
+        Call this after mutating thicknesses or colours in place.  Changing
+        a thickness recompiles the outline shader; enables, colours and the
+        palette do not.
+        """
+        self._render_manager.apply_outline_config()
+
+    @property
     def camera_settle_threshold_s(self) -> float:
         """Debounce delay before reslice after camera movement."""
         return self._render_manager.config.camera.settle_threshold_s
@@ -3803,6 +3856,136 @@ class CellierController:
                 ch.visible = visible
         else:
             self.update_appearance_field(visual_id, "visible", visible)
+
+    def set_visual_outline(
+        self,
+        visual_id: UUID,
+        slot: int = 1,
+        placement: str | None = None,
+    ) -> None:
+        """Outline a visual with a screen-space contour.
+
+        Requires ``render_config.outline.enabled`` (or
+        ``controller.render_manager.outline_enabled = True``); the outline
+        pass is off by default.
+
+        Parameters
+        ----------
+        visual_id :
+            Target visual.
+        slot :
+            ``0`` removes the outline.  ``1..15`` selects palette entry
+            ``slot - 1`` from ``OutlineConfig.palette`` for the selection
+            layer; any nonzero slot also makes the visual visible to the
+            boundaries layer.
+        placement :
+            ``"inward"`` puts the band inside the region's own footprint,
+            so the region never appears to grow but one thinner than twice
+            the thickness is consumed entirely.  ``"outward"`` puts it
+            outside, reading as a halo and leaving the region intact.
+            Defaults by visual type: ``"outward"`` for lines and points,
+            whose screen-space defaults (2 px thickness, 5 px marker size)
+            are too thin to survive an inward band at any zoom level;
+            ``"inward"`` for everything else.
+
+        Raises
+        ------
+        ValueError
+            If *slot* or *placement* is out of range.
+
+        Notes
+        -----
+        A nonzero *slot* sets ``pick_write = True`` on the visual, since
+        outlines are derived from the pick buffer.  **This also enables
+        mouse picking for that visual**, which is a side effect worth
+        knowing about if you had deliberately turned picking off.
+
+        Labels visuals are outlined *per label* rather than as one
+        silhouette, provided the canvas was built with outlines enabled.
+        **Their selection colour comes from the label, not from** *slot*:
+        a nonzero *slot* makes the visual eligible for the boundaries
+        layer, and :meth:`set_label_selection` is what puts a palette
+        colour on individual labels.  Without a selection a labels visual
+        shows boundaries only.
+        """
+        slot = int(slot)
+        visual = self._get_visual_model(visual_id)
+        if placement is None:
+            placement = (
+                "outward"
+                if isinstance(visual, (LinesVisual, PointsVisual))
+                else "inward"
+            )
+        if slot >= 1 and not visual.pick_write:
+            # Set it on the model, not the material: the PickWriteChangedEvent
+            # wiring propagates it to the pygfx material for us.
+            visual.pick_write = True
+        kind = (
+            KIND_LABEL
+            if isinstance(visual, (LabelMemoryVisual, MultiscaleLabelVisual))
+            else KIND_WHOLE_OBJECT
+        )
+        self._render_manager.set_visual_outline(
+            visual_id, slot=slot, placement=placement, kind=kind
+        )
+        self._request_draw_for_visual(visual_id)
+
+    def get_visual_outline(self, visual_id: UUID) -> tuple[int, str] | None:
+        """Return ``(slot, placement)`` for *visual_id*, or ``None``.
+
+        Parameters
+        ----------
+        visual_id :
+            Target visual.
+
+        Returns
+        -------
+        tuple[int, str] or None
+            ``None`` when the visual is not outlined.
+        """
+        entry = self._render_manager.get_visual_outline(visual_id)
+        if entry is None:
+            return None
+        slot, placement, _kind = entry
+        return slot, "outward" if placement == PLACEMENT_OUTWARD else "inward"
+
+    def set_label_selection(self, visual_id: UUID, selection: dict[int, int]) -> None:
+        """Choose which label values the selection layer outlines.
+
+        Parameters
+        ----------
+        visual_id :
+            A labels visual, already given an outline with
+            :meth:`set_visual_outline`.
+        selection :
+            ``{label value: palette slot}``.  Slots are clamped into
+            ``1..15`` and index ``OutlineConfig.palette`` as ``slot - 1``.
+            An empty dict clears the selection, leaving the boundaries layer
+            to draw every label boundary.
+
+        Notes
+        -----
+        Selection is **exact**: the label key is range-partitioned, with
+        ``1..15`` reserved for selected labels and everything above for
+        unselected ones, so an unselected label can never be mistaken for a
+        selected one.
+
+        Requires a canvas built with outlines enabled -- the per-label key
+        lives in a render target that is only allocated then.  Without it
+        the visual still gets a whole-object silhouette.
+        """
+        self._render_manager.set_label_selection(visual_id, selection)
+        self._request_draw_for_visual(visual_id)
+
+    def _request_draw_for_visual(self, visual_id: UUID) -> None:
+        """Ask every canvas showing *visual_id*'s scene to redraw."""
+        scene_id = self._visual_to_scene.get(visual_id)
+        if scene_id is None:
+            return
+        for canvas_id in self.get_canvas_ids(scene_id):
+            canvas_view = self._render_manager._canvases.get(canvas_id)
+            if canvas_view is not None:
+                canvas_view.request_draw()
 
     def on_scene_added(
         self,

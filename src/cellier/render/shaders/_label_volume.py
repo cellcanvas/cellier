@@ -14,7 +14,12 @@ from pygfx.renderers.wgpu import (
 )
 from pygfx.renderers.wgpu.shaders.volumeshader import BaseVolumeShader
 
+from cellier.render.shaders._label_colormap import (
+    build_outline_selection_texture,
+)
+
 _WGSL_DIR = Path(__file__).parent / "wgsl"
+
 _LABEL_VOLUME_WGSL = (_WGSL_DIR / "label_volume.wgsl").read_text()
 
 _VERTEX_AND_FRAGMENT = wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT
@@ -53,6 +58,7 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
         label_colors_texture=None,
         n_entries: int = 0,
         label_params_buffer=None,
+        outline_selection_texture=None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -64,6 +70,15 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
         self.label_colors_texture = label_colors_texture
         self.n_entries = n_entries
         self.label_params_buffer = label_params_buffer
+        # Sorted (label, slot) pairs the outline key binary-searches.  Always
+        # present so ``has_outline_selection`` never flips: the texture is
+        # bound at shader-build time, so swapping it in later would force a
+        # pipeline rebuild.  ``n_outline_entries`` bounds the search instead.
+        self.outline_selection_texture = (
+            outline_selection_texture
+            if outline_selection_texture is not None
+            else build_outline_selection_texture()
+        )
 
 
 @register_wgpu_render_function(Volume, LabelVolumeMaterial)
@@ -76,6 +91,12 @@ class LabelVolumeShader(BaseVolumeShader):
         super().__init__(wobject)
         material = wobject.material
         self["colormap_mode"] = material.colormap_mode
+        # Defaults for the outline_id target.  ``write_outline_id`` is
+        # overridden by OutlineBlender.get_shader_kwargs when the target
+        # exists; without it the write compiles away, so the same shader
+        # stays valid on a canvas using the stock blender.
+        self["write_outline_id"] = False
+        self["has_outline_selection"] = material.outline_selection_texture is not None
         self["render_mode"] = material.render_mode
 
     def get_bindings(self, wobject, shared, scene):
@@ -122,6 +143,17 @@ class LabelVolumeShader(BaseVolumeShader):
                 )
             )
 
+        # Outline selection lookup (omitted when nothing is selected, to
+        # avoid a binding mismatch -- same pattern as the direct-mode LUT).
+        if material.outline_selection_texture is not None:
+            bindings.append(
+                Binding(
+                    "t_outline_selection",
+                    "texture/auto",
+                    GfxTextureView(material.outline_selection_texture),
+                    "FRAGMENT",
+                )
+            )
         bindings = dict(enumerate(bindings))
         self.define_bindings(0, bindings)
         return {0: bindings}

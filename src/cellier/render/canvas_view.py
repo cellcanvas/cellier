@@ -16,6 +16,9 @@ from cellier.events._events import (
     FrameRenderedEvent,
 )
 from cellier.logging import _CAMERA_LOGGER
+from cellier.render._outline import OutlinePass
+from cellier.render._outline_blender import install_outline_blender
+from cellier.render._pick_buffer import enable_pick_texture_binding
 from cellier.render._requests import DimsState, ReslicingRequest
 from cellier.render._temporal_accumulation import TemporalAccumulationPass
 
@@ -59,6 +62,11 @@ class CanvasView:
         Vertical field of view in degrees (3D perspective only).
     depth_range : tuple[float, float]
         Near and far clip distances ``(near, far)``.
+    outline_enabled : bool
+        When ``True``, install a blender carrying the ``outline_id`` render
+        target so label outlines have a per-pixel label key.  Must be
+        decided here: the target list feeds ``Blender.hash``, which keys
+        the pipeline cache.  Costs 4 bytes per pixel.
     """
 
     def __init__(
@@ -73,6 +81,7 @@ class CanvasView:
         event_bus: EventBus | None = None,
         gui: str = "qt",
         size: tuple[int, int] | None = None,
+        outline_enabled: bool = False,
     ) -> None:
         self._canvas_id = canvas_id
         self._scene_id = scene_id
@@ -93,6 +102,30 @@ class CanvasView:
 
         self._canvas = self._create_canvas(parent, gui=gui, size=size)
         self._renderer = gfx.WgpuRenderer(self._canvas)
+
+        # The pick texture ships without TEXTURE_BINDING, and its usage can
+        # only be raised before the first draw -- so the grant happens here
+        # unconditionally, even though outlines default to off.  Deferring it
+        # until outlines are switched on would be too late.  A False result
+        # leaves the outline pass installed but permanently a passthrough;
+        # RenderManager warns if outlines are then requested.
+        # The label-key target is construction-time only, and only for
+        # canvases that opted in.  Its presence feeds ``Blender.hash``,
+        # which keys the pipeline cache, so adding or removing it later
+        # would invalidate every pipeline in the process.  Canvases that
+        # never enable outlines keep the stock blender and pay nothing.
+        #
+        # This runs *before* the pick grant: installing replaces the whole
+        # blender, so granting first would throw the grant away.
+        # ``install_outline_blender`` also copies usage bits across, so the
+        # order is belt-and-braces rather than load-bearing.
+        self._outline_id_available: bool = False
+        if outline_enabled:
+            self._outline_id_available = install_outline_blender(self._renderer)
+
+        self._outline_available: bool = enable_pick_texture_binding(self._renderer)
+        self._outline_sync_fn: Callable[[], None] | None = None
+
         self._wire_resize_event(gui)
 
         # Both camera/controller pairs are created upfront so toggling only
@@ -122,7 +155,16 @@ class CanvasView:
         self._accum_pass = TemporalAccumulationPass(alpha=0.2)
         if dim == "2d":
             self._accum_pass.enabled = False
+
+        # Outlines composite *before* accumulation: the volume raymarcher
+        # jitters per frame, so silhouette pixels shift sub-pixel between
+        # frames and the EMA turns that into a free antialiased edge rather
+        # than a flicker.  DDAA stays last so it antialiases the outline.
+        # The pass starts disabled and pygfx's flush() skips disabled passes
+        # entirely, so this costs nothing until outlines are switched on.
+        self._outline_pass = OutlinePass(self._renderer)
         self._renderer.effect_passes = (
+            self._outline_pass,
             self._accum_pass,
             *self._renderer.effect_passes,
         )
@@ -630,6 +672,13 @@ class CanvasView:
 
         if self._tick_visuals_fn is not None:
             self._tick_visuals_fn()
+
+        # Re-sync the outline LUT from the authoritative per-visual map.
+        # World objects are rebuilt on 2D/3D switches, multiscale brick
+        # updates and channel changes, and every rebuild gives out a fresh
+        # global_id -- so a write-once LUT would silently lose its entries.
+        if self._outline_sync_fn is not None:
+            self._outline_sync_fn()
 
         scene = self._get_scene_fn(self._scene_id)
 

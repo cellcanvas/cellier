@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 DEFAULT_CAMERA_SETTLE_THRESHOLD_S: float = 0.3
 
@@ -48,6 +48,128 @@ class TemporalAccumulationConfig(BaseModel):
     alpha: float = Field(default=0.1, gt=0.0, le=1.0)
 
 
+RGBA = tuple[float, float, float, float]
+
+#: Highest selection slot the LUT's 4-bit field can carry.
+MAX_OUTLINE_SLOT: int = 15
+
+DEFAULT_OUTLINE_PALETTE: list[RGBA] = [
+    (1.0, 0.0, 1.0, 1.0),
+    (0.0, 1.0, 1.0, 1.0),
+    (1.0, 1.0, 0.0, 1.0),
+    (0.0, 1.0, 0.0, 1.0),
+]
+
+
+class OutlineLayerConfig(BaseModel):
+    """Configuration for one screen-space outline layer.
+
+    Two layers run in the same fragment invocation and can both be active:
+    ``boundaries`` draws every outlined region, ``selection`` draws only
+    regions with a nonzero LUT slot.  Precedence is selection > contrast
+    band > boundaries > fill.
+
+    Parameters
+    ----------
+    enabled : bool
+        Whether this layer contributes.  A uniform; toggling it does not
+        recompile the shader.
+    inward_thickness : int
+        Band width for inward-placed visuals, in **internal pixels**.
+        Effect passes run before the output pass's SSAA downsample, so at
+        ``pixel_ratio > 1`` the on-screen band is thinner than this number
+        by that factor.  0 disables the inward branch for this layer.
+        A shader template var: changing it recompiles.
+    outward_thickness : int
+        Band width for outward-placed visuals, same units and the same
+        recompile behaviour.
+    color : tuple[float, float, float, float]
+        RGBA used by the **boundaries** layer.  The selection layer takes
+        its colour from the palette slot carried in the LUT, so this field
+        is unused there.  Alpha below 1 blends over the fill instead of
+        replacing it.  Values are in the renderer's linear working space,
+        the same convention as pygfx material colours.
+
+    Notes
+    -----
+    Thickness is a property of the layer and the placement group, not of
+    the individual visual.  Outward placement makes per-visual thickness
+    impossible: finding an outward-outlined neighbour means sampling at
+    *its* thickness, which is not known until after the tap.
+    """
+
+    enabled: bool = True
+    inward_thickness: int = Field(default=1, ge=0)
+    outward_thickness: int = Field(default=1, ge=0)
+    color: RGBA = (1.0, 1.0, 1.0, 0.4)
+
+
+class OutlineConfig(BaseModel):
+    """Configuration for the screen-space outline pass.
+
+    Parameters
+    ----------
+    enabled : bool
+        Master switch.  Defaults to ``False``; when off the pass is skipped
+        entirely by ``flush()`` and the frame is pixel-identical to one
+        rendered without the feature.
+    boundaries : OutlineLayerConfig
+        The every-region layer.  Thin and translucent by default.
+    selection : OutlineLayerConfig
+        The selected-region layer.  Thick and opaque by default, coloured
+        from ``palette``.
+    inner_thickness : int
+        Width of the contrast band drawn immediately inside the selection
+        outline, in internal pixels.  0 disables it.  A template var:
+        changing it recompiles.
+    inner_color : tuple[float, float, float, float]
+        Contrast band colour.  Exists so a coloured outline stays legible
+        against an arbitrary colormapped fill.
+    palette : list[tuple[float, float, float, float]]
+        Selection palette.  LUT slot ``v`` uses ``palette[v - 1]``; slot 0
+        means "not selected".  At most ``MAX_OUTLINE_SLOT`` entries, the
+        limit of the LUT's 4-bit slot field.
+
+    Examples
+    --------
+    >>> config = OutlineConfig(
+    ...     enabled=True,
+    ...     boundaries=OutlineLayerConfig(enabled=True, inward_thickness=1),
+    ...     selection=OutlineLayerConfig(inward_thickness=2, outward_thickness=2),
+    ... )
+    >>> restored = OutlineConfig.model_validate_json(config.model_dump_json())
+    >>> restored == config
+    True
+    """
+
+    enabled: bool = False
+    boundaries: OutlineLayerConfig = Field(
+        default_factory=lambda: OutlineLayerConfig(
+            enabled=True,
+            inward_thickness=1,
+            outward_thickness=1,
+            color=(1.0, 1.0, 1.0, 0.4),
+        )
+    )
+    selection: OutlineLayerConfig = Field(
+        default_factory=lambda: OutlineLayerConfig(
+            enabled=True, inward_thickness=2, outward_thickness=2
+        )
+    )
+    inner_thickness: int = Field(default=2, ge=0)
+    inner_color: RGBA = (0.0, 0.0, 0.0, 1.0)
+    palette: list[RGBA] = Field(default_factory=lambda: list(DEFAULT_OUTLINE_PALETTE))
+
+    @field_validator("palette")
+    @classmethod
+    def _check_palette_length(cls, value: list[RGBA]) -> list[RGBA]:
+        if len(value) > MAX_OUTLINE_SLOT:
+            raise ValueError(
+                f"palette holds at most {MAX_OUTLINE_SLOT} entries, got {len(value)}"
+            )
+        return value
+
+
 class CameraConfig(BaseModel):
     """Configuration for camera-driven automatic reslicing.
 
@@ -81,6 +203,8 @@ class RenderManagerConfig(BaseModel):
         Temporal accumulation pass settings.
     camera : CameraConfig
         Camera-driven reslicing settings.
+    outline : OutlineConfig
+        Screen-space outline pass settings.  Disabled by default.
 
     Examples
     --------
@@ -100,3 +224,4 @@ class RenderManagerConfig(BaseModel):
         default_factory=TemporalAccumulationConfig
     )
     camera: CameraConfig = Field(default_factory=CameraConfig)
+    outline: OutlineConfig = Field(default_factory=OutlineConfig)

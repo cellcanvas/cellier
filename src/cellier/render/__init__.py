@@ -2,10 +2,14 @@
 
 from cellier.render._config import (
     CameraConfig,
+    OutlineConfig,
+    OutlineLayerConfig,
     RenderManagerConfig,
     SlicingConfig,
     TemporalAccumulationConfig,
 )
+from cellier.render._outline import OutlinePass
+from cellier.render._outline_lut import OutlineLut
 from cellier.render._requests import DimsState, ReslicingRequest
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render._temporal_accumulation import TemporalAccumulationPass
@@ -18,6 +22,10 @@ __all__ = [
     "CameraConfig",
     "CanvasView",
     "DimsState",
+    "OutlineConfig",
+    "OutlineLayerConfig",
+    "OutlineLut",
+    "OutlinePass",
     "RenderManager",
     "RenderManagerConfig",
     "ReslicingRequest",
