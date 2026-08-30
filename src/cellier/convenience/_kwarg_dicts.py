@@ -353,6 +353,80 @@ class PointsMarkerAppearanceKwargs(BaseAppearanceKwargs, total=False):
     color_mode: Literal["uniform", "vertex"]
 
 
+class GraphAppearanceKwargs(BaseAppearanceKwargs, total=False):
+    """Dict form of ``GraphAppearance``.
+
+    Accepted by ``Viewer.add_graph`` in place of a ``GraphAppearance``
+    instance.  Flat with ``node_`` / ``edge_`` prefixes, mirroring the
+    model: psygnal does not propagate nested model changes, so the
+    appearance is not composed from the points and lines models.
+
+    Keys
+    ----
+    node_color : tuple[float, float, float, float]
+        Uniform RGBA node color. Default ``(1.0, 1.0, 1.0, 1.0)``.
+    node_size : float
+        Uniform node size in ``node_size_space`` units. Default ``5.0``.
+    node_size_space : "screen" or "world"
+        Default ``"screen"``.
+    node_color_mode : "uniform" or "vertex"
+        Where node RGB comes from. A declaration, never inferred from the
+        data. Default ``"uniform"``.
+    node_visible : bool
+        Show the node sub-visual. Nests under ``visible``. Default ``True``.
+    node_pick_write : bool
+        Default ``True``.
+    node_depth_compare : str
+        Default ``"<="``, so a node coplanar with an edge reads on top.
+        Deliberately differs from every other appearance model's ``"<"``.
+    edge_color : tuple[float, float, float, float]
+        Uniform RGBA edge color. Default ``(0.7, 0.7, 0.7, 1.0)`` -- dimmer
+        than the node default so nodes read on top.
+    edge_thickness : float
+        Default ``2.0``.
+    edge_thickness_space : "screen" or "world"
+        Default ``"screen"``.
+    edge_color_mode : "uniform" or "vertex"
+        Default ``"uniform"``.
+    edge_visible : bool
+        Default ``True``.
+    edge_pick_write : bool
+        Default ``True``.
+    edge_depth_compare : str
+        Default ``"<"``.
+    visible : bool
+        Default ``True``.
+    opacity : float
+        Master opacity in [0, 1], applied to both sub-visuals. Default ``1.0``.
+    render_order : int
+        Default ``0``.
+    depth_test : bool
+        Default ``True``.
+    depth_write : bool
+        Default ``True``.
+    depth_compare : str
+        Default ``"<"``. Overridden per child by ``node_depth_compare`` and
+        ``edge_depth_compare``.
+    transparency_mode : str
+        Default ``"blend"``.
+    """
+
+    node_color: tuple[float, float, float, float]
+    node_size: float
+    node_size_space: Literal["screen", "world"]
+    node_color_mode: Literal["uniform", "vertex"]
+    node_visible: bool
+    node_pick_write: bool
+    node_depth_compare: Literal["<", "<=", "==", "!=", ">=", ">"]
+    edge_color: tuple[float, float, float, float]
+    edge_thickness: float
+    edge_thickness_space: Literal["screen", "world"]
+    edge_color_mode: Literal["uniform", "vertex"]
+    edge_visible: bool
+    edge_pick_write: bool
+    edge_depth_compare: Literal["<", "<=", "==", "!=", ">=", ">"]
+
+
 class LinesMemoryAppearanceKwargs(BaseAppearanceKwargs, total=False):
     """Dict form of ``LinesMemoryAppearance``.
 
@@ -594,6 +668,7 @@ __all__ = [
     "BaseLabelsAppearanceKwargs",
     "ChannelAppearanceKwargs",
     "ChannelControlsKwargs",
+    "GraphAppearanceKwargs",
     "InMemoryImageAppearanceKwargs",
     "InMemoryImageControlsKwargs",
     "InMemoryLabelsAppearanceKwargs",

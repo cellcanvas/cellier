@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from cellier.convenience._kwarg_dicts import (
         ChannelAppearanceKwargs,
         ChannelControlsKwargs,
+        GraphAppearanceKwargs,
         InMemoryImageAppearanceKwargs,
         InMemoryImageControlsKwargs,
         InMemoryLabelsAppearanceKwargs,
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
         MultiscaleImageControlsConfig,
     )
     from cellier.data._base_data_store import BaseDataStore
+    from cellier.data.graph._graph_memory_store import GraphMemoryStore
     from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.data.label._label_memory_store import LabelMemoryStore
     from cellier.data.lines._lines_memory_store import LinesMemoryStore
@@ -45,6 +47,11 @@ if TYPE_CHECKING:
     from cellier.scene.scene import Scene
     from cellier.transform import AffineTransform
     from cellier.visuals._channel_appearance import ChannelAppearance
+    from cellier.visuals._graph_memory import (
+        GraphAppearance,
+        GraphVisual,
+        TrailConfig,
+    )
     from cellier.visuals._image import (
         MultichannelMultiscaleImageVisual,
         MultiscaleImageAppearance,
@@ -553,6 +560,58 @@ class Viewer:
             resolved_appearance,
             name,
             transform,
+        )
+
+    def add_graph(
+        self,
+        data: GraphMemoryStore | UUID,
+        appearance: GraphAppearance | GraphAppearanceKwargs | None = None,
+        name: str = "graph",
+        transform: AffineTransform | None = None,
+        trail: dict[int, TrailConfig] | None = None,
+    ) -> GraphVisual:
+        """Add a spatial-graph visual.
+
+        Parameters
+        ----------
+        data : GraphMemoryStore or UUID
+            Backing data store or the UUID of an already-registered store.
+        appearance : GraphAppearance, dict, or None
+            Appearance parameters. Accepts a ``GraphAppearance`` instance or
+            a plain dict with the same keys (see ``GraphAppearanceKwargs``
+            for the full set of accepted keys and their types). Defaults to
+            ``GraphAppearance()`` when ``None``.
+        name : str
+            Human-readable label. Default ``"graph"``.
+        trail : dict[int, TrailConfig] or None
+            Axis index -> window configuration. Extends the slab on that
+            axis and optionally fades elements by distance from the current
+            slice index. An out-of-range axis raises ``ValueError``.
+        transform : AffineTransform or None
+            Data-to-world transform. When ``None`` the store's own transform
+            is used if it has one (a geff file's per-axis scale and offset),
+            and identity otherwise.
+
+        Returns
+        -------
+        GraphVisual
+        """
+        from cellier.visuals._graph_memory import (
+            GraphAppearance as _GraphAppearance,
+        )
+
+        resolved_appearance = (
+            _GraphAppearance.model_validate(appearance)
+            if isinstance(appearance, dict)
+            else appearance
+        )
+        return self._controller.add_graph(
+            self._resolve_data_store(data),
+            self._scene.id,
+            resolved_appearance,
+            name,
+            transform,
+            trail,
         )
 
     def add_lines(

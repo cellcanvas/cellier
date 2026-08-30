@@ -5,6 +5,7 @@ from typing import Union
 from pydantic import Field
 from typing_extensions import Annotated
 
+from cellier.data.graph._graph_memory_store import GraphMemoryStore
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.image._ome_zarr_image_store import OMEZarrImageDataStore
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
@@ -22,6 +23,7 @@ DataStoreType = Annotated[
         PointsMemoryStore,
         LinesMemoryStore,
         MeshMemoryStore,
+        GraphMemoryStore,
     ],
     Field(discriminator="store_type"),
 ]

@@ -5,6 +5,7 @@ from typing import Union
 from pydantic import Field
 from typing_extensions import Annotated
 
+from cellier.visuals._graph_memory import GraphVisual
 from cellier.visuals._image import (
     MultichannelMultiscaleImageVisual,
     MultiscaleImageVisual,
@@ -27,6 +28,7 @@ VisualType = Annotated[
         PointsVisual,
         LinesVisual,
         MeshVisual,
+        GraphVisual,
     ],
     Field(discriminator="visual_type"),
 ]

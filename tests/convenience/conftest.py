@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 import tensorstore as ts
 
+from cellier.data.graph._graph_memory_store import GraphMemoryStore
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
 from cellier.data.label._label_memory_store import LabelMemoryStore
@@ -53,6 +54,14 @@ def points_store() -> PointsMemoryStore:
     """Four 3-D points."""
     positions = np.array([[0, 0, 0], [1, 1, 1], [2, 2, 2], [3, 3, 3]], dtype=np.float32)
     return PointsMemoryStore(positions=positions)
+
+
+@pytest.fixture
+def graph_store() -> GraphMemoryStore:
+    """Four 3-D nodes in a chain."""
+    positions = np.array([[0, 0, 0], [1, 1, 1], [2, 2, 2], [3, 3, 3]], dtype=np.float32)
+    edges = np.array([[0, 1], [1, 2], [2, 3]], dtype=np.int32)
+    return GraphMemoryStore.from_arrays(positions, edges, name="graph")
 
 
 @pytest.fixture

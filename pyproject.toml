@@ -63,11 +63,17 @@ pyqt = ["PyQt6"]
 # notebook host applications (jupyter, marimo) are not declared here -- the user
 # installs whichever host they run in.
 anywidget = ["anywidget", "simplejpeg", "sidecar"]
+# spatial graph support: geff file reading and the "roi" slice strategy.
+# Both are lazily imported; the default "mask" slice path needs neither.
+graph = ["geff", "spatial-graph"]
 test = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
-    "pytest-qt"
+    "pytest-qt",
+    # so CI exercises the geff loader and the "roi" slice strategy; without
+    # it those tests would silently skip and only "mask" would ever run.
+    "cellier[graph]",
 ]
 # add anything else you like to have in your dev environment here
 dev = [
@@ -139,6 +145,7 @@ ignore = [
 "src/cellier/scene/*.py" = ["TCH001", "TCH003"]
 "src/cellier/viewer_model.py" = ["TCH001", "TCH003"]
 "src/cellier/visuals/_base_visual.py" = ["TCH001", "TCH003"]
+"src/cellier/data/graph/*.py" = ["TCH001", "TCH003"]
 # docstring-code-format collapses wrapped examples; E501 fires on indent+content
 "src/cellier/gui/**/*.py" = ["E501"]
 

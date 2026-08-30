@@ -1043,6 +1043,7 @@ class RenderManager:
             MeshPickInfo,
             PointsPickInfo,
         )
+        from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
         from cellier.render.visuals._image import GFXMultiscaleImageVisual
         from cellier.render.visuals._image_memory import GFXImageMemoryVisual
         from cellier.render.visuals._image_memory_multichannel import (
@@ -1083,6 +1084,12 @@ class RenderManager:
             if index is None:
                 return None
             return MeshPickInfo(face_index=gfx_visual.face_index_for_pick(int(index)))
+        if isinstance(gfx_visual, GFXGraphMemoryVisual):
+            # The compound visual discriminates on which child was hit, so
+            # the branch delegates rather than reading vertex_index here.
+            return gfx_visual.decode_pick(
+                hit_object, pick_info, self._data_stores.get(visual_id)
+            )
 
         # ── Image / Labels ─────────────────────────────────────────────────
         # Each visual decodes its own node payload into level-0 data coordinates

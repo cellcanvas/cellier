@@ -8,6 +8,7 @@ import numpy as np
 import pygfx as gfx
 
 from cellier.data.lines._lines_requests import LinesSliceRequest
+from cellier.render.shaders._alpha_modulated import AlphaLineSegmentMaterial
 
 if TYPE_CHECKING:
     from cellier._state import DimsState
@@ -45,9 +46,15 @@ def _pygfx_matrix(transform: AffineTransform) -> np.ndarray:
     return m
 
 
-def _build_material(appearance: LinesMemoryAppearance) -> gfx.LineSegmentMaterial:
-    """Construct a LineSegmentMaterial from a LinesMemoryAppearance."""
-    mat = gfx.LineSegmentMaterial(
+def _build_material(appearance: LinesMemoryAppearance) -> AlphaLineSegmentMaterial:
+    """Construct the line material from a LinesMemoryAppearance.
+
+    ``AlphaLineSegmentMaterial`` rather than ``gfx.LineSegmentMaterial`` so
+    every in-memory visual shares one pipeline shape with the graph visual.
+    It reads an all-ones ``alphas`` buffer here and is otherwise identical;
+    see ``render/shaders/_alpha_modulated.py``.
+    """
+    mat = AlphaLineSegmentMaterial(
         thickness=appearance.thickness,
         thickness_space=appearance.thickness_space,
         color=appearance.color,
@@ -130,10 +137,12 @@ class GFXLinesMemoryVisual:
         # Plumb the model's pick_write flag into the pygfx material so the
         # pick buffer records this visual; pygfx materials default to False.
         self._material.pick_write = visual_model.pick_write
-        self._empty_material = gfx.LineSegmentMaterial(color=(0, 0, 0, 0), opacity=0.0)
+        self._empty_material = AlphaLineSegmentMaterial(color=(0, 0, 0, 0), opacity=0.0)
 
-        # Track color_mode as instance state to detect transitions in _commit.
-        self._current_color_mode: str = appearance.color_mode
+        # The declared color_mode, honoured verbatim.  It is a caller
+        # declaration of where RGB comes from and is never inferred from
+        # the data nor written back at commit time (D20).
+        self._color_mode: str = appearance.color_mode
         self._is_empty: bool = True
 
         # Maps each rendered segment to its edge index in the store's full
@@ -143,7 +152,10 @@ class GFXLinesMemoryVisual:
         # None means identity (no filtering / placeholder).
         self._original_edge_indices: np.ndarray | None = None
 
-        geom = gfx.Geometry(positions=_PLACEHOLDER_POSITIONS.copy())
+        geom = gfx.Geometry(
+            positions=_PLACEHOLDER_POSITIONS.copy(),
+            alphas=np.ones(2, dtype=np.float32),
+        )
         self.node = gfx.Line(geom, self._empty_material)
         self.node.render_order = appearance.render_order
 
@@ -307,7 +319,11 @@ class GFXLinesMemoryVisual:
         Pads 2D positions to 3D with z=0.
         Applies axis reversal for 3D data to match pygfx coordinate order.
         Swaps material between _material and _empty_material as needed.
-        Updates _current_color_mode when the incoming data changes mode.
+
+        ``color_mode`` is written from the *appearance*, never from the
+        data (D20).  A declared ``"vertex"`` with no colours in the store
+        raises here rather than silently falling back to uniform, which is
+        the exact class of behaviour D20 removes.
 
         Coordinate convention (DO NOT reorder positions elsewhere):
         - 3D path: positions[:, [2, 1, 0]] reverses (z, y, x) → (x, y, z)
@@ -330,19 +346,25 @@ class GFXLinesMemoryVisual:
             # positions anywhere else in the pipeline.
             pos3d = np.ascontiguousarray(positions)[:, [2, 1, 0]]
 
-        geom_kwargs: dict = {"positions": pos3d}
-
         colors = lines_data.colors
+        if self._color_mode == "vertex" and colors is None and not lines_data.is_empty:
+            raise ValueError(
+                f"Visual {self.visual_model_id}: appearance declares "
+                "color_mode='vertex' but the lines store carries no "
+                "per-vertex colors. Set color_mode='uniform', or give the "
+                "store colors."
+            )
+
+        # An all-ones alpha buffer: the material multiplies it in, so this
+        # is visually identical to the stock material.
+        geom_kwargs: dict = {
+            "positions": pos3d,
+            "alphas": np.ones(n_verts, dtype=np.float32),
+        }
         if colors is not None:
             geom_kwargs["colors"] = np.ascontiguousarray(colors)
 
         self.node.geometry = gfx.Geometry(**geom_kwargs)
-
-        # Update color_mode on live material if it changed.
-        incoming_color_mode = lines_data.color_mode if colors is not None else "uniform"
-        if incoming_color_mode != self._current_color_mode and not lines_data.is_empty:
-            self._current_color_mode = incoming_color_mode
-            self._material.color_mode = incoming_color_mode
 
         # Select material.
         target = self._empty_material if lines_data.is_empty else self._material
@@ -383,8 +405,8 @@ class GFXLinesMemoryVisual:
     def on_appearance_changed(self, event: AppearanceChangedEvent) -> None:
         """Apply appearance field changes to the live material.
 
-        ``color_mode`` changes also update ``_current_color_mode`` so
-        the next ``_commit`` call does not overwrite them.
+        ``color_mode`` is applied straight to the material; nothing in
+        ``_commit`` overwrites it (D20).
 
         Note: ``thickness_space`` is a constructor-only parameter on
         ``gfx.LineSegmentMaterial``; changes to ``thickness_space``
@@ -396,7 +418,7 @@ class GFXLinesMemoryVisual:
             self._material.color = val
         elif name == "color_mode":
             self._material.color_mode = val
-            self._current_color_mode = val
+            self._color_mode = val
         elif name == "opacity":
             self._material.opacity = val
         elif name == "thickness":

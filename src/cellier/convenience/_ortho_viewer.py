@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from cellier.convenience._kwarg_dicts import (
         ChannelAppearanceKwargs,
         ChannelControlsKwargs,
+        GraphAppearanceKwargs,
         InMemoryImageAppearanceKwargs,
         InMemoryLabelsAppearanceKwargs,
         LinesMemoryAppearanceKwargs,
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
         ChannelControlsConfig,
     )
     from cellier.data._base_data_store import BaseDataStore
+    from cellier.data.graph._graph_memory_store import GraphMemoryStore
     from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.data.label._label_memory_store import LabelMemoryStore
     from cellier.data.lines._lines_memory_store import LinesMemoryStore
@@ -51,6 +53,11 @@ if TYPE_CHECKING:
     from cellier.render._config import RenderManagerConfig
     from cellier.transform import AffineTransform
     from cellier.visuals._channel_appearance import ChannelAppearance
+    from cellier.visuals._graph_memory import (
+        GraphAppearance,
+        GraphVisual,
+        TrailConfig,
+    )
     from cellier.visuals._image import (
         MultichannelMultiscaleImageVisual,
         MultiscaleImageAppearance,
@@ -634,6 +641,51 @@ class OrthoViewer:
         return self._fan_out(
             lambda key, scene: self._controller.add_points(
                 store, scene.id, resolved, f"{name}_{key}", transform
+            )
+        )
+
+    def add_graph(
+        self,
+        data: GraphMemoryStore | UUID,
+        appearance: GraphAppearance | GraphAppearanceKwargs | None = None,
+        name: str = "graph",
+        transform: AffineTransform | None = None,
+        trail: dict[int, TrailConfig] | None = None,
+    ) -> dict[str, GraphVisual]:
+        """Add a spatial-graph visual to every panel from a single data store.
+
+        Parameters
+        ----------
+        data : GraphMemoryStore or UUID
+            Backing data store or the UUID of an already-registered store.
+        appearance : GraphAppearance, dict, or None
+            Appearance parameters (see ``GraphAppearanceKwargs``). Defaults
+            to ``GraphAppearance()`` when ``None``.
+        name : str
+            Base label; each panel's visual is named ``f"{name}_{key}"``.
+        transform : AffineTransform or None
+            Data-to-world transform. Falls back to the store's own transform,
+            then to identity.
+        trail : dict[int, TrailConfig] or None
+            Axis index -> window configuration, applied to every panel.
+
+        Returns
+        -------
+        dict[str, GraphVisual]
+        """
+        from cellier.visuals._graph_memory import (
+            GraphAppearance as _GraphAppearance,
+        )
+
+        store = self._resolve_data_store(data)
+        resolved = (
+            _GraphAppearance.model_validate(appearance)
+            if isinstance(appearance, dict)
+            else appearance
+        )
+        return self._fan_out(
+            lambda key, scene: self._controller.add_graph(
+                store, scene.id, resolved, f"{name}_{key}", transform, trail
             )
         )
 

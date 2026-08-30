@@ -173,6 +173,39 @@ class SceneAddedEvent(NamedTuple):
     scene_id: UUID
 
 
+class TrailChangedEvent(NamedTuple):
+    """Emitted when a graph visual's trail configuration changes.
+
+    Routed from the psygnal bridge in ``CellierController._wire_trail`` --
+    both from a field change on one ``TrailConfig`` and from whole-dict
+    replacement (``visual.trail = {...}``).  Both are needed because psygnal
+    does not propagate nested ``EventedModel`` field changes to the parent's
+    event group, which is the same fact that flattens ``GraphAppearance``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        ID of the event emitter (typically the controller).
+    visual_id : UUID
+        Model-layer ID of the graph visual whose trail changed.
+    trail : dict
+        The visual's complete ``{axis: TrailConfig}`` mapping *after* the
+        change.  The whole dict rather than the delta, because the GFX
+        visual holds a snapshot and rebuilds it wholesale.
+    field_name : str | None
+        Name of the changed ``TrailConfig`` field, or ``None`` when the
+        whole dict was replaced.
+    axis : int | None
+        Axis whose config changed, or ``None`` for whole-dict replacement.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    trail: dict
+    field_name: str | None = None
+    axis: int | None = None
+
+
 class TransformChangedEvent(NamedTuple):
     """Fired when a visual's data-to-world transform is replaced."""
 
@@ -254,8 +287,53 @@ class LabelsPickInfo(NamedTuple):
     data_coordinate: tuple[float, ...]
 
 
+class GraphNodePickInfo(NamedTuple):
+    """Element-level pick result for a node of a graph visual.
+
+    Attributes
+    ----------
+    node_id : Any
+        The store's **original** node id, not the render-buffer row (D14).
+        Typed ``Any`` rather than ``int`` because a geff file may carry
+        uint64 or string ids; this is the one place the graph pick payload
+        is more weakly typed than the points one.
+    node_row : int
+        Row of the node in the store's position array.  Stable under D7's
+        immutability and useful for indexing the store's own arrays.
+    """
+
+    node_id: Any
+    node_row: int
+
+
+class GraphEdgePickInfo(NamedTuple):
+    """Element-level pick result for an edge of a graph visual.
+
+    Attributes
+    ----------
+    edge_index : int
+        Row of the edge in the store's edge array, or ``-1`` when it could
+        not be resolved.  Stable only because D7 makes the store immutable.
+    source_node_id : Any
+        Original node id of the edge's first endpoint.  See
+        ``GraphNodePickInfo.node_id`` on the dtype.
+    target_node_id : Any
+        Original node id of the edge's second endpoint.
+    """
+
+    edge_index: int
+    source_node_id: Any
+    target_node_id: Any
+
+
 VisualPickDetails = (
-    PointsPickInfo | LinesPickInfo | ImagePickInfo | MeshPickInfo | LabelsPickInfo
+    PointsPickInfo
+    | LinesPickInfo
+    | ImagePickInfo
+    | MeshPickInfo
+    | LabelsPickInfo
+    | GraphNodePickInfo
+    | GraphEdgePickInfo
 )
 
 
@@ -455,6 +533,7 @@ CellierEventTypes = (
     | FrameRenderedEvent
     | VisualAddedEvent
     | VisualRemovedEvent
+    | TrailChangedEvent
     | TransformChangedEvent
     | SceneAddedEvent
     | SceneRemovedEvent

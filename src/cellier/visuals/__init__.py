@@ -7,6 +7,11 @@ from cellier.visuals._canvas_overlay import (
     CenteredAxes2DAppearance,
 )
 from cellier.visuals._channel_appearance import ChannelAppearance
+from cellier.visuals._graph_memory import (
+    GraphAppearance,
+    GraphVisual,
+    TrailConfig,
+)
 from cellier.visuals._image import (
     MultichannelMultiscaleImageVisual,
     MultiscaleImageAppearance,
@@ -49,6 +54,8 @@ __all__ = [
     "CenteredAxes2D",
     "CenteredAxes2DAppearance",
     "ChannelAppearance",
+    "GraphAppearance",
+    "GraphVisual",
     "ImageVisual",
     "InMemoryImageAppearance",
     "InMemoryLabelsAppearance",
@@ -59,15 +66,16 @@ __all__ = [
     "MeshFlatAppearance",
     "MeshPhongAppearance",
     "MeshVisual",
+    "MultichannelImageVisual",
+    "MultichannelMultiscaleImageVisual",
     "MultiscaleImageAppearance",
     "MultiscaleImageRenderConfig",
+    "MultiscaleImageVisual",
     "MultiscaleLabelRenderConfig",
     "MultiscaleLabelVisual",
     "MultiscaleLabelsAppearance",
-    "MultichannelImageVisual",
-    "MultichannelMultiscaleImageVisual",
-    "MultiscaleImageVisual",
     "PointsMarkerAppearance",
     "PointsVisual",
+    "TrailConfig",
     "VisualType",
 ]

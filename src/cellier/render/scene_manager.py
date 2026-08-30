@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from cellier.data.image import ChunkRequest
     from cellier.render._requests import ReslicingRequest
+    from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
     from cellier.render.visuals._image import GFXMultiscaleImageVisual
     from cellier.render.visuals._image_memory import GFXImageMemoryVisual
     from cellier.render.visuals._image_memory_multichannel import (
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
         | GFXPointsMemoryVisual
         | GFXLinesMemoryVisual
         | GFXMeshMemoryVisual
+        | GFXGraphMemoryVisual
     )
 
 
@@ -289,7 +291,7 @@ class SceneManager:
         result: dict[UUID, list[ChunkRequest]] = {}
 
         world_width, world_height = request.world_extent
-        viewport_width_px, viewport_height_px = request.screen_size_px
+        viewport_width_px, _viewport_height_px = request.screen_size_px
 
         # Compute viewport AABB from camera position and world extent.
         cx = float(request.camera_pos[0])

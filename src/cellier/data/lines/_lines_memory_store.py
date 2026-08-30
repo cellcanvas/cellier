@@ -103,7 +103,14 @@ class LinesMemoryStore(BaseDataStore):
 
     @property
     def color_mode(self) -> str:
-        """``"vertex"`` when per-vertex colors are present, else ``"uniform"``."""
+        """``"vertex"`` when per-vertex colors are present, else ``"uniform"``.
+
+        **Descriptive only.**  It reports what this store carries; it does
+        not decide what the material does.  Where RGB comes from is declared
+        on the appearance and honoured verbatim (D20) -- the render layer
+        never infers it from the data and never writes it back at commit
+        time.
+        """
         return "vertex" if self.colors is not None else "uniform"
 
     # ------------------------------------------------------------------

@@ -30,6 +30,7 @@ from cellier.events import (
     SceneRemovedEvent,
     SubscriptionHandle,
     SubscriptionSpec,
+    TrailChangedEvent,
     TransformChangedEvent,
     VisualAddedEvent,
     VisualRemovedEvent,
@@ -54,6 +55,7 @@ from cellier.render._visual_lut import (
 )
 from cellier.render.render_manager import RenderManager
 from cellier.render.visuals._canvas_overlay import GFXCenteredAxes2D
+from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
 from cellier.render.visuals._image_memory import GFXImageMemoryVisual
 from cellier.render.visuals._image_memory_multichannel import (
@@ -83,6 +85,11 @@ from cellier.viewer_model import DataManager, ViewerModel
 if TYPE_CHECKING:
     from cellier.visuals._base_visual import BaseVisual
 from cellier.visuals._canvas_overlay import CenteredAxes2D
+from cellier.visuals._graph_memory import (
+    GraphAppearance,
+    GraphVisual,
+    TrailConfig,
+)
 from cellier.visuals._image import (
     MultichannelMultiscaleImageVisual,
     MultiscaleImageAppearance,
@@ -116,6 +123,7 @@ if TYPE_CHECKING:
 
     from cellier._state import CameraState, DimsState
     from cellier.data._base_data_store import BaseDataStore
+    from cellier.data.graph._graph_memory_store import GraphMemoryStore
     from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.data.label._label_memory_store import LabelMemoryStore
     from cellier.data.lines._lines_memory_store import LinesMemoryStore
@@ -555,6 +563,8 @@ class CellierController:
             return self._add_lines_visual(scene_id, visual_model)
         elif isinstance(visual_model, MeshVisual):
             return self._add_mesh_visual(scene_id, visual_model)
+        elif isinstance(visual_model, GraphVisual):
+            return self._add_graph_visual(scene_id, visual_model)
         else:
             raise TypeError(
                 f"Unrecognized visual type {type(visual_model)!r}. "
@@ -765,6 +775,66 @@ class CellierController:
             data_store_id=str(data.id),
             appearance=appearance,
             transform=resolved_transform,
+        )
+        return self.add_visual(scene_id, visual_model, data_store=data)
+
+    def add_graph(
+        self,
+        data: GraphMemoryStore,
+        scene_id: UUID,
+        appearance: GraphAppearance | None = None,
+        name: str = "graph",
+        transform: AffineTransform | None = None,
+        trail: dict[int, TrailConfig] | None = None,
+    ) -> GraphVisual:
+        """Add a spatial-graph visual backed by a GraphMemoryStore.
+
+        Parameters
+        ----------
+        data : GraphMemoryStore
+            The backing data store.
+        scene_id : UUID
+            ID of the target scene.
+        appearance : GraphAppearance or None
+            Appearance model.  Defaults to ``GraphAppearance()`` if None.
+        name : str
+            Human-readable label for the visual.
+        transform : AffineTransform or None
+            Data-to-world transform for this visual.  When ``None``, the
+            store's own transform is used if it has one -- a geff file's
+            per-axis ``scale`` / ``offset`` (D23) -- and identity otherwise.
+            An explicit argument always wins, as it does for every other
+            visual: D23 constrains construction, not composition.
+        trail : dict[int, TrailConfig] or None
+            Axis index -> window configuration.  Keys are validated against
+            the store's ``ndim``; an out-of-range axis raises ``ValueError``
+            (D21).
+
+        Returns
+        -------
+        GraphVisual
+
+        Raises
+        ------
+        ValueError
+            If any ``trail`` key is not a valid axis index for ``data``.
+        """
+        if appearance is None:
+            appearance = GraphAppearance()
+
+        if transform is not None:
+            resolved_transform = transform
+        elif data.transform is not None:
+            resolved_transform = data.transform
+        else:
+            resolved_transform = AffineTransform.identity(ndim=data.ndim)
+
+        visual_model = GraphVisual(
+            name=name,
+            data_store_id=str(data.id),
+            appearance=appearance,
+            transform=resolved_transform,
+            trail=dict(trail or {}),
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -1092,6 +1162,8 @@ class CellierController:
             self._wire_appearance(visual_model)
         if hasattr(visual_model, "channels"):
             self._wire_channels(visual_model)
+        if isinstance(visual_model, GraphVisual):
+            self._wire_trail(visual_model)
         self._wire_aabb(visual_model)
         self._wire_transform(visual_model, scene_id)
         self._wire_pick_write(visual_model)
@@ -1103,6 +1175,7 @@ class CellierController:
             (ChannelAppearanceChangedEvent, "on_channel_appearance_changed"),
             (AABBChangedEvent, "on_aabb_changed"),
             (VisualVisibilityChangedEvent, "on_visibility_changed"),
+            (TrailChangedEvent, "on_trail_changed"),
             (TransformChangedEvent, "on_transform_changed"),
             (PickWriteChangedEvent, "on_pick_write_changed"),
         ):
@@ -1282,6 +1355,138 @@ class CellierController:
             scene_id, visual_model, gfx_visual, data_store, displayed_axes
         )
         return visual_model
+
+    def _add_graph_visual(
+        self,
+        scene_id: UUID,
+        visual_model: GraphVisual,
+    ) -> GraphVisual:
+        """Wire and register a pre-built GraphVisual."""
+        data_store = self._model.data.stores[UUID(visual_model.data_store_id)]
+        self._validate_trail_axes(visual_model.trail, data_store)
+
+        scene = self._model.scenes[scene_id]
+        displayed_axes = scene.dims.selection.displayed_axes
+        render_modes = self._scene_render_modes.get(
+            scene_id, {"3d"} if len(displayed_axes) == 3 else {"2d"}
+        )
+        gfx_visual = GFXGraphMemoryVisual(
+            visual_model=visual_model,
+            render_modes=render_modes,
+            transform=visual_model.transform,
+        )
+        self._register_visual(
+            scene_id, visual_model, gfx_visual, data_store, displayed_axes
+        )
+        return visual_model
+
+    @staticmethod
+    def _validate_trail_axes(trail: dict, data_store: Any) -> None:
+        """Raise if any trail key is out of range for the store (D21).
+
+        This lives in the controller rather than on the visual because the
+        visual holds only ``data_store_id`` while ``ndim`` is on the store.
+        An out-of-range axis is always a bug -- there is no view in which it
+        becomes meaningful -- so it raises rather than warning.  A *valid*
+        axis that merely happens to be displayed is a different situation
+        and warns once per (visual, axis); see
+        ``GFXGraphMemoryVisual._build_request``.
+        """
+        ndim = data_store.ndim
+        for axis in trail:
+            if not isinstance(axis, (int, np.integer)) or not (0 <= axis < ndim):
+                raise ValueError(
+                    f"Trail axis {axis!r} is out of range for a {ndim}-axis "
+                    f"graph; valid axes are 0 to {ndim - 1}."
+                )
+
+    def _wire_trail(self, visual: GraphVisual) -> None:
+        """Subscribe to trail changes on a graph visual.
+
+        Two subscriptions, and both are needed for the same reason
+        ``GraphAppearance`` is flat: psygnal does not propagate nested
+        ``EventedModel`` field changes to the parent's event group.
+
+        1. One handler per ``TrailConfig``, so editing ``before`` on an
+           existing config reaches the render layer.  Modelled on
+           ``_wire_channels``.
+        2. A direct connect on ``visual.events.trail``, so whole-dict
+           replacement (``visual.trail = {...}``) rewires the per-config
+           handlers and reslices.
+
+        Note that an out-of-range axis assigned through route 2 surfaces as
+        psygnal's ``EmitLoopError`` wrapping the ``ValueError``, not as a
+        bare ``ValueError``: the check needs the store's ``ndim``, so it can
+        only run inside the callback, and psygnal wraps whatever a callback
+        raises.  The message and ``__cause__`` are preserved.  The
+        ``add_graph`` path raises the ``ValueError`` directly.
+        """
+        for axis, config in visual.trail.items():
+            self._connect_trail_config(visual, axis, config)
+
+        handler = self._make_trail_dict_handler(visual)
+        visual.events.trail.connect(handler)
+        self._visual_psygnal_handlers.setdefault(visual.id, []).append(
+            (visual.events.trail, handler)
+        )
+
+    def _connect_trail_config(
+        self, visual: GraphVisual, axis: int, config: TrailConfig
+    ) -> None:
+        """Connect one ``TrailConfig``'s field events."""
+        handler = self._make_trail_config_handler(visual, axis)
+        config.events.connect(handler)
+        self._visual_psygnal_handlers.setdefault(visual.id, []).append(
+            (config.events, handler)
+        )
+
+    def _make_trail_config_handler(self, visual: GraphVisual, axis: int) -> Callable:
+        """Return a psygnal catch-all handler for one ``TrailConfig``."""
+
+        def _on_trail_config_psygnal(info: EmissionInfo) -> None:
+            self._emit_trail_changed(visual, field_name=info.signal.name, axis=axis)
+
+        return _on_trail_config_psygnal
+
+    def _make_trail_dict_handler(self, visual: GraphVisual) -> Callable:
+        """Return a handler for whole-dict replacement of ``visual.trail``.
+
+        Revalidates the new keys, rewires the per-config handlers onto the
+        new ``TrailConfig`` objects, and reslices.
+        """
+
+        def _on_trail_replaced(new_trail: dict) -> None:
+            data_store = self._model.data.stores[UUID(visual.data_store_id)]
+            self._validate_trail_axes(new_trail, data_store)
+            for axis, config in new_trail.items():
+                self._connect_trail_config(visual, axis, config)
+            self._emit_trail_changed(visual)
+
+        return _on_trail_replaced
+
+    def _emit_trail_changed(
+        self,
+        visual: GraphVisual,
+        field_name: str | None = None,
+        axis: int | None = None,
+    ) -> None:
+        """Emit a TrailChangedEvent and reslice.
+
+        The trail selects *which data is fetched*, so every change to it
+        must trigger a reslice -- an appearance push alone would leave the
+        old geometry on screen.
+        """
+        self._outgoing_events.emit(
+            TrailChangedEvent(
+                source_id=_source_id_override.get() or self._id,
+                visual_id=visual.id,
+                trail=dict(visual.trail),
+                field_name=field_name,
+                axis=axis,
+            )
+        )
+        if visual.id in self._visual_to_scene:
+            self.reslice_visual(visual.id)
 
     def _add_mesh_visual(
         self,

@@ -236,7 +236,7 @@ def test_on_appearance_changed_updates_material_fields():
 
     v.on_appearance_changed(_appearance_event("color_mode", "vertex"))
     assert v._material.color_mode == "vertex"
-    assert v._current_color_mode == "vertex"
+    assert v._color_mode == "vertex"
 
     v.on_appearance_changed(_appearance_event("opacity", 0.3))
     assert v._material.opacity == pytest.approx(0.3)
@@ -388,10 +388,17 @@ def test_build_slice_request_2d_updates_matrix_on_axis_change():
     assert v._last_displayed_axes == (1, 2)
 
 
-def test_commit_uploads_colors_and_sizes_and_switches_color_mode():
+def test_commit_uploads_colors_and_sizes_without_touching_color_mode():
+    """A store's colours are uploaded; the declared color_mode is untouched.
+
+    Inverted at the D20 migration.  This test previously asserted the
+    opposite -- that incoming vertex-coloured data overrode a declared
+    ``"uniform"`` on the live material.  ``color_mode`` is now a caller
+    declaration of where RGB comes from, never inferred from the data.
+    """
     from cellier.data.points._points_requests import PointsData
 
-    v = _visual(_store())
+    v = _visual(_store(), appearance=PointsMarkerAppearance(color_mode="vertex"))
     data = PointsData(
         request_id=uuid4(),
         positions=np.array([[0, 1, 2], [3, 4, 5]], dtype=np.float32),
@@ -403,9 +410,62 @@ def test_commit_uploads_colors_and_sizes_and_switches_color_mode():
     v.on_data_ready([(None, data)])
     assert "colors" in v.node.geometry.__dict__ or v.node.geometry.colors is not None
     assert v.node.geometry.sizes is not None
-    # Incoming vertex mode overrides the uniform default on the live material.
-    assert v._current_color_mode == "vertex"
+    # color_mode is the declaration, so it is left exactly as configured.
     assert v._material.color_mode == "vertex"
+    assert v._color_mode == "vertex"
+
+
+def test_declared_uniform_survives_store_colors():
+    """Store carries colours, appearance says uniform -> stays uniform (D20)."""
+    from cellier.data.points._points_requests import PointsData
+
+    v = _visual(_store(), appearance=PointsMarkerAppearance(color_mode="uniform"))
+    data = PointsData(
+        request_id=uuid4(),
+        positions=np.array([[0, 1, 2], [3, 4, 5]], dtype=np.float32),
+        colors=np.array([[1, 0, 0, 1], [0, 1, 0, 1]], dtype=np.float32),
+        sizes=None,
+        color_mode="vertex",
+        is_empty=False,
+    )
+    v.on_data_ready([(None, data)])
+    assert v._material.color_mode == "uniform"
+    assert v._color_mode == "uniform"
+
+
+def test_declared_vertex_without_colors_raises():
+    """The mismatch is a misconfiguration, not a silent fallback (D20)."""
+    from cellier.data.points._points_requests import PointsData
+
+    v = _visual(_store(), appearance=PointsMarkerAppearance(color_mode="vertex"))
+    data = PointsData(
+        request_id=uuid4(),
+        positions=np.array([[0, 1, 2]], dtype=np.float32),
+        colors=None,
+        sizes=None,
+        color_mode="uniform",
+        is_empty=False,
+    )
+    with pytest.raises(ValueError, match="color_mode='vertex'"):
+        v.on_data_ready([(None, data)])
+
+
+def test_points_alpha_buffer_is_ones():
+    """The migrated visual uploads an all-ones alpha buffer."""
+    from cellier.data.points._points_requests import PointsData
+
+    v = _visual(_store())
+    data = PointsData(
+        request_id=uuid4(),
+        positions=np.array([[0, 1, 2], [3, 4, 5]], dtype=np.float32),
+        colors=None,
+        sizes=None,
+        is_empty=False,
+    )
+    v.on_data_ready([(None, data)])
+    alphas = v.node.geometry.alphas.data
+    assert alphas.shape == (2,)
+    assert np.all(alphas == 1.0)
 
 
 # ── Rendered output (controller-driven) ────────────────────────────────────────

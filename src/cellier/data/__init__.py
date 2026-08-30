@@ -2,6 +2,8 @@
 
 from cellier.data._base_data_store import BaseDataStore
 from cellier.data._types import DataStoreType
+from cellier.data.graph._graph_memory_store import GraphMemoryStore
+from cellier.data.graph._graph_requests import GraphData, GraphSliceRequest
 from cellier.data.image._axis_info import AxisInfo
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.image._image_requests import ChunkRequest
@@ -17,28 +19,25 @@ from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.data.points._points_requests import PointsData, PointsSliceRequest
 
 __all__ = [
-    # base / shared types
-    "BaseDataStore",
-    "DataStoreType",
     "AxisInfo",
-    # image
-    "ImageMemoryStore",
-    "OMEZarrImageDataStore",
-    "MultiscaleZarrDataStore",
+    "BaseDataStore",
     "ChunkRequest",
-    # label
+    "DataStoreType",
+    "GraphData",
+    "GraphMemoryStore",
+    "GraphSliceRequest",
+    "ImageMemoryStore",
     "LabelMemoryStore",
-    "OMEZarrLabelDataStore",
-    # points
-    "PointsMemoryStore",
-    "PointsSliceRequest",
-    "PointsData",
-    # lines
+    "LinesData",
     "LinesMemoryStore",
     "LinesSliceRequest",
-    "LinesData",
-    # mesh
+    "MeshData",
     "MeshMemoryStore",
     "MeshSliceRequest",
-    "MeshData",
+    "MultiscaleZarrDataStore",
+    "OMEZarrImageDataStore",
+    "OMEZarrLabelDataStore",
+    "PointsData",
+    "PointsMemoryStore",
+    "PointsSliceRequest",
 ]
