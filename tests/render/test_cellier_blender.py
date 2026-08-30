@@ -1,6 +1,10 @@
-"""Tests for the ``outline_id`` render target (Stage 7a).
+"""Tests for cellier's extra render targets.
 
-The important one is ``test_outline_blender_still_valid``.  ``OutlineBlender``
+Two targets share one ``Blender`` subclass: ``outline_id`` (the per-pixel
+label key the outline pass reads) and ``normal`` (the per-pixel view-space
+surface normal the ambient occlusion pass prefers over reconstruction).
+
+The important test is ``test_cellier_blender_still_valid``.  ``CellierBlender``
 extends three public ``Blender`` methods, and one of them --
 ``get_shader_kwargs`` -- returns the ``FragmentOutput`` struct as a **WGSL
 source string** that this module edits.  If pygfx rewords that string, the
@@ -18,11 +22,12 @@ import wgpu
 from pygfx.renderers.wgpu.engine.blender import Blender
 from pygfx.renderers.wgpu.engine.shared import get_shared
 
-from cellier.render._outline_blender import (
+from cellier.render._cellier_blender import (
+    EXTRA_TARGETS,
     OUTLINE_ID_TARGET,
-    OutlineBlender,
-    get_outline_id_view,
-    install_outline_blender,
+    CellierBlender,
+    get_extra_target_view,
+    install_cellier_blender,
 )
 
 _ALPHA_CONFIGS = {
@@ -38,7 +43,7 @@ _ALPHA_CONFIGS = {
 }
 
 
-def _render(scene, camera, *, outline_blender: bool, size=(64, 64)):
+def _render(scene, camera, *, with_target: bool, size=(64, 64)):
     """Draw *scene* offscreen; return ``(renderer, rgba frame)``."""
     from rendercanvas.offscreen import RenderCanvas
 
@@ -46,8 +51,8 @@ def _render(scene, camera, *, outline_blender: bool, size=(64, 64)):
     renderer = gfx.WgpuRenderer(canvas)
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
-    if outline_blender:
-        assert install_outline_blender(renderer) is True
+    if with_target:
+        assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
 
     errors: list[BaseException] = []
 
@@ -97,18 +102,18 @@ def _sphere_scene(*, pick_write: bool = True):
 # ---------------------------------------------------------------------------
 
 
-def test_outline_blender_still_valid(offscreen_renderer):
-    """A frame renders through ``OutlineBlender`` and the target reads back.
+def test_cellier_blender_still_valid(offscreen_renderer):
+    """A frame renders through ``CellierBlender`` and the target reads back.
 
     This is the Stage 7 counterpart to ``test_pygfx_coupling_still_valid``.
     If it fails after a pygfx upgrade, check
-    ``cellier.render._outline_blender`` against the new ``Blender`` --
+    ``cellier.render._cellier_blender`` against the new ``Blender`` --
     specifically the generated ``FragmentOutput`` text.
     """
     scene, camera = _sphere_scene()
-    renderer, _frame = _render(scene, camera, outline_blender=True)
+    renderer, _frame = _render(scene, camera, with_target=True)
 
-    assert get_outline_id_view(renderer) is not None
+    assert get_extra_target_view(renderer, OUTLINE_ID_TARGET) is not None
     values = _read_outline_id(renderer)
     assert values.shape == (64, 64)
     # Nothing writes the field yet (that is Stage 7b), and WGSL
@@ -117,13 +122,13 @@ def test_outline_blender_still_valid(offscreen_renderer):
     assert np.array_equal(np.unique(values), np.array([0], dtype=np.uint32))
 
 
-def test_outline_blender_leaves_the_colour_output_unchanged(offscreen_renderer):
+def test_cellier_blender_leaves_the_colour_output_unchanged(offscreen_renderer):
     """Adding the target must not perturb the rendered image at all."""
     scene, camera = _sphere_scene()
-    _stock_renderer, stock = _render(scene, camera, outline_blender=False)
-    _outline_renderer, with_target = _render(scene, camera, outline_blender=True)
+    _stock_renderer, stock = _render(scene, camera, with_target=False)
+    _extra_renderer, extended = _render(scene, camera, with_target=True)
 
-    np.testing.assert_array_equal(stock, with_target)
+    np.testing.assert_array_equal(stock, extended)
 
 
 def test_renders_with_pick_write_disabled(offscreen_renderer):
@@ -135,7 +140,7 @@ def test_renders_with_pick_write_disabled(offscreen_renderer):
     were gated independently.
     """
     scene, camera = _sphere_scene(pick_write=False)
-    renderer, frame = _render(scene, camera, outline_blender=True)
+    renderer, frame = _render(scene, camera, with_target=True)
 
     assert np.count_nonzero(frame[..., 3]) > 0
     assert np.array_equal(np.unique(_read_outline_id(renderer)), np.array([0]))
@@ -159,7 +164,9 @@ def test_field_lands_on_the_right_location(method, expected_location):
     """
     stock = Blender()
     code = stock.get_shader_kwargs(True, _ALPHA_CONFIGS[method])["fragment_output_code"]
-    out = OutlineBlender._add_outline_id_field(code, enabled=True)
+    out = CellierBlender._add_field(
+        code, EXTRA_TARGETS[OUTLINE_ID_TARGET], enabled=True
+    )
 
     assert f"@location({expected_location}) outline_id: u32," in out
     # Inserted inside the struct, not after it.
@@ -173,7 +180,9 @@ def test_commented_out_field_when_disabled():
     code = stock.get_shader_kwargs(True, _ALPHA_CONFIGS["opaque"])[
         "fragment_output_code"
     ]
-    out = OutlineBlender._add_outline_id_field(code, enabled=False)
+    out = CellierBlender._add_field(
+        code, EXTRA_TARGETS[OUTLINE_ID_TARGET], enabled=False
+    )
 
     assert "// @location(2) outline_id: u32," in out
 
@@ -190,18 +199,24 @@ def test_commented_pick_still_reserves_its_location():
         "fragment_output_code"
     ]
     assert "// @location(1) pick" in code
-    out = OutlineBlender._add_outline_id_field(code, enabled=False)
+    out = CellierBlender._add_field(
+        code, EXTRA_TARGETS[OUTLINE_ID_TARGET], enabled=False
+    )
     assert "// @location(2) outline_id: u32," in out
 
 
 def test_unrecognised_generated_code_fails_loudly():
     """A pygfx rewording must raise here, not compile-fail inside a draw."""
     with pytest.raises(RuntimeError, match="FragmentOutput"):
-        OutlineBlender._add_outline_id_field("no struct here", enabled=True)
+        CellierBlender._add_field(
+            "no struct here", EXTRA_TARGETS[OUTLINE_ID_TARGET], enabled=True
+        )
 
     with pytest.raises(RuntimeError, match="@location"):
-        OutlineBlender._add_outline_id_field(
-            "struct FragmentOutput {\n    stub: u32,\n};", enabled=True
+        CellierBlender._add_field(
+            "struct FragmentOutput {\n    stub: u32,\n};",
+            EXTRA_TARGETS[OUTLINE_ID_TARGET],
+            enabled=True,
         )
 
 
@@ -218,7 +233,7 @@ def test_target_is_declared_and_changes_the_pipeline_cache_hash(offscreen_render
     list that has one more entry.
     """
     stock = Blender()
-    outline = OutlineBlender()
+    outline = CellierBlender([OUTLINE_ID_TARGET])
 
     assert OUTLINE_ID_TARGET not in stock.texture_info
     assert OUTLINE_ID_TARGET in outline.texture_info
@@ -235,7 +250,7 @@ def test_target_states_and_attachments_stay_aligned(offscreen_renderer):
     Target-state order, attachment order and ``@location(N)`` all have to
     agree; appending last in every override is what guarantees it.
     """
-    outline = OutlineBlender()
+    outline = CellierBlender([OUTLINE_ID_TARGET])
     outline.ensure_target_size((8, 8))
 
     states = outline.get_color_descriptors(True, _ALPHA_CONFIGS["opaque"])
@@ -248,7 +263,7 @@ def test_target_states_and_attachments_stay_aligned(offscreen_renderer):
 
 def test_write_mask_follows_pick_write(offscreen_renderer):
     """An object that writes no pick writes no outline key either."""
-    outline = OutlineBlender()
+    outline = CellierBlender([OUTLINE_ID_TARGET])
     with_pick = outline.get_color_descriptors(True, _ALPHA_CONFIGS["opaque"])
     without = outline.get_color_descriptors(False, _ALPHA_CONFIGS["opaque"])
 
@@ -258,7 +273,7 @@ def test_write_mask_follows_pick_write(offscreen_renderer):
 
 def test_shader_kwargs_expose_the_template_var(offscreen_renderer):
     """``write_outline_id`` lets label shaders compile the write away."""
-    outline = OutlineBlender()
+    outline = CellierBlender([OUTLINE_ID_TARGET])
     assert (
         outline.get_shader_kwargs(True, _ALPHA_CONFIGS["opaque"])["write_outline_id"]
         is True
@@ -277,7 +292,7 @@ def test_pick_and_depth_flags_are_preserved(offscreen_renderer):
     renderer = gfx.WgpuRenderer(canvas)
     renderer._blender = Blender(enable_pick=False)
 
-    assert install_outline_blender(renderer) is True
+    assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
     assert "pick" not in renderer._blender.texture_info
     assert OUTLINE_ID_TARGET in renderer._blender.texture_info
 
@@ -293,8 +308,8 @@ def test_install_degrades_on_unexpected_objects():
     class _NoBlender:
         pass
 
-    assert install_outline_blender(_NoBlender()) is False
-    assert get_outline_id_view(_NoBlender()) is None
+    assert install_cellier_blender(_NoBlender(), [OUTLINE_ID_TARGET]) is False
+    assert get_extra_target_view(_NoBlender(), OUTLINE_ID_TARGET) is None
 
 
 def test_install_is_idempotent(offscreen_renderer):
@@ -304,17 +319,17 @@ def test_install_is_idempotent(offscreen_renderer):
     canvas = RenderCanvas(size=(16, 16), pixel_ratio=1)
     renderer = gfx.WgpuRenderer(canvas)
 
-    assert install_outline_blender(renderer) is True
+    assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
     first = renderer._blender
-    assert install_outline_blender(renderer) is True
+    assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
     assert renderer._blender is first
 
 
-def test_get_outline_id_view_returns_none_on_the_stock_blender(offscreen_renderer):
+def test_get_extra_target_view_returns_none_on_the_stock_blender(offscreen_renderer):
     """No target means the composite pass falls back to ``global_id``."""
     scene, camera = _sphere_scene()
-    renderer, _frame = _render(scene, camera, outline_blender=False)
-    assert get_outline_id_view(renderer) is None
+    renderer, _frame = _render(scene, camera, with_target=False)
+    assert get_extra_target_view(renderer, OUTLINE_ID_TARGET) is None
 
 
 # ---------------------------------------------------------------------------
@@ -345,9 +360,9 @@ def test_canvas_installs_the_blender_only_when_outlines_are_enabled(
 
     off = _canvas_blender(False)
     assert off._outline_id_available is False
-    assert not isinstance(off._renderer._blender, OutlineBlender)
+    assert not isinstance(off._renderer._blender, CellierBlender)
     assert OUTLINE_ID_TARGET not in off._renderer._blender.texture_info
 
     on = _canvas_blender(True)
     assert on._outline_id_available is True
-    assert isinstance(on._renderer._blender, OutlineBlender)
+    assert isinstance(on._renderer._blender, CellierBlender)

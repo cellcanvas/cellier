@@ -69,6 +69,7 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
 }
 
 {$ include 'cellier.label_outline_key.wgsl' $}
+{$ include 'cellier.view_normal.wgsl' $}
 
 // ── Random colormap ────────────────────────────────────────────────────────
 fn random_label_color(label_id: i32, salt: u32) -> vec4<f32> {
@@ -688,32 +689,30 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let color = get_label_color(surface_lid);
     if (color.a < 0.001) { discard; }
 
-    $$ if render_mode == "iso_categorical" or render_mode == "gradient_debug"
-    // Object-space surface voxel: shared by iso_categorical and gradient_debug.
+    // The surface normal is needed for shading in the iso modes, for the
+    // debug visualisation, and for the ambient occlusion target in every
+    // mode -- a flat_categorical surface is still a real label boundary.
+    $$ set needs_normal = render_mode in ["iso_categorical", "gradient_debug", "smooth_iso"] or write_normal
+    $$ if needs_normal
     let surface_voxel = clamp(
         norm_to_voxel(surface_hi_p, norm_size, dataset_size),
         vec3<f32>(0.0),
         dataset_size - vec3<f32>(0.001),
     );
+    $$ if render_mode == "smooth_iso"
+    // 3x3x3 Sobel normal.
+    let obj_normal = smooth_label_normal(
+        surface_voxel, surface_lid,
+        surface_lut_entry, surface_lod_scale, surface_brick_corner_k,
+        dataset_size,
+    );
+    $$ else
     let obj_normal = label_object_normal(
         surface_voxel,
         surface_lut_entry, surface_lod_scale, surface_brick_corner_k,
         surface_lid, dataset_size,
     );
     $$ endif
-
-    $$ if render_mode == "smooth_iso"
-    // Object-space surface voxel and 3×3×3 Sobel normal for smooth_iso.
-    let surface_voxel = clamp(
-        norm_to_voxel(surface_hi_p, norm_size, dataset_size),
-        vec3<f32>(0.0),
-        dataset_size - vec3<f32>(0.001),
-    );
-    let obj_normal = smooth_label_normal(
-        surface_voxel, surface_lid,
-        surface_lut_entry, surface_lod_scale, surface_brick_corner_k,
-        dataset_size,
-    );
     $$ endif
 
     $$ if render_mode == "iso_categorical" or render_mode == "smooth_iso"
@@ -747,6 +746,17 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
 
     out.color = vec4<f32>(lit_color, color.a * u_material.opacity);
     out.depth = ndc_surface.z / ndc_surface.w;
+
+    $$ if write_normal
+    // Ambient occlusion normal target.  ``obj_normal`` is a direction in
+    // voxel space, so it needs the per-axis index-per-unit factor before it
+    // is a direction in the object's own (normalized) space -- without it a
+    // z-anisotropic dataset writes normals tilted toward z.
+    out.normal = pack_view_normal(
+        obj_normal * (dataset_size / norm_size),
+        (u_stdinfo.cam_transform * world_surface).xyz,
+    );
+    $$ endif
 
     $$ if write_outline_id
     // Label key for the screen-space outline pass.  Zero-initialised

@@ -170,6 +170,75 @@ class OutlineConfig(BaseModel):
         return value
 
 
+class SSAOConfig(BaseModel):
+    """Configuration for the screen-space ambient occlusion pass.
+
+    The pass reads the depth buffer (and, where a shader wrote one, the
+    ``normal`` render target), samples a rotated hemisphere around every
+    visible fragment, and multiplies the resulting occlusion into the
+    composited colour.  It is **3D only**: a 2D cellier scene is a plane at
+    near-constant depth, where the occlusion comes out uniform.
+
+    Parameters
+    ----------
+    enabled : bool
+        Master switch.  Defaults to ``False``; when off the pass is skipped
+        entirely by ``flush()`` and the frame is pixel-identical to one
+        rendered without the feature.
+    n_samples : int
+        Hemisphere samples per pixel.  A shader template var: changing it
+        recompiles.  16 rather than learnopengl's 64 because the pass runs
+        *before* ``TemporalAccumulationPass``, whose EMA averages the
+        per-frame kernel rotation away once the camera settles.
+    blur_radius : int
+        Half-width of the box blur applied to the occlusion field, in
+        internal pixels, so the filter is ``(2 * blur_radius + 1)`` square.
+        0 disables the blur.  Also a template var.
+    radius : float or None
+        Hemisphere radius in **scene units**.  ``None`` (the default) derives
+        it from the scene bounding box; see ``auto_radius_fraction``.  A fixed
+        default is meaningless across cellier's coordinate systems, where a
+        bounding box may be 96 units or 0.0003.
+    auto_radius_fraction : float
+        Fraction of the scene bounding box diagonal used when ``radius`` is
+        ``None``.
+    bias : float
+        Depth-comparison bias that stops a flat surface occluding itself from
+        depth quantisation -- shadow acne under another name.  Expressed as a
+        **fraction of the effective radius**, so it is dimensionless and
+        survives cellier's coordinate systems for the same reason ``radius``
+        is auto-derived: an absolute bias tuned for learnopengl's few-unit
+        scene lets a flat plane self-occlude by 7 percent at a radius of 6,
+        and does nothing at all at a radius of 0.0003.  The default is
+        learnopengl's own ratio, ``0.025 / 0.5``.
+    strength : float
+        Lerps between no effect (0) and the full multiply (1).
+    power : float
+        Contrast exponent applied to the occlusion before the multiply.
+        Values above 1 darken only the deepest crevices.
+
+    Examples
+    --------
+    >>> config = SSAOConfig(enabled=True, n_samples=24, strength=0.8)
+    >>> restored = SSAOConfig.model_validate_json(config.model_dump_json())
+    >>> restored == config
+    True
+    """
+
+    enabled: bool = False
+
+    # Structure -- template vars; changing these recompiles the shader.
+    n_samples: int = Field(default=16, ge=4, le=64)
+    blur_radius: int = Field(default=2, ge=0, le=8)
+
+    # Values -- uniforms; changing these does not recompile.
+    radius: float | None = Field(default=None, gt=0.0)
+    auto_radius_fraction: float = Field(default=0.02, gt=0.0)
+    bias: float = Field(default=0.05, ge=0.0)
+    strength: float = Field(default=1.0, ge=0.0, le=1.0)
+    power: float = Field(default=1.0, gt=0.0)
+
+
 class CameraConfig(BaseModel):
     """Configuration for camera-driven automatic reslicing.
 
@@ -205,6 +274,8 @@ class RenderManagerConfig(BaseModel):
         Camera-driven reslicing settings.
     outline : OutlineConfig
         Screen-space outline pass settings.  Disabled by default.
+    ssao : SSAOConfig
+        Screen-space ambient occlusion settings.  Disabled by default.
 
     Examples
     --------
@@ -225,3 +296,4 @@ class RenderManagerConfig(BaseModel):
     )
     camera: CameraConfig = Field(default_factory=CameraConfig)
     outline: OutlineConfig = Field(default_factory=OutlineConfig)
+    ssao: SSAOConfig = Field(default_factory=SSAOConfig)

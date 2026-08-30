@@ -92,12 +92,17 @@ class LabelVolumeShader(BaseVolumeShader):
         material = wobject.material
         self["colormap_mode"] = material.colormap_mode
         # Defaults for the outline_id target.  ``write_outline_id`` is
-        # overridden by OutlineBlender.get_shader_kwargs when the target
+        # overridden by CellierBlender.get_shader_kwargs when the target
         # exists; without it the write compiles away, so the same shader
         # stays valid on a canvas using the stock blender.
         self["write_outline_id"] = False
         self["has_outline_selection"] = material.outline_selection_texture is not None
         self["render_mode"] = material.render_mode
+        # Default for the ``normal`` render target.  ``write_normal`` is
+        # overridden by CellierBlender.get_shader_kwargs when the target
+        # exists; without it the write compiles away, so the same shader
+        # stays valid on a canvas using the stock blender.
+        self["write_normal"] = False
 
     def get_bindings(self, wobject, shared, scene):
         geometry = wobject.geometry

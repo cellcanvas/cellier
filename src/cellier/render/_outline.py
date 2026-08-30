@@ -39,9 +39,9 @@ from pygfx.renderers.wgpu.shader.bindings import BindingDefinitions
 from pygfx.renderers.wgpu.shader.templating import apply_templating
 from pygfx.utils import array_from_shadertype
 
-from cellier.render._outline_blender import get_outline_id_view
-from cellier.render._outline_lut import MAX_SLOT, get_shared_outline_lut
+from cellier.render._cellier_blender import OUTLINE_ID_TARGET, get_extra_target_view
 from cellier.render._pick_buffer import get_pick_view
+from cellier.render._visual_lut import MAX_SLOT, get_shared_visual_lut
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Sequence
@@ -49,7 +49,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     import pygfx as gfx
 
     from cellier.render._config import OutlineConfig
-    from cellier.render._outline_lut import OutlineLut
+    from cellier.render._visual_lut import VisualLut
 
 _WGSL_DIR = Path(__file__).parent / "shaders" / "wgsl"
 OUTLINE_WGSL: str = (_WGSL_DIR / "outline.wgsl").read_text()
@@ -318,7 +318,7 @@ class OutlinePass(EffectPass):
         The renderer whose pick buffer supplies the ids.  ``flush()`` hands
         an effect pass only colour, depth and target views, so the pick
         view is fetched from here each frame.
-    lut : OutlineLut or None
+    lut : VisualLut or None
         The shared ``global_id`` -> entry table.  ``None`` (the default)
         resolves it on first draw, so a canvas that never enables outlines
         never allocates the 1 MB texture.
@@ -336,7 +336,7 @@ class OutlinePass(EffectPass):
     """
 
     def __init__(
-        self, renderer: gfx.WgpuRenderer, lut: OutlineLut | None = None
+        self, renderer: gfx.WgpuRenderer, lut: VisualLut | None = None
     ) -> None:
         super().__init__()
         self._renderer = renderer
@@ -345,10 +345,10 @@ class OutlinePass(EffectPass):
         self.enabled = False
 
     @property
-    def lut(self) -> OutlineLut:
+    def lut(self) -> VisualLut:
         """The outline table, allocated on first access."""
         if self._lut is None:
-            self._lut = get_shared_outline_lut()
+            self._lut = get_shared_visual_lut()
         return self._lut
 
     # ------------------------------------------------------------------
@@ -412,5 +412,5 @@ class OutlinePass(EffectPass):
             pick_tex,
             self.lut.view,
             target_tex,
-            get_outline_id_view(self._renderer),
+            get_extra_target_view(self._renderer, OUTLINE_ID_TARGET),
         )

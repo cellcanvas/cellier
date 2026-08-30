@@ -16,10 +16,15 @@ from cellier.events._events import (
     FrameRenderedEvent,
 )
 from cellier.logging import _CAMERA_LOGGER
+from cellier.render._cellier_blender import (
+    NORMAL_TARGET,
+    OUTLINE_ID_TARGET,
+    install_cellier_blender,
+)
 from cellier.render._outline import OutlinePass
-from cellier.render._outline_blender import install_outline_blender
 from cellier.render._pick_buffer import enable_pick_texture_binding
 from cellier.render._requests import DimsState, ReslicingRequest
+from cellier.render._ssao import SSAOPass
 from cellier.render._temporal_accumulation import TemporalAccumulationPass
 
 if TYPE_CHECKING:
@@ -28,6 +33,7 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
 
     from cellier.events._bus import EventBus
+    from cellier.render._config import SSAOConfig
     from cellier.render.visuals._canvas_overlay import GFXCanvasOverlay
 
 
@@ -67,6 +73,12 @@ class CanvasView:
         target so label outlines have a per-pixel label key.  Must be
         decided here: the target list feeds ``Blender.hash``, which keys
         the pipeline cache.  Costs 4 bytes per pixel.
+    ssao_enabled : bool
+        When ``True``, install a blender carrying the ``normal`` render
+        target so cellier's volume shaders can hand the ambient occlusion
+        pass a real surface normal instead of one reconstructed from
+        depth.  Construction-time for the same reason as *outline_enabled*.
+        Costs 8 bytes per pixel.
     """
 
     def __init__(
@@ -82,6 +94,7 @@ class CanvasView:
         gui: str = "qt",
         size: tuple[int, int] | None = None,
         outline_enabled: bool = False,
+        ssao_enabled: bool = False,
     ) -> None:
         self._canvas_id = canvas_id
         self._scene_id = scene_id
@@ -109,22 +122,32 @@ class CanvasView:
         # until outlines are switched on would be too late.  A False result
         # leaves the outline pass installed but permanently a passthrough;
         # RenderManager warns if outlines are then requested.
-        # The label-key target is construction-time only, and only for
-        # canvases that opted in.  Its presence feeds ``Blender.hash``,
-        # which keys the pipeline cache, so adding or removing it later
+        # The extra render targets are construction-time only, and only for
+        # canvases that opted in.  The target list feeds ``Blender.hash``,
+        # which keys the pipeline cache, so adding or removing one later
         # would invalidate every pipeline in the process.  Canvases that
-        # never enable outlines keep the stock blender and pay nothing.
+        # enable neither feature keep the stock blender and pay nothing:
+        # ``outline_id`` costs 4 bytes per pixel and ``normal`` 8.
         #
         # This runs *before* the pick grant: installing replaces the whole
         # blender, so granting first would throw the grant away.
-        # ``install_outline_blender`` also copies usage bits across, so the
+        # ``install_cellier_blender`` also copies usage bits across, so the
         # order is belt-and-braces rather than load-bearing.
-        self._outline_id_available: bool = False
+        extra_targets: list[str] = []
         if outline_enabled:
-            self._outline_id_available = install_outline_blender(self._renderer)
+            extra_targets.append(OUTLINE_ID_TARGET)
+        if ssao_enabled:
+            extra_targets.append(NORMAL_TARGET)
+        installed = (
+            install_cellier_blender(self._renderer, extra_targets)
+            if extra_targets
+            else False
+        )
+        self._outline_id_available: bool = installed and outline_enabled
+        self._normal_target_available: bool = installed and ssao_enabled
 
         self._outline_available: bool = enable_pick_texture_binding(self._renderer)
-        self._outline_sync_fn: Callable[[], None] | None = None
+        self._visual_lut_sync_fn: Callable[[], None] | None = None
 
         self._wire_resize_event(gui)
 
@@ -156,6 +179,24 @@ class CanvasView:
         if dim == "2d":
             self._accum_pass.enabled = False
 
+        # Ambient occlusion runs first of all: it darkens the *fill*, and
+        # both passes after it must see that fill already darkened.  Ahead
+        # of the outline because an outline is a UI annotation rather than
+        # a lit surface, and several render tests assert its palette
+        # colours by exact match.  Ahead of accumulation because the EMA
+        # there averages away the per-frame kernel rotation for free,
+        # which is what lets the sample count sit at 16 instead of 64.
+        #
+        # The pass is 3D only: a 2D cellier scene is an image plane at
+        # near-constant depth under an orthographic camera, where the
+        # reconstructed normal is constant and the occlusion comes out
+        # uniform.  ``_ssao_requested`` keeps the configured state apart
+        # from that restriction, so a 2D -> 3D toggle restores whatever
+        # the config asked for rather than switching the pass on.
+        self._ssao_requested: bool = False
+        self._ssao_pass = SSAOPass(self._renderer, lambda: self._camera)
+        self._ssao_pass.enabled = False
+
         # Outlines composite *before* accumulation: the volume raymarcher
         # jitters per frame, so silhouette pixels shift sub-pixel between
         # frames and the EMA turns that into a free antialiased edge rather
@@ -164,6 +205,7 @@ class CanvasView:
         # entirely, so this costs nothing until outlines are switched on.
         self._outline_pass = OutlinePass(self._renderer)
         self._renderer.effect_passes = (
+            self._ssao_pass,
             self._outline_pass,
             self._accum_pass,
             *self._renderer.effect_passes,
@@ -601,9 +643,50 @@ class CanvasView:
             self._accum_pass.enabled = True
         self._controller.enabled = True
         self._dim = new_dim
+        self._apply_ssao_enabled()
         self._last_camera_state = self.capture_camera_state()
         first_visit = new_dim not in self._fitted
         return first_visit
+
+    def apply_ssao_config(self, config: SSAOConfig) -> None:
+        """Push an ``SSAOConfig`` onto this canvas's occlusion pass.
+
+        Parameters
+        ----------
+        config : SSAOConfig
+            The configuration to apply.  Its ``enabled`` flag is recorded
+            as the *requested* state; the pass itself stays off while the
+            canvas is in 2D.
+        """
+        self._ssao_pass.apply_config(config)
+        self.set_ssao_enabled(config.enabled)
+
+    def set_ssao_enabled(self, enabled: bool) -> None:
+        """Request ambient occlusion on this canvas.
+
+        Honoured only in 3D.  The request is remembered either way, so a
+        canvas switched to 2D and back returns to the requested state.
+
+        Parameters
+        ----------
+        enabled : bool
+            Whether the caller wants the pass to run.
+        """
+        self._ssao_requested = bool(enabled)
+        self._apply_ssao_enabled()
+
+    def _apply_ssao_enabled(self) -> None:
+        self._ssao_pass.enabled = self._ssao_requested and self._dim != "2d"
+
+    def set_scene_extent(self, diagonal: float) -> None:
+        """Forward the scene bounding box diagonal to the occlusion pass.
+
+        Parameters
+        ----------
+        diagonal : float
+            Length of the scene bounding box diagonal, in scene units.
+        """
+        self._ssao_pass.set_scene_extent(diagonal)
 
     def capture_camera_state(self) -> CameraState:
         """Snapshot the current pygfx camera into a CameraState NamedTuple."""
@@ -673,12 +756,14 @@ class CanvasView:
         if self._tick_visuals_fn is not None:
             self._tick_visuals_fn()
 
-        # Re-sync the outline LUT from the authoritative per-visual map.
+        # Re-sync the shared visual LUT from the authoritative per-visual
+        # map.  Both the outline pass and the ambient occlusion pass read
+        # that one table.
         # World objects are rebuilt on 2D/3D switches, multiscale brick
         # updates and channel changes, and every rebuild gives out a fresh
         # global_id -- so a write-once LUT would silently lose its entries.
-        if self._outline_sync_fn is not None:
-            self._outline_sync_fn()
+        if self._visual_lut_sync_fn is not None:
+            self._visual_lut_sync_fn()
 
         scene = self._get_scene_fn(self._scene_id)
 

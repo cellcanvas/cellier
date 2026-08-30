@@ -93,7 +93,7 @@ class LabelImageShader(ImageShader):
         material = wobject.material
         self["colormap_mode"] = material.colormap_mode
         # Defaults for the outline_id target.  ``write_outline_id`` is
-        # overridden by OutlineBlender.get_shader_kwargs when the target
+        # overridden by CellierBlender.get_shader_kwargs when the target
         # exists; without it the write compiles away, so the same shader
         # stays valid on a canvas using the stock blender.
         self["write_outline_id"] = False

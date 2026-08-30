@@ -9,19 +9,20 @@ from uuid import uuid4
 import numpy as np
 
 from cellier.events import DimsChangedEvent, EventBus
-from cellier.events._events import ViewRay, _CanvasRawPointerEvent
+from cellier.events._events import AABBChangedEvent, ViewRay, _CanvasRawPointerEvent
 from cellier.render._config import RenderManagerConfig
-from cellier.render._outline_lut import (
+from cellier.render._scene_config import VisualRenderConfig
+from cellier.render._visual_lut import (
+    AO_EXCLUDED_BIT,
     KIND_WHOLE_OBJECT,
     MAX_SLOT,
     PLACEMENT_INWARD,
     PLACEMENT_NAMES,
     PLACEMENT_OUTWARD,
     encode_entry,
-    get_shared_outline_lut,
-    peek_shared_outline_lut,
+    get_shared_visual_lut,
+    peek_shared_visual_lut,
 )
-from cellier.render._scene_config import VisualRenderConfig
 from cellier.render.canvas_view import CanvasView
 from cellier.render.scene_manager import SceneManager
 from cellier.render.slice_coordinator import SliceCoordinator
@@ -84,6 +85,36 @@ class _LabelsDisplayedDataCoord(NamedTuple):
     displayed_data_coord: tuple[float, ...]
 
 
+#: Render modes that project along the ray instead of finding a surface.
+#: Their depth is the depth of the extremum sample, so ambient occlusion
+#: derived from it is noise; visuals rendering this way are excluded from
+#: receiving occlusion unless the caller says otherwise.
+MIP_RENDER_MODES: frozenset[str] = frozenset({"mip", "attenuated_mip", "minip"})
+
+
+class VisualFlags(NamedTuple):
+    """Everything the shared per-visual LUT carries for one cellier visual.
+
+    One record rather than one per feature, because ``VisualLut.apply`` is
+    a whole-state sync: two independent maps syncing the same table would
+    each clear the other's entries.
+
+    Parameters
+    ----------
+    outline : tuple[int, int, int] or None
+        ``(slot, placement, kind)`` for the screen-space outline pass, or
+        ``None`` when the visual is not outlined.
+    ao : bool or None
+        Whether the visual receives ambient occlusion.  ``None`` is auto:
+        excluded when it renders in the MIP family, which writes the depth
+        of an extremum sample rather than of a surface.  ``True`` and
+        ``False`` are explicit and survive a render-mode change.
+    """
+
+    outline: tuple[int, int, int] | None = None
+    ao: bool | None = None
+
+
 # Union used to annotate _CanvasRawPointerEvent.pick_details
 _RawPickDetails = (
     "_ImageDisplayedDataCoord | _LabelsDisplayedDataCoord | VisualPickDetails | None"
@@ -105,6 +136,7 @@ class RenderManager:
         if config is None:
             config = RenderManagerConfig()
         self._config = config
+        self._id: UUID = uuid4()
         self._scenes: dict[UUID, SceneManager] = {}
         self._canvases: dict[UUID, CanvasView] = {}
         self._canvas_to_scene: dict[UUID, UUID] = {}
@@ -113,10 +145,10 @@ class RenderManager:
         self._event_bus: EventBus | None = None
         self._active_gestures: dict[UUID, UUID] = {}
         self._pick_details_enabled: dict[UUID, bool] = {}
-        # Authoritative per-visual outline assignments,
-        # ``{visual_id: (slot, placement, kind)}``.  The GPU LUT is derived
-        # from this every frame; see ``_sync_outline_lut``.
-        self._outline_assignments: dict[UUID, tuple[int, int, int]] = {}
+        # The single authoritative per-visual flag map.  Both the outline
+        # pass and the ambient occlusion pass read the same GPU table, which
+        # is derived from this every frame; see ``_sync_visual_lut``.
+        self._visual_flags: dict[UUID, VisualFlags] = {}
         self._slicer = AsyncSlicer(
             batch_size=config.slicing.batch_size,
             render_every=config.slicing.render_every,
@@ -140,6 +172,16 @@ class RenderManager:
             DimsChangedEvent,
             self._slice_coordinator._on_dims_changed,
             owner_id=self._slice_coordinator.id,
+        )
+        # The ambient-occlusion radius is derived from the scene bounding
+        # box, so it has to be recomputed when that box moves.  Walking the
+        # scene graph per frame is not an option -- a multiscale visual is a
+        # gfx.Group with a child per brick -- so it happens here and on a
+        # camera fit, the only two moments the answer can change.
+        event_bus.subscribe(
+            AABBChangedEvent,
+            self._on_aabb_changed_for_ssao,
+            owner_id=self._id,
         )
 
     @property
@@ -172,6 +214,145 @@ class RenderManager:
         self._config.temporal.enabled = value
         for canvas in self._canvases.values():
             canvas._accum_pass.enabled = value
+
+    # ------------------------------------------------------------------
+    # Screen-space ambient occlusion
+    # ------------------------------------------------------------------
+
+    @property
+    def ssao_enabled(self) -> bool:
+        """Whether the ambient occlusion pass is active.
+
+        A canvas in 2D never runs the pass whatever this says; see
+        ``CanvasView.set_ssao_enabled``.
+        """
+        return self._config.ssao.enabled
+
+    @ssao_enabled.setter
+    def ssao_enabled(self, value: bool) -> None:
+        value = bool(value)
+        self._config.ssao.enabled = value
+        for canvas in self._canvases.values():
+            canvas.set_ssao_enabled(value)
+
+    @property
+    def ssao_radius(self) -> float | None:
+        """Hemisphere radius in scene units, or ``None`` for auto."""
+        return self._config.ssao.radius
+
+    @ssao_radius.setter
+    def ssao_radius(self, value: float | None) -> None:
+        value = None if value is None else float(value)
+        self._config.ssao.radius = value
+        for canvas in self._canvases.values():
+            canvas._ssao_pass.radius = value
+
+    @property
+    def ssao_strength(self) -> float:
+        """How far the occlusion multiply is applied, 0 (off) to 1 (full)."""
+        return self._config.ssao.strength
+
+    @ssao_strength.setter
+    def ssao_strength(self, value: float) -> None:
+        value = float(value)
+        self._config.ssao.strength = value
+        for canvas in self._canvases.values():
+            canvas._ssao_pass.strength = value
+
+    @property
+    def ssao_power(self) -> float:
+        """Contrast exponent applied to the occlusion before the multiply."""
+        return self._config.ssao.power
+
+    @ssao_power.setter
+    def ssao_power(self, value: float) -> None:
+        value = float(value)
+        self._config.ssao.power = value
+        for canvas in self._canvases.values():
+            canvas._ssao_pass.power = value
+
+    @property
+    def ssao_bias(self) -> float:
+        """Depth-comparison bias, as a fraction of the effective radius."""
+        return self._config.ssao.bias
+
+    @ssao_bias.setter
+    def ssao_bias(self, value: float) -> None:
+        value = float(value)
+        self._config.ssao.bias = value
+        for canvas in self._canvases.values():
+            canvas._ssao_pass.bias = value
+
+    @property
+    def ssao_n_samples(self) -> int:
+        """Hemisphere samples per pixel.  Changing this recompiles."""
+        return self._config.ssao.n_samples
+
+    @ssao_n_samples.setter
+    def ssao_n_samples(self, value: int) -> None:
+        value = int(value)
+        self._config.ssao.n_samples = value
+        for canvas in self._canvases.values():
+            canvas._ssao_pass.n_samples = value
+
+    @property
+    def ssao_blur_radius(self) -> int:
+        """Box-blur half-width in internal pixels.  Changing this recompiles."""
+        return self._config.ssao.blur_radius
+
+    @ssao_blur_radius.setter
+    def ssao_blur_radius(self, value: int) -> None:
+        value = int(value)
+        self._config.ssao.blur_radius = value
+        for canvas in self._canvases.values():
+            canvas._ssao_pass.blur_radius = value
+
+    def apply_ssao_config(self) -> None:
+        """Push the current ``config.ssao`` onto every canvas's pass."""
+        for canvas in self._canvases.values():
+            canvas.apply_ssao_config(self._config.ssao)
+
+    def update_ssao_radius(self, scene_id: UUID) -> None:
+        """Recompute the auto occlusion radius for one scene.
+
+        Reads the scene's world bounding box once and hands its diagonal to
+        every canvas showing that scene.  An explicit ``ssao.radius``
+        overrides the result, so this is safe to call unconditionally.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            The scene whose bounding box should be measured.  Unknown ids
+            are ignored.
+        """
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is None:
+            return
+        canvases = [
+            canvas
+            for canvas_id, canvas in self._canvases.items()
+            if self._canvas_to_scene.get(canvas_id) == scene_id
+        ]
+        if not canvases:
+            return
+        try:
+            box = scene_manager.scene.get_world_bounding_box()
+        except (AttributeError, IndexError, TypeError, ValueError):
+            # An empty or half-built scene graph is not an error here:
+            # the previous radius stays in place until the next fit.
+            return
+        if box is None:
+            return
+        box = np.asarray(box, dtype=np.float64)
+        diagonal = float(np.linalg.norm(box[1] - box[0]))
+        for canvas in canvases:
+            canvas.set_scene_extent(diagonal)
+
+    def _on_aabb_changed_for_ssao(self, event: AABBChangedEvent) -> None:
+        """Re-derive the auto occlusion radius when a visual's box moves."""
+        scene_id = self._visual_to_scene.get(event.visual_id)
+        if scene_id is not None:
+            self.update_ssao_radius(scene_id)
 
     # ------------------------------------------------------------------
     # Screen-space outlines
@@ -273,19 +454,55 @@ class RenderManager:
         if placement not in (PLACEMENT_INWARD, PLACEMENT_OUTWARD):
             raise ValueError(f"unknown outline placement: {placement}")
 
-        if slot == 0:
-            self._outline_assignments.pop(visual_id, None)
-        else:
-            self._outline_assignments[visual_id] = (
-                slot,
-                int(placement),
-                int(kind),
-            )
-        self._sync_outline_lut()
+        outline = None if slot == 0 else (slot, int(placement), int(kind))
+        self._update_visual_flags(visual_id, outline=outline)
+        self._sync_visual_lut()
 
     def get_visual_outline(self, visual_id: UUID) -> tuple[int, int, int] | None:
         """Return ``(slot, placement, kind)`` for *visual_id*, or ``None``."""
-        return self._outline_assignments.get(visual_id)
+        flags = self._visual_flags.get(visual_id)
+        return None if flags is None else flags.outline
+
+    def set_visual_ambient_occlusion(
+        self, visual_id: UUID, enabled: bool | None = None
+    ) -> None:
+        """Choose whether one visual receives ambient occlusion.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The cellier visual.
+        enabled : bool or None
+            ``None`` (the default) restores the automatic rule: excluded
+            while the visual renders in the MIP family, included
+            otherwise, re-derived whenever the render mode changes.
+            ``True`` and ``False`` are explicit and survive a render-mode
+            change.
+
+        Notes
+        -----
+        This controls whether the visual *receives* occlusion, not whether
+        it *casts* it: the occlusion loop reads raw depth, so an excluded
+        visual's depth still occludes its neighbours.
+        """
+        if enabled is not None:
+            enabled = bool(enabled)
+        self._update_visual_flags(visual_id, ao=enabled)
+        self._sync_visual_lut()
+
+    def get_visual_ambient_occlusion(self, visual_id: UUID) -> bool | None:
+        """Return the explicit occlusion setting, or ``None`` for auto."""
+        flags = self._visual_flags.get(visual_id)
+        return None if flags is None else flags.ao
+
+    def _update_visual_flags(self, visual_id: UUID, **changes) -> None:
+        """Merge *changes* into one visual's flags, dropping empty records."""
+        flags = self._visual_flags.get(visual_id, VisualFlags())
+        flags = flags._replace(**changes)
+        if flags == VisualFlags():
+            self._visual_flags.pop(visual_id, None)
+        else:
+            self._visual_flags[visual_id] = flags
 
     def set_label_selection(self, visual_id: UUID, selection: dict[int, int]) -> None:
         """Set which label values the selection layer outlines.
@@ -368,26 +585,38 @@ class RenderManager:
                 stacklevel=3,
             )
 
-    def _sync_outline_lut(self) -> None:
-        """Rebuild the GPU outline table from ``_outline_assignments``.
+    def _sync_visual_lut(self) -> None:
+        """Rebuild the shared GPU table from ``_visual_flags``.
 
-        Runs once per canvas draw.  Resolves every outlined visual to all
-        the pygfx world objects it currently owns and writes one entry per
-        id; ids that have gone away are cleared.  Only texels that actually
-        differ are uploaded, so a steady frame does no GPU work.
+        Runs once per canvas draw, because cellier rebuilds world objects
+        (2D/3D switches, multiscale brick groups, channel changes) and each
+        rebuild hands out fresh ``global_id``s, so a write-once table would
+        silently lose its entries.  Only texels that actually differ are
+        uploaded, so a steady frame does no GPU work.
+
+        **One sync for both features.**  ``VisualLut.apply`` is a
+        whole-state sync: ids present in the table but absent from the
+        mapping are cleared.  If outlines and ambient occlusion kept
+        separate maps and synced independently, enabling outlines would
+        wipe every occlusion exclusion.  That is why this walks one
+        authoritative map and writes one byte per object.
         """
-        if not self._outline_assignments and peek_shared_outline_lut() is None:
-            # Nothing has ever been outlined on this process, so there is no
-            # table to keep in sync and no reason to allocate one.
-            return
+        ssao_on = self._config.ssao.enabled
+        if not self._visual_flags and not ssao_on:
+            if peek_shared_visual_lut() is None:
+                # Neither feature has ever needed the table on this
+                # process, so there is nothing to sync and no reason to
+                # allocate 1 MB.
+                return
 
         entries: dict[int, int] = {}
         has_inward = False
         has_outward = False
+        n_excluded = 0
 
-        for visual_id, (slot, placement, kind) in self._outline_assignments.items():
-            scene_id = self._visual_to_scene.get(visual_id)
-            if scene_id is None:
+        for visual_id, scene_id in self._visual_to_scene.items():
+            flags = self._visual_flags.get(visual_id)
+            if flags is None and not ssao_on:
                 continue
             scene = self._scenes.get(scene_id)
             if scene is None:
@@ -396,19 +625,73 @@ class RenderManager:
                 gfx_visual = scene.get_visual(visual_id)
             except KeyError:
                 continue
-            value = encode_entry(slot, kind, placement)
-            for object_id in self._world_object_ids(gfx_visual):
-                entries[object_id] = value
-            if placement == PLACEMENT_OUTWARD:
-                has_outward = True
-            else:
-                has_inward = True
 
-        get_shared_outline_lut().apply(entries)
+            if flags is not None and flags.outline is not None:
+                slot, placement, kind = flags.outline
+                value = encode_entry(slot, kind, placement)
+                for object_id in self._world_object_ids(gfx_visual):
+                    entries[object_id] = entries.get(object_id, 0) | value
+                if placement == PLACEMENT_OUTWARD:
+                    has_outward = True
+                else:
+                    has_inward = True
+
+            if not ssao_on:
+                continue
+            ao = flags.ao if flags is not None else None
+            if ao is True:
+                # Explicitly opted in: never excluded, whatever it renders.
+                continue
+            if ao is False:
+                excluded_ids = self._world_object_ids(gfx_visual)
+            else:
+                # Auto: the MIP family only.  Derived per world object
+                # rather than per visual, so one channel of a multichannel
+                # visual can be excluded while another is not.
+                excluded_ids = self._mip_object_ids(gfx_visual)
+            for object_id in excluded_ids:
+                entries[object_id] = entries.get(object_id, 0) | AO_EXCLUDED_BIT
+                n_excluded += 1
+
+        get_shared_visual_lut().apply(entries)
         for canvas in self._canvases.values():
             canvas._outline_pass.set_placements(
                 has_inward=has_inward, has_outward=has_outward
             )
+            canvas._ssao_pass.set_has_exclusions(n_excluded > 0)
+
+    @staticmethod
+    def _mip_object_ids(gfx_visual: _GFXVisual) -> set[int]:
+        """Return the ids of world objects rendering in the MIP family.
+
+        A MIP-family mode writes the depth of the *extremum sample along
+        the ray*, not of a surface.  That depth jumps discontinuously
+        wherever the brightest sample moves, which for a noisy volume is
+        most neighbouring pixels, so occlusion derived from it shimmers
+        under camera motion.  Those objects are excluded by default.
+
+        Keyed on the material's ``render_mode`` rather than on the visual
+        class: every volume material that has a projection mode carries
+        one, label materials carry a categorical mode that is not in the
+        family, and mesh, line and point materials have no such attribute
+        at all -- so the same rule covers every visual type without a
+        lookup table of classes.
+        """
+        ids: set[int] = set()
+        for mode in ("2d", "3d"):
+            try:
+                node = gfx_visual.get_node(mode)
+            except (AttributeError, KeyError, ValueError):
+                node = None
+            if node is None:
+                continue
+            for obj in node.iter():
+                material = getattr(obj, "material", None)
+                render_mode = getattr(material, "render_mode", None)
+                if render_mode in MIP_RENDER_MODES:
+                    ids.add(int(obj.id))
+        ids.discard(0)
+        return ids
 
     @staticmethod
     def _world_object_ids(gfx_visual: _GFXVisual) -> set[int]:
@@ -501,15 +784,19 @@ class RenderManager:
             get_scene_fn=self.get_scene,
             parent=parent,
             outline_enabled=self._config.outline.enabled,
+            ssao_enabled=self._config.ssao.enabled,
             **canvas_view_kwargs,
         )
         # Apply temporal config to the canvas's accumulation pass.
         canvas_view._accum_pass.alpha = self._config.temporal.alpha
         if not self._config.temporal.enabled:
             canvas_view._accum_pass.enabled = False
+        # Apply the ambient occlusion config.  The pass stays off in 2D
+        # whatever the config says.
+        canvas_view.apply_ssao_config(self._config.ssao)
         # Apply outline config, and wire the per-frame LUT re-sync.
         canvas_view._outline_pass.apply_config(self._config.outline)
-        canvas_view._outline_sync_fn = self._sync_outline_lut
+        canvas_view._visual_lut_sync_fn = self._sync_visual_lut
         if self._config.outline.enabled:
             self._warn_if_outline_unavailable()
         # Wire up per-frame tick for visuals (e.g. jitter seed advance).

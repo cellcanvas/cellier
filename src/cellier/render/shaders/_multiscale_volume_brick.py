@@ -438,6 +438,11 @@ class MultiscaleVolumeBrickShader(BaseVolumeShader):
         self["debug_mode"] = getattr(material, "debug_mode", "none")
         # Template variable for render mode (iso / mip).
         self["render_mode"] = getattr(material, "render_mode", "iso")
+        # Default for the ``normal`` render target.  ``write_normal`` is
+        # overridden by CellierBlender.get_shader_kwargs when the target
+        # exists; without it the write compiles away, so the same shader
+        # stays valid on a canvas using the stock blender.
+        self["write_normal"] = False
 
         bindings = [
             Binding("u_stdinfo", "buffer/uniform", shared.uniform_buffer),

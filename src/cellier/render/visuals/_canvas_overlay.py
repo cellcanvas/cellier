@@ -21,6 +21,19 @@ class GFXCanvasOverlay(ABC):
 
     Subclasses are responsible for building ``overlay_scene`` and
     ``overlay_camera`` at construction time.
+
+    **Overlays must not write depth.**  They are folded into the main frame
+    with ``flush=False``, which keeps the colour *and depth* buffers open, so
+    an overlay draws into the same targets as the scene and the effect chain
+    then runs once over both.  Any depth an overlay leaves behind was
+    produced by the overlay's own camera -- a ``ScreenCoordsCamera``, for the
+    one overlay that exists today -- and the screen-space effect passes
+    interpret the whole buffer with the *scene* camera's matrices.  For the
+    ambient occlusion pass that means a patch of arbitrary occlusion under
+    the widget, which is far more visible than the same error would be
+    anywhere else.  Set ``depth_test=False, depth_write=False`` on every
+    material an overlay adds; pygfx's default is auto, which resolves to
+    writing depth for most materials.
     """
 
     @property
@@ -164,7 +177,19 @@ class GFXCenteredAxes2D(GFXCanvasOverlay):
 
         # ── Optional text labels ──────────────────────────────────────────
         if appearance.show_labels:
-            label_material = gfx.TextMaterial(color=appearance.label_color)
+            # depth_write=False is required, not cosmetic.  Overlays are
+            # folded into the main frame with ``flush=False``, so they share
+            # the scene's colour *and depth* buffers, and the effect chain
+            # runs once at the end over both.  A label that wrote depth would
+            # leave values produced by ScreenCoordsCamera's projection in a
+            # buffer the ambient occlusion pass unprojects with the *scene*
+            # camera, giving a blob of arbitrary occlusion under the widget.
+            # ``gfx.TextMaterial`` leaves ``depth_write`` on auto, which
+            # resolves to True for its default alpha mode, so it has to be
+            # said explicitly.  The axis lines already do (see above).
+            label_material = gfx.TextMaterial(
+                color=appearance.label_color, depth_write=False
+            )
             self._label_a: gfx.Text | None = gfx.Text(
                 text=model.axis_a_label,
                 screen_space=True,

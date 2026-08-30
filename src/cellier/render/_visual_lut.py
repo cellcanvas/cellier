@@ -1,7 +1,16 @@
-"""The screen-space outline lookup table.
+"""The shared per-visual lookup table.
 
 Maps a pygfx ``global_id`` (what the pick buffer stores, and what
-``wobject.id`` returns on the Python side) to a one-byte outline entry.
+``wobject.id`` returns on the Python side) to a one-byte entry carrying
+every per-visual flag the effect passes need.
+
+Two features read it: the screen-space outline pass (bits 0-6) and the
+ambient occlusion pass (bit 7).  **One table, one authoritative map.**
+``apply`` is a whole-state sync -- ids present in the table but absent from
+the supplied mapping are cleared -- so if the two features kept separate
+maps, enabling outlines would silently wipe every occlusion exclusion.
+``RenderManager`` therefore holds a single ``{visual_id: VisualFlags}`` map
+and derives the whole table from it.
 
 The table is a 1024x1024 ``r8uint`` texture -- 1 MB -- indexed as
 ``(id & 1023, id >> 10)``.  It is deliberately *not* smaller: pygfx does
@@ -29,8 +38,12 @@ bits  field
 0-3   selection slot; 0 = not selected, else palette index v - 1
 4-5   kind; 0 = not outlined, 1 = whole object, 2 = label
 6     placement; 0 = inward, 1 = outward
-7     spare
+7     excluded from ambient occlusion
 ===== =========================================================
+
+Bit 7 is the last free bit.  If a third per-object flag is ever needed the
+format goes ``r8uint`` -> ``r16uint`` (2 MB) and the index arithmetic is
+unchanged.
 
 Entry 0 is permanently inert: the pick target clears to zero and pygfx's
 ``IdProvider`` seeds ``_ids_in_use = {0}``, so no object is ever given id
@@ -65,6 +78,9 @@ PLACEMENT_NAMES: dict[str, int] = {
     "outward": PLACEMENT_OUTWARD,
 }
 
+#: Bit 7: the visual does not receive ambient occlusion.
+AO_EXCLUDED_BIT: int = 0x80
+
 
 def lut_index(object_id: int) -> tuple[int, int]:
     """Return the ``(x, y)`` texel holding *object_id*'s entry.
@@ -87,8 +103,9 @@ def encode_entry(
     slot: int,
     kind: int = KIND_WHOLE_OBJECT,
     placement: int = PLACEMENT_INWARD,
+    ao_excluded: bool = False,
 ) -> int:
-    """Pack an outline entry into its single byte.
+    """Pack a per-visual entry into its single byte.
 
     Parameters
     ----------
@@ -100,6 +117,11 @@ def encode_entry(
         ``KIND_NONE``, ``KIND_WHOLE_OBJECT`` or ``KIND_LABEL``.
     placement : int
         ``PLACEMENT_INWARD`` or ``PLACEMENT_OUTWARD``.
+    ao_excluded : bool
+        Whether the visual is excluded from *receiving* ambient occlusion.
+        Independent of every other field: a visual can be excluded from
+        occlusion and not outlined at all, which is what a MIP volume in a
+        scene with no selection looks like.
 
     Returns
     -------
@@ -117,17 +139,27 @@ def encode_entry(
         raise ValueError(f"unknown outline kind: {kind}")
     if placement not in (PLACEMENT_INWARD, PLACEMENT_OUTWARD):
         raise ValueError(f"unknown outline placement: {placement}")
-    return (slot & 0xF) | ((kind & 0x3) << 4) | ((placement & 0x1) << 6)
+    return (
+        (slot & 0xF)
+        | ((kind & 0x3) << 4)
+        | ((placement & 0x1) << 6)
+        | (AO_EXCLUDED_BIT if ao_excluded else 0)
+    )
 
 
-def decode_entry(value: int) -> tuple[int, int, int]:
-    """Unpack an entry byte into ``(slot, kind, placement)``."""
+def decode_entry(value: int) -> tuple[int, int, int, bool]:
+    """Unpack an entry byte into ``(slot, kind, placement, ao_excluded)``."""
     value = int(value)
-    return value & 0xF, (value >> 4) & 0x3, (value >> 6) & 0x1
+    return (
+        value & 0xF,
+        (value >> 4) & 0x3,
+        (value >> 6) & 0x1,
+        bool(value & AO_EXCLUDED_BIT),
+    )
 
 
-class OutlineLut:
-    """GPU-resident ``global_id`` -> outline entry table.
+class VisualLut:
+    """GPU-resident ``global_id`` -> per-visual flags table.
 
     One table serves every canvas: pygfx ids are unique per process, so
     the mapping is global and the texture can be shared by all outline
@@ -216,7 +248,7 @@ class OutlineLut:
         return True
 
     def clear_entry(self, object_id: int) -> bool:
-        """Reset *object_id* to "not outlined"."""
+        """Reset every flag for *object_id*."""
         return self.set_entry(object_id, 0)
 
     def apply(self, entries: Mapping[int, int]) -> bool:
@@ -229,8 +261,10 @@ class OutlineLut:
         Parameters
         ----------
         entries : Mapping[int, int]
-            ``{object_id: entry byte}`` for everything that should be
-            outlined right now.
+            ``{object_id: entry byte}`` for every flag that should be
+            set right now, across *all* features that share the table.
+            Anything absent is cleared, so callers must supply the whole
+            state rather than their own feature's slice of it.
 
         Returns
         -------
@@ -261,11 +295,11 @@ class OutlineLut:
         )
 
 
-_SHARED_LUT: OutlineLut | None = None
+_SHARED_LUT: VisualLut | None = None
 
 
-def get_shared_outline_lut() -> OutlineLut:
-    """Return the process-wide outline LUT, creating it on first use.
+def get_shared_visual_lut() -> VisualLut:
+    """Return the process-wide visual LUT, creating it on first use.
 
     pygfx allocates ``global_id`` from a single process-wide
     ``IdProvider`` and every canvas shares one wgpu device, so the
@@ -273,19 +307,19 @@ def get_shared_outline_lut() -> OutlineLut:
 
     Returns
     -------
-    OutlineLut
+    VisualLut
         The shared table.
     """
     global _SHARED_LUT
     if _SHARED_LUT is None:
-        _SHARED_LUT = OutlineLut()
+        _SHARED_LUT = VisualLut()
     return _SHARED_LUT
 
 
-def peek_shared_outline_lut() -> OutlineLut | None:
+def peek_shared_visual_lut() -> VisualLut | None:
     """Return the shared table if it exists, without creating it.
 
-    Lets callers skip work on canvases that have never turned outlines on,
-    which is every canvas by default.
+    Lets callers skip work on a process where neither feature that reads
+    the table has ever needed it, which is the default.
     """
     return _SHARED_LUT

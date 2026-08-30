@@ -21,18 +21,18 @@ import pytest
 from pygfx.renderers.wgpu.engine.effectpasses import PPAAPass
 from pygfx.renderers.wgpu.engine.shared import get_shared
 
+from cellier.render._cellier_blender import (
+    OUTLINE_ID_TARGET,
+    install_cellier_blender,
+)
 from cellier.render._config import (
     OutlineConfig,
     OutlineLayerConfig,
     RenderManagerConfig,
 )
 from cellier.render._outline import OutlinePass
-from cellier.render._outline_blender import (
-    OUTLINE_ID_TARGET,
-    install_outline_blender,
-)
-from cellier.render._outline_lut import KIND_LABEL, get_shared_outline_lut
 from cellier.render._pick_buffer import enable_pick_texture_binding, get_pick_view
+from cellier.render._visual_lut import KIND_LABEL, get_shared_visual_lut
 from cellier.render.shaders._label_colormap import (
     OUTLINE_SELECTION_CAPACITY,
     build_outline_selection_texture,
@@ -121,12 +121,12 @@ def _render(controller, scene, *, with_target: bool = True, size=(160, 160)):
     # Order matters and is the subject of its own test below: installing
     # replaces the blender, so a pick grant made first would be discarded.
     if with_target:
-        install_outline_blender(renderer)
+        install_cellier_blender(renderer, [OUTLINE_ID_TARGET])
     enable_pick_texture_binding(renderer)
 
-    outline = OutlinePass(renderer, get_shared_outline_lut())
+    outline = OutlinePass(renderer, get_shared_visual_lut())
     outline.apply_config(controller.render_config.outline)
-    controller._render_manager._sync_outline_lut()
+    controller._render_manager._sync_visual_lut()
     outline.set_placements(has_inward=True, has_outward=False)
     renderer.effect_passes = (
         outline,
@@ -363,7 +363,7 @@ def test_selection_update_is_in_place(label_scene):
 def test_installing_the_blender_preserves_the_pick_grant(offscreen_renderer):
     """Installing must not discard TEXTURE_BINDING on pick, in either order.
 
-    ``install_outline_blender`` replaces the whole blender, so a grant made
+    ``install_cellier_blender`` replaces the whole blender, so a grant made
     beforehand lived on the object being thrown away.  The symptom was
     silent: ``get_pick_view`` returned None, the outline pass took its
     passthrough branch, and enabling outlines made them stop working
@@ -386,9 +386,9 @@ def test_installing_the_blender_preserves_the_pick_grant(offscreen_renderer):
         renderer = gfx.WgpuRenderer(canvas)
         if grant_first:
             assert enable_pick_texture_binding(renderer) is True
-            assert install_outline_blender(renderer) is True
+            assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
         else:
-            assert install_outline_blender(renderer) is True
+            assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
             assert enable_pick_texture_binding(renderer) is True
 
         canvas.request_draw(lambda r=renderer: r.render(scene, camera))

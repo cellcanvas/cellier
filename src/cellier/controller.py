@@ -46,12 +46,12 @@ from cellier.events._events import (
 )
 from cellier.logging import _CAMERA_LOGGER, _SOURCE_ID_LOGGER
 from cellier.render._config import RenderManagerConfig
-from cellier.render._outline_lut import (
+from cellier.render._scene_config import VisualRenderConfig
+from cellier.render._visual_lut import (
     KIND_LABEL,
     KIND_WHOLE_OBJECT,
     PLACEMENT_OUTWARD,
 )
-from cellier.render._scene_config import VisualRenderConfig
 from cellier.render.render_manager import RenderManager
 from cellier.render.visuals._canvas_overlay import GFXCenteredAxes2D
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
@@ -1642,6 +1642,10 @@ class CellierController:
                 canvas.show_object(gfx_scene)
                 state = canvas.capture_camera_state()
                 self._update_camera_model(scene_id, cid, state)
+        # A fit already walked the scene graph, so this is the cheapest
+        # moment to re-derive the ambient occlusion radius from the scene
+        # bounding box.
+        self._render_manager.update_ssao_radius(scene_id)
 
     def add_canvas_overlay_model(
         self,
@@ -2811,6 +2815,62 @@ class CellierController:
     def outline_selection_enabled(self, value: bool) -> None:
         self._render_manager.outline_selection_enabled = value
 
+    @property
+    def ssao_enabled(self) -> bool:
+        """Whether the screen-space ambient occlusion pass is active.
+
+        Ambient occlusion darkens creases by sampling the depth buffer, and
+        is the cheapest shape cue available for cellier's default unlit
+        isosurfaces.  It runs in 3D only.
+        """
+        return self._render_manager.ssao_enabled
+
+    @ssao_enabled.setter
+    def ssao_enabled(self, value: bool) -> None:
+        self._render_manager.ssao_enabled = value
+
+    @property
+    def ssao_radius(self) -> float | None:
+        """Occlusion hemisphere radius in scene units, or ``None`` for auto.
+
+        ``None`` derives the radius from the scene bounding box diagonal
+        (``render_config.ssao.auto_radius_fraction``, 2 percent by
+        default), which is the only default that means anything across
+        cellier's coordinate systems.
+        """
+        return self._render_manager.ssao_radius
+
+    @ssao_radius.setter
+    def ssao_radius(self, value: float | None) -> None:
+        self._render_manager.ssao_radius = value
+
+    @property
+    def ssao_strength(self) -> float:
+        """How far the occlusion is applied, 0 (off) to 1 (full)."""
+        return self._render_manager.ssao_strength
+
+    @ssao_strength.setter
+    def ssao_strength(self, value: float) -> None:
+        self._render_manager.ssao_strength = value
+
+    @property
+    def ssao_power(self) -> float:
+        """Contrast exponent applied to the occlusion before the multiply."""
+        return self._render_manager.ssao_power
+
+    @ssao_power.setter
+    def ssao_power(self, value: float) -> None:
+        self._render_manager.ssao_power = value
+
+    def apply_ssao_config(self) -> None:
+        """Push ``render_config.ssao`` onto every canvas's occlusion pass.
+
+        Needed after mutating the config model in place.  ``n_samples`` and
+        ``blur_radius`` are shader template vars, so changing them
+        recompiles; the rest are uniforms and do not.
+        """
+        self._render_manager.apply_ssao_config()
+
     def apply_outline_config(self) -> None:
         """Push ``render_config.outline`` onto every canvas's outline pass.
 
@@ -3929,6 +3989,70 @@ class CellierController:
             visual_id, slot=slot, placement=placement, kind=kind
         )
         self._request_draw_for_visual(visual_id)
+
+    def set_visual_ambient_occlusion(
+        self, visual_id: UUID, enabled: bool | None = None
+    ) -> None:
+        """Choose whether one visual receives ambient occlusion.
+
+        Requires ``render_config.ssao.enabled`` (or
+        ``controller.ssao_enabled = True``); the occlusion pass is off by
+        default, and off in 2D always.
+
+        Parameters
+        ----------
+        visual_id :
+            Target visual.
+        enabled :
+            ``None`` (the default) restores the automatic rule: excluded
+            while the visual renders in a MIP-family mode (``mip``,
+            ``attenuated_mip``, ``minip``), included otherwise, re-derived
+            whenever the render mode changes.  ``True`` and ``False`` are
+            explicit and survive a render-mode change.
+
+        Notes
+        -----
+        A MIP-family mode writes the depth of the brightest sample along
+        the ray rather than of a surface, and that depth jumps between
+        neighbouring pixels, so occlusion computed from it shimmers.  That
+        is what the automatic rule exists for; an explicit ``True`` is
+        available for anyone who wants it anyway.
+
+        Excluding a visual sets ``pick_write = True`` on it, because the
+        occlusion pass identifies pixels through the pick buffer -- the
+        same side effect :meth:`set_visual_outline` has, and worth knowing
+        if you had deliberately turned picking off.  **The automatic rule
+        needs picking too**: a MIP visual with ``pick_write = False``
+        cannot be identified per pixel, so it receives occlusion despite
+        the default.
+
+        This controls whether the visual *receives* occlusion, not whether
+        it *casts* it: the occlusion loop reads raw depth, so an excluded
+        visual's depth still darkens its neighbours.
+        """
+        visual = self._get_visual_model(visual_id)
+        if enabled is False and not visual.pick_write:
+            # Set it on the model, not the material: the PickWriteChangedEvent
+            # wiring propagates it to the pygfx material for us.
+            visual.pick_write = True
+        self._render_manager.set_visual_ambient_occlusion(visual_id, enabled)
+        self._request_draw_for_visual(visual_id)
+
+    def get_visual_ambient_occlusion(self, visual_id: UUID) -> bool | None:
+        """Return the explicit occlusion setting for *visual_id*.
+
+        Parameters
+        ----------
+        visual_id :
+            Target visual.
+
+        Returns
+        -------
+        bool or None
+            ``None`` when the visual is on the automatic rule, which is
+            the default.
+        """
+        return self._render_manager.get_visual_ambient_occlusion(visual_id)
 
     def get_visual_outline(self, visual_id: UUID) -> tuple[int, str] | None:
         """Return ``(slot, placement)`` for *visual_id*, or ``None``.

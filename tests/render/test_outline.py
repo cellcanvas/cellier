@@ -25,18 +25,18 @@ from cellier.render._config import (
     OutlineLayerConfig,
     RenderManagerConfig,
 )
-from cellier.render._outline_lut import (
+from cellier.render._pick_buffer import enable_pick_texture_binding, get_pick_view
+from cellier.render._visual_lut import (
     KIND_WHOLE_OBJECT,
     LUT_HEIGHT,
     LUT_WIDTH,
     PLACEMENT_INWARD,
     PLACEMENT_OUTWARD,
-    OutlineLut,
+    VisualLut,
     decode_entry,
     encode_entry,
     lut_index,
 )
-from cellier.render._pick_buffer import enable_pick_texture_binding, get_pick_view
 
 PICK_ID_MAX = 2**20 - 1
 
@@ -91,13 +91,23 @@ def test_pick_buffer_helpers_degrade_on_unexpected_objects():
 
 
 def test_encode_decode_entry_round_trips():
-    """Every field survives a pack/unpack cycle."""
+    """Every field survives a pack/unpack cycle.
+
+    The ambient occlusion bit is included: it shares the byte with the
+    outline fields, and the two features must stay independent inside it.
+    """
     for slot in range(MAX_OUTLINE_SLOT + 1):
         for kind in (0, 1, 2):
             for placement in (PLACEMENT_INWARD, PLACEMENT_OUTWARD):
-                value = encode_entry(slot, kind, placement)
-                assert 0 <= value <= 255
-                assert decode_entry(value) == (slot, kind, placement)
+                for ao_excluded in (False, True):
+                    value = encode_entry(slot, kind, placement, ao_excluded=ao_excluded)
+                    assert 0 <= value <= 255
+                    assert decode_entry(value) == (
+                        slot,
+                        kind,
+                        placement,
+                        ao_excluded,
+                    )
 
 
 def test_encode_entry_rejects_out_of_range():
@@ -129,7 +139,7 @@ def test_lut_index_is_injective_over_the_full_id_range():
 
 def test_lut_round_trips_full_range_ids(offscreen_renderer):
     """Entries written for full-range ids read back from the right texel."""
-    lut = OutlineLut()
+    lut = VisualLut()
     rng = np.random.default_rng(1)
     ids = np.unique(rng.integers(1, PICK_ID_MAX, size=64, dtype=np.int64))
 
@@ -152,14 +162,14 @@ def test_lut_round_trips_full_range_ids(offscreen_renderer):
 
 def test_lut_entry_zero_stays_inert(offscreen_renderer):
     """Background (id 0) can never be given an entry."""
-    lut = OutlineLut()
+    lut = VisualLut()
     assert lut.set_entry(0, encode_entry(1)) is False
     assert lut.get_entry(0) == 0
 
 
 def test_lut_apply_clears_stale_entries(offscreen_renderer):
     """``apply`` makes the table match exactly, dropping what is gone."""
-    lut = OutlineLut()
+    lut = VisualLut()
     value = encode_entry(1, KIND_WHOLE_OBJECT, PLACEMENT_INWARD)
     lut.apply({12345: value, 987654: value})
     assert lut.entries == {12345: value, 987654: value}
@@ -257,7 +267,7 @@ class _SyntheticOutline:
             usage=wgpu.TextureUsage.RENDER_ATTACHMENT | wgpu.TextureUsage.COPY_SRC,
             dimension="2d",
         )
-        self._lut = OutlineLut()
+        self._lut = VisualLut()
         self._quad = _OutlineQuadPass()
 
     def _upload(self, data, fmt, bytes_per_row, height):
@@ -522,10 +532,10 @@ def outline_controller(qtbot, offscreen_renderer):
 
 def test_set_visual_outline_populates_every_world_object(outline_controller):
     """One cellier visual maps to several pygfx objects; all get the entry."""
-    from cellier.render._outline_lut import get_shared_outline_lut
+    from cellier.render._visual_lut import get_shared_visual_lut
 
     controller, scene, visual = outline_controller
-    get_shared_outline_lut().clear()
+    get_shared_visual_lut().clear()
 
     controller.set_visual_outline(visual.id, slot=2, placement="inward")
 
@@ -538,7 +548,7 @@ def test_set_visual_outline_populates_every_world_object(outline_controller):
     }
     assert expected_ids  # the mesh node exists at registration time
 
-    entries = get_shared_outline_lut().entries
+    entries = get_shared_visual_lut().entries
     assert set(entries) == expected_ids
     expected_value = encode_entry(2, KIND_WHOLE_OBJECT, PLACEMENT_INWARD)
     assert set(entries.values()) == {expected_value}
@@ -548,14 +558,14 @@ def test_set_visual_outline_populates_every_world_object(outline_controller):
 
 def test_set_visual_outline_slot_zero_clears(outline_controller):
     """Slot 0 removes the assignment and the LUT entries with it."""
-    from cellier.render._outline_lut import get_shared_outline_lut
+    from cellier.render._visual_lut import get_shared_visual_lut
 
     controller, _scene, visual = outline_controller
     controller.set_visual_outline(visual.id, slot=1)
-    assert get_shared_outline_lut().entries
+    assert get_shared_visual_lut().entries
 
     controller.set_visual_outline(visual.id, slot=0)
-    assert get_shared_outline_lut().entries == {}
+    assert get_shared_visual_lut().entries == {}
     assert controller.get_visual_outline(visual.id) is None
 
 
@@ -652,15 +662,15 @@ def test_outline_survives_a_world_object_rebuild(outline_controller):
     ``wobject.id`` is per-WorldObject, and cellier rebuilds world objects on
     2D/3D switches, multiscale brick updates and channel changes.  A
     write-once LUT would silently lose its entries; the per-frame re-sync
-    from ``_outline_assignments`` is what keeps them alive.
+    from ``_visual_flags`` is what keeps them alive.
     """
     import pygfx as gfx
 
-    from cellier.render._outline_lut import get_shared_outline_lut
+    from cellier.render._visual_lut import get_shared_visual_lut
 
     controller, scene, visual = outline_controller
     controller.set_visual_outline(visual.id, slot=1)
-    original = set(get_shared_outline_lut().entries)
+    original = set(get_shared_visual_lut().entries)
     assert original
 
     # Stand in for a rebuild: swap the node for a new one, which claims a
@@ -671,9 +681,9 @@ def test_outline_survives_a_world_object_rebuild(outline_controller):
     gfx_visual.node_2d = replacement
     gfx_visual.node = replacement
 
-    controller._render_manager._sync_outline_lut()
+    controller._render_manager._sync_visual_lut()
 
-    entries = get_shared_outline_lut().entries
+    entries = get_shared_visual_lut().entries
     assert set(entries) == {replacement.id}
     assert original.isdisjoint(entries)
 
@@ -702,7 +712,7 @@ def test_disabled_pass_leaves_the_frame_pixel_identical(offscreen_renderer):
         camera = gfx.OrthographicCamera()
         camera.show_object(scene)
         if install_pass:
-            outline = OutlinePass(renderer, OutlineLut())
+            outline = OutlinePass(renderer, VisualLut())
             outline.enabled = False
             renderer.effect_passes = (outline, *renderer.effect_passes)
         canvas.request_draw(lambda: renderer.render(scene, camera))
@@ -771,7 +781,7 @@ class _SceneOutline:
     depending on process-wide state set before pygfx imports.
     """
 
-    def __init__(self, lut: OutlineLut | None = None, size=(128, 128)) -> None:
+    def __init__(self, lut: VisualLut | None = None, size=(128, 128)) -> None:
         from rendercanvas.offscreen import RenderCanvas
 
         from cellier.render._outline import OutlinePass
@@ -782,7 +792,7 @@ class _SceneOutline:
         self.renderer.ppaa = "none"
         enable_pick_texture_binding(self.renderer)
 
-        self.lut = lut if lut is not None else OutlineLut()
+        self.lut = lut if lut is not None else VisualLut()
         self.pass_ = OutlinePass(self.renderer, self.lut)
         # ppaa is set first: its setter rebuilds effect_passes, which would
         # otherwise drop the outline pass again.
@@ -938,12 +948,12 @@ def _layer_config(*, boundaries: bool, selection: bool) -> OutlineConfig:
 
 def _layer_counts(controller, scene_id, *, boundaries: bool, selection: bool):
     """Render one layer combination; return ``(boundary px, selection px)``."""
-    from cellier.render._outline_lut import get_shared_outline_lut
+    from cellier.render._visual_lut import get_shared_visual_lut
 
     canvas_id = controller.get_canvas_ids(scene_id)[0]
     canvas_view = controller.get_canvas_view(canvas_id)
 
-    harness = _SceneOutline(lut=get_shared_outline_lut())
+    harness = _SceneOutline(lut=get_shared_visual_lut())
     harness.configure(
         _layer_config(boundaries=boundaries, selection=selection),
         has_inward=True,
@@ -1097,7 +1107,7 @@ def test_canvas_with_outlines_off_never_allocates_the_lut(qtbot, offscreen_rende
     table is resolved on first draw of an *enabled* pass, and the per-frame
     sync short-circuits while nothing is assigned.
     """
-    import cellier.render._outline_lut as lut_module
+    import cellier.render._visual_lut as lut_module
     from cellier.controller import CellierController
 
     saved = lut_module._SHARED_LUT
@@ -1110,11 +1120,11 @@ def test_canvas_with_outlines_off_never_allocates_the_lut(qtbot, offscreen_rende
 
         canvas = next(iter(controller._render_manager._canvases.values()))
         assert canvas._outline_pass.enabled is False
-        controller._render_manager._sync_outline_lut()
-        assert lut_module.peek_shared_outline_lut() is None
+        controller._render_manager._sync_visual_lut()
+        assert lut_module.peek_shared_visual_lut() is None
 
         # Touching the property is what allocates it.
-        assert canvas._outline_pass.lut is lut_module.peek_shared_outline_lut()
-        assert lut_module.peek_shared_outline_lut() is not None
+        assert canvas._outline_pass.lut is lut_module.peek_shared_visual_lut()
+        assert lut_module.peek_shared_visual_lut() is not None
     finally:
         lut_module._SHARED_LUT = saved

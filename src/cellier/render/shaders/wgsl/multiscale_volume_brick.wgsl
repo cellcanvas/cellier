@@ -2,6 +2,7 @@
 {$ include 'pygfx.colormap.wgsl' $}
 {$ include 'pygfx.image_sample.wgsl' $}
 {$ include 'pygfx.light_phong_simple.wgsl' $}
+{$ include 'cellier.view_normal.wgsl' $}
 // NOTE: do NOT include 'pygfx.volume_common.wgsl' — we bypass get_vol_geometry().
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -881,8 +882,13 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     $$ endif
 
     let view_dir   = normalize(-ray_dir);
-    let is_front   = dot(normal, view_dir) > 0.0;
-    let lit_color  = lighting_phong(is_front, normal, view_dir, physical_color);
+    // Face the normal toward the viewer before shading.  pygfx's
+    // light_phong_simple.wgsl declares lighting_phong(normal, view_dir,
+    // albedo); an earlier signature took a leading is_front flag and did
+    // this flip internally, and calling it with four arguments is a
+    // shader compile error.  label_volume.wgsl already flips by hand.
+    let lit_normal = select(-normal, normal, dot(normal, view_dir) > 0.0);
+    let lit_color  = lighting_phong(lit_normal, view_dir, physical_color);
 
     let opacity = color.a * u_material.opacity;
     do_alpha_test(opacity);
@@ -895,6 +901,19 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
 
     out.color = vec4<f32>(lit_color, opacity);
     out.depth = ndc_pos_r.z / ndc_pos_r.w;
+
+    $$ if write_normal
+    // ── Ambient occlusion normal target ───────────────────────────────
+    // The gradient is evaluated in voxel INDEX space, so converting it to
+    // a direction in the object's own (normalized) space needs the
+    // per-axis index-per-unit factor.  Without it a z-anisotropic dataset
+    // writes normals tilted toward z, which the occlusion pass would then
+    // trust over the reconstruction it is there to replace.
+    let index_per_norm = dataset_size / norm_size;
+    let local_normal   = -gradient * index_per_norm;
+    let view_pos_r     = u_stdinfo.cam_transform * world_pos_r;
+    out.normal = pack_view_normal(local_normal, view_pos_r.xyz);
+    $$ endif
 
     $$ if write_pick
     let iso_pick_coord = (refined_pos / norm_size) + vec3<f32>(0.5);

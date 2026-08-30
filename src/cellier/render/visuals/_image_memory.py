@@ -9,6 +9,7 @@ import pygfx as gfx
 
 from cellier._state import AxisAlignedSelectionState, DimsState
 from cellier.data.image._image_requests import ChunkRequest
+from cellier.render.shaders._image_volume import IMAGE_VOLUME_MATERIALS
 from cellier.render.visuals._pick import memory_image_data_coordinate
 from cellier.render.visuals._slicing import map_world_slice_to_voxel
 
@@ -45,12 +46,14 @@ def _make_colormap(color_map) -> gfx.TextureMap:
     return color_map.to_pygfx(N=256)
 
 
-# Map InMemoryImageAppearance.render_mode -> pygfx volume material class.
-_VOLUME_MATERIALS: dict[str, type] = {
-    "mip": gfx.VolumeMipMaterial,
-    "iso": gfx.VolumeIsoMaterial,
-    "minip": gfx.VolumeMinipMaterial,
-}
+# Map InMemoryImageAppearance.render_mode -> volume material class.
+#
+# These are cellier's own subclasses, not pygfx's: the shader behind them
+# writes the ``normal`` render target the ambient occlusion pass prefers,
+# and fixes the iso branch's depth, which upstream computes as if the
+# volume sat at the origin.  See
+# ``cellier.render.shaders._image_volume``.
+_VOLUME_MATERIALS: dict[str, type] = IMAGE_VOLUME_MATERIALS
 
 
 def _make_volume_material(appearance, colormap, pick_write: bool):
@@ -73,7 +76,7 @@ def _make_volume_material(appearance, colormap, pick_write: bool):
     Returns
     -------
     gfx.VolumeRayMaterial
-        A configured pygfx volume material.
+        A configured volume material.
     """
     material_cls = _VOLUME_MATERIALS[appearance.render_mode]
     material = material_cls(

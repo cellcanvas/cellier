@@ -19,7 +19,10 @@ import numpy as np
 import pygfx as gfx
 import pytest
 
-from cellier.render._outline_blender import install_outline_blender
+from cellier.render._cellier_blender import (
+    OUTLINE_ID_TARGET,
+    install_cellier_blender,
+)
 
 # The 3D packing cellier's label and multiscale volume shaders write:
 #   pick_pack(global_id, 20) + pick_pack(x, 14) + pick_pack(y, 14)
@@ -83,7 +86,7 @@ def test_outline_target_does_not_disturb_the_pick_payload(offscreen_renderer):
     """Adding a fourth fragment output leaves pick byte-identical.
 
     Renders the same scene through the stock blender and through
-    ``OutlineBlender`` and compares what ``get_pick_info`` reports at a
+    ``CellierBlender`` and compares what ``get_pick_info`` reports at a
     grid of positions.  This is the direct check on Stage 7a's central
     claim.
     """
@@ -97,13 +100,13 @@ def test_outline_target_does_not_disturb_the_pick_payload(offscreen_renderer):
     camera = gfx.OrthographicCamera()
     camera.show_object(scene)
 
-    def _pick_all(outline_blender: bool):
+    def _pick_all(with_target: bool):
         canvas = RenderCanvas(size=(64, 64), pixel_ratio=1)
         renderer = gfx.WgpuRenderer(canvas)
         renderer.pixel_scale = 1
         renderer.ppaa = "none"
-        if outline_blender:
-            assert install_outline_blender(renderer) is True
+        if with_target:
+            assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
         canvas.request_draw(lambda: renderer.render(scene, camera))
         canvas.draw()
         results = []
@@ -119,8 +122,8 @@ def test_outline_target_does_not_disturb_the_pick_payload(offscreen_renderer):
                 )
         return results
 
-    stock = _pick_all(outline_blender=False)
-    with_target = _pick_all(outline_blender=True)
+    stock = _pick_all(with_target=False)
+    with_target = _pick_all(with_target=True)
 
     assert any(hit for hit, _f, _c in stock), "the probe grid never hit the mesh"
     assert stock == with_target
