@@ -415,9 +415,10 @@ class GFXPointsMemoryVisual:
         ``color_mode`` and ``size_mode`` are applied straight to the
         material; nothing in ``_commit`` overwrites them (D20).
 
-        Note: ``size_space`` is a constructor-only parameter on
-        ``gfx.PointsMaterial``; changes to ``size_space`` require
-        rebuilding the material.
+        ``size_space`` is applied live.  It was previously documented here
+        as constructor-only, which is not true of the pinned pygfx:
+        assigning it on a live material re-renders (measured 80 -> 1280 lit
+        pixels for a 10-unit marker under a 4x world-to-screen scale).
         """
         name = event.field_name
         val = event.new_value
@@ -429,6 +430,8 @@ class GFXPointsMemoryVisual:
         elif name == "size_mode":
             self._material.size_mode = val
             self._size_mode = val
+        elif name == "size_space":
+            self._material.size_space = val
         elif name == "opacity":
             self._material.opacity = val
         elif name == "size":

@@ -664,9 +664,10 @@ class GFXGraphMemoryVisual:
     def on_appearance_changed(self, event: AppearanceChangedEvent) -> None:
         """Apply appearance field changes to the live materials.
 
-        ``node_size_space`` / ``edge_thickness_space`` are constructor-only
-        on their pygfx materials; changing them requires a rebuild and is
-        not handled here, matching points and lines.
+        ``node_size_space`` / ``edge_thickness_space`` are applied live.
+        They were previously documented as constructor-only, which is not
+        true of the pinned pygfx: assigning either on a live material
+        re-renders.
         """
         name = event.field_name
         val = event.new_value
@@ -681,6 +682,8 @@ class GFXGraphMemoryVisual:
         elif name == "node_size_mode":
             self._node_material.size_mode = val
             self._node_size_mode = val
+        elif name == "node_size_space":
+            self._node_material.size_space = val
         elif name == "node_visible":
             self.node_points.visible = val
         elif name == "node_pick_write":
@@ -691,6 +694,8 @@ class GFXGraphMemoryVisual:
             self._edge_material.color = val
         elif name == "edge_thickness":
             self._edge_material.thickness = val
+        elif name == "edge_thickness_space":
+            self._edge_material.thickness_space = val
         elif name == "edge_color_mode":
             self._edge_material.color_mode = val
             self._edge_color_mode = val

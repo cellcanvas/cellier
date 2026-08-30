@@ -408,9 +408,8 @@ class GFXLinesMemoryVisual:
         ``color_mode`` is applied straight to the material; nothing in
         ``_commit`` overwrites it (D20).
 
-        Note: ``thickness_space`` is a constructor-only parameter on
-        ``gfx.LineSegmentMaterial``; changes to ``thickness_space``
-        require rebuilding the material.
+        ``thickness_space`` is applied live.  It was previously documented
+        here as constructor-only, which is not true of the pinned pygfx.
         """
         name = event.field_name
         val = event.new_value
@@ -419,6 +418,8 @@ class GFXLinesMemoryVisual:
         elif name == "color_mode":
             self._material.color_mode = val
             self._color_mode = val
+        elif name == "thickness_space":
+            self._material.thickness_space = val
         elif name == "opacity":
             self._material.opacity = val
         elif name == "thickness":

@@ -326,6 +326,14 @@ def test_declared_vertex_without_colors_raises():
         v.on_data_ready([(None, data)])
 
 
+def test_thickness_space_appearance_change_reaches_the_material():
+    """thickness_space is applied live, not silently dropped."""
+    v = _visual(_store())
+    assert v._material.thickness_space == "screen"
+    v.on_appearance_changed(_appearance_event("thickness_space", "world"))
+    assert v._material.thickness_space == "world"
+
+
 def test_lines_alpha_buffer_is_ones():
     """The migrated visual uploads an all-ones alpha buffer."""
     v = _visual(_store())

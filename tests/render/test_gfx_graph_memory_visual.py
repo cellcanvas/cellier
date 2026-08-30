@@ -350,6 +350,19 @@ def test_appearance_events_route_to_the_right_child():
     assert visual._node_material.depth_compare == "<"
 
 
+def test_space_appearance_changes_reach_the_materials():
+    """node_size_space / edge_thickness_space are applied live."""
+    visual = _visual(_store())
+    assert visual._node_material.size_space == "screen"
+    assert visual._edge_material.thickness_space == "screen"
+
+    visual.on_appearance_changed(_appearance_event("node_size_space", "world"))
+    visual.on_appearance_changed(_appearance_event("edge_thickness_space", "world"))
+
+    assert visual._node_material.size_space == "world"
+    assert visual._edge_material.thickness_space == "world"
+
+
 def test_shared_appearance_fields_reach_both_materials():
     visual = _visual(_store())
     visual.on_appearance_changed(_appearance_event("opacity", 0.25))

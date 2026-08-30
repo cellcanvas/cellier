@@ -520,6 +520,19 @@ def test_size_mode_appearance_change_reaches_the_material():
     assert v._size_mode == "vertex"
 
 
+def test_size_space_appearance_change_reaches_the_material():
+    """size_space is applied live, not silently dropped.
+
+    It was previously unhandled, with a docstring claiming the pygfx field
+    was constructor-only.  That is false for the pinned pygfx, so changing
+    ``appearance.size_space`` did nothing and the code said that was fine.
+    """
+    v = _visual(_store())
+    assert v._material.size_space == "screen"
+    v.on_appearance_changed(_appearance_event("size_space", "world"))
+    assert v._material.size_space == "world"
+
+
 def test_points_alpha_buffer_is_ones():
     """The migrated visual uploads an all-ones alpha buffer."""
     from cellier.data.points._points_requests import PointsData
@@ -631,6 +644,45 @@ async def test_uniform_size_mode_renders_equal_marker_sizes(
     assert left > 0 and right > 0
     assert abs(left - right) <= max(2, left * 0.1), (
         f"declared uniform must ignore the store's sizes, got {left} vs {right}"
+    )
+
+
+async def test_size_space_change_alters_the_rendered_marker(
+    controller, render_scene, reslice
+):
+    """Flipping size_space on a live visual must change the drawn size.
+
+    Asserting the material property alone is not enough: pygfx could accept
+    the assignment without rebuilding the pipeline, in which case the
+    picture would never update.  This renders twice on one live visual and
+    compares lit pixels.
+    """
+    positions = np.array([[0, 16, 16], [0, 16, 16]], dtype=np.float32)
+    store = PointsMemoryStore(positions=positions)
+
+    scene = controller.add_scene(dim="2d", name="scene")
+    visual = controller.add_points(
+        data=store,
+        scene_id=scene.id,
+        appearance=PointsMarkerAppearance(
+            size=10.0, color=(1.0, 0.0, 0.0, 1.0), size_space="screen"
+        ),
+    )
+    controller.add_canvas(scene_id=scene.id)
+    await reslice(controller, scene.id)
+
+    def _red_px() -> int:
+        frame = render_scene(controller, scene.id, size=(256, 256))
+        return int((frame[..., 0] > 100).sum())
+
+    screen_px = _red_px()
+    visual.appearance.size_space = "world"
+    world_px = _red_px()
+
+    assert screen_px > 0, "the marker should draw in screen space"
+    assert world_px != screen_px, (
+        f"flipping size_space must change the rendered marker, got "
+        f"{screen_px} px both ways -- the change is not reaching the material"
     )
 
 
