@@ -161,6 +161,14 @@ testpaths = ["tests"]
 filterwarnings = [
     "error",
     "ignore:'asyncio.AbstractEventLoopPolicy':DeprecationWarning",
+    # spatial_graph -> witty -> Cheetah -> `import cgi`.  Cheetah guards that
+    # import with `except ImportError` for Python 3.13, where cgi was removed,
+    # but on 3.11/3.12 cgi still exists and only warns -- and a try/except
+    # cannot catch a warning.  Fires once per process, on whichever test first
+    # builds a SpatialGraph, so it cannot be pinned to one test module.
+    # Drop this when Cheetah stops importing cgi, or when 3.11 and 3.12 leave
+    # the CI matrix.
+    "ignore:'cgi' is deprecated:DeprecationWarning",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
