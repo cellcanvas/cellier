@@ -155,8 +155,10 @@ class GFXMeshMemoryVisual:
         self._material_3d.pick_write = visual_model.pick_write
         self._material_2d.pick_write = visual_model.pick_write
         self._empty_material = gfx.MeshBasicMaterial(color=(0, 0, 0, 0), opacity=0.0)
-        # Track color_mode as instance state to detect transitions.
-        self._current_color_mode: str = appearance.color_mode
+        # The declared color_mode, honoured verbatim.  It is a caller
+        # declaration of where RGB comes from and is never inferred from
+        # the data nor written back at commit time (D20).
+        self._color_mode: str = appearance.color_mode
         self._is_empty: bool = True
 
         # Maps each rendered face to its face index in the store's full face
@@ -311,8 +313,17 @@ class GFXMeshMemoryVisual:
 
         Pads 2D positions/normals to 3D with z=0.
         Swaps material between 3D, 2D, and empty variants as needed.
-        Updates color_mode on live materials when the incoming data
-        changes mode (e.g. store gains colors after first reslice).
+
+        ``color_mode`` is written from the *appearance*, never from the
+        data (D20).  Two ways it can disagree with the store, both raised
+        rather than silently corrected:
+
+        - declaring ``"vertex"`` or ``"face"`` when the store carries no
+          colours at all;
+        - declaring ``"vertex"`` against per-face colours, or the reverse.
+          pygfx does not validate this -- it renders the mismatched buffer
+          without complaining -- so an unchecked mismatch is a wrong
+          picture with no signal.
         """
         positions = mesh_data.positions
         normals = mesh_data.normals
@@ -337,16 +348,25 @@ class GFXMeshMemoryVisual:
             "indices": np.ascontiguousarray(mesh_data.indices),
             "normals": nor3d,
         }
+        if self._color_mode != "uniform" and not mesh_data.is_empty:
+            if colors is None:
+                raise ValueError(
+                    f"Visual {self.visual_model_id}: appearance declares "
+                    f"color_mode='{self._color_mode}' but the mesh store "
+                    "carries no colors. Set color_mode='uniform', or give "
+                    "the store colors and a colors_layout."
+                )
+            if mesh_data.color_mode != self._color_mode:
+                raise ValueError(
+                    f"Visual {self.visual_model_id}: appearance declares "
+                    f"color_mode='{self._color_mode}' but the store's "
+                    f"colors_layout is '{mesh_data.color_mode}'. pygfx will "
+                    "render the mismatched buffer without complaining, so "
+                    "this is refused rather than corrected."
+                )
         if colors is not None:
             geom_kwargs["colors"] = np.ascontiguousarray(colors)
         self.node.geometry = gfx.Geometry(**geom_kwargs)
-
-        # Update color_mode on live materials if it changed.
-        incoming_mode = mesh_data.color_mode if colors is not None else "uniform"
-        if incoming_mode != self._current_color_mode and not mesh_data.is_empty:
-            self._current_color_mode = incoming_mode
-            self._material_3d.color_mode = incoming_mode
-            self._material_2d.color_mode = incoming_mode
 
         # Select material.
         if mesh_data.is_empty:
@@ -415,8 +435,8 @@ class GFXMeshMemoryVisual:
     def on_appearance_changed(self, event: AppearanceChangedEvent) -> None:
         """Apply appearance field changes to live materials.
 
-        color_mode changes also update _current_color_mode so the next
-        _commit does not overwrite them.
+        ``color_mode`` is applied straight to both materials; nothing in
+        ``_commit`` overwrites it (D20).
         """
         name = event.field_name
         val = event.new_value
@@ -425,7 +445,7 @@ class GFXMeshMemoryVisual:
                 mat.color = val
             elif name == "color_mode":
                 mat.color_mode = val
-                self._current_color_mode = val
+                self._color_mode = val
             elif name == "opacity":
                 mat.opacity = val
             elif name == "side":

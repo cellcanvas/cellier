@@ -5,7 +5,7 @@ import asyncio
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import ConfigDict, field_serializer, field_validator
+from pydantic import ConfigDict, field_serializer, field_validator, model_validator
 
 from cellier.data._base_data_store import BaseDataStore
 from cellier.data.mesh._mesh_requests import MeshData, MeshSliceRequest
@@ -61,8 +61,19 @@ class MeshMemoryStore(BaseDataStore):
         **Must be int32** — pygfx rejects int64 at upload time.
         int64 input is coerced silently by the validator.
     colors : np.ndarray | None
-        Per-vertex (n_vertices, 4) or per-face (n_faces, 4) float32
-        RGBA.  Layout inferred from shape.
+        Per-vertex (n_vertices, 4) or per-face (n_faces, 4) float32 RGBA.
+        Which of the two is declared by ``colors_layout``, never inferred.
+    colors_layout : str | None
+        ``"vertex"`` or ``"face"``.  **Required whenever ``colors`` is
+        set**, and rejected when it is not.
+
+        This used to be inferred by comparing ``colors.shape[0]`` against
+        ``n_faces``, which is ambiguous whenever a mesh has as many
+        vertices as faces -- a tetrahedron has four of each, so its
+        per-vertex colours were reported as per-face and gathered wrongly.
+        The layout also decides which rows ``get_data`` gathers, so it is
+        not a rendering preference the appearance can supply: it is a fact
+        about the array that only the caller knows.
     name : str
         Human-readable label.
     """
@@ -72,8 +83,13 @@ class MeshMemoryStore(BaseDataStore):
     positions: np.ndarray
     indices: np.ndarray
     colors: np.ndarray | None = None
+    colors_layout: Literal["vertex", "face"] | None = None
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    # validate_assignment so `store.colors = ...` re-runs the layout check.
+    # Without it the invariant only holds at construction, and assigning
+    # colours later leaves colors_layout None -- which `colors_mode` then
+    # returns, and `get_data`'s `== "face"` test silently reads as vertex.
+    model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
     # ------------------------------------------------------------------
     # Validators
@@ -96,6 +112,41 @@ class MeshMemoryStore(BaseDataStore):
         if v is None:
             return None
         return np.ascontiguousarray(np.asarray(v, dtype=np.float32))
+
+    @model_validator(mode="after")
+    def _check_colors_layout(self) -> MeshMemoryStore:
+        """Require an explicit layout for colours, and sanity-check it.
+
+        The length check catches a transposed or wrongly declared array, but
+        cannot adjudicate a mesh with as many vertices as faces -- both
+        counts are valid there, which is exactly the case the old inference
+        got wrong.  In that case the declaration is simply authoritative,
+        which is the point of having one.
+        """
+        if self.colors is None:
+            if self.colors_layout is not None:
+                raise ValueError(
+                    "colors_layout was given without colors. Drop it, or "
+                    "pass the colors it describes."
+                )
+            return self
+        if self.colors_layout is None:
+            raise ValueError(
+                "colors requires an explicit colors_layout of 'vertex' or "
+                "'face'. It is not inferred from the array length: a mesh "
+                "with as many vertices as faces (a tetrahedron, say) is "
+                "ambiguous, and the layout decides which rows are gathered "
+                "when slicing."
+            )
+        expected = self.n_vertices if self.colors_layout == "vertex" else self.n_faces
+        other = self.n_faces if self.colors_layout == "vertex" else self.n_vertices
+        got = self.colors.shape[0]
+        if got != expected and got != other:
+            raise ValueError(
+                f"colors_layout='{self.colors_layout}' expects {expected} "
+                f"rows, but colors has {got}."
+            )
+        return self
 
     # ------------------------------------------------------------------
     # Serializers
@@ -127,10 +178,15 @@ class MeshMemoryStore(BaseDataStore):
 
     @property
     def colors_mode(self) -> str:
-        """``'vertex'``, ``'face'``, or ``'none'``."""
+        """``'vertex'``, ``'face'``, or ``'none'`` -- the declared layout.
+
+        Reads ``colors_layout`` rather than comparing array lengths.  The
+        old inference reported per-vertex colours as per-face on any mesh
+        with as many vertices as faces.
+        """
         if self.colors is None:
             return "none"
-        return "face" if self.colors.shape[0] == self.n_faces else "vertex"
+        return self.colors_layout
 
     # ------------------------------------------------------------------
     # Async data access — three checkpoints for cancellability

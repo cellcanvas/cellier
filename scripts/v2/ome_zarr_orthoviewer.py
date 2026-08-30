@@ -896,6 +896,7 @@ def _make_axis_meshes(
             positions=positions,
             indices=indices,
             colors=face_colors,
+            colors_layout="face",
             name=view_name,
         )
         appearance = MeshFlatAppearance(
@@ -1065,6 +1066,7 @@ def _make_plane_mesh(
         positions=positions,
         indices=indices,
         colors=colors,
+        colors_layout="face",
         name="slice_planes",
     )
 

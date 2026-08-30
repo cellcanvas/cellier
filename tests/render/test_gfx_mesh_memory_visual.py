@@ -311,22 +311,77 @@ def test_build_slice_request_2d_updates_matrix_on_axis_change():
     assert v._last_displayed_axes == (1, 2)
 
 
-def test_commit_uploads_colors_and_switches_color_mode():
-    v = _visual(_store())
-    data = MeshData(
+def _mesh_data(color_mode="vertex", colors="default"):
+    if colors == "default":
+        colors = np.array([[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]], dtype=np.float32)
+    return MeshData(
         request_id=uuid4(),
         positions=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=np.float32),
         indices=np.array([[0, 1, 2]], dtype=np.int32),
         normals=np.tile([0.0, 0.0, 1.0], (3, 1)).astype(np.float32),
-        colors=np.array([[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]], dtype=np.float32),
-        color_mode="face",
+        colors=colors,
+        color_mode=color_mode,
         is_empty=False,
     )
-    v.on_data_ready([(None, data)])
+
+
+def test_commit_uploads_colors_without_touching_color_mode():
+    """The store's colours are uploaded; the declared mode is untouched.
+
+    Inverted at the D20 extension to mesh.  This previously asserted the
+    opposite -- that incoming ``"face"`` data overrode the appearance's
+    declaration on both live materials.
+    """
+    v = _visual(_store(), appearance=MeshFlatAppearance(color_mode="vertex"))
+    v.on_data_ready([(None, _mesh_data(color_mode="vertex"))])
+
     assert v.node.geometry.colors is not None
-    assert v._current_color_mode == "face"
-    assert v._material_3d.color_mode == "face"
-    assert v._material_2d.color_mode == "face"
+    assert v._color_mode == "vertex"
+    assert v._material_3d.color_mode == "vertex"
+    assert v._material_2d.color_mode == "vertex"
+
+
+def test_declared_uniform_survives_store_colors():
+    """Store carries colours, appearance says uniform -> stays uniform (D20)."""
+    v = _visual(_store(), appearance=MeshFlatAppearance(color_mode="uniform"))
+    v.on_data_ready([(None, _mesh_data(color_mode="vertex"))])
+
+    assert v._color_mode == "uniform"
+    assert v._material_3d.color_mode == "uniform"
+    assert v._material_2d.color_mode == "uniform"
+
+
+def test_declared_colored_without_colors_raises():
+    v = _visual(_store(), appearance=MeshFlatAppearance(color_mode="vertex"))
+    with pytest.raises(ValueError, match="carries no colors"):
+        v.on_data_ready([(None, _mesh_data(colors=None))])
+
+
+def test_declared_layout_contradicting_the_store_raises():
+    """Declaring "vertex" against per-face colours is refused, not corrected.
+
+    pygfx renders a mismatched buffer without complaint -- verified -- so
+    an unchecked contradiction is a wrong picture with no signal.
+    """
+    v = _visual(_store(), appearance=MeshFlatAppearance(color_mode="vertex"))
+    with pytest.raises(ValueError, match="colors_layout is 'face'"):
+        v.on_data_ready([(None, _mesh_data(color_mode="face"))])
+
+
+def test_empty_slice_does_not_raise_on_declared_colors():
+    """An empty slice carries no colours by construction; not a bug."""
+    v = _visual(_store(), appearance=MeshFlatAppearance(color_mode="vertex"))
+    data = MeshData(
+        request_id=uuid4(),
+        positions=np.zeros((3, 3), dtype=np.float32),
+        indices=np.array([[0, 1, 2]], dtype=np.int32),
+        normals=np.zeros((3, 3), dtype=np.float32),
+        colors=None,
+        color_mode="vertex",
+        is_empty=True,
+    )
+    v.on_data_ready([(None, data)])
+    assert v._is_empty
 
 
 # ── Event handlers — appearance ────────────────────────────────────────────────
@@ -340,7 +395,7 @@ def test_on_appearance_changed_shared_fields():
 
     v.on_appearance_changed(_appearance_event("color_mode", "vertex"))
     assert v._material_3d.color_mode == "vertex"
-    assert v._current_color_mode == "vertex"
+    assert v._color_mode == "vertex"
 
     v.on_appearance_changed(_appearance_event("side", "front"))
     assert v._material_3d.side == "front"

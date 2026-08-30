@@ -59,6 +59,10 @@ def main() -> None:
     store = MeshMemoryStore(
         positions=verts,
         indices=faces,
+        # Declared up front so the Randomize button can assign colours later;
+        # the layout is never inferred from the array length.
+        colors=_random_vertex_colors(verts.shape[0]),
+        colors_layout="vertex",
         name="sphere",
     )
     z_min = int(verts[:, 0].min())
@@ -153,8 +157,13 @@ def main() -> None:
         """Assign new random per-vertex colors and trigger a reslice.
 
         Updates store.colors directly (psygnal EventedModel emits the
-        field-change signal).  Also ensures color_mode is "vertex" on the
-        appearance so the material renders them.
+        field-change signal).  The store's colors_layout must already be
+        set -- it is declared at construction below -- because the layout
+        decides which rows a slice gathers and is never inferred.
+
+        The appearance's color_mode is what decides whether the material
+        uses them, and it is honoured verbatim (D20), so it has to be set
+        too.
         """
         store.colors = _random_vertex_colors(store.n_vertices)
         visual.appearance.color_mode = "vertex"

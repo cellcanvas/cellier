@@ -4,6 +4,7 @@ import asyncio
 from uuid import uuid4
 
 import numpy as np
+import pytest
 
 from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
 from cellier.data.mesh._mesh_requests import MeshSliceRequest
@@ -66,17 +67,34 @@ def test_int64_indices_coerced_to_int32():
     assert store.indices.dtype == np.int32
 
 
-def test_colors_mode_vertex():
-    # Use a triangle: 3 vertices, 1 face — unambiguously vertex-colored.
-    positions = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=np.float32)
-    indices = np.array([[0, 1, 2]], dtype=np.int32)
-    store = MeshMemoryStore(positions=positions, indices=indices)
-    store.colors = np.ones((3, 4), dtype=np.float32)  # 3 colors == n_vertices (1)
+def _triangle():
+    """3 vertices, 1 face."""
+    return (
+        np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=np.float32),
+        np.array([[0, 1, 2]], dtype=np.int32),
+    )
+
+
+def _tetrahedron():
+    """4 vertices and 4 faces -- the count the old inference could not read."""
+    return (
+        np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float32),
+        np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], dtype=np.int32),
+    )
+
+
+def test_colors_mode_reports_the_declared_layout():
+    positions, indices = _triangle()
+    store = MeshMemoryStore(
+        positions=positions,
+        indices=indices,
+        colors=np.ones((3, 4), dtype=np.float32),
+        colors_layout="vertex",
+    )
     assert store.colors_mode == "vertex"
 
 
 def test_colors_mode_face():
-    # Use a store where n_faces != n_vertices to test unambiguously.
     positions = np.array(
         [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0.5, 0.5, 1]],
         dtype=np.float32,
@@ -84,9 +102,96 @@ def test_colors_mode_face():
     indices = np.array(
         [[0, 1, 2], [1, 3, 2], [0, 1, 4], [1, 3, 4], [0, 2, 4]], dtype=np.int32
     )
-    store2 = MeshMemoryStore(positions=positions, indices=indices)
-    store2.colors = np.ones((5, 4), dtype=np.float32)  # 5 faces
-    assert store2.colors_mode == "face"
+    store = MeshMemoryStore(
+        positions=positions,
+        indices=indices,
+        colors=np.ones((5, 4), dtype=np.float32),
+        colors_layout="face",
+    )
+    assert store.colors_mode == "face"
+
+
+def test_colors_mode_none_without_colors():
+    positions, indices = _triangle()
+    store = MeshMemoryStore(positions=positions, indices=indices)
+    assert store.colors_mode == "none"
+
+
+def test_equal_vertex_and_face_counts_honour_the_declaration():
+    """A tetrahedron has 4 vertices and 4 faces.
+
+    The old inference compared ``colors.shape[0]`` against ``n_faces`` and
+    so reported per-vertex colours here as per-face -- and then gathered
+    the wrong rows when slicing.  With the layout declared, both readings
+    are available and neither is guessed.
+    """
+    positions, indices = _tetrahedron()
+    colors = np.ones((4, 4), dtype=np.float32)
+
+    as_vertex = MeshMemoryStore(
+        positions=positions, indices=indices, colors=colors, colors_layout="vertex"
+    )
+    as_face = MeshMemoryStore(
+        positions=positions, indices=indices, colors=colors, colors_layout="face"
+    )
+    assert as_vertex.colors_mode == "vertex"
+    assert as_face.colors_mode == "face"
+
+
+def test_colors_without_layout_raises():
+    positions, indices = _triangle()
+    with pytest.raises(ValueError, match="explicit colors_layout"):
+        MeshMemoryStore(
+            positions=positions,
+            indices=indices,
+            colors=np.ones((3, 4), dtype=np.float32),
+        )
+
+
+def test_layout_without_colors_raises():
+    positions, indices = _triangle()
+    with pytest.raises(ValueError, match="without colors"):
+        MeshMemoryStore(positions=positions, indices=indices, colors_layout="vertex")
+
+
+def test_layout_disagreeing_with_the_array_length_raises():
+    positions, indices = _triangle()  # 3 vertices, 1 face
+    with pytest.raises(ValueError, match="expects 1 rows"):
+        MeshMemoryStore(
+            positions=positions,
+            indices=indices,
+            colors=np.ones((7, 4), dtype=np.float32),
+            colors_layout="face",
+        )
+
+
+def test_assigning_colors_without_a_layout_raises():
+    """validate_assignment keeps the invariant past construction.
+
+    Without it the check held only at __init__, and a later
+    ``store.colors = ...`` left colors_layout None -- which colors_mode
+    returned, and get_data's ``== "face"`` test silently read as vertex.
+    """
+    from pydantic import ValidationError
+
+    positions, indices = _triangle()
+    store = MeshMemoryStore(positions=positions, indices=indices)
+    with pytest.raises(ValidationError, match="explicit colors_layout"):
+        store.colors = np.ones((3, 4), dtype=np.float32)
+
+
+def test_reassigning_colors_with_a_layout_set_is_fine():
+    """The demo path: declare the layout up front, swap colours later."""
+    positions, indices = _triangle()
+    store = MeshMemoryStore(
+        positions=positions,
+        indices=indices,
+        colors=np.zeros((3, 4), dtype=np.float32),
+        colors_layout="vertex",
+    )
+    store.colors = np.ones((3, 4), dtype=np.float32)
+    assert store.colors_mode == "vertex"
+    assert np.allclose(store.colors, 1.0)
 
 
 # ── get_data — 3D (all axes displayed) ───────────────────────────────────────
@@ -166,12 +271,15 @@ def test_get_data_2d_indices_reindexed():
 
 
 def test_get_data_2d_vertex_colors_gathered():
-    # Use a store with more vertices than faces to make vertex mode unambiguous.
     # Square base: 4 vertices, 2 faces (2 triangles).
     positions = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=np.float32)
     indices = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
-    store = MeshMemoryStore(positions=positions, indices=indices)
-    store.colors = np.eye(4, dtype=np.float32)  # 4 colors == n_vertices (> n_faces=2)
+    store = MeshMemoryStore(
+        positions=positions,
+        indices=indices,
+        colors=np.eye(4, dtype=np.float32),
+        colors_layout="vertex",
+    )
     result = asyncio.run(store.get_data(_req(sliced={0: 0}, thickness=0.5)))
     if not result.is_empty:
         assert result.colors is not None
