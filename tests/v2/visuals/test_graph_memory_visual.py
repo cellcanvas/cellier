@@ -34,6 +34,7 @@ def test_graph_appearance_is_flat():
     appearance.node_size = 9.0
     appearance.node_size_space = "world"
     appearance.node_color_mode = "vertex"
+    appearance.node_size_mode = "vertex"
     appearance.node_visible = False
     appearance.node_pick_write = False
     appearance.node_depth_compare = "<"
@@ -50,6 +51,7 @@ def test_graph_appearance_is_flat():
         "node_size",
         "node_size_space",
         "node_color_mode",
+        "node_size_mode",
         "node_visible",
         "node_pick_write",
         "node_depth_compare",

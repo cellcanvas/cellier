@@ -93,6 +93,12 @@ class GraphAppearance(BaseAppearance):
         model's ``node_color``, ``"vertex"`` is the store's per-node
         colours.  A caller declaration, never inferred from the data and
         never overwritten at commit time.
+    node_size_mode : str
+        Declares **where the node size comes from**, on the same terms as
+        ``node_color_mode``.  ``"uniform"`` is this model's ``node_size``,
+        ``"vertex"`` is the store's per-node sizes.  Declaring ``"vertex"``
+        with no sizes in the store raises at commit rather than falling
+        back.
     node_visible : bool
         Show the node sub-visual.  Nests under ``visible``.
     node_pick_write : bool
@@ -123,6 +129,7 @@ class GraphAppearance(BaseAppearance):
     node_size: float = 5.0
     node_size_space: Literal["screen", "world"] = "screen"
     node_color_mode: Literal["uniform", "vertex"] = "uniform"
+    node_size_mode: Literal["uniform", "vertex"] = "uniform"
     node_visible: bool = True
     node_pick_write: bool = True
     node_depth_compare: Literal["<", "<=", "==", "!=", ">=", ">"] = "<="

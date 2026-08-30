@@ -22,8 +22,16 @@ class PointsMarkerAppearance(BaseAppearance):
         Coordinate space for size.  ``"screen"`` (pixels) or
         ``"world"`` (world-space units).  Default ``"screen"``.
     color_mode : str
-        ``"uniform"`` — use ``color`` for every point.
-        ``"vertex"`` — use per-point colors from the geometry buffer.
+        Declares **where RGB comes from**.  ``"uniform"`` — use ``color``
+        for every point.  ``"vertex"`` — use per-point colors from the
+        store.  A caller declaration, never inferred from the data and
+        never overwritten at commit time.
+    size_mode : str
+        Declares **where the size comes from**, on the same terms as
+        ``color_mode``.  ``"uniform"`` — use ``size`` for every point.
+        ``"vertex"`` — use per-point sizes from the store.  Declaring
+        ``"vertex"`` with no sizes in the store raises at commit rather
+        than falling back.
     opacity : float
         Master opacity multiplier in [0, 1].
     """
@@ -32,6 +40,7 @@ class PointsMarkerAppearance(BaseAppearance):
     size: float = 5.0
     size_space: Literal["screen", "world"] = "screen"
     color_mode: Literal["uniform", "vertex"] = "uniform"
+    size_mode: Literal["uniform", "vertex"] = "uniform"
 
 
 class PointsVisual(BaseVisual):

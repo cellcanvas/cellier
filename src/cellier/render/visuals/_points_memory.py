@@ -59,6 +59,7 @@ def _build_material(appearance: PointsMarkerAppearance) -> AlphaPointsMaterial:
         size_space=appearance.size_space,
         color=appearance.color,
         color_mode=appearance.color_mode,
+        size_mode=appearance.size_mode,
         opacity=appearance.opacity,
         depth_test=appearance.depth_test,
         depth_write=appearance.depth_write,
@@ -143,9 +144,7 @@ class GFXPointsMemoryVisual:
         # declaration of where RGB comes from and is never inferred from
         # the data nor written back at commit time (D20).
         self._color_mode: str = appearance.color_mode
-        # size_mode is a different matter: there is no appearance field
-        # declaring it, so it stays data-derived, as it always was.
-        self._current_size_mode: str = "uniform"
+        self._size_mode: str = appearance.size_mode
         self._is_empty: bool = True
 
         # Maps each rendered-buffer row to its index in the store's full point
@@ -316,10 +315,10 @@ class GFXPointsMemoryVisual:
         Applies axis reversal for 3D data to match pygfx coordinate order.
         Swaps material between _material and _empty_material as needed.
 
-        ``color_mode`` is written from the *appearance*, never from the
-        data (D20).  A declared ``"vertex"`` with no colours in the store
-        raises here rather than silently falling back to uniform, which is
-        the exact class of behaviour D20 removes.
+        ``color_mode`` and ``size_mode`` are written from the *appearance*,
+        never from the data (D20).  A declared ``"vertex"`` with nothing in
+        the store to back it raises here rather than silently falling back
+        to uniform, which is the exact class of behaviour D20 removes.
 
         Coordinate convention (DO NOT reorder positions elsewhere):
         - 3D path: positions[:, [2, 1, 0]] reverses (z, y, x) → (x, y, z)
@@ -361,6 +360,13 @@ class GFXPointsMemoryVisual:
             geom_kwargs["colors"] = np.ascontiguousarray(colors)
 
         sizes = points_data.sizes
+        if self._size_mode == "vertex" and sizes is None and not points_data.is_empty:
+            raise ValueError(
+                f"Visual {self.visual_model_id}: appearance declares "
+                "size_mode='vertex' but the points store carries no "
+                "per-point sizes. Set size_mode='uniform', or give the "
+                "store sizes."
+            )
         if sizes is not None:
             geom_kwargs["sizes"] = np.ascontiguousarray(sizes)
 
@@ -406,8 +412,8 @@ class GFXPointsMemoryVisual:
     def on_appearance_changed(self, event: AppearanceChangedEvent) -> None:
         """Apply appearance field changes to the live material.
 
-        ``color_mode`` is applied straight to the material; nothing in
-        ``_commit`` overwrites it (D20).
+        ``color_mode`` and ``size_mode`` are applied straight to the
+        material; nothing in ``_commit`` overwrites them (D20).
 
         Note: ``size_space`` is a constructor-only parameter on
         ``gfx.PointsMaterial``; changes to ``size_space`` require
@@ -420,6 +426,9 @@ class GFXPointsMemoryVisual:
         elif name == "color_mode":
             self._material.color_mode = val
             self._color_mode = val
+        elif name == "size_mode":
+            self._material.size_mode = val
+            self._size_mode = val
         elif name == "opacity":
             self._material.opacity = val
         elif name == "size":

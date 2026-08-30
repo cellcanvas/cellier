@@ -84,6 +84,7 @@ def _build_node_material(appearance: GraphAppearance) -> AlphaPointsMaterial:
         size_space=appearance.node_size_space,
         color=appearance.node_color,
         color_mode=appearance.node_color_mode,
+        size_mode=appearance.node_size_mode,
         opacity=appearance.opacity,
         depth_test=appearance.depth_test,
         depth_write=appearance.depth_write,
@@ -208,7 +209,7 @@ class GFXGraphMemoryVisual:
         # infers them from the data and never writes them back (D20).
         self._node_color_mode: str = appearance.node_color_mode
         self._edge_color_mode: str = appearance.edge_color_mode
-        self._node_size_mode: str = "uniform"
+        self._node_size_mode: str = appearance.node_size_mode
 
         self._nodes_empty: bool = True
         self._edges_empty: bool = True
@@ -520,10 +521,10 @@ class GFXGraphMemoryVisual:
         Nodes and edges are committed together and their materials swapped
         independently, so an empty edge set never blanks the nodes.
 
-        ``color_mode`` is written from the *appearance*, never from the
-        data (D20): a declared ``"vertex"`` with no colours in the store is
-        a misconfiguration and raises here rather than silently falling
-        back to uniform.
+        ``color_mode`` and ``size_mode`` are written from the *appearance*,
+        never from the data (D20): a declared ``"vertex"`` with nothing in
+        the store to back it is a misconfiguration and raises here rather
+        than silently falling back to uniform.
         """
         self._commit_nodes(graph_data)
         self._commit_edges(graph_data)
@@ -549,17 +550,18 @@ class GFXGraphMemoryVisual:
         if colors is not None:
             geom_kwargs["colors"] = np.ascontiguousarray(colors)
         sizes = graph_data.node_sizes
+        if self._node_size_mode == "vertex" and sizes is None:
+            if not graph_data.nodes_empty:
+                raise ValueError(
+                    f"Visual {self.visual_model_id}: appearance declares "
+                    "node_size_mode='vertex' but the graph store carries no "
+                    "per-node sizes. Set node_size_mode='uniform', or give "
+                    "the store node_sizes."
+                )
         if sizes is not None:
             geom_kwargs["sizes"] = np.ascontiguousarray(sizes)
 
         self.node_points.geometry = gfx.Geometry(**geom_kwargs)
-
-        incoming_size_mode = (
-            graph_data.node_size_mode if sizes is not None else "uniform"
-        )
-        if incoming_size_mode != self._node_size_mode and not graph_data.nodes_empty:
-            self._node_size_mode = incoming_size_mode
-            self._node_material.size_mode = incoming_size_mode
 
         target = (
             self._empty_node_material if graph_data.nodes_empty else self._node_material
@@ -676,6 +678,9 @@ class GFXGraphMemoryVisual:
         elif name == "node_color_mode":
             self._node_material.color_mode = val
             self._node_color_mode = val
+        elif name == "node_size_mode":
+            self._node_material.size_mode = val
+            self._node_size_mode = val
         elif name == "node_visible":
             self.node_points.visible = val
         elif name == "node_pick_write":

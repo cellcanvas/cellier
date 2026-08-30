@@ -330,7 +330,11 @@ class PointsMarkerAppearanceKwargs(BaseAppearanceKwargs, total=False):
     size_space : "screen" or "world"
         Coordinate space for point size. Default ``"screen"``.
     color_mode : "uniform" or "vertex"
+        Where RGB comes from. A declaration, never inferred from the data.
         Default ``"uniform"``.
+    size_mode : "uniform" or "vertex"
+        Where the point size comes from, on the same terms as
+        ``color_mode``. Default ``"uniform"``.
     visible : bool
         Default ``True``.
     opacity : float
@@ -351,6 +355,7 @@ class PointsMarkerAppearanceKwargs(BaseAppearanceKwargs, total=False):
     size: float
     size_space: Literal["screen", "world"]
     color_mode: Literal["uniform", "vertex"]
+    size_mode: Literal["uniform", "vertex"]
 
 
 class GraphAppearanceKwargs(BaseAppearanceKwargs, total=False):
@@ -372,6 +377,9 @@ class GraphAppearanceKwargs(BaseAppearanceKwargs, total=False):
     node_color_mode : "uniform" or "vertex"
         Where node RGB comes from. A declaration, never inferred from the
         data. Default ``"uniform"``.
+    node_size_mode : "uniform" or "vertex"
+        Where the node size comes from, on the same terms as
+        ``node_color_mode``. Default ``"uniform"``.
     node_visible : bool
         Show the node sub-visual. Nests under ``visible``. Default ``True``.
     node_pick_write : bool
@@ -415,6 +423,7 @@ class GraphAppearanceKwargs(BaseAppearanceKwargs, total=False):
     node_size: float
     node_size_space: Literal["screen", "world"]
     node_color_mode: Literal["uniform", "vertex"]
+    node_size_mode: Literal["uniform", "vertex"]
     node_visible: bool
     node_pick_write: bool
     node_depth_compare: Literal["<", "<=", "==", "!=", ">=", ">"]

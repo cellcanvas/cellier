@@ -450,6 +450,76 @@ def test_declared_vertex_without_colors_raises():
         v.on_data_ready([(None, data)])
 
 
+def test_declared_vertex_size_mode_reaches_the_material():
+    """size_mode is a declaration, applied at construction (not inferred).
+
+    Before this was fixed the material's ``size_mode`` was never written at
+    all, so a store's ``sizes`` buffer was uploaded and then silently
+    ignored at render time.
+    """
+    v = _visual(_store(), appearance=PointsMarkerAppearance(size_mode="vertex"))
+    assert v._material.size_mode == "vertex"
+    assert v._size_mode == "vertex"
+
+
+def test_declared_uniform_survives_store_sizes():
+    """Store carries sizes, appearance says uniform -> stays uniform."""
+    from cellier.data.points._points_requests import PointsData
+
+    v = _visual(_store(), appearance=PointsMarkerAppearance(size_mode="uniform"))
+    data = PointsData(
+        request_id=uuid4(),
+        positions=np.array([[0, 1, 2], [3, 4, 5]], dtype=np.float32),
+        colors=None,
+        sizes=np.array([4.0, 20.0], dtype=np.float32),
+        size_mode="vertex",
+        is_empty=False,
+    )
+    v.on_data_ready([(None, data)])
+    assert v._material.size_mode == "uniform"
+    assert v._size_mode == "uniform"
+
+
+def test_declared_vertex_without_sizes_raises():
+    """The mismatch is a misconfiguration, not a silent fallback."""
+    from cellier.data.points._points_requests import PointsData
+
+    v = _visual(_store(), appearance=PointsMarkerAppearance(size_mode="vertex"))
+    data = PointsData(
+        request_id=uuid4(),
+        positions=np.array([[0, 1, 2]], dtype=np.float32),
+        colors=None,
+        sizes=None,
+        is_empty=False,
+    )
+    with pytest.raises(ValueError, match="size_mode='vertex'"):
+        v.on_data_ready([(None, data)])
+
+
+def test_empty_slice_does_not_raise_on_declared_vertex_size():
+    """An empty slice carries no sizes by construction; that is not a bug."""
+    from cellier.data.points._points_requests import PointsData
+
+    v = _visual(_store(), appearance=PointsMarkerAppearance(size_mode="vertex"))
+    data = PointsData(
+        request_id=uuid4(),
+        positions=np.zeros((1, 3), dtype=np.float32),
+        colors=None,
+        sizes=None,
+        is_empty=True,
+    )
+    v.on_data_ready([(None, data)])
+    assert v._is_empty
+
+
+def test_size_mode_appearance_change_reaches_the_material():
+    v = _visual(_store())
+    assert v._material.size_mode == "uniform"
+    v.on_appearance_changed(_appearance_event("size_mode", "vertex"))
+    assert v._material.size_mode == "vertex"
+    assert v._size_mode == "vertex"
+
+
 def test_points_alpha_buffer_is_ones():
     """The migrated visual uploads an all-ones alpha buffer."""
     from cellier.data.points._points_requests import PointsData
@@ -485,6 +555,83 @@ async def test_render_2d_and_3d_draw_pixels(controller, render_scene, reslice):
     await reslice(controller, scene.id)
     frame = render_scene(controller, scene.id)
     assert np.count_nonzero(frame[..., 3]) > 0
+
+
+async def test_vertex_size_mode_renders_different_marker_sizes(
+    controller, render_scene, reslice
+):
+    """Per-point sizes must actually change the drawn marker size.
+
+    The regression this whole change exists for.  Before it, the store's
+    ``sizes`` buffer was uploaded but ``material.size_mode`` was never
+    written, so every marker rendered at the uniform size and the buffer
+    was inert -- invisible to any test that only checked the geometry.
+    Counting lit pixels per marker is what catches that; asserting the
+    buffer was uploaded does not.
+    """
+    # Two points far apart on the displayed plane so their markers cannot
+    # overlap, with a 5x size difference between them.
+    positions = np.array([[0, 8, 8], [0, 8, 40]], dtype=np.float32)
+    sizes = np.array([4.0, 20.0], dtype=np.float32)
+    store = PointsMemoryStore(positions=positions, sizes=sizes)
+
+    scene = controller.add_scene(dim="2d", name="scene")
+    controller.add_points(
+        data=store,
+        scene_id=scene.id,
+        appearance=PointsMarkerAppearance(
+            size=4.0, color=(1.0, 0.0, 0.0, 1.0), size_mode="vertex"
+        ),
+    )
+    controller.add_canvas(scene_id=scene.id)
+    await reslice(controller, scene.id)
+    frame = render_scene(controller, scene.id, size=(256, 256))
+
+    # Split the frame down the middle: one marker per half.
+    lit = frame[..., 3] > 0
+    small = int(lit[:, : lit.shape[1] // 2].sum())
+    large = int(lit[:, lit.shape[1] // 2 :].sum())
+
+    assert small > 0 and large > 0, f"both markers should draw: {small}, {large}"
+    assert large > small * 2, (
+        f"the 20.0-size marker should cover far more pixels than the 4.0-size "
+        f"one, got {large} vs {small} -- size_mode is not reaching the material"
+    )
+
+
+async def test_uniform_size_mode_renders_equal_marker_sizes(
+    controller, render_scene, reslice
+):
+    """The control for the test above: declared uniform ignores the store.
+
+    Same store, same sizes buffer, only the declaration differs -- so the
+    two markers must come out the same size.  Without this, the test above
+    would still pass if markers happened to differ for some other reason.
+    """
+    positions = np.array([[0, 8, 8], [0, 8, 40]], dtype=np.float32)
+    sizes = np.array([4.0, 20.0], dtype=np.float32)
+    store = PointsMemoryStore(positions=positions, sizes=sizes)
+
+    scene = controller.add_scene(dim="2d", name="scene")
+    controller.add_points(
+        data=store,
+        scene_id=scene.id,
+        appearance=PointsMarkerAppearance(
+            size=10.0, color=(1.0, 0.0, 0.0, 1.0), size_mode="uniform"
+        ),
+    )
+    controller.add_canvas(scene_id=scene.id)
+    await reslice(controller, scene.id)
+    frame = render_scene(controller, scene.id, size=(256, 256))
+
+    lit = frame[..., 3] > 0
+    left = int(lit[:, : lit.shape[1] // 2].sum())
+    right = int(lit[:, lit.shape[1] // 2 :].sum())
+
+    assert left > 0 and right > 0
+    assert abs(left - right) <= max(2, left * 0.1), (
+        f"declared uniform must ignore the store's sizes, got {left} vs {right}"
+    )
 
 
 async def test_render_3d_draws_pixels(controller, render_scene, reslice):

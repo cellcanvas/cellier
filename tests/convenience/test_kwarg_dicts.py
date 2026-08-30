@@ -4,6 +4,7 @@ import pytest
 
 from cellier.convenience._kwarg_dicts import (
     ChannelAppearanceKwargs,
+    GraphAppearanceKwargs,
     InMemoryImageAppearanceKwargs,
     InMemoryLabelsAppearanceKwargs,
     LinesMemoryAppearanceKwargs,
@@ -16,6 +17,7 @@ from cellier.convenience._kwarg_dicts import (
     PointsMarkerAppearanceKwargs,
 )
 from cellier.visuals._channel_appearance import ChannelAppearance
+from cellier.visuals._graph_memory import GraphAppearance
 from cellier.visuals._image import (
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
@@ -38,6 +40,7 @@ from cellier.visuals._points_memory import PointsMarkerAppearance
         (InMemoryLabelsAppearanceKwargs, InMemoryLabelsAppearance),
         (MeshFlatAppearanceKwargs, MeshFlatAppearance),
         (MeshPhongAppearanceKwargs, MeshPhongAppearance),
+        (GraphAppearanceKwargs, GraphAppearance),
         (PointsMarkerAppearanceKwargs, PointsMarkerAppearance),
         (LinesMemoryAppearanceKwargs, LinesMemoryAppearance),
         (MultiscaleImageAppearanceKwargs, MultiscaleImageAppearance),

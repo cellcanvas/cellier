@@ -283,6 +283,54 @@ def test_empty_slice_does_not_raise_on_declared_vertex():
     assert visual._nodes_empty
 
 
+def test_declared_vertex_node_size_mode_reaches_the_material():
+    """node_size_mode is a declaration, applied at construction.
+
+    The graph visual previously *inferred* this from the data, which is the
+    pattern D20 removed for colour.  It is now declared on the appearance
+    like every other mode field.
+    """
+    store = _store()
+    visual = _visual(store, appearance=GraphAppearance(node_size_mode="vertex"))
+    assert visual._node_material.size_mode == "vertex"
+    assert visual._node_size_mode == "vertex"
+
+
+def test_declared_uniform_survives_store_node_sizes():
+    """Store carries sizes, appearance says uniform -> stays uniform."""
+    sizes = np.array([2.0, 4.0, 8.0, 16.0], dtype=np.float32)
+    store = _store(node_sizes=sizes)
+    visual = _visual(store, appearance=GraphAppearance(node_size_mode="uniform"))
+    _commit(visual, store, displayed=(0, 1, 2))
+
+    assert visual._node_material.size_mode == "uniform"
+    assert visual._node_size_mode == "uniform"
+
+
+def test_declared_vertex_node_size_without_sizes_raises():
+    """The mismatch is a misconfiguration, not a silent fallback."""
+    store = _store()
+    visual = _visual(store, appearance=GraphAppearance(node_size_mode="vertex"))
+    with pytest.raises(ValueError, match="node_size_mode='vertex'"):
+        _commit(visual, store, displayed=(0, 1, 2))
+
+
+def test_empty_slice_does_not_raise_on_declared_vertex_size():
+    """An empty slice carries no sizes by construction; that is not a bug."""
+    store = _store()
+    visual = _visual(store, appearance=GraphAppearance(node_size_mode="vertex"))
+    _commit(visual, store, displayed=(1, 2), sliced={0: 99})
+    assert visual._nodes_empty
+
+
+def test_node_size_mode_appearance_change_reaches_the_material():
+    visual = _visual(_store())
+    assert visual._node_material.size_mode == "uniform"
+    visual.on_appearance_changed(_appearance_event("node_size_mode", "vertex"))
+    assert visual._node_material.size_mode == "vertex"
+    assert visual._node_size_mode == "vertex"
+
+
 # ── Appearance events ──────────────────────────────────────────────────────
 
 
