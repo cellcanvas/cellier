@@ -93,13 +93,35 @@ class QtRenderConfigPanel:
         )
         self._container.setMinimumWidth(260)
 
+        # The panel draws its own name, as the anywidget twin always has and as
+        # every appearance control on both toolkits already does
+        # (``plans/label_ownership_unification.md``).  The renderer used to wrap
+        # it instead, which left a directly-constructed Qt panel anonymous where
+        # its twin named itself -- and kept the two dock builders from being one
+        # function (``plans/gui_backend_seam.md`` D6).
+        from cellier.gui.qt.visuals._chrome import titled_group
+
+        self._titled = titled_group(self.title, self._container, parent)
+        self._titled.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
+
     # ------------------------------------------------------------------
     # Public interface (the WidgetView contract)
     # ------------------------------------------------------------------
 
     @property
     def widget(self):
-        """The Qt widget to embed in a layout."""
+        """The Qt widget to embed in a layout -- the panel inside its own title.
+
+        The bare content is :attr:`content`, for a caller that wants to place
+        the rows itself.
+        """
+        return self._titled
+
+    @property
+    def content(self):
+        """The untitled container holding the panel's rows."""
         return self._container
 
     def close(self) -> None:

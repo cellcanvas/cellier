@@ -117,7 +117,7 @@ def test_inbound_change_applies_without_reemitting(qtbot):
 
     widget._on_inbound_event(_appearance_event(visual_id, "wireframe", True))
 
-    assert widget.value() is True
+    assert widget.value is True
     assert emitted == []  # blockSignals guard held
 
 
@@ -130,7 +130,7 @@ def test_inbound_echo_filtered_by_source_id(qtbot):
         _appearance_event(visual_id, "wireframe", True, source_id=widget._id)
     )
 
-    assert widget.value() is False  # unchanged
+    assert widget.value is False  # unchanged
 
 
 def test_inbound_unrelated_field_ignored(qtbot):
@@ -140,7 +140,7 @@ def test_inbound_unrelated_field_ignored(qtbot):
 
     widget._on_inbound_event(_appearance_event(visual_id, "flat_shading", True))
 
-    assert widget.value() is False
+    assert widget.value is False
 
 
 def test_close_emits_closed(qtbot):
@@ -168,7 +168,7 @@ def test_visible_toggle_binds_field_and_label(qtbot):
     # ``plans/label_ownership_unification.md``).
     assert _row_label_text(widget) == "Visible"
     assert widget.control.text() == ""
-    assert widget.value() is True  # matches the model default
+    assert widget.value is True  # matches the model default
 
 
 def test_visible_toggle_subscribes_to_the_visibility_event(qtbot):
@@ -197,7 +197,7 @@ def test_visible_toggle_applies_the_visibility_event(qtbot):
         )
     )
 
-    assert widget.value() is False
+    assert widget.value is False
     assert emitted == []
 
 
@@ -247,4 +247,4 @@ def test_foreign_write_reaches_the_widget(qtbot):
 
     viewer.controller.set_visual_visible(visuals[0].id, False)
 
-    assert widget.value() is False
+    assert widget.value is False

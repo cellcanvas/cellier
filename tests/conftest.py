@@ -83,6 +83,25 @@ def _close_cellier_objects(monkeypatch):
                 pass
 
 
+@pytest.fixture(scope="session")
+def offscreen_gpu() -> None:
+    """Skip the test unless a usable wgpu offscreen adapter exists.
+
+    Anything that captures a frame needs a real adapter.  ``tests/render`` gets
+    this probe for free inside ``offscreen_renderer``; tests elsewhere (the
+    convenience-layer capture tests, for one) need it on its own, and a shared
+    session-scoped probe means a machine without an adapter skips cleanly
+    instead of erroring once per test.
+    """
+    import pygfx as gfx
+    from rendercanvas.offscreen import RenderCanvas as OffscreenRenderCanvas
+
+    try:
+        gfx.WgpuRenderer(OffscreenRenderCanvas(size=(16, 16), pixel_ratio=1))
+    except Exception as exc:  # pragma: no cover - env-dependent skip path
+        pytest.skip(f"no usable wgpu offscreen adapter: {exc}")
+
+
 @pytest.fixture
 def small_zarr_store(tmp_path):
     """A minimal 2-level multiscale zarr v3 store on disk (zeros, float32).

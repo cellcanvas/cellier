@@ -416,6 +416,15 @@ class SSAOPass(EffectPass):
     # Configuration
     # ------------------------------------------------------------------
 
+    def reset_frame_index(self) -> None:
+        """Rewind the per-frame kernel rotation to its construction value.
+
+        The rotation is a counter (mod 4096), not a random draw, so N frames
+        from zero always produce the same sequence.  Rewinding is what makes
+        a capture of N frames reproducible -- see ``cellier.render._capture``.
+        """
+        self._frame_index = 0
+
     def apply_config(self, config: AmbientOcclusionConfig) -> None:
         """Push an ``AmbientOcclusionConfig`` onto the pass.
 

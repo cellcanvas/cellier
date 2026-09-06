@@ -1285,6 +1285,35 @@ class RenderManager:
         self._active_gestures.clear()
         self._pick_details_enabled.clear()
 
+    def reset_frame_counters(self, scene_id: UUID) -> None:
+        """Rewind every per-frame counter that feeds *scene_id*'s pixels.
+
+        Three things advance once per rendered frame and so make frame N
+        differ from frame N+1: the temporal accumulation history, the SSAO
+        kernel rotation, and the multiscale brick shader's ray-start jitter.
+        All three are counters rather than random draws, so rewinding them is
+        what turns "draw N frames" into a reproducible picture.
+
+        Called before a capture (see ``cellier.render._capture``).  The visual
+        counters are shared state -- the scene graph is shared across canvases
+        -- so this also rewinds the jitter sequence any live canvas is drawing.
+        That is harmless: the sequence is dither, not content.
+        """
+        for canvas_view in self._canvases.values():
+            if self._canvas_to_scene.get(canvas_view.canvas_id) != scene_id:
+                continue
+            canvas_view._accum_pass.reset()
+            canvas_view._ssao_pass.reset_frame_index()
+
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is None:
+            return
+        for visual_id in scene_manager.visual_ids:
+            visual = scene_manager.get_visual(visual_id)
+            reset = getattr(visual, "reset_tick", None)
+            if reset is not None:
+                reset()
+
     def _make_tick_fn(self, scene_id: UUID):
         """Return a callable that ticks all visuals in *scene_id*."""
 

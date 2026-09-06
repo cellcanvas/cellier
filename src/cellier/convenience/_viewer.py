@@ -7,11 +7,14 @@ from uuid import UUID
 
 from cellier.controller import CellierController
 from cellier.convenience._render_settings import RenderSettingsMixin
+from cellier.convenience._startup import StartupState
+from cellier.render._capture import write_png
 from cellier.scene.dims import CoordinateSystem
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import numpy as np
     from PySide6.QtWidgets import QWidget
 
     from cellier.convenience.gui._controls_config import (
@@ -85,10 +88,14 @@ class Viewer(RenderSettingsMixin):
     render_config : RenderManagerConfig or None
         Render pipeline configuration passed through to the controller.
         Uses controller defaults when ``None``.
-    gui : "qt" or "anywidget"
+    gui : "qt", "anywidget", or "offscreen"
         Which GUI toolkit the canvas should target. ``"qt"`` (default) renders
         into a Qt widget; ``"anywidget"`` renders into a notebook canvas for
-        Jupyter / marimo. Fixed at construction.
+        Jupyter / marimo; ``"offscreen"`` renders with no window at all, for
+        headless capture via :meth:`screenshot`. Fixed at construction.
+        ``"offscreen"`` viewers have no embeddable widget, so the layout
+        builders (``build_canvas_widget``, ``launch``, ``show``, ``display``)
+        reject them.
     """
 
     def __init__(
@@ -98,7 +105,7 @@ class Viewer(RenderSettingsMixin):
         dim: Literal["2d", "3d"] = "2d",
         render_modes: set[str] | None = None,
         render_config: RenderManagerConfig | None = None,
-        gui: Literal["qt", "anywidget"] = "qt",
+        gui: Literal["qt", "anywidget", "offscreen"] = "qt",
     ) -> None:
         resolved_render_modes = (
             render_modes if render_modes is not None else {"2d", "3d"}
@@ -179,6 +186,220 @@ class Viewer(RenderSettingsMixin):
             Zero-argument callback.
         """
         self._ready_callbacks.append(callback)
+
+    @property
+    def startup_state(self) -> StartupState:
+        """How far this viewer has got through starting up.
+
+        Readable at any moment, with no callback, no event loop and no front
+        end -- which is the point.  A blank viewer used to be undiagnosable
+        from Python; now it can say whether it is waiting for the canvas to
+        reach the browser, waiting for a first frame, loading data, or done.
+
+        ``StartupState.IDLE`` until ``display``/``launch``/``show`` runs.
+        """
+        tracker = getattr(self, "_startup", None)
+        return StartupState.IDLE if tracker is None else tracker.state
+
+    @property
+    def scene_startup_states(self) -> dict[str, StartupState]:
+        """Each scene's startup state, keyed as this viewer keys its scenes.
+
+        An aggregate hides which panel is stuck; this does not.
+        """
+        tracker = getattr(self, "_startup", None)
+        return {} if tracker is None else tracker.scene_states
+
+    def startup_report(self) -> str:
+        """A one-line summary of startup progress, for a cell or a log line."""
+        tracker = getattr(self, "_startup", None)
+        if tracker is None:
+            return "idle (not started)"
+        return tracker.describe()
+
+    def on_scene_ready(self, key: str, callback: Callable[[], None]) -> None:
+        """Fire *callback* when one scene's data is on the GPU.
+
+        The per-scene counterpart of :meth:`on_ready`, which waits for *all*
+        of them.  Fires immediately if that scene is already ready.
+
+        Must be called after ``display``/``launch``, which is when the
+        startup tracker exists.
+
+        Parameters
+        ----------
+        key : str
+            The scene key -- ``"scene"`` for a single-scene viewer, or the
+            panel key (``"xy"``, ``"xz"``, ``"yz"``, ``"vol"``) for an
+            ``OrthoViewer``.
+        callback : Callable[[], None]
+            Zero-argument callback.
+        """
+        tracker = getattr(self, "_startup", None)
+        if tracker is None:
+            raise RuntimeError(
+                "on_scene_ready requires a started viewer; call it after "
+                "display()/launch()/show()."
+            )
+        tracker.on_scene_ready(key, callback)
+
+    def on_startup_progress(self, callback: Callable[[int, int], None]) -> None:
+        """Fire ``callback(scenes_ready, scenes_total)`` as scenes load.
+
+        For a progress bar over a slow or remote dataset, where the gap
+        between "shown" and "loaded" is long enough to need reporting.
+        """
+        tracker = getattr(self, "_startup", None)
+        if tracker is None:
+            raise RuntimeError(
+                "on_startup_progress requires a started viewer; call it after "
+                "display()/launch()/show()."
+            )
+        tracker.on_progress(callback)
+
+    def on_startup_stalled(self, callback: Callable[[dict], None]) -> None:
+        """Fire ``callback({scene key: state})`` if startup does not finish.
+
+        The signal that was missing entirely: startup could only ever report
+        success, so a viewer that never finished looked exactly like one still
+        working.  The payload names each unfinished scene and the state it
+        stopped in, so the report can say *what* it was waiting for.
+
+        Stalling is not an error -- slow remote data legitimately takes a
+        while -- it is the cue that something is worth looking at.  Tune the
+        window with ``display(..., stall_timeout=)``.
+        """
+        tracker = getattr(self, "_startup", None)
+        if tracker is None:
+            raise RuntimeError(
+                "on_startup_stalled requires a started viewer; call it after "
+                "display()/launch()/show()."
+            )
+        tracker.on_stalled(callback)
+
+    # ------------------------------------------------------------------
+    # Capture
+    # ------------------------------------------------------------------
+
+    @property
+    def canvases(self) -> tuple[UUID, ...]:
+        """IDs of the canvases attached to this viewer's scene, in creation order.
+
+        Empty until :meth:`add_canvas` (or a layout builder) has run.  A viewer
+        with no canvas is still capturable -- see :meth:`screenshot`.
+        """
+        return tuple(self._controller.get_canvas_ids(self._scene.id))
+
+    def screenshot(
+        self,
+        *,
+        canvas: UUID | None = None,
+        size: tuple[int, int] | None = None,
+        scale: float = 1.0,
+        frames: int | Literal["converged"] = 1,
+        save: str | Path | None = None,
+        **capture_kwargs,
+    ) -> np.ndarray:
+        """Capture a reproducible screenshot as an RGBA uint8 array.
+
+        The frame is rendered offscreen, so two captures of the same viewer
+        state produce byte-identical arrays and the result does not depend on
+        a window being open, on the display's pixel ratio, or on which GUI
+        toolkit the viewer targets.
+
+        The capture shows the data **currently resident on the GPU** -- it does
+        not reslice.  Capture from :meth:`on_ready` (or after ``launch`` /
+        ``show`` / ``display`` have fired it) when a load may still be running.
+
+        A viewer with **no canvas** still renders, fitting the camera to the
+        scene, but it will have no data to show: slice requests are planned
+        per canvas, so a viewer that never called :meth:`add_canvas` has never
+        loaded anything.  Add a canvas and let the reslice finish first --
+        ``scripts/capture.py`` does this for you.
+
+        Parameters
+        ----------
+        canvas : UUID or None
+            Which canvas's viewpoint to reproduce, from :attr:`canvases`.
+            This selects a **viewpoint, not a surface**: the pixels always
+            come from a fresh offscreen canvas.  With ``None`` (default) the
+            viewer's single canvas is used, the scene is fitted if there is no
+            canvas, and an ambiguous choice raises rather than guessing.
+        size : tuple[int, int] or None
+            ``(width, height)`` in pixels before *scale*.  Defaults to the
+            selected canvas's physical size (so the on-screen framing is
+            reproduced), or ``(600, 600)`` when there is no canvas.
+        scale : float
+            Multiplier applied to *size*.  ``scale=2`` doubles the resolution.
+        frames : int or "converged"
+            ``1`` (default) draws a single frame with temporal accumulation
+            off.  ``"converged"`` draws the number of frames the accumulator
+            needs to settle (44 at the default blend weight), which is what
+            you want whenever ambient occlusion is enabled.  ``N`` draws
+            exactly N accumulated frames.
+        save : str, Path, or None
+            When given, also write the frame to this path as a PNG.
+        **capture_kwargs
+            Forwarded to the capture helper (``max_frames``, ``residual``).
+
+        Returns
+        -------
+        np.ndarray
+            RGBA uint8 array of shape ``(height, width, 4)``.
+
+        Raises
+        ------
+        ValueError
+            If *canvas* is not one of this viewer's canvases, or if it is
+            omitted while the viewer has more than one canvas.
+        """
+        frame = self._controller_screenshot(
+            canvas=canvas, size=size, scale=scale, frames=frames, **capture_kwargs
+        )
+        if save is not None:
+            write_png(save, frame)
+        return frame
+
+    def _controller_screenshot(
+        self,
+        *,
+        canvas: UUID | None,
+        size: tuple[int, int] | None,
+        scale: float,
+        frames: int | Literal["converged"],
+        **capture_kwargs,
+    ) -> np.ndarray:
+        """Resolve which canvas to reproduce, then capture through it."""
+        canvas_ids = self.canvases
+        if canvas is not None:
+            if canvas not in canvas_ids:
+                raise ValueError(
+                    f"canvas {canvas} is not one of this viewer's canvases "
+                    f"{list(canvas_ids)}"
+                )
+            target = canvas
+        elif len(canvas_ids) == 1:
+            target = canvas_ids[0]
+        elif not canvas_ids:
+            # No canvas to copy a viewpoint from: fit the scene instead.
+            return self._controller.screenshot_scene(
+                self._scene.id,
+                size=size,
+                scale=scale,
+                frames=frames,
+                **capture_kwargs,
+            )
+        else:
+            # Silently taking canvases[0] is how a screenshot of the wrong
+            # view goes unnoticed.
+            raise ValueError(
+                f"this viewer has {len(canvas_ids)} canvases, so screenshot() "
+                "cannot choose one for you. Pass canvas=<id> from "
+                f"viewer.canvases: {list(canvas_ids)}"
+            )
+        return self._controller.screenshot(
+            target, size=size, scale=scale, frames=frames, **capture_kwargs
+        )
 
     # ------------------------------------------------------------------
     # Serialization

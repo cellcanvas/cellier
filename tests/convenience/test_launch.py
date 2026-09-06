@@ -27,6 +27,7 @@ class StubController:
         self.reslice_calls: list = []
         self.cancel_calls: list = []
         self._first_frame_cbs: list = []
+        self._connected_cbs: list = []
 
     def get_canvas_ids(self, scene_id):
         return self._canvas_ids.get(scene_id, [])
@@ -42,7 +43,21 @@ class StubController:
     def on_canvas_first_frame(self, canvas_id, cb, owner_id=None):
         self._first_frame_cbs.append(cb)
 
+    def on_canvas_connected(self, canvas_id, cb, owner_id=None):
+        self._connected_cbs.append(cb)
+
+    def fire_connected(self):
+        """Simulate the front end reporting the canvas live."""
+        for cb in list(self._connected_cbs):
+            cb()
+
     def fire_first_frames(self):
+        """Simulate a rendered frame.
+
+        Fires the connection first: a frame implies a live canvas, and
+        startup now waits for the two in order.
+        """
+        self.fire_connected()
         for cb in list(self._first_frame_cbs):
             cb()
 
@@ -196,7 +211,7 @@ def test_run_qt_calls_launch_and_returns_none(monkeypatch):
 
 def test_run_unknown_gui_raises():
     viewer = SimpleNamespace(gui="bogus")
-    with pytest.raises(ValueError, match="Unknown viewer.gui"):
+    with pytest.raises(ValueError, match=r"Unknown viewer\.gui"):
         run(viewer, object())
 
 

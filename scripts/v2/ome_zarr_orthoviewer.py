@@ -366,7 +366,7 @@ class OmeZarrOrthoViewer:
 
         from cellier.gui.qt.visuals import (
             QtClimRangeSlider,
-            QtColormapComboBox,
+            QtColormapCombo,
             QtVolumeRenderControls,
         )
 
@@ -404,7 +404,7 @@ class OmeZarrOrthoViewer:
         controller.connect_widget(
             self._3d_clim, subscription_specs=self._3d_clim.subscription_specs()
         )
-        self._3d_colormap = QtColormapComboBox(
+        self._3d_colormap = QtColormapCombo(
             vol_id,
             initial_colormap=visuals["vol"].appearance.color_map,
         )

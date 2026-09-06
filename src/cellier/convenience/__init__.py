@@ -7,7 +7,9 @@ from cellier.convenience._geometry import (
 from cellier.convenience._launch import DisplayHandle, display, launch, run, show
 from cellier.convenience._ortho_viewer import OrthoViewer
 from cellier.convenience._sidecar import SidecarOptions
+from cellier.convenience._startup import StartupState
 from cellier.convenience._viewer import Viewer
+from cellier.convenience._window_capture import screenshot_window
 from cellier.convenience.gui._controls_config import (
     BaseControlsConfig,
     ChannelControlsConfig,
@@ -50,6 +52,7 @@ __all__ = [
     "PointsControlsConfig",
     "RenderControls",
     "SidecarOptions",
+    "StartupState",
     "VStack",
     "Viewer",
     "axis_ranges_from_ortho",
@@ -57,5 +60,6 @@ __all__ = [
     "display",
     "launch",
     "run",
+    "screenshot_window",
     "show",
 ]

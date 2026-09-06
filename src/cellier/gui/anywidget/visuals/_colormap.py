@@ -39,15 +39,15 @@ _DEFAULT_COLORMAP_NAMES = [
 ]
 
 
-class AnywidgetColormapControl(VisualIdGroup, anywidget.AnyWidget):
+class AnywidgetColormapCombo(VisualIdGroup, anywidget.AnyWidget):
     """Bidirectional colormap selector wired to the cellier v2 bus.
 
-    Mirrors ``QtColormapComboBox``: one UUID per widget, source-ID echo
+    Mirrors ``QtColormapCombo``: one UUID per widget, source-ID echo
     filtering, and a narrow subscription to just the ``color_map`` field.
 
     Wire to the controller after construction::
 
-        control = AnywidgetColormapControl(visual_id, initial_colormap="grays")
+        control = AnywidgetColormapCombo(visual_id, initial_colormap="grays")
         controller.connect_widget(
             control, subscription_specs=control.subscription_specs()
         )
@@ -113,7 +113,7 @@ class AnywidgetColormapControl(VisualIdGroup, anywidget.AnyWidget):
     # ── Public interface ─────────────────────────────────────────────────────
 
     @property
-    def widget(self) -> AnywidgetColormapControl:
+    def widget(self) -> AnywidgetColormapCombo:
         """An ``AnyWidget`` is itself the embeddable element."""
         return self
 

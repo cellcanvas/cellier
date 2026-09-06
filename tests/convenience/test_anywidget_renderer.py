@@ -11,20 +11,19 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from cellier.convenience import AppearanceControls
+from cellier.convenience.layout._walk import render_dock
+
 pytest.importorskip("anywidget")
 
-from cellier.convenience import Viewer
+from cellier.convenience import ChannelControls, Viewer
 from cellier.convenience._hosts import JupyterHost
 from cellier.convenience.gui import (
     ChannelControlsConfig,
 )
-from cellier.convenience.layout._anywidget_renderer import (
-    _render_appearance_controls,
-    _render_center,
-    _render_channel_controls,
-    _RenderView,
-)
+from cellier.convenience.layout._anywidget_renderer import _RenderView
 from cellier.convenience.layout._spec import Grid, HStack, VStack
+from cellier.convenience.layout._walk import render_center
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.visuals._channel_appearance import ChannelAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
@@ -80,7 +79,7 @@ def test_render_channel_controls_builds_and_registers_widget():
     viewer = _multichannel_viewer()
     closeables: list = []
 
-    leaf = _render_channel_controls(viewer, JupyterHost(), closeables)
+    leaf = render_dock(ChannelControls(), viewer, JupyterHost(), closeables)
 
     assert leaf is not None
     assert len(closeables) == 1  # the AnywidgetChannelList is tracked for teardown
@@ -95,7 +94,7 @@ def test_render_channel_controls_none_without_config():
         channel_axis=1,
         channels={0: ChannelAppearance(color_map="red", clim=(0.0, 1.0))},
     )  # no controls=
-    assert _render_channel_controls(viewer, JupyterHost(), []) is None
+    assert render_dock(ChannelControls(), viewer, JupyterHost(), []) is None
 
 
 # ---------------------------------------------------------------------------
@@ -110,14 +109,14 @@ def test_appearance_controls_none_without_any_config():
         store,
         appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
     )  # no controls=
-    assert _render_appearance_controls(viewer, JupyterHost(), []) is None
+    assert render_dock(AppearanceControls(), viewer, JupyterHost(), []) is None
 
 
 def test_appearance_controls_none_when_only_channel_config():
     # A multichannel visual records a ChannelControlsConfig, which the
     # appearance builder must skip -> no appearance panel.
     viewer = _multichannel_viewer()
-    assert _render_appearance_controls(viewer, JupyterHost(), []) is None
+    assert render_dock(AppearanceControls(), viewer, JupyterHost(), []) is None
 
 
 # ---------------------------------------------------------------------------
@@ -126,24 +125,24 @@ def test_appearance_controls_none_when_only_channel_config():
 
 
 def test_render_center_hstack():
-    result = _render_center(HStack(items=[_FakeLeaf()]), _FakeHost(), [])
+    result = render_center(HStack(items=[_FakeLeaf()]), _FakeHost(), [])
     assert result[0] == "stack" and result[1] == "h"
 
 
 def test_render_center_vstack():
-    result = _render_center(VStack(items=[_FakeLeaf()]), _FakeHost(), [])
+    result = render_center(VStack(items=[_FakeLeaf()]), _FakeHost(), [])
     assert result[0] == "stack" and result[1] == "v"
 
 
 def test_render_center_grid():
-    result = _render_center(Grid(cells=[[_FakeLeaf(), None]]), _FakeHost(), [])
+    result = render_center(Grid(cells=[[_FakeLeaf(), None]]), _FakeHost(), [])
     assert result[0] == "grid"
 
 
 def test_render_center_leaf_is_tracked_as_closeable():
     closeables: list = []
     leaf = _FakeLeaf()
-    result = _render_center(leaf, _FakeHost(), closeables)
+    result = render_center(leaf, _FakeHost(), closeables)
     assert result == ("composed", leaf)
     assert closeables == [leaf]
 

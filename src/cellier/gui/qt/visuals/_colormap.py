@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 
-class QtColormapComboBox(VisualIdGroup):
+class QtColormapCombo(VisualIdGroup):
     """Bidirectional colormap selector wired to the cellier v2 bus.
 
     Wraps a ``superqt.QColormapComboBox`` and keeps it in sync with
@@ -29,7 +29,7 @@ class QtColormapComboBox(VisualIdGroup):
 
     Wire to the controller after construction::
 
-        combo = QtColormapComboBox(visual_id, initial_colormap="grays")
+        combo = QtColormapCombo(visual_id, initial_colormap="grays")
         controller.connect_widget(combo, subscription_specs=combo.subscription_specs())
 
     Parameters

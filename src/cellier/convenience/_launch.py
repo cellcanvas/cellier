@@ -9,6 +9,8 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Callable, Literal
 
+from cellier.convenience._startup import StartupState, StartupTracker
+
 if TYPE_CHECKING:
     from sidecar import Sidecar
 
@@ -20,6 +22,10 @@ if TYPE_CHECKING:
     ViewerLike = Viewer | OrthoViewer
 
 FitMode = Literal["ready", "immediate", "none"]
+
+#: Seconds before startup is reported stalled.  Long enough that slow
+#: remote data is not maligned, short enough to notice within one look.
+_DEFAULT_STALL_TIMEOUT = 30.0
 
 
 def launch(
@@ -184,6 +190,7 @@ def display(
     on_ready: Callable[[], None] | None = None,
     host: str | None = None,
     sidecar: bool | SidecarOptions | None = None,
+    stall_timeout: float | None = _DEFAULT_STALL_TIMEOUT,
 ) -> object:
     """Compose and present an anywidget viewer non-blockingly.
 
@@ -207,6 +214,9 @@ def display(
         has committed to the GPU.
     host : "jupyter", "marimo", or None
         Explicit host override; auto-detected when ``None``.
+    stall_timeout : float or None
+        Seconds before startup is reported stalled through
+        ``viewer.on_startup_stalled``.  ``None`` disables the check.
     sidecar : True, SidecarOptions, or None
         Present the viewer in a ``jupyterlab-sidecar`` tab instead of below
         the cell.  ``True`` uses :class:`~cellier.convenience.SidecarOptions`
@@ -246,7 +256,7 @@ def display(
     else:
         cell_value = resolved_host.present(render_view.root)
 
-    _init_view(viewer, fit=fit, on_ready=on_ready)
+    _init_view(viewer, fit=fit, on_ready=on_ready, stall_timeout=stall_timeout)
 
     handle = DisplayHandle(
         viewer, render_view, sidecar=sidecar_instance, host=resolved_host
@@ -296,14 +306,16 @@ def run(
         :class:`DisplayHandle` (or marimo renderable) for anywidget; ``None``
         for Qt (after the window closes).
     """
-    if viewer.gui == "anywidget":
+    from cellier.convenience._backend import backend_for
+
+    # Resolving the backend is what refuses a gui with no widgets -- including
+    # "offscreen" -- so the message lives in one place rather than once per
+    # entry point.
+    backend = backend_for(viewer.gui, lacks="no window to show", what="viewer.gui")
+    if backend.name == "anywidget":
         return display(viewer, layout, fit=fit, on_ready=on_ready)
-    if viewer.gui == "qt":
-        launch(viewer, layout, fit=fit, on_ready=on_ready)
-        return None
-    raise ValueError(
-        f"Unknown viewer.gui {viewer.gui!r}. Expected 'qt' or 'anywidget'."
-    )
+    launch(viewer, layout, fit=fit, on_ready=on_ready)
+    return None
 
 
 def _resolve_qt_window(layout_or_window: object, viewer: object) -> object:
@@ -322,11 +334,18 @@ def _init_view(
     *,
     fit: FitMode = "ready",
     on_ready: Callable[[], None] | None = None,
-) -> None:
-    """Arm first-frame startup (fit + reslice) for every scene.
+    stall_timeout: float | None = _DEFAULT_STALL_TIMEOUT,
+) -> StartupTracker:
+    """Arm startup (fit + reslice) for every scene, and track its progress.
 
     Supports both the single-scene :class:`Viewer` (which exposes ``scene``)
     and the multi-panel :class:`OrthoViewer` (which exposes ``scenes``).
+
+    Startup runs in stages, each observable through the returned tracker and
+    through ``viewer.startup_state``: the canvas must reach the front end,
+    render a frame, load its data, and commit it.  Splitting them is what lets
+    a viewer that never finishes say *where* it stopped instead of just
+    staying blank.
 
     The fit policy controls how the camera is framed:
 
@@ -346,10 +365,33 @@ def _init_view(
     produced by the initial ``fit_camera`` would schedule a settle reslice that
     cancels the in-flight startup reads, which could starve the readiness
     callback for slow (e.g. remote) data.
+
+    Parameters
+    ----------
+    viewer : Viewer or OrthoViewer
+        The viewer to start.
+    fit : "ready", "immediate", or "none"
+        Camera-fit policy.
+    on_ready : Callable[[], None] or None
+        Fired once, after every scene is ready.
+    stall_timeout : float or None
+        Seconds to wait before declaring startup stalled.  ``None`` disables
+        the check.  Requires a running asyncio loop; without one the timer is
+        simply not armed, which is why the state is also readable directly.
+
+    Returns
+    -------
+    StartupTracker
+        Also attached to the viewer as ``_startup``.
     """
     controller = viewer.controller
     scenes = getattr(viewer, "scenes", None)
-    scene_list = list(scenes.values() if scenes is not None else [viewer.scene])
+    scene_items = (
+        list(scenes.items()) if scenes is not None else [("scene", viewer.scene)]
+    )
+
+    tracker = StartupTracker([key for key, _ in scene_items])
+    viewer._startup = tracker
 
     user_callbacks = list(getattr(viewer, "_ready_callbacks", []))
     if on_ready is not None:
@@ -360,7 +402,7 @@ def _init_view(
     prev_reslice_enabled = controller.camera_reslice_enabled
     controller.camera_reslice_enabled = False
 
-    aggregate = {"remaining": len(scene_list), "fired": False}
+    aggregate = {"remaining": len(scene_items), "fired": False}
 
     def _finish_startup() -> None:
         aggregate["fired"] = True
@@ -368,31 +410,76 @@ def _init_view(
         for cb in user_callbacks:
             cb()
 
-    def _scene_ready() -> None:
+    def _scene_ready(key: str) -> None:
+        tracker.advance(key, StartupState.READY)
         aggregate["remaining"] -= 1
         if aggregate["remaining"] <= 0 and not aggregate["fired"]:
             _finish_startup()
 
-    if not scene_list:
+    if not scene_items:
         _finish_startup()
-        return
+        return tracker
 
-    for scene in scene_list:
+    for key, scene in scene_items:
         canvas_ids = controller.get_canvas_ids(scene.id)
         if not canvas_ids:
             # No canvas attached yet; still load data so the model is populated.
-            controller.reslice_scene(scene.id, on_ready=_scene_ready)
+            tracker.advance(key, StartupState.LOADING)
+            controller.reslice_scene(scene.id, on_ready=lambda k=key: _scene_ready(k))
             continue
 
-        def _start(s=scene) -> None:
+        tracker.set_canvas(key, canvas_ids[0])
+        tracker.advance(key, StartupState.WAITING_FOR_CANVAS)
+
+        def _start(s=scene, k=key) -> None:
+            tracker.advance(k, StartupState.LOADING)
             if fit != "none":
                 controller.fit_camera(s.id)
 
-            def _ready(s=s) -> None:
+            def _ready(s=s, k=k) -> None:
                 if fit == "ready":
                     controller.fit_camera(s.id)
-                _scene_ready()
+                _scene_ready(k)
 
             controller.reslice_scene(s.id, on_ready=_ready)
 
-        controller.on_canvas_first_frame(canvas_ids[0], _start, owner_id=controller._id)
+        # ``start=_start`` is bound now, not looked up later: ``_connected``
+        # runs asynchronously, and without the default it would close over the
+        # loop variable and every scene would run the *last* scene's starter.
+        def _connected(cid=canvas_ids[0], k=key, start=_start) -> None:
+            tracker.advance(k, StartupState.WAITING_FOR_FRAME)
+            controller.on_canvas_first_frame(cid, start, owner_id=controller._id)
+
+        # Two steps, not one: the canvas has to be live before a frame can be
+        # asked of it, and on the anywidget backend that can be a long wait --
+        # or never.  Splitting them is what lets a stalled viewer say which of
+        # the two it is stuck on.
+        controller.on_canvas_connected(
+            canvas_ids[0], _connected, owner_id=controller._id
+        )
+
+    _arm_stall_timer(tracker, stall_timeout)
+    return tracker
+
+
+def _arm_stall_timer(tracker: StartupTracker, timeout: float | None) -> None:
+    """Mark *tracker* stalled if startup has not finished within *timeout*.
+
+    Best-effort: it needs a running asyncio loop, and there is not always one
+    (a bare script before ``QtAsyncio.run``, a synchronous test).  Without a
+    loop the timer is skipped rather than raising -- the state stays readable
+    either way, which is the point of it being a property rather than only a
+    callback.
+    """
+    if not timeout:
+        return
+    import asyncio
+
+    async def _watch() -> None:
+        await asyncio.sleep(timeout)
+        tracker.mark_stalled()
+
+    try:
+        asyncio.get_running_loop().create_task(_watch())
+    except RuntimeError:
+        return

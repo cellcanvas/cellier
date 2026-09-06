@@ -12,11 +12,13 @@ import pytest
 
 from cellier.controller import _RENDER_CONFIG_ROUTES
 from cellier.convenience import OrthoViewer, RenderControls, Viewer
+from cellier.convenience._hosts import QtLayoutHost
 from cellier.convenience.layout import Layout
 from cellier.convenience.layout._shared import (
     render_panel_kwargs,
     render_panel_sections,
 )
+from cellier.convenience.layout._walk import render_dock
 
 # ---------------------------------------------------------------------------
 # The dock spec
@@ -77,9 +79,21 @@ def test_the_temporal_panel_is_given_a_live_frame_count_and_a_reset():
     kwargs["on_reset"]()  # must not raise with no canvas
 
 
-def test_the_outline_panel_needs_no_extra_wiring():
+def test_the_outline_panel_is_given_live_slot_usage():
+    """``{slot: how many visuals use it}``, annotating the palette swatches.
+
+    Derived state, like the occlusion radius and the frame count, so it is a
+    callable rather than a value: a visual moving between slots changes it
+    with no config field changing.
+
+    Both panel bases have accepted ``slot_usage`` since they were written and
+    both front ends draw it -- but nothing passed it and the Qt panel did not
+    even forward the keyword, so the readout was dead on both toolkits.
+    """
     viewer = Viewer(("z", "y", "x"), dim="3d")
-    assert render_panel_kwargs("outline", viewer.controller) == {}
+    kwargs = render_panel_kwargs("outline", viewer.controller)
+    assert callable(kwargs["slot_usage"])
+    assert kwargs["slot_usage"]() == {}  # no visuals yet, and it must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -89,11 +103,10 @@ def test_the_outline_panel_needs_no_extra_wiring():
 
 def test_the_qt_dock_renders_and_wires_every_panel(qtbot):
     """No configured visual needed: render settings belong to the renderer."""
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
 
     viewer = Viewer(("z", "y", "x"), dim="3d")
     closeables: list = []
-    dock = _render_dock_qt(RenderControls(), viewer, closeables)
+    dock = render_dock(RenderControls(), viewer, QtLayoutHost(), closeables)
 
     assert dock is not None
     qtbot.addWidget(dock)
@@ -107,12 +120,14 @@ def test_the_qt_dock_renders_and_wires_every_panel(qtbot):
 
 def test_a_qt_dock_panel_edit_reaches_the_render_config(qtbot):
     """The dock connects its panels, so an edit lands without further wiring."""
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
 
     viewer = Viewer(("z", "y", "x"), dim="3d")
     closeables: list = []
-    dock = _render_dock_qt(
-        RenderControls(sections=("ambient_occlusion",)), viewer, closeables
+    dock = render_dock(
+        RenderControls(sections=("ambient_occlusion",)),
+        viewer,
+        QtLayoutHost(),
+        closeables,
     )
     qtbot.addWidget(dock)
 
@@ -124,11 +139,12 @@ def test_a_qt_dock_panel_edit_reaches_the_render_config(qtbot):
 
 
 def test_the_qt_dock_honours_a_section_subset(qtbot):
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
 
     viewer = Viewer(("z", "y", "x"), dim="3d")
     closeables: list = []
-    dock = _render_dock_qt(RenderControls(sections=("temporal",)), viewer, closeables)
+    dock = render_dock(
+        RenderControls(sections=("temporal",)), viewer, QtLayoutHost(), closeables
+    )
     qtbot.addWidget(dock)
 
     assert [panel.section for panel in closeables] == ["temporal"]
@@ -136,11 +152,10 @@ def test_the_qt_dock_honours_a_section_subset(qtbot):
 
 def test_the_qt_dock_works_on_an_ortho_viewer(qtbot):
     """An ``OrthoViewer`` has no ``scene``, which used to defeat other docks."""
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
 
     viewer = OrthoViewer(("z", "y", "x"))
     closeables: list = []
-    dock = _render_dock_qt(RenderControls(), viewer, closeables)
+    dock = render_dock(RenderControls(), viewer, QtLayoutHost(), closeables)
 
     assert dock is not None
     qtbot.addWidget(dock)
@@ -150,11 +165,10 @@ def test_the_qt_dock_works_on_an_ortho_viewer(qtbot):
 def test_the_anywidget_dock_renders_and_wires_every_panel():
     pytest.importorskip("anywidget")
     from cellier.convenience._hosts import JupyterHost
-    from cellier.convenience.layout._anywidget_renderer import _render_dock
 
     viewer = Viewer(("z", "y", "x"), dim="3d", gui="anywidget")
     closeables: list = []
-    dock = _render_dock(RenderControls(), viewer, JupyterHost(), closeables)
+    dock = render_dock(RenderControls(), viewer, JupyterHost(), closeables)
 
     assert dock is not None
     assert {panel.section for panel in closeables} == {
@@ -167,11 +181,10 @@ def test_the_anywidget_dock_renders_and_wires_every_panel():
 def test_an_anywidget_dock_panel_edit_reaches_the_render_config():
     pytest.importorskip("anywidget")
     from cellier.convenience._hosts import JupyterHost
-    from cellier.convenience.layout._anywidget_renderer import _render_dock
 
     viewer = Viewer(("z", "y", "x"), dim="3d", gui="anywidget")
     closeables: list = []
-    _render_dock(
+    render_dock(
         RenderControls(sections=("ambient_occlusion",)),
         viewer,
         JupyterHost(),
@@ -411,11 +424,10 @@ def test_the_global_dock_names_its_scope(qtbot):
     same kind of thing: "Outline" beside "Outlines" is not a distinction
     anyone should have to notice.
     """
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
     from cellier.gui._render_controls import RENDER_DOCK_TITLE
 
     viewer = Viewer(("z", "y", "x"), dim="3d")
-    dock = _render_dock_qt(RenderControls(), viewer, [])
+    dock = render_dock(RenderControls(), viewer, QtLayoutHost(), [])
     qtbot.addWidget(dock)
 
     assert dock.title() == RENDER_DOCK_TITLE == "Renderer effects"

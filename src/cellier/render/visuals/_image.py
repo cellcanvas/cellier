@@ -336,9 +336,9 @@ class MultiscaleBrickLayout3D:
         self.n_levels = len(level_shapes)
 
         ndim = level_transforms[0].ndim
-        assert np.allclose(
-            level_transforms[0].matrix, np.eye(ndim + 1)
-        ), "level_transforms[0] must be the identity"
+        assert np.allclose(level_transforms[0].matrix, np.eye(ndim + 1)), (
+            "level_transforms[0] must be the identity"
+        )
 
         # Inputs are in displayed-axis order over the 3 displayed axes
         # (e.g. (z, y, x) when displayed_axes=(0, 1, 2)).
@@ -2852,6 +2852,16 @@ class GFXMultiscaleImageVisual:
         """Advance jitter seed for the brick shader."""
         if self.material_3d is not None:
             self.material_3d.tick()
+
+    def reset_tick(self) -> None:
+        """Rewind the per-frame jitter seed to its construction value.
+
+        The counterpart to :meth:`tick`, called before a reproducible capture.
+        This is the only visual with per-frame state; every other ``tick`` is
+        a no-op and needs no reset.
+        """
+        if self.material_3d is not None:
+            self.material_3d.reset_frame_index()
 
     # ── Private helpers ─────────────────────────────────────────────────
 

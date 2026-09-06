@@ -17,8 +17,8 @@ from cellier.gui.anywidget.visuals._base import (
 )
 from cellier.gui.anywidget.visuals._channel import AnywidgetChannelList
 from cellier.gui.anywidget.visuals._color import AnywidgetUniformColorPicker
-from cellier.gui.anywidget.visuals._colormap import AnywidgetColormapControl
-from cellier.gui.anywidget.visuals._contrast_limits import AnywidgetClimSlider
+from cellier.gui.anywidget.visuals._colormap import AnywidgetColormapCombo
+from cellier.gui.anywidget.visuals._contrast_limits import AnywidgetClimRangeSlider
 from cellier.gui.anywidget.visuals._graph import (
     AnywidgetEdgeColorPicker,
     AnywidgetEdgeThicknessSpaceCombo,
@@ -29,7 +29,11 @@ from cellier.gui.anywidget.visuals._graph import (
     AnywidgetNodeSizeSpin,
     AnywidgetNodeVisibleToggle,
 )
-from cellier.gui.anywidget.visuals._image import AnywidgetVolumeRenderControls
+from cellier.gui.anywidget.visuals._image import (
+    AnywidgetIsoThresholdSlider,
+    AnywidgetRenderModeCombo,
+    AnywidgetVolumeRenderControls,
+)
 from cellier.gui.anywidget.visuals._labels import (
     AnywidgetBackgroundLabelSpin,
     AnywidgetLabelsRenderModeCombo,
@@ -61,9 +65,9 @@ __all__ = [
     "AnywidgetBoundedSlider",
     "AnywidgetChannelList",
     "AnywidgetChoice",
-    "AnywidgetClimSlider",
+    "AnywidgetClimRangeSlider",
     "AnywidgetColorPicker",
-    "AnywidgetColormapControl",
+    "AnywidgetColormapCombo",
     "AnywidgetEdgeColorPicker",
     "AnywidgetEdgeThicknessSpaceCombo",
     "AnywidgetEdgeThicknessSpin",
@@ -71,6 +75,7 @@ __all__ = [
     "AnywidgetFlatShadingToggle",
     "AnywidgetFloatSpin",
     "AnywidgetIntSpin",
+    "AnywidgetIsoThresholdSlider",
     "AnywidgetLabelsRenderModeCombo",
     "AnywidgetLodBiasSlider",
     "AnywidgetNodeColorPicker",
@@ -78,6 +83,7 @@ __all__ = [
     "AnywidgetNodeSizeSpin",
     "AnywidgetNodeVisibleToggle",
     "AnywidgetOpacitySlider",
+    "AnywidgetRenderModeCombo",
     "AnywidgetSaltSpin",
     "AnywidgetShininessSpin",
     "AnywidgetSideCombo",

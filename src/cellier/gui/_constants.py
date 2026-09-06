@@ -10,6 +10,8 @@ Python and once in JavaScript, where no test could ever have compared them.
 
 from __future__ import annotations
 
+from typing import Literal
+
 DIMS_SLIDER_THROTTLE_MS: int = 50
 """How often a dims-slider drag is allowed to reach the slicer, in ms.
 
@@ -22,4 +24,17 @@ feels.
 
 The anywidget side receives this as a synced trait rather than hard-coding it,
 so the JavaScript reads the same number Python does.
+"""
+
+
+GuiName = Literal["qt", "anywidget", "offscreen"]
+"""Which front end a viewer was built for.
+
+``"qt"`` and ``"anywidget"`` are widget toolkits; ``"offscreen"`` is headless
+capture and has no widgets at all, so the layout system refuses it (see
+``cellier.convenience.gui.build_canvas_widget``).
+
+Named once because it appears on ``Viewer``, ``OrthoViewer``,
+``CellierController`` and both canvas builders, and the builders had already
+drifted to a two-value annotation while their bodies handled three.
 """

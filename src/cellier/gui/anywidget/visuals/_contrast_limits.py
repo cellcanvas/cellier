@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 _STATIC = Path(__file__).parent / "static"
 
 
-class AnywidgetClimSlider(VisualIdGroup, anywidget.AnyWidget):
+class AnywidgetClimRangeSlider(VisualIdGroup, anywidget.AnyWidget):
     """Bidirectional contrast-limits slider wired to the cellier v2 bus.
 
     Mirrors ``QtClimRangeSlider``: one UUID per widget, source-ID echo
@@ -34,7 +34,7 @@ class AnywidgetClimSlider(VisualIdGroup, anywidget.AnyWidget):
 
     Wire to the controller after construction::
 
-        slider = AnywidgetClimSlider(
+        slider = AnywidgetClimRangeSlider(
             visual_id, clim_range=(0, 255), initial_clim=(0, 200)
         )
         controller.connect_widget(
@@ -100,7 +100,7 @@ class AnywidgetClimSlider(VisualIdGroup, anywidget.AnyWidget):
     # ── Public interface ─────────────────────────────────────────────────────
 
     @property
-    def widget(self) -> AnywidgetClimSlider:
+    def widget(self) -> AnywidgetClimRangeSlider:
         """An ``AnyWidget`` is itself the embeddable element."""
         return self
 

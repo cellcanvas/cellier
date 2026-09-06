@@ -44,7 +44,7 @@ class AnywidgetBox(anywidget.AnyWidget):
         Spacing between children in pixels.  Defaults to ``4``, tuned for
         macro layout blocks (canvas/dims/docks).  Pass a smaller value to
         tightly group sibling controls that used to live inside one widget
-        (see ``compose_appearance_leaf``).
+        (see ``LayoutHost.dock_panel``).
     padding : int
         Inner padding in pixels, on all four sides.  Defaults to ``0``.  Used
         by :class:`~cellier.convenience._hosts.JupyterHost` to keep the

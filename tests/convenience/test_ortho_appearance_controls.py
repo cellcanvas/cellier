@@ -15,12 +15,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cellier.convenience import OrthoViewer, Viewer
+from cellier.convenience import AppearanceControls, OrthoViewer, Viewer
+from cellier.convenience._backend import ANYWIDGET_BACKEND
+from cellier.convenience._hosts import QtLayoutHost
 from cellier.convenience.gui._controls_config import (
     InMemoryImageControlsConfig,
     MultiscaleImageControlsConfig,
 )
 from cellier.convenience.layout._shared import select_appearance_target
+from cellier.convenience.layout._walk import build_appearance_widgets, render_dock
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
@@ -233,12 +236,11 @@ def test_the_widgets_own_echoes_are_all_dropped(qtbot):
 
 def test_appearance_dock_renders_on_an_ortho_viewer_qt(qtbot):
     """Was ``None`` before stage 2 -- no dock, no error (section 4.1)."""
-    from cellier.convenience.layout._qt_renderer import _render_appearance_controls_qt
     from tests.convenience._qt_acceptance import assert_panel_renders, control_labels
 
     ortho, _visuals = _ortho_with_controls(appearance=["color_map", "clim"])
 
-    container = _render_appearance_controls_qt(ortho)
+    container = render_dock(AppearanceControls(), ortho, QtLayoutHost(), [])
 
     assert container is not None
     assert control_labels(container) == [
@@ -251,12 +253,11 @@ def test_appearance_dock_renders_on_an_ortho_viewer_qt(qtbot):
 
 def test_the_rendered_ortho_dock_drives_every_panel(qtbot):
     """End to end: build the dock from a Layout spec, then edit it."""
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
     from cellier.convenience.layout._spec import AppearanceControls
 
     ortho, visuals = _ortho_with_controls(appearance=["clim"])
 
-    container = _render_dock_qt(AppearanceControls(), ortho)
+    container = render_dock(AppearanceControls(), ortho, QtLayoutHost(), [])
     assert container is not None
 
     from superqt import QLabeledDoubleRangeSlider
@@ -270,9 +271,6 @@ def test_the_rendered_ortho_dock_drives_every_panel(qtbot):
 
 def test_appearance_dock_renders_on_an_ortho_viewer_anywidget():
     """The same fix reaches the anywidget renderer, which shares the resolver."""
-    from cellier.convenience.gui._appearance_widgets import (
-        build_appearance_widgets_anywidget,
-    )
     from tests.convenience._qt_acceptance import control_labels_anywidget
 
     ortho = OrthoViewer(("z", "y", "x"), gui="anywidget")
@@ -283,8 +281,12 @@ def test_appearance_dock_renders_on_an_ortho_viewer_anywidget():
     )
     target = select_appearance_target(ortho)
 
-    built = build_appearance_widgets_anywidget(
-        target.visual, target.config, ortho.controller, target.visual_ids
+    built = build_appearance_widgets(
+        target.visual,
+        target.config,
+        ortho.controller,
+        target.visual_ids,
+        backend=ANYWIDGET_BACKEND,
     )
 
     assert control_labels_anywidget(built) == ["Contrast limits", "Bounding box"]
@@ -353,7 +355,6 @@ def test_the_group_helpers_stamp_the_given_source_id():
 
 def test_the_renderer_warns_about_a_field_the_model_does_not_have(qtbot):
     """The residual drop stage 3's validation cannot catch, on ortho too."""
-    from cellier.convenience.layout._qt_renderer import _render_appearance_controls_qt
 
     ortho = OrthoViewer(("z", "y", "x"))
     ortho.add_image(
@@ -364,6 +365,6 @@ def test_the_renderer_warns_about_a_field_the_model_does_not_have(qtbot):
     )
 
     with pytest.warns(UserWarning, match="lod_bias"):
-        container = _render_appearance_controls_qt(ortho)
+        container = render_dock(AppearanceControls(), ortho, QtLayoutHost(), [])
 
     assert container is not None

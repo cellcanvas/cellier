@@ -44,12 +44,12 @@ def _qt_widgets(visual_id):
     from cellier.gui.qt.visuals import (
         QtAABBWidget,
         QtClimRangeSlider,
-        QtColormapComboBox,
+        QtColormapCombo,
         QtLodBiasSlider,
         QtVolumeRenderControls,
     )
 
-    colormap = QtColormapComboBox(visual_id, initial_colormap="grays")
+    colormap = QtColormapCombo(visual_id, initial_colormap="grays")
     clim = QtClimRangeSlider(visual_id, clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0))
     lod = QtLodBiasSlider(visual_id, initial_lod_bias=1.0)
     render = QtVolumeRenderControls(
@@ -112,10 +112,10 @@ def test_qt_widgets_subscribe_to_every_visual(qtbot, n_ids):
 
 def test_qt_a_single_uuid_still_works_unchanged(qtbot):
     """The compatible signature: one id in, one event out, one subscription."""
-    from cellier.gui.qt.visuals import QtColormapComboBox
+    from cellier.gui.qt.visuals import QtColormapCombo
 
     visual_id = uuid4()
-    widget = QtColormapComboBox(visual_id, initial_colormap="grays")
+    widget = QtColormapCombo(visual_id, initial_colormap="grays")
 
     assert widget.visual_ids == (visual_id,)
     assert widget._visual_id == visual_id
@@ -148,14 +148,14 @@ def test_qt_aabb_emits_per_visual_for_every_field(qtbot):
 def _anywidget_widgets(visual_id):
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
-        AnywidgetClimSlider,
-        AnywidgetColormapControl,
+        AnywidgetClimRangeSlider,
+        AnywidgetColormapCombo,
         AnywidgetLodBiasSlider,
         AnywidgetVolumeRenderControls,
     )
 
-    colormap = AnywidgetColormapControl(visual_id, initial_colormap="grays")
-    clim = AnywidgetClimSlider(
+    colormap = AnywidgetColormapCombo(visual_id, initial_colormap="grays")
+    clim = AnywidgetClimRangeSlider(
         visual_id, clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0)
     )
     lod = AnywidgetLodBiasSlider(visual_id, initial_lod_bias=1.0)
@@ -229,9 +229,14 @@ def test_an_empty_sequence_is_rejected():
 
 def test_the_event_type_is_unchanged_by_the_group_form():
     """Fanning out changes how many events, never which kind."""
-    from cellier.gui.anywidget.visuals import AnywidgetAABBWidget, AnywidgetClimSlider
+    from cellier.gui.anywidget.visuals import (
+        AnywidgetAABBWidget,
+        AnywidgetClimRangeSlider,
+    )
 
-    clim = AnywidgetClimSlider(_ids(3), clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0))
+    clim = AnywidgetClimRangeSlider(
+        _ids(3), clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0)
+    )
     aabb = AnywidgetAABBWidget(_ids(3))
     clim_events: list = []
     aabb_events: list = []

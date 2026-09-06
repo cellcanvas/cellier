@@ -1,4 +1,4 @@
-"""Tests for the anywidget ``AnywidgetColormapControl`` colormap-control widget."""
+"""Tests for the anywidget ``AnywidgetColormapCombo`` colormap-control widget."""
 
 from __future__ import annotations
 
@@ -9,15 +9,15 @@ from cmap import Colormap
 
 pytest.importorskip("anywidget")
 
-from cellier.events import AppearanceChangedEvent  # noqa: E402
-from cellier.gui.anywidget.visuals._colormap import (  # noqa: E402
-    AnywidgetColormapControl,
+from cellier.events import AppearanceChangedEvent
+from cellier.gui.anywidget.visuals._colormap import (
+    AnywidgetColormapCombo,
 )
 
 
 def _make_widget(**kwargs):
     visual_id = uuid4()
-    return AnywidgetColormapControl(visual_id, **kwargs), visual_id
+    return AnywidgetColormapCombo(visual_id, **kwargs), visual_id
 
 
 def test_instantiate_smoke():

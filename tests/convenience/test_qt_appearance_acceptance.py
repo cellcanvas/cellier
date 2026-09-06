@@ -13,6 +13,10 @@ from __future__ import annotations
 
 import pytest
 
+from cellier.convenience import AppearanceControls
+from cellier.convenience._hosts import QtLayoutHost
+from cellier.convenience.layout._walk import render_dock
+
 pytest.importorskip("qtpy")
 pytest.importorskip("superqt")
 
@@ -20,9 +24,6 @@ from cellier.convenience import Viewer
 from cellier.convenience.gui import (
     InMemoryImageControlsConfig,
     MultiscaleImageControlsConfig,
-)
-from cellier.convenience.layout._qt_renderer import (
-    _render_appearance_controls_qt,
 )
 from cellier.visuals._image import MultiscaleImageAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
@@ -58,7 +59,7 @@ def test_multiscale_panel_control_names_in_order(qtbot, multiscale_image_store):
         controls=MultiscaleImageControlsConfig(appearance=_ALL_MULTISCALE_FIELDS),
     )
 
-    container = _render_appearance_controls_qt(viewer)
+    container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
     assert control_labels(container) == [
         "Colormap",
@@ -90,7 +91,7 @@ def test_in_memory_panel_control_names_in_order(qtbot, image_store):
     )
 
     with pytest.warns(UserWarning, match="attenuation"):
-        container = _render_appearance_controls_qt(viewer)
+        container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
     assert control_labels(container) == [
         "Colormap",
@@ -114,7 +115,7 @@ def test_panel_order_follows_the_builder_not_the_config(qtbot, image_store):
         controls=InMemoryImageControlsConfig(appearance=["clim", "color_map"]),
     )
 
-    container = _render_appearance_controls_qt(viewer)
+    container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
     assert control_labels(container) == [
         "Colormap",
@@ -153,7 +154,7 @@ def test_bounding_box_group_is_seeded_from_the_visual(qtbot, image_store):
     visual.aabb.enabled = True
     visual.aabb.line_width = 7.5
 
-    container = _render_appearance_controls_qt(viewer)
+    container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
     groups = [
         g for g in container.findChildren(QGroupBox) if g.title() == "Bounding box"

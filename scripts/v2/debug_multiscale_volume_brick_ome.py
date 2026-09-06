@@ -62,7 +62,7 @@ class OmeBrickViewer:
         from cellier.gui.qt.visuals import (
             QtAABBWidget,
             QtClimRangeSlider,
-            QtColormapComboBox,
+            QtColormapCombo,
             QtLodBiasSlider,
             QtVolumeRenderControls,
         )
@@ -85,7 +85,7 @@ class OmeBrickViewer:
         controller.connect_widget(
             self._clim_slider, subscription_specs=self._clim_slider.subscription_specs()
         )
-        self._colormap_combo = QtColormapComboBox(
+        self._colormap_combo = QtColormapCombo(
             visual_model.id,
             initial_colormap=visual_model.appearance.color_map,
         )

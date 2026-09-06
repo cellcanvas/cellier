@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cellier.convenience._hosts import LayoutHost
     from cellier.convenience._ortho_viewer import OrthoViewer
-    from cellier.convenience.gui._canvas import AnywidgetCanvasView
-    from cellier.gui.qt import QtCanvasWidget
+    from cellier.gui._constants import GuiName
 
-# (row, col, panel_key, header) for the 2x2 layout.
-_PANEL_LAYOUT: tuple[tuple[int, int, str, str], ...] = (
+#: ``(row, column, panel key, header)`` for the 2x2 ortho layout.
+#:
+#: Read by every toolkit.  It used to be Qt-private, which is why Qt labelled
+#: its panels ``XY`` / ``XZ`` / ``YZ`` / ``3D`` and the notebook labelled none
+#: of them -- the same four-panel viewer, annotated in a script and bare in a
+#: notebook (``plans/gui_backend_unification.md`` D15).
+PANEL_LAYOUT: tuple[tuple[int, int, str, str], ...] = (
     (0, 0, "xy", "XY"),
     (0, 1, "xz", "XZ"),
     (1, 0, "yz", "YZ"),
@@ -20,204 +23,124 @@ _PANEL_LAYOUT: tuple[tuple[int, int, str, str], ...] = (
 )
 
 
-class OrthoCanvasWidgets:
-    """The four panel canvas widgets plus the composed 2x2 grid container.
+class OrthoCanvasGrid:
+    """The four ortho panel canvas leaves, arranged 2x2 on any toolkit.
+
+    ``compose(host)`` builds the grid through the host, so the arrangement --
+    which panel sits where, and what each is called -- is written once and
+    both front ends draw it the same way.
 
     Attributes
     ----------
-    widget :
-        The outer ``QWidget`` containing the 2x2 grid; embed in a Qt layout.
-    canvases : dict[str, QtCanvasWidget]
-        The per-panel ``QtCanvasWidget`` objects keyed ``"xy"``, ``"xz"``,
-        ``"yz"``, ``"vol"``.
+    canvases : dict[str, object]
+        Per-panel canvas leaves keyed ``"xy"``, ``"xz"``, ``"yz"``, ``"vol"``.
     """
 
-    def __init__(self, widget, canvases: dict[str, QtCanvasWidget]) -> None:
-        self.widget = widget
+    def __init__(self, canvases: dict) -> None:
         self.canvases = canvases
-
-    def close(self) -> None:
-        """Unsubscribe every panel's dims sliders from the bus."""
-        for canvas_widget in self.canvases.values():
-            canvas_widget.close()
-
-
-@dataclass
-class OrthoAnywidgetCanvases:
-    """The four panel :class:`AnywidgetCanvasView` leaves for an ortho grid.
-
-    Returned by :func:`build_ortho_grid_widget` for ``gui="anywidget"``.
-    ``compose(host)`` arranges the panels as a 2x2 grid through an injected
-    :class:`~cellier.convenience._hosts.LayoutHost`, each cell composed
-    canvas-over-controls.
-
-    Attributes
-    ----------
-    canvases : dict[str, AnywidgetCanvasView]
-        Per-panel views keyed ``"xy"``, ``"xz"``, ``"yz"``, ``"vol"``.
-    """
-
-    canvases: dict[str, AnywidgetCanvasView]
+        self._widget = None
 
     def compose(self, host: LayoutHost) -> object:
-        """Arrange the four panels as a 2x2 grid via *host*."""
-        c = self.canvases
-        return host.grid(
-            [
-                [c["xy"].compose(host), c["xz"].compose(host)],
-                [c["yz"].compose(host), c["vol"].compose(host)],
-            ]
-        )
+        """Arrange the four panels as a labelled 2x2 grid via *host*."""
+        rows: list[list[object]] = [[None, None], [None, None]]
+        for row, column, key, header in PANEL_LAYOUT:
+            rows[row][column] = host.stack(
+                [self.canvases[key].compose(host)], direction="v", title=header
+            )
+        return host.grid(rows)
+
+    @property
+    def widget(self):
+        """The composed Qt grid, for embedding in a hand-built Qt layout.
+
+        Qt only, and a convenience: the layout system reaches the grid through
+        :meth:`compose` like any other center leaf.
+        """
+        if self._widget is None:
+            from cellier.convenience._hosts import QtLayoutHost
+
+            self._widget = self.compose(QtLayoutHost())
+        return self._widget
 
     def close(self) -> None:
-        """Unsubscribe every panel's control panel from the bus."""
+        """Unsubscribe every panel's dims control from the bus."""
         for view in self.canvases.values():
             view.close()
+
+
+#: Kept as the toolkit-specific names the two builders used to return.  They
+#: are one class now, so an ``isinstance`` check against either still holds.
+OrthoCanvasWidgets = OrthoCanvasGrid
+OrthoAnywidgetCanvases = OrthoCanvasGrid
 
 
 def build_ortho_grid_widget(
     ortho: OrthoViewer,
     axis_ranges: dict[int, tuple[float, float]],
     *,
-    gui: Literal["qt", "anywidget"] | None = None,
+    gui: GuiName | None = None,
     fov: float = 70.0,
     depth_range_3d: tuple[float, float] = (1.0, 8000.0),
     depth_range_2d: tuple[float, float] = (-500.0, 500.0),
     canvas_size: tuple[int, int] | None = None,
-) -> OrthoCanvasWidgets | OrthoAnywidgetCanvases:
+) -> OrthoCanvasGrid:
     """Build the 2x2 canvas grid for an :class:`OrthoViewer`.
 
-    Creates (or reuses) a canvas per panel with wired dims sliders.  For
-    ``gui="qt"`` the panels are arranged in a labelled 2x2 ``QGridLayout``
-    (``XY`` and ``XZ`` on the top row, ``YZ`` and the ``3D`` volume on the
-    bottom).  For ``gui="anywidget"`` an :class:`OrthoAnywidgetCanvases` is
-    returned whose ``compose(host)`` lays the panels out through a
-    :class:`~cellier.convenience._hosts.LayoutHost`.
+    Creates (or reuses) a canvas per panel with wired dims sliders, and returns
+    a leaf whose ``compose(host)`` lays them out as a labelled grid -- ``XY``
+    and ``XZ`` on the top row, ``YZ`` and the ``3D`` volume on the bottom.
 
     Parameters
     ----------
     ortho : OrthoViewer
         The orthoviewer whose four scenes are attached.
     axis_ranges : dict[int, tuple[float, float]]
-        Mapping of axis index to ``(world_min, world_max)`` for slider ranges,
-        typically from
-        :func:`cellier.convenience.axis_ranges_from_ortho`.
+        Axis index to ``(world_min, world_max)`` for the slider ranges,
+        typically from :func:`cellier.convenience.axis_ranges_from_ortho`.
     gui : "qt", "anywidget", or None
-        GUI toolkit.  Defaults to ``ortho.gui`` when ``None``; raises if it
-        conflicts with ``ortho.gui``.
+        Defaults to ``ortho.gui``; raises if it conflicts with it.
     fov : float
-        Vertical field of view in degrees for the 3D camera.  Default ``70``.
-    depth_range_3d : tuple[float, float]
-        ``(near, far)`` clip distances for the 3D camera.
-    depth_range_2d : tuple[float, float]
-        ``(near, far)`` clip distances for the 2D cameras.
+        Vertical field of view in degrees for the 3D camera.
+    depth_range_3d, depth_range_2d : tuple[float, float]
+        ``(near, far)`` clip distances for the 3D / 2D cameras.
     canvas_size : tuple[int, int] or None
-        Initial CSS pixel size for each anywidget canvas.  Ignored for the Qt
-        gui.
+        Initial CSS pixel size per panel.  Meaningful to anywidget only.
 
     Returns
     -------
-    OrthoCanvasWidgets or OrthoAnywidgetCanvases
+    OrthoCanvasGrid
 
     Raises
     ------
     ValueError
-        If *gui* conflicts with ``ortho.gui`` or is not recognised.
+        If *gui* conflicts with ``ortho.gui``, or names a front end with no
+        widgets (``"offscreen"``).
     """
-    from cellier.convenience.gui._canvas import _resolve_gui
+    from cellier.convenience._backend import backend_for
+    from cellier.convenience.gui._canvas import (
+        _ensure_qapplication,
+        _resolve_gui,
+        build_canvas_view,
+    )
 
     gui = _resolve_gui(ortho, gui)
-    if gui == "qt":
-        import sys
+    backend = backend_for(
+        gui, lacks="no embeddable widget, so no ortho grid can be built for it"
+    )
+    _ensure_qapplication(gui)
 
-        from PySide6.QtWidgets import QApplication
-
-        QApplication.instance() or QApplication([sys.argv[0]])
-        return _build_qt_ortho_grid(
-            ortho,
-            axis_ranges,
-            fov=fov,
-            depth_range_3d=depth_range_3d,
-            depth_range_2d=depth_range_2d,
-        )
-    elif gui == "anywidget":
-        return _build_anywidget_ortho_grid(
-            ortho,
-            axis_ranges,
-            fov=fov,
-            depth_range_3d=depth_range_3d,
-            depth_range_2d=depth_range_2d,
-            canvas_size=canvas_size,
-        )
-    raise ValueError(f"Unknown gui {gui!r}. Expected 'qt' or 'anywidget'.")
-
-
-def _build_anywidget_ortho_grid(
-    ortho: OrthoViewer,
-    axis_ranges: dict[int, tuple[float, float]],
-    *,
-    fov: float,
-    depth_range_3d: tuple[float, float],
-    depth_range_2d: tuple[float, float],
-    canvas_size: tuple[int, int] | None,
-) -> OrthoAnywidgetCanvases:
-    """Anywidget implementation of :func:`build_ortho_grid_widget`."""
-    from cellier.convenience.gui._canvas import anywidget_canvas_view_for_scene
-
-    canvases: dict[str, AnywidgetCanvasView] = {}
-    for key, scene in ortho.scenes.items():
-        canvases[key] = anywidget_canvas_view_for_scene(
-            ortho.controller,
-            scene,
-            axis_ranges,
-            fov=fov,
-            depth_range_3d=depth_range_3d,
-            depth_range_2d=depth_range_2d,
-            canvas_size=canvas_size,
-        )
-    return OrthoAnywidgetCanvases(canvases)
-
-
-def _build_qt_ortho_grid(
-    ortho: OrthoViewer,
-    axis_ranges: dict[int, tuple[float, float]],
-    *,
-    fov: float,
-    depth_range_3d: tuple[float, float],
-    depth_range_2d: tuple[float, float],
-) -> OrthoCanvasWidgets:
-    """Qt implementation of :func:`build_ortho_grid_widget`."""
-    from PySide6 import QtCore, QtWidgets
-
-    from cellier.convenience.gui._canvas import canvas_widget_for_scene
-
-    canvases: dict[str, QtCanvasWidget] = {}
-    for key, scene in ortho.scenes.items():
-        canvases[key] = canvas_widget_for_scene(
-            ortho.controller,
-            scene,
-            axis_ranges,
-            fov=fov,
-            depth_range_3d=depth_range_3d,
-            depth_range_2d=depth_range_2d,
-        )
-
-    grid_widget = QtWidgets.QWidget()
-    grid = QtWidgets.QGridLayout(grid_widget)
-    grid.setSpacing(4)
-    grid.setContentsMargins(0, 0, 0, 0)
-
-    for row, col, key, header in _PANEL_LAYOUT:
-        cell = QtWidgets.QWidget()
-        cell_layout = QtWidgets.QVBoxLayout(cell)
-        cell_layout.setContentsMargins(0, 0, 0, 0)
-        cell_layout.setSpacing(0)
-
-        label = QtWidgets.QLabel(header)
-        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet("font-weight: bold; font-size: 11px; padding: 2px;")
-        cell_layout.addWidget(label)
-        cell_layout.addWidget(canvases[key].widget, stretch=1)
-        grid.addWidget(cell, row, col)
-
-    return OrthoCanvasWidgets(grid_widget, canvases)
+    return OrthoCanvasGrid(
+        {
+            key: build_canvas_view(
+                ortho.controller,
+                scene,
+                axis_ranges,
+                backend=backend,
+                fov=fov,
+                depth_range_3d=depth_range_3d,
+                depth_range_2d=depth_range_2d,
+                canvas_size=canvas_size,
+            )
+            for key, scene in ortho.scenes.items()
+        }
+    )

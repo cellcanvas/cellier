@@ -1,14 +1,14 @@
 """Anywidget view layer for the shared appearance-control specs.
 
-The decision of *which* controls a panel contains, in what order, seeded with
-what values, is made once in ``convenience.layout._shared.appearance_specs``
-and shared with the Qt renderer (design section 7.3).  This module is only the
-anywidget half of the view: a dispatch table from ``ControlSpec.kind`` to a
-widget class, and the composition of the built widgets into one host leaf.
+A dispatch table from ``ControlSpec.kind`` to an anywidget class, and nothing
+else.  Which controls a panel contains, in what order, seeded with what, is
+decided once in ``convenience.layout._shared.appearance_specs``; the walk that
+builds and wires them is ``convenience.layout._walk``.  The Qt half of this is
+``_appearance_widgets_qt.py``.
 
-Like the Qt renderer, it draws no chrome: each control carries its own name --
-``label`` on a single-field control, ``title`` on a multi-row one -- and
-composition only stacks them (``plans/label_ownership_unification.md``).
+It draws no chrome: each control carries its own name -- ``label`` on a
+single-field control, ``title`` on a multi-row one
+(``plans/label_ownership_unification.md``).
 """
 
 from __future__ import annotations
@@ -16,17 +16,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from cellier.controller import CellierController
-    from cellier.convenience._hosts import LayoutHost
-    from cellier.convenience.gui._controls_config import BaseControlsConfig
     from cellier.convenience.layout._shared import ControlSpec
-    from cellier.visuals._base_visual import BaseVisual
 
 
 def _any_color_map(spec: ControlSpec, visual_ids, controller=None):
-    from cellier.gui.anywidget.visuals import AnywidgetColormapControl
+    from cellier.gui.anywidget.visuals import AnywidgetColormapCombo
 
-    return AnywidgetColormapControl(
+    return AnywidgetColormapCombo(
         visual_ids,
         initial_colormap=spec.values["initial_colormap"],
         colormap_names=spec.values["colormap_names"],
@@ -35,9 +31,9 @@ def _any_color_map(spec: ControlSpec, visual_ids, controller=None):
 
 
 def _any_clim(spec: ControlSpec, visual_ids, controller=None):
-    from cellier.gui.anywidget.visuals import AnywidgetClimSlider
+    from cellier.gui.anywidget.visuals import AnywidgetClimRangeSlider
 
-    return AnywidgetClimSlider(
+    return AnywidgetClimRangeSlider(
         visual_ids,
         clim_range=spec.values["clim_range"],
         initial_clim=spec.values["initial_clim"],
@@ -139,7 +135,7 @@ def _any_visual_picking(spec: ControlSpec, visual_ids, controller=None):
     return AnywidgetVisualPickingControls(visual_ids, spec.values)
 
 
-_ANYWIDGET_BUILDERS = {
+ANYWIDGET_BUILDERS = {
     "color_map": _any_color_map,
     "clim": _any_clim,
     "render": _any_render,
@@ -152,81 +148,3 @@ _ANYWIDGET_BUILDERS = {
     "dataset_info": _any_dataset_info,
 }
 """``ControlSpec.kind`` -> anywidget widget constructor."""
-
-
-def build_appearance_widgets_anywidget(
-    visual: BaseVisual,
-    controls_config: BaseControlsConfig,
-    controller: CellierController,
-    visual_ids: list | None = None,
-) -> list[object]:
-    """Build and wire the anywidget appearance sub-widgets for *visual*.
-
-    Returns the widgets in display order, each already
-    ``connect_widget``-wired where it has a bus contract, and each carrying
-    the name the shared spec gave it -- ``label`` on a single-field control,
-    ``title`` on a multi-row one.
-
-    The name used to be returned alongside the widget, as a ``(title,
-    widget)`` pair the anywidget front end then dropped on the floor (design
-    section 6.5.1 decision 2).  Handing it to the widget instead is what
-    removed the drop, and with it the second place a control's name lived
-    (``plans/label_ownership_unification.md``).
-
-    *visual_ids* is every visual the controls should write to: one on a
-    ``Viewer``, the four panel siblings on an ``OrthoViewer``.  Defaults to
-    ``visual`` alone.
-
-    Empty when *controls_config* requests no appearance fields or *visual* has
-    no ``appearance``.
-    """
-    from cellier.convenience.layout._shared import (
-        STATIC_CONTROL_KINDS,
-        _resolve_data_store,
-        appearance_specs,
-        warn_skipped_appearance_fields,
-    )
-    from cellier.gui._appearance_fields import APPEARANCE_FIELD_WIDGETS
-
-    specs, skipped = appearance_specs(
-        visual,
-        controls_config,
-        _resolve_data_store(controller, visual),
-        palette=controller.render_config.outline.palette,
-    )
-    warn_skipped_appearance_fields(skipped, visual, controls_config)
-    ids = [visual.id] if visual_ids is None else list(visual_ids)
-
-    built: list[object] = []
-    for spec in specs:
-        builder = _ANYWIDGET_BUILDERS.get(spec.kind)
-        if builder is None and spec.kind in APPEARANCE_FIELD_WIDGETS:
-            builder = _any_field_control
-        if builder is None:
-            continue
-        widget = builder(spec, ids, controller)
-        if spec.kind not in STATIC_CONTROL_KINDS:
-            controller.connect_widget(
-                widget, subscription_specs=widget.subscription_specs()
-            )
-        built.append(widget)
-    return built
-
-
-def compose_appearance_leaf(widgets: list[object], host: LayoutHost) -> object | None:
-    """Compose built widgets into one host leaf, or ``None``.
-
-    Stacking is all this does: each widget already draws its own name.
-    """
-    if not widgets:
-        return None
-    if len(widgets) == 1:
-        return host.leaf(widgets[0])
-    # Explicit rather than the host's macro layout default, which is tuned for
-    # spacing unrelated blocks (canvas/dims) apart.  The value is shared with
-    # the Qt dock column so the two panels are spaced alike.
-    from cellier.convenience.layout._shared import APPEARANCE_DOCK_GAP_PX
-
-    return host.stack(
-        [host.leaf(w) for w in widgets], direction="v", gap=APPEARANCE_DOCK_GAP_PX
-    )

@@ -1,6 +1,6 @@
 """Tests for the Qt image/volume-render control widgets.
 
-Covers ``QtRenderModeComboBox``, ``QtIsoThresholdSlider``, and the composite
+Covers ``QtRenderModeCombo``, ``QtIsoThresholdSlider``, and the composite
 ``QtVolumeRenderControls``. All three mirror fields on
 ``MultiscaleImageAppearance`` (whose ``render_mode`` literal --
 ``"iso"``/``"mip"``/``"smooth_iso"``/``"attenuated_mip"`` -- matches the
@@ -11,23 +11,25 @@ lacks ``attenuation`` entirely), so visuals are built via
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
 pytest.importorskip("qtpy")
 pytest.importorskip("superqt")
 
-from cellier.controller import CellierController  # noqa: E402
-from cellier.data.image._zarr_multiscale_store import (  # noqa: E402
+from cellier.controller import CellierController
+from cellier.data.image._zarr_multiscale_store import (
     MultiscaleZarrDataStore,
 )
-from cellier.gui.qt.visuals._image import (  # noqa: E402
+from cellier.gui.qt.visuals._image import (
     QtIsoThresholdSlider,
-    QtRenderModeComboBox,
+    QtRenderModeCombo,
     QtVolumeRenderControls,
 )
-from cellier.scene.dims import CoordinateSystem  # noqa: E402
-from cellier.transform import AffineTransform  # noqa: E402
-from cellier.visuals import MultiscaleImageAppearance  # noqa: E402
+from cellier.scene.dims import CoordinateSystem
+from cellier.transform import AffineTransform
+from cellier.visuals import MultiscaleImageAppearance
 
 
 def _make_multiscale_store(small_zarr_store, **kwargs) -> MultiscaleZarrDataStore:
@@ -59,29 +61,32 @@ def _make_volume_visual(small_zarr_store, **appearance_kwargs):
     return controller, visual
 
 
-# ── QtRenderModeComboBox ──────────────────────────────────────────────────
-
-
-def test_render_mode_combo_instantiate_smoke(qtbot):
-    combo = QtRenderModeComboBox(visual_id=object(), initial_render_mode="iso")
-    qtbot.addWidget(combo.widget)
-    assert combo._combo.currentText() == "iso"
+# ── QtRenderModeCombo / QtIsoThresholdSlider ──────────────────────────────
+#
+# Both are layer-3 field classes now, so their behaviour is the shared base's
+# and is covered once in ``tests/gui/test_appearance_control_types.py``.  What
+# is worth pinning here is that they bind the right field and that the
+# standalone controls reach the model -- the composite below draws its own
+# selector and does not use them.
 
 
 def test_render_mode_combo_edit_reaches_model(qtbot, small_zarr_store):
     controller, visual = _make_volume_visual(small_zarr_store, render_mode="mip")
-    combo = QtRenderModeComboBox(visual_id=visual.id, initial_render_mode="mip")
+    combo = QtRenderModeCombo(visual.id, initial_value="mip", choices=("mip", "iso"))
     qtbot.addWidget(combo.widget)
     controller.connect_widget(combo, subscription_specs=combo.subscription_specs())
 
-    combo._combo.setCurrentText("iso")
+    combo.control.setCurrentText("iso")
 
     assert visual.appearance.render_mode == "iso"
+    assert combo.value == "iso"
 
 
 def test_render_mode_combo_model_push_without_reemit(qtbot, small_zarr_store):
     controller, visual = _make_volume_visual(small_zarr_store, render_mode="mip")
-    combo = QtRenderModeComboBox(visual_id=visual.id, initial_render_mode="mip")
+    combo = QtRenderModeCombo(
+        visual.id, initial_value="mip", choices=("mip", "smooth_iso")
+    )
     qtbot.addWidget(combo.widget)
     controller.connect_widget(combo, subscription_specs=combo.subscription_specs())
 
@@ -90,39 +95,24 @@ def test_render_mode_combo_model_push_without_reemit(qtbot, small_zarr_store):
 
     controller.update_appearance_field(visual.id, "render_mode", "smooth_iso")
 
-    assert combo._combo.currentText() == "smooth_iso"
+    assert combo.value == "smooth_iso"
     assert emitted == []
-
-
-# ── QtIsoThresholdSlider ──────────────────────────────────────────────────
-
-
-def test_iso_threshold_slider_instantiate_smoke(qtbot):
-    slider = QtIsoThresholdSlider(
-        visual_id=object(), dtype_max=1.0, initial_threshold=0.3
-    )
-    qtbot.addWidget(slider.widget)
-    assert slider._slider.value() == pytest.approx(0.3)
 
 
 def test_iso_threshold_slider_edit_reaches_model(qtbot, small_zarr_store):
     controller, visual = _make_volume_visual(small_zarr_store, iso_threshold=0.5)
-    slider = QtIsoThresholdSlider(
-        visual_id=visual.id, dtype_max=1.0, initial_threshold=0.5
-    )
+    slider = QtIsoThresholdSlider(visual.id, initial_value=0.5)
     qtbot.addWidget(slider.widget)
     controller.connect_widget(slider, subscription_specs=slider.subscription_specs())
 
-    slider._on_slider_changed(0.8)
+    slider.value = 0.8
 
     assert visual.appearance.iso_threshold == pytest.approx(0.8)
 
 
 def test_iso_threshold_slider_model_push_without_reemit(qtbot, small_zarr_store):
     controller, visual = _make_volume_visual(small_zarr_store, iso_threshold=0.5)
-    slider = QtIsoThresholdSlider(
-        visual_id=visual.id, dtype_max=1.0, initial_threshold=0.5
-    )
+    slider = QtIsoThresholdSlider(visual.id, initial_value=0.5)
     qtbot.addWidget(slider.widget)
     controller.connect_widget(slider, subscription_specs=slider.subscription_specs())
 
@@ -131,7 +121,7 @@ def test_iso_threshold_slider_model_push_without_reemit(qtbot, small_zarr_store)
 
     controller.update_appearance_field(visual.id, "iso_threshold", 0.9)
 
-    assert slider._slider.value() == pytest.approx(0.9)
+    assert slider.value == pytest.approx(0.9)
     assert emitted == []
 
 
@@ -220,3 +210,75 @@ def test_volume_controls_model_push_updates_without_reemit(qtbot, small_zarr_sto
     assert controls._attenuation_slider.isHidden() is False
     assert controls._slider.isHidden() is True
     assert emitted == []
+
+
+def test_volume_controls_inbound_echo_filtered_by_source_id(qtbot, small_zarr_store):
+    """A widget must ignore the bus echo of its own write.
+
+    The core of the bus contract, and the one thing that stops a control and
+    its model oscillating.  Covered on every anywidget module and, until this,
+    on only three Qt ones -- the systematic half of D14
+    (``plans/gui_backend_unification.md``).
+
+    Driven through the handler rather than the controller, because the
+    controller stamps its own ``source_id``; the case under test is an event
+    carrying *this widget's* id.
+    """
+    from cellier.events import AppearanceChangedEvent
+
+    controller, visual = _make_volume_visual(
+        small_zarr_store, render_mode="iso", iso_threshold=0.5
+    )
+    controls = QtVolumeRenderControls(
+        visual_id=visual.id,
+        dtype_max=1.0,
+        initial_render_mode="iso",
+        initial_threshold=0.5,
+    )
+    qtbot.addWidget(controls.widget)
+    controller.connect_widget(
+        controls, subscription_specs=controls.subscription_specs()
+    )
+
+    controls._on_visual_changed(
+        AppearanceChangedEvent(
+            source_id=controls._id,  # our own echo -> ignored
+            visual_id=visual.id,
+            field_name="render_mode",
+            new_value="mip",
+            requires_reslice=False,
+        )
+    )
+
+    assert controls._combo.currentText() == "iso"
+
+
+def test_volume_controls_inbound_unrelated_field_ignored(qtbot, small_zarr_store):
+    """A field this panel does not drive must leave it alone."""
+    from cellier.events import AppearanceChangedEvent
+
+    controller, visual = _make_volume_visual(
+        small_zarr_store, render_mode="iso", iso_threshold=0.5
+    )
+    controls = QtVolumeRenderControls(
+        visual_id=visual.id,
+        dtype_max=1.0,
+        initial_render_mode="iso",
+        initial_threshold=0.5,
+    )
+    qtbot.addWidget(controls.widget)
+    controller.connect_widget(
+        controls, subscription_specs=controls.subscription_specs()
+    )
+
+    controls._on_visual_changed(
+        AppearanceChangedEvent(
+            source_id=uuid4(),
+            visual_id=visual.id,
+            field_name="clim",
+            new_value=(0.0, 500.0),
+            requires_reslice=False,
+        )
+    )
+
+    assert controls._combo.currentText() == "iso"

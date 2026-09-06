@@ -20,6 +20,7 @@ from cellier.events import (
     BackgroundChangedEvent,
     BackgroundUpdateEvent,
     CameraChangedEvent,
+    CanvasConnectedEvent,
     CanvasSizeChangedEvent,
     ChannelAppearanceChangedEvent,
     ChannelAppearanceUpdateEvent,
@@ -54,6 +55,7 @@ from cellier.events._events import (
     _CanvasRawPointerEvent,
 )
 from cellier.logging import _CAMERA_LOGGER, _SOURCE_ID_LOGGER
+from cellier.render._capture import capture_scene
 from cellier.render._config import RenderManagerConfig
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render._visual_lut import (
@@ -447,9 +449,10 @@ class CellierController:
         self,
         widget_parent: object | None = None,
         render_config: RenderManagerConfig | None = None,
-        gui: Literal["qt", "anywidget"] = "qt",
+        gui: Literal["qt", "anywidget", "offscreen"] = "qt",
     ) -> None:
-        # gui selects the render canvas toolkit ("qt" or "anywidget"); threaded
+        # gui selects the render canvas toolkit ("qt", "anywidget" or
+        # "offscreen"); threaded
         # to CanvasView via add_canvas.  widget_parent is Qt-only and ignored
         # for the anywidget gui (notebook canvases have no Qt parent).
         self._gui = gui
@@ -471,6 +474,10 @@ class CellierController:
         self._incoming_events: EventBus = EventBus()
         # Cache of last-known displayed_axes per scene for change detection
         self._dims_cache: dict[UUID, tuple[int, ...]] = {}
+        # Canvases whose camera could not be fitted when their displayed
+        # axes changed, because the scene was momentarily empty.  Drained
+        # by ``_request_draw_for_scene`` once a reslice commits.
+        self._canvases_awaiting_fit: set[UUID] = set()
         # render_modes registered per scene (determines which nodes visuals build)
         self._scene_render_modes: dict[UUID, set[Literal["2d", "3d"]]] = {}
         # Camera settle
@@ -2460,6 +2467,18 @@ class CellierController:
         """
         return list(self._scene_to_canvases.get(scene_id, []))
 
+    @property
+    def canvas_ids(self) -> tuple[UUID, ...]:
+        """IDs of every canvas registered with this controller, across scenes.
+
+        Scene-scoped callers want :meth:`get_canvas_ids`; this is for code that
+        must find canvases without knowing which scene they belong to -- the Qt
+        window composite in
+        :func:`~cellier.convenience.screenshot_window` walks this to discover
+        which canvases live inside a given window.
+        """
+        return tuple(self._render_manager._canvases)
+
     def get_canvas_view(self, canvas_id: UUID) -> CanvasView:
         """Return the render-layer ``CanvasView`` for *canvas_id*.
 
@@ -2511,53 +2530,133 @@ class CellierController:
         canvas_id: UUID,
         size: tuple[int, int] | None = None,
         scale: float = 1.0,
+        *,
+        frames: int | Literal["converged"] = 1,
+        **capture_kwargs,
     ) -> np.ndarray:
-        """Capture a screenshot of the canvas as an RGBA uint8 array.
+        """Capture a reproducible screenshot as an RGBA uint8 array.
 
-        Temporarily resizes the canvas to *size* (scaled by *scale*), renders
-        one frame, grabs the framebuffer, then restores the original size and
-        camera state.  Follows the same pattern as napari's ``resize_canvas``
-        context manager.
+        The frame is rendered on a **dedicated offscreen canvas** built on the
+        same scene, not read back from the canvas on screen.  Two captures of
+        the same viewer state therefore produce byte-identical arrays (on the
+        same machine and GPU driver), at exactly the size asked for, whether
+        or not anything is on screen and whichever GUI toolkit is in use.
+
+        *canvas_id* selects a **viewpoint, not a surface**: the capture copies
+        that canvas's camera, dimensionality and depth range, then renders its
+        own frame.  Use :meth:`screenshot_scene` to capture a scene that has
+        no canvas at all.
+
+        What the capture shows is the data **currently resident on the GPU**.
+        It does not reslice, so a multiscale scene is captured at the level of
+        detail already loaded; a higher *scale* enlarges that level rather
+        than fetching a finer one.  Call :meth:`on_scene_ready` (or use the
+        convenience launchers' ``on_ready``) before capturing if a load may
+        still be in flight.
 
         Parameters
         ----------
         canvas_id : UUID
-            ID of a registered canvas.
+            ID of a registered canvas, whose viewpoint the capture copies.
         size : tuple[int, int] or None
-            Target ``(width, height)`` in logical pixels before applying
-            *scale*.  When ``None`` the current canvas size is used.
+            Target ``(width, height)`` in pixels before *scale*.  Defaults to
+            the canvas's physical size, so an unqualified call reproduces the
+            on-screen framing.
         scale : float
-            Multiplier applied to *size* (or the current size when *size* is
-            ``None``).  ``scale=2`` doubles the resolution for high-DPI output.
+            Multiplier applied to *size*.  ``scale=2`` doubles the output
+            resolution.
+        frames : int or "converged"
+            ``1`` (default) disables temporal accumulation and draws a single
+            frame.  ``"converged"`` enables it and draws the number of frames
+            the accumulator needs to settle (44 at the default blend weight)
+            -- what you want whenever ambient occlusion is enabled, since a
+            single-sample AO frame is visibly noisy.  ``N`` draws exactly N
+            accumulated frames.
+        **capture_kwargs
+            Forwarded to the capture helper (``max_frames``, ``residual``).
+
+        Returns
+        -------
+        np.ndarray
+            RGBA uint8 array of shape ``(height, width, 4)``.
+
+        Raises
+        ------
+        KeyError
+            If *canvas_id* is not registered.
+        RuntimeError
+            If ``frames="converged"`` would need more than ``max_frames``
+            frames to settle.
+        """
+        return capture_scene(
+            self._render_manager,
+            self._canvas_to_scene[canvas_id],
+            seed_canvas_id=canvas_id,
+            size=size,
+            scale=scale,
+            frames=frames,
+            **capture_kwargs,
+        )
+
+    def screenshot_scene(
+        self,
+        scene_id: UUID,
+        size: tuple[int, int] | None = None,
+        scale: float = 1.0,
+        *,
+        frames: int | Literal["converged"] = 1,
+        dim: str | None = None,
+        **capture_kwargs,
+    ) -> np.ndarray:
+        """Capture *scene_id* without needing a canvas to exist.
+
+        The same offscreen capture as :meth:`screenshot`, but with the camera
+        fitted to the scene rather than copied from a canvas -- so a scene can
+        be captured with no window, no widget and no event loop.
+
+        **A scene with no canvas has no data.**  Slice requests are planned
+        per canvas, from its camera, size and frustum, so ``reslice_all`` on a
+        scene with no canvas requests nothing and this returns a correct
+        picture of an empty scene.  Add a canvas (``add_canvas``) and let the
+        reslice complete before capturing; ``scripts/capture.py`` does exactly
+        that.  This method's own fit is for the case where a canvas exists but
+        its viewpoint is not the one you want.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            ID of the scene to render.
+        size : tuple[int, int] or None
+            Target ``(width, height)`` before *scale*.  Defaults to
+            ``(600, 600)``.
+        scale : float
+            Multiplier applied to *size*.
+        frames : int or "converged"
+            See :meth:`screenshot`.
+        dim : str or None
+            ``"2d"`` or ``"3d"``.  Inferred from the scene's displayed axes
+            when ``None``.
+        **capture_kwargs
+            Forwarded to the capture helper.
 
         Returns
         -------
         np.ndarray
             RGBA uint8 array of shape ``(height, width, 4)``.
         """
-        canvas_view = self._render_manager._canvases[canvas_id]
-        canvas = canvas_view.widget
-
-        prev_w, prev_h = canvas.get_logical_size()
-        target_w = int((size[0] if size is not None else prev_w) * scale)
-        target_h = int((size[1] if size is not None else prev_h) * scale)
-
-        try:
-            canvas.set_logical_size(target_w, target_h)
-            if self._gui == "qt":
-                from PySide6.QtWidgets import QApplication
-
-                QApplication.processEvents()
-            canvas_view._canvas.request_draw(canvas_view._draw_frame)
-            if self._gui == "qt":
-                from PySide6.QtWidgets import QApplication
-
-                QApplication.processEvents()
-            array = np.asarray(canvas_view._renderer.snapshot())
-        finally:
-            canvas.set_logical_size(prev_w, prev_h)
-
-        return array
+        if dim is None:
+            scene = self._model.scenes[scene_id]
+            dim = "3d" if len(scene.dims.selection.displayed_axes) == 3 else "2d"
+        return capture_scene(
+            self._render_manager,
+            scene_id,
+            seed_canvas_id=None,
+            size=size,
+            scale=scale,
+            frames=frames,
+            dim=dim,
+            **capture_kwargs,
+        )
 
     def get_visual_model(self, visual_id: UUID) -> MultiscaleImageVisual:
         """Return the live visual model for visual_id.
@@ -2797,8 +2896,14 @@ class CellierController:
         for canvas_id in self._scene_to_canvases.get(scene_id, []):
             canvas_view = self._render_manager._canvases[canvas_id]
             first_visit = canvas_view.switch_dim(new_dim)
-            if first_visit:
-                canvas_view.show_object(gfx_scene)
+            if not first_visit:
+                continue
+            if not canvas_view.show_object(gfx_scene):
+                # The visuals' geometry was rebuilt for the new axes a moment
+                # ago and the reslice that fills it has not committed yet, so
+                # there is nothing to fit to.  Take the fit when the data
+                # lands instead of raising here.
+                self._canvases_awaiting_fit.add(canvas_id)
 
     def _wire_transform(
         self,
@@ -5548,11 +5653,25 @@ class CellierController:
         ``CanvasView.request_draw`` also discards the accumulation history,
         which is what these need: they all change the image, and a frame
         averaged with the previous content would show the change fading in.
+
+        Also the moment a deferred camera fit becomes possible: a canvas that
+        changed its displayed axes could not be fitted while the scene was
+        empty, and freshly committed data is exactly what it was waiting for.
         """
+        gfx_scene = None
         for canvas_id in self.get_canvas_ids(scene_id):
             canvas_view = self._render_manager._canvases.get(canvas_id)
-            if canvas_view is not None:
-                canvas_view.request_draw()
+            if canvas_view is None:
+                continue
+            if canvas_id in self._canvases_awaiting_fit:
+                if gfx_scene is None:
+                    gfx_scene = self._render_manager.get_scene(scene_id)
+                if canvas_view.show_object(gfx_scene):
+                    self._canvases_awaiting_fit.discard(canvas_id)
+                    self._update_camera_model(
+                        scene_id, canvas_id, canvas_view.capture_camera_state()
+                    )
+            canvas_view.request_draw()
 
     def on_scene_added(
         self,
@@ -5729,6 +5848,7 @@ class CellierController:
         self._render_manager._slice_coordinator.cancel_all()
         self._render_manager.close()
         self._scene_to_canvases.clear()
+        self._canvases_awaiting_fit.clear()
 
         for registry in (self._visual_psygnal_handlers, self._scene_psygnal_handlers):
             for handlers in registry.values():
@@ -5892,6 +6012,55 @@ class CellierController:
             Defaults to the controller's own id.
         """
         self.reslice_scene(scene_id, on_ready=callback, owner_id=owner_id)
+
+    def on_canvas_connected(
+        self,
+        canvas_id: UUID,
+        callback: Callable[[], None],
+        *,
+        owner_id: UUID | None = None,
+    ) -> None:
+        """Fire *callback* once *canvas_id*'s front end is live and able to draw.
+
+        The weaker, earlier sibling of :meth:`on_canvas_first_frame`: it says
+        the canvas *can* render, not that it *has*.  On Qt the two nearly
+        coincide; on the anywidget backend the canvas exists in Python long
+        before the browser mounts it, and a frame may never arrive at all --
+        so work that only needs a usable canvas should wait on this instead.
+
+        Fires immediately if the canvas has already connected.
+
+        Parameters
+        ----------
+        canvas_id : UUID
+            ID of the canvas to watch.
+        callback : Callable[[], None]
+            Zero-argument callback, fired once.
+        owner_id : UUID or None
+            Owner for the temporary subscription.  Defaults to the
+            controller's own id.
+        """
+        canvas_view = self._render_manager._canvases.get(canvas_id)
+        if canvas_view is not None and canvas_view.connected:
+            callback()
+            return
+
+        state: dict[str, Any] = {"fired": False, "handle": None}
+
+        def _on_connected(event: CanvasConnectedEvent) -> None:
+            if state["fired"]:
+                return
+            state["fired"] = True
+            if state["handle"] is not None:
+                self._outgoing_events.unsubscribe(state["handle"])
+            callback()
+
+        state["handle"] = self._outgoing_events.subscribe(
+            CanvasConnectedEvent,
+            _on_connected,
+            entity_id=canvas_id,
+            owner_id=owner_id or self._id,
+        )
 
     def on_canvas_first_frame(
         self,

@@ -1,4 +1,4 @@
-"""Tests for the anywidget ``AnywidgetClimSlider`` contrast-limits-control widget."""
+"""Tests for the anywidget ``AnywidgetClimRangeSlider`` contrast-limits widget."""
 
 from __future__ import annotations
 
@@ -8,15 +8,15 @@ import pytest
 
 pytest.importorskip("anywidget")
 
-from cellier.events import AppearanceChangedEvent  # noqa: E402
-from cellier.gui.anywidget.visuals._contrast_limits import (  # noqa: E402
-    AnywidgetClimSlider,
+from cellier.events import AppearanceChangedEvent
+from cellier.gui.anywidget.visuals._contrast_limits import (
+    AnywidgetClimRangeSlider,
 )
 
 
 def _make_widget(**kwargs):
     visual_id = uuid4()
-    return AnywidgetClimSlider(visual_id, **kwargs), visual_id
+    return AnywidgetClimRangeSlider(visual_id, **kwargs), visual_id
 
 
 def test_instantiate_smoke():

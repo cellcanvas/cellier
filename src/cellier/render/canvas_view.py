@@ -12,6 +12,7 @@ import pygfx as gfx
 from cellier._state import CameraState
 from cellier.events._events import (
     CameraChangedEvent,
+    CanvasConnectedEvent,
     CanvasSizeChangedEvent,
     FrameRenderedEvent,
 )
@@ -118,6 +119,9 @@ class CanvasView:
         self._fov = fov
         self._depth_range = depth_range
         self._gui = gui
+        # Set by ``_on_canvas_connected`` on the first sign of a live
+        # front end; see ``CanvasConnectedEvent``.
+        self._connected = False
         self._size = size
 
         self._canvas = self._create_canvas(parent, gui=gui, size=size)
@@ -245,23 +249,38 @@ class CanvasView:
             the anywidget backend (notebook canvases are not laid out by a
             Qt parent).
         gui : str
-            Which GUI toolkit to target: ``"qt"`` or ``"anywidget"``.
+            Which GUI toolkit to target: ``"qt"``, ``"anywidget"`` or
+            ``"offscreen"``.
         size : tuple[int, int] or None
-            Initial CSS pixel size for the anywidget canvas.  Defaults to
+            Initial CSS pixel size for the anywidget canvas, or the exact
+            framebuffer size for the offscreen canvas.  Defaults to
             ``(600, 600)`` when ``None``.  Ignored for the Qt backend, which
             is sized by its parent layout.
 
         Returns
         -------
         object
-            The render canvas widget (a ``QRenderWidget`` for ``"qt"`` or an
-            ``AnywidgetRenderCanvas`` for ``"anywidget"``).
+            The render canvas widget (a ``QRenderWidget`` for ``"qt"``, an
+            ``AnywidgetRenderCanvas`` for ``"anywidget"``, or an
+            ``OffscreenRenderCanvas`` for ``"offscreen"``).
 
         Raises
         ------
         ValueError
-            If *gui* is not ``"qt"`` or ``"anywidget"``.
+            If *gui* is not ``"qt"``, ``"anywidget"`` or ``"offscreen"``.
         """
+        if gui == "offscreen":
+            # No window, no scheduler, no event loop: ``canvas.draw()`` runs
+            # the draw callback synchronously and returns the presented
+            # frame.  That is what makes a capture reproducible -- see
+            # ``cellier.render._capture``.
+            #
+            # ``pixel_ratio=1`` so logical size == physical size == the shape
+            # of the returned array.  Any other value would silently make the
+            # output depend on a display the canvas does not have.
+            from rendercanvas.offscreen import RenderCanvas as OffscreenRenderCanvas
+
+            return OffscreenRenderCanvas(size=size or (600, 600), pixel_ratio=1)
         if gui == "qt":
             from rendercanvas.qt import QRenderWidget
 
@@ -295,6 +314,12 @@ class CanvasView:
 
                 def _rfb_handle_msg(self, widget, content, buffers) -> None:
                     super()._rfb_handle_msg(widget, content, buffers)
+                    # Any inbound message means the browser has mounted this
+                    # canvas and can draw -- which is the one thing Python
+                    # cannot otherwise know, and which it may wait forever for.
+                    cb = getattr(self, "_cellier_on_connected", None)
+                    if cb is not None:
+                        cb()
                     if content.get("type") == "resize":
                         cb = getattr(self, "_cellier_on_resize", None)
                         if cb is not None:
@@ -324,7 +349,9 @@ class CanvasView:
             )
             canvas.set_css_width("100%")
             return canvas
-        raise ValueError(f"Unknown gui {gui!r}. Expected 'qt' or 'anywidget'.")
+        raise ValueError(
+            f"Unknown gui {gui!r}. Expected 'qt', 'anywidget' or 'offscreen'."
+        )
 
     def _wire_resize_event(self, gui: str) -> None:
         """Hook the backend resize notification to emit CanvasSizeChangedEvent.
@@ -333,8 +360,13 @@ class CanvasView:
         event filter on a QObject proxy so we don't need to subclass the
         widget.  anywidget: the canvas is a ``_CellierAnywidgetCanvas``
         (see ``_create_canvas``), which calls ``_cellier_on_resize`` on every
-        real browser resize.
+        real browser resize.  offscreen: nothing to hook -- the canvas has no
+        window and never resizes organically, so every size change is a
+        deliberate ``set_logical_size`` by the caller who already knows about
+        it.
         """
+        if gui == "offscreen":
+            return
         if gui == "qt":
             from PySide6.QtCore import QEvent, QObject
 
@@ -349,6 +381,8 @@ class CanvasView:
                     if event.type() == QEvent.Type.Resize:
                         s = event.size()
                         self_f._view._on_canvas_resize(s.width(), s.height())
+                    elif event.type() == QEvent.Type.Show:
+                        self_f._view._on_canvas_connected()
                     return False
 
             self._resize_filter = _ResizeFilter(self)
@@ -356,6 +390,31 @@ class CanvasView:
 
         elif gui == "anywidget":
             self._canvas._cellier_on_resize = self._on_canvas_resize
+            self._canvas._cellier_on_connected = self._on_canvas_connected
+
+    def _on_canvas_connected(self) -> None:
+        """Emit ``CanvasConnectedEvent`` once, on the first sign of a front end.
+
+        Called from each backend's own liveness signal: a Qt ``Show`` event,
+        or the first message the anywidget canvas receives from the browser.
+        Both can fire repeatedly, so this reports only the first.
+        """
+        if self._connected:
+            return
+        self._connected = True
+        if self._event_bus is not None:
+            self._event_bus.emit(
+                CanvasConnectedEvent(
+                    source_id=self._canvas_id,
+                    canvas_id=self._canvas_id,
+                    gui=self._gui,
+                )
+            )
+
+    @property
+    def connected(self) -> bool:
+        """Whether this canvas's front end has reported itself live."""
+        return self._connected
 
     def _on_canvas_resize(self, width: int, height: int) -> None:
         """Emit CanvasSizeChangedEvent; called by both backend resize hooks."""
@@ -550,19 +609,35 @@ class CanvasView:
         camera = self._camera_2d if dim == "2d" else self._camera_3d
         camera.depth_range = depth_range
 
-    def show_object(self, scene: gfx.Scene) -> None:
-        """Fit the camera to the scene bounding box and mark this dim as fitted.
+    def show_object(self, scene: gfx.Scene) -> bool:
+        """Fit the camera to the scene bounding box, if there is one.
+
+        A scene with nothing in it has no bounding sphere, and pygfx raises
+        rather than guessing.  That happens for real: switching a scene's
+        displayed axes rebuilds its visuals' geometry and fits the camera
+        *before* the reslice that fills them has committed, so for one moment
+        the scene is empty.  Refusing to fit -- and, crucially, not marking
+        the dim as fitted -- lets the caller try again once data arrives.
 
         Parameters
         ----------
         scene : gfx.Scene
             The scene to fit the camera to.
+
+        Returns
+        -------
+        bool
+            ``True`` if the camera was fitted.  ``False`` if the scene had no
+            bounds yet, in which case nothing was changed.
         """
+        if scene.get_world_bounding_sphere() is None:
+            return False
         if self._dim == "2d":
             self._camera.show_object(scene, view_dir=(0, 0, -1), up=(0, 1, 0))
         else:
             self._camera.show_object(scene, view_dir=(-1, -1, -1), up=(0, 0, 1))
         self._fitted.add(self._dim)
+        return True
 
     @property
     def camera(self) -> gfx.Camera:

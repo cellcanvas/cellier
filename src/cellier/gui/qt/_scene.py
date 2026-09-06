@@ -52,6 +52,7 @@ from superqt import QLabeledSlider
 
 from cellier.events import DimsChangedEvent, DimsUpdateEvent, SubscriptionSpec
 from cellier.gui._constants import DIMS_SLIDER_THROTTLE_MS
+from cellier.gui._dims import initial_slice_indices as seed_slice_indices
 
 SLIDER_STYLE = """
 QSlider::groove:horizontal {
@@ -223,6 +224,15 @@ class QtDimsControl:
     # ── Public interface ─────────────────────────────────────────────────────
 
     @property
+    def has_toggle(self) -> bool:
+        """Whether this control offers a 2D/3D toggle.
+
+        Named to match ``AnywidgetDimsPanel.has_toggle`` so a caller can ask
+        either front end the same question.
+        """
+        return self._toggle_button is not None
+
+    @property
     def widget(self) -> QWidget:
         """The Qt widget to insert into a layout.
 
@@ -331,6 +341,17 @@ class QtDimsControl:
             for axis, value in self.current_index().items()
             if axis not in target_set and axis not in self._stacked_axes
         }
+        # Applied *before* the emit, not after.  The controller echoes this
+        # change back stamped with our own source_id, so _on_dims_changed's
+        # filter ignores it -- the widget has to move itself either way.
+        # Doing it first is what keeps the control honest when something
+        # downstream of the emit fails (``plans/gui_backend_seam.md`` D17).
+        for axis, value in new_slices.items():
+            self._set_value(axis, value)
+        self._update_visibility(target_displayed, self._stacked_axes)
+        self._displayed_axes = tuple(target_displayed)
+        self._toggle_button.setText("Switch to 2D" if not is_3d else "Switch to 3D")
+
         self.changed.emit(
             DimsUpdateEvent(
                 source_id=self._id,
@@ -339,15 +360,6 @@ class QtDimsControl:
                 displayed_axes=target_displayed,
             )
         )
-
-        # The controller echoes this change back stamped with our own
-        # source_id, so _on_dims_changed's echo filter will ignore it --
-        # same as a slider's own value already reflecting the user's drag
-        # before any bus round trip. Apply the visible state directly here.
-        for axis, value in new_slices.items():
-            self._set_value(axis, value)
-        self._update_visibility(target_displayed, self._stacked_axes)
-        self._toggle_button.setText("Switch to 2D" if not is_3d else "Switch to 3D")
 
     # ── Qt seam 2: push value without re-firing valueChanged ─────────────────
 
@@ -459,13 +471,21 @@ class QtCanvasWidget:
         axis_labels = dict(enumerate(axis_labels_list))
 
         selection = scene.dims.selection
-        initial_slice_indices = dict(getattr(selection, "slice_indices", {}))
+        initial_slice_indices = seed_slice_indices(selection, axis_ranges)
         initial_displayed_axes = getattr(selection, "displayed_axes", ())
         initial_stacked_axes = getattr(selection, "stacked_axes", ())
 
         axes_2d: tuple[int, ...] | None = None
         axes_3d: tuple[int, ...] | None = None
-        if len(axis_labels_list) >= 3:
+        # The toggle is offered only when the *scene* says it can render both
+        # ways.  An OrthoViewer panel declares exactly one mode -- three slice
+        # views and one volume -- so offering to switch it put the scene into a
+        # mode it was never configured for: the reslice produced no geometry,
+        # the scene had no bounds, and the panel went blank
+        # (``plans/gui_backend_seam.md`` D18).  A plain ``Viewer`` declares
+        # both, so its toggle is unaffected.
+        modes = {str(mode) for mode in getattr(scene, "render_modes", ())}
+        if len(axis_labels_list) >= 3 and {"2d", "3d"} <= modes:
             ndim = len(axis_labels_list)
             axes_3d = tuple(range(ndim - 3, ndim))
             axes_2d = tuple(range(ndim - 2, ndim))
@@ -484,6 +504,14 @@ class QtCanvasWidget:
         return cls(canvas_view=canvas_view, dims_control=dims_control, parent=parent)
 
     # ── Public interface ─────────────────────────────────────────────────────
+
+    def compose(self, host) -> object:
+        """Hand this widget to *host* as a center leaf.
+
+        Qt composes canvas-over-dims internally, so unlike
+        ``AnywidgetCanvasView.compose`` there is nothing to arrange here.
+        """
+        return host.leaf(self)
 
     @property
     def widget(self) -> QWidget:

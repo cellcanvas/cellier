@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-from cellier.convenience import OrthoViewer, Viewer
+from cellier.convenience import AppearanceControls, OrthoViewer, Viewer
+from cellier.convenience._backend import ANYWIDGET_BACKEND
+from cellier.convenience._hosts import QtLayoutHost
 from cellier.convenience.gui._controls_config import (
     GraphControlsConfig,
     LabelsControlsConfig,
@@ -30,6 +32,7 @@ from cellier.convenience.layout._shared import (
     appearance_specs,
     select_appearance_target,
 )
+from cellier.convenience.layout._walk import build_appearance_widgets, render_dock
 from cellier.visuals import MultiscaleImageAppearance
 from cellier.visuals._mesh_memory import MeshFlatAppearance, MeshPhongAppearance
 
@@ -185,13 +188,12 @@ def test_appearance_true_builds_the_default_qt_dock(qtbot, kind, stores):
     anywhere -- a valid field with no widget, a widget with no config entry, a
     config the renderer cannot resolve.
     """
-    from cellier.convenience.layout._qt_renderer import _render_appearance_controls_qt
     from tests.convenience._qt_acceptance import assert_panel_renders, control_labels
 
     viewer = Viewer(("z", "y", "x"), gui="qt")
     _add(viewer, kind, stores, controls=CONFIGS[kind](appearance=True))
 
-    container = _render_appearance_controls_qt(viewer)
+    container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
     assert control_labels(container) == EXPECTED_DEFAULT_TITLES[kind]
     assert_panel_renders(container)
@@ -200,17 +202,18 @@ def test_appearance_true_builds_the_default_qt_dock(qtbot, kind, stores):
 @pytest.mark.parametrize("kind", list(CONFIGS))
 def test_appearance_true_builds_the_same_anywidget_dock(kind, stores):
     """Same names, same order, other toolkit -- section 4.2's whole point."""
-    from cellier.convenience.gui._appearance_widgets import (
-        build_appearance_widgets_anywidget,
-    )
     from tests.convenience._qt_acceptance import control_labels_anywidget
 
     viewer = Viewer(("z", "y", "x"), gui="anywidget")
     _add(viewer, kind, stores, controls=CONFIGS[kind](appearance=True))
     target = select_appearance_target(viewer)
 
-    built = build_appearance_widgets_anywidget(
-        target.visual, target.config, viewer.controller, target.visual_ids
+    built = build_appearance_widgets(
+        target.visual,
+        target.config,
+        viewer.controller,
+        target.visual_ids,
+        backend=ANYWIDGET_BACKEND,
     )
 
     assert control_labels_anywidget(built) == EXPECTED_DEFAULT_TITLES[kind]
@@ -223,10 +226,6 @@ def test_dataset_info_reaches_both_docks(qtbot, multiscale_image_store):
     which Qt has nothing to do with; rows are what both toolkits can render, so
     the parity assertion the other controls get now covers this one too.
     """
-    from cellier.convenience.gui._appearance_widgets import (
-        build_appearance_widgets_anywidget,
-    )
-    from cellier.convenience.layout._qt_renderer import _render_appearance_controls_qt
     from tests.convenience._qt_acceptance import (
         assert_panel_renders,
         control_labels,
@@ -244,7 +243,7 @@ def test_dataset_info_reaches_both_docks(qtbot, multiscale_image_store):
             appearance=["color_map"], dataset_info=rows
         ),
     )
-    container = _render_appearance_controls_qt(qt_viewer)
+    container = render_dock(AppearanceControls(), qt_viewer, QtLayoutHost(), [])
     assert control_labels(container) == expected
     assert_panel_renders(container)
 
@@ -257,8 +256,12 @@ def test_dataset_info_reaches_both_docks(qtbot, multiscale_image_store):
         ),
     )
     target = select_appearance_target(any_viewer)
-    built = build_appearance_widgets_anywidget(
-        target.visual, target.config, any_viewer.controller, target.visual_ids
+    built = build_appearance_widgets(
+        target.visual,
+        target.config,
+        any_viewer.controller,
+        target.visual_ids,
+        backend=ANYWIDGET_BACKEND,
     )
     assert control_labels_anywidget(built) == expected
 
@@ -276,24 +279,22 @@ def test_dataset_info_rows_reach_each_front_end_as_data(qtbot):
     from PySide6.QtWidgets import QLabel
 
     qt_widget = QtDatasetInfo(rows)
+    form = qt_widget._inline_form
     values = [
-        qt_widget._form.itemAt(row, qt_widget._form.ItemRole.FieldRole).widget().text()
-        for row in range(qt_widget._form.rowCount())
+        form.itemAt(row, form.ItemRole.FieldRole).widget().text()
+        for row in range(form.rowCount())
     ]
     assert values == ["<b>a & b</b>"]
-    assert isinstance(
-        qt_widget._form.itemAt(0, qt_widget._form.ItemRole.FieldRole).widget(), QLabel
-    )
+    assert isinstance(form.itemAt(0, form.ItemRole.FieldRole).widget(), QLabel)
 
 
 @pytest.mark.parametrize("kind", list(CONFIGS))
 def test_appearance_false_still_hides_the_panel(qtbot, kind, stores):
-    from cellier.convenience.layout._qt_renderer import _render_appearance_controls_qt
 
     viewer = Viewer(("z", "y", "x"), gui="qt")
     _add(viewer, kind, stores, controls=CONFIGS[kind](appearance=False))
 
-    assert _render_appearance_controls_qt(viewer) is None
+    assert render_dock(AppearanceControls(), viewer, QtLayoutHost(), []) is None
 
 
 def test_a_phong_mesh_gets_its_own_fields_from_the_same_config(qtbot, mesh_store):
@@ -303,7 +304,6 @@ def test_a_phong_mesh_gets_its_own_fields_from_the_same_config(qtbot, mesh_store
     the model the visual actually carries, so ``appearance=True`` is safe on
     either without two config classes.
     """
-    from cellier.convenience.layout._qt_renderer import _render_appearance_controls_qt
     from tests.convenience._qt_acceptance import control_labels
 
     viewer = Viewer(("z", "y", "x"), gui="qt")
@@ -315,7 +315,9 @@ def test_a_phong_mesh_gets_its_own_fields_from_the_same_config(qtbot, mesh_store
             controls=MeshControlsConfig(appearance=True),
         )
 
-    assert control_labels(_render_appearance_controls_qt(viewer)) == [
+    assert control_labels(
+        render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
+    ) == [
         "Visible",
         "Opacity",
         "Color",
@@ -348,7 +350,6 @@ def test_the_labels_combo_offers_the_models_own_render_modes(qtbot, labels_store
 
 
 def test_a_rendered_control_writes_the_model(qtbot, points_store):
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
     from cellier.convenience.layout._spec import AppearanceControls
 
     viewer = Viewer(("z", "y", "x"), gui="qt")
@@ -356,7 +357,7 @@ def test_a_rendered_control_writes_the_model(qtbot, points_store):
         points_store, controls=PointsControlsConfig(appearance=["size"])
     )
 
-    container = _render_dock_qt(AppearanceControls(), viewer)
+    container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
     from PySide6.QtWidgets import QDoubleSpinBox
 
     container.findChild(QDoubleSpinBox).setValue(12.0)
@@ -366,7 +367,6 @@ def test_a_rendered_control_writes_the_model(qtbot, points_store):
 
 def test_an_ortho_non_image_edit_reaches_all_four_panels(qtbot, points_store):
     """The stage-2 fan-out, now for a visual type stage 2 did not cover."""
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
     from cellier.convenience.layout._spec import AppearanceControls
 
     ortho = OrthoViewer(("z", "y", "x"))
@@ -374,7 +374,7 @@ def test_an_ortho_non_image_edit_reaches_all_four_panels(qtbot, points_store):
         points_store, controls=PointsControlsConfig(appearance=["size"])
     )
 
-    container = _render_dock_qt(AppearanceControls(), ortho)
+    container = render_dock(AppearanceControls(), ortho, QtLayoutHost(), [])
     from PySide6.QtWidgets import QDoubleSpinBox
 
     container.findChild(QDoubleSpinBox).setValue(9.5)
@@ -390,7 +390,6 @@ def test_a_visible_toggle_reaches_the_model_on_its_own_event(qtbot, mesh_store):
     default panel, so it is worth an end-to-end check rather than only the
     widget-level one.
     """
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
     from cellier.convenience.layout._spec import AppearanceControls
 
     viewer = Viewer(("z", "y", "x"), gui="qt")
@@ -401,7 +400,7 @@ def test_a_visible_toggle_reaches_the_model_on_its_own_event(qtbot, mesh_store):
     )
     assert visual.appearance.visible is True
 
-    container = _render_dock_qt(AppearanceControls(), viewer)
+    container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
     from PySide6.QtWidgets import QCheckBox
 
     container.findChild(QCheckBox).setChecked(False)
@@ -493,8 +492,8 @@ def test_composite_default_titles_match_the_shared_vocabulary():
     )
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
-        AnywidgetClimSlider,
-        AnywidgetColormapControl,
+        AnywidgetClimRangeSlider,
+        AnywidgetColormapCombo,
         AnywidgetLodBiasSlider,
         AnywidgetVolumeRenderControls,
     )
@@ -508,14 +507,14 @@ def test_composite_default_titles_match_the_shared_vocabulary():
     from cellier.gui.qt.visuals import (
         QtAABBWidget,
         QtClimRangeSlider,
-        QtColormapComboBox,
+        QtColormapCombo,
         QtLodBiasSlider,
         QtVolumeRenderControls,
     )
 
     composites = {
-        "color_map": (QtColormapComboBox, AnywidgetColormapControl),
-        "clim": (QtClimRangeSlider, AnywidgetClimSlider),
+        "color_map": (QtColormapCombo, AnywidgetColormapCombo),
+        "clim": (QtClimRangeSlider, AnywidgetClimRangeSlider),
         "render": (QtVolumeRenderControls, AnywidgetVolumeRenderControls),
         "lod_bias": (QtLodBiasSlider, AnywidgetLodBiasSlider),
         "aabb": (QtAABBWidget, AnywidgetAABBWidget),

@@ -7,7 +7,7 @@ the latter two are mode-dependent (mirrors ``QtVolumeRenderControls``).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from uuid import uuid4
 
 import anywidget
@@ -21,6 +21,10 @@ from cellier.events import (
 )
 from cellier.gui._appearance_fields import VisualIdGroup
 from cellier.gui.anywidget._teardown import close_aux_widgets
+from cellier.gui.anywidget.visuals._base import (
+    AnywidgetBoundedSlider,
+    AnywidgetChoice,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -152,3 +156,29 @@ class AnywidgetVolumeRenderControls(VisualIdGroup, anywidget.AnyWidget):
         if self._applying:
             return
         self._emit_group(AppearanceUpdateEvent, change["name"], change["new"])
+
+
+class AnywidgetRenderModeCombo(AnywidgetChoice):
+    """Render mode for an image visual (anywidget).
+
+    The twin of ``QtRenderModeCombo``; see it for why the options come from
+    the model rather than from a list here.
+    """
+
+    _field: ClassVar[str] = "render_mode"
+    _label: ClassVar[str] = "Render mode"
+    _default_value: ClassVar[str] = "mip"
+    _default_choices: ClassVar[tuple[str, ...]] = ("mip", "iso", "minip")
+
+
+class AnywidgetIsoThresholdSlider(AnywidgetBoundedSlider):
+    """ISO surface threshold for an image visual (anywidget).
+
+    The twin of ``QtIsoThresholdSlider``; see it for why this bounded slider's
+    range is a convention rather than a model constraint.
+    """
+
+    _field: ClassVar[str] = "iso_threshold"
+    _label: ClassVar[str] = "Iso threshold"
+    _default_value: ClassVar[float] = 0.2
+    _default_range: ClassVar[tuple[float, float]] = (0.0, 1.0)

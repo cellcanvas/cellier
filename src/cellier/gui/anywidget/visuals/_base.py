@@ -106,6 +106,18 @@ class AnywidgetAppearanceField(anywidget.AnyWidget):
         return self
 
     @property
+    def control(self) -> AnywidgetAppearanceField:
+        """The bare input, under the name the Qt twin uses.
+
+        On Qt the control sits inside a labelled row, so ``widget`` and
+        ``control`` are different objects.  Here the widget *is* the control --
+        the input lives in JavaScript -- so both return ``self``.  Providing
+        the name anyway is what lets a caller reach for the input without
+        asking which toolkit it has.
+        """
+        return self
+
+    @property
     def visual_ids(self) -> tuple[UUID, ...]:
         """The visual ids this widget drives, always as a tuple."""
         return self._visual_ids
@@ -210,6 +222,10 @@ class AnywidgetBoundedSlider(AnywidgetAppearanceField):
     Mirrors ``QtBoundedSlider``.  ``min``/``max`` are synced traits so the one
     ``bounded_slider.js`` asset serves every field class of this type without
     knowing any field's name.
+
+    Its one documented exception carries over too:
+    ``AnywidgetIsoThresholdSlider``'s range is a convention rather than a model
+    constraint.
     """
 
     _esm = _STATIC / "bounded_slider.js"

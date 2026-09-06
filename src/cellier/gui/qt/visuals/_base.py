@@ -135,9 +135,25 @@ class QtAppearanceField:
         """The appearance field name this widget writes."""
         return self._spec.name
 
+    @property
     def value(self) -> Any:
-        """The control's current value."""
+        """The control's current value.
+
+        A property, not a method, so it reads the same on both toolkits: the
+        anywidget twin spells this as a synced trait, and code that had to ask
+        which front end it was holding could not be written against either.
+
+        Assigning to it behaves like a user edit -- the control moves *and* the
+        change reaches the bus -- which is also what assigning to the anywidget
+        trait does.  To push a value in without emitting (an inbound bus
+        write), use ``_apply``.
+        """
         return self._read()
+
+    @value.setter
+    def value(self, new_value: Any) -> None:
+        self._apply(new_value)
+        self._emit(self._read())
 
     def close(self) -> None:
         """Emit ``closed`` to trigger bus unsubscription via the controller."""
@@ -234,6 +250,11 @@ class QtBoundedSlider(QtAppearanceField):
     Layer 3 binds ``_default_range`` by calling
     ``cellier.gui._appearance_fields.field_bounds`` on the model, so the two
     cannot drift.
+
+    One documented exception: ``QtIsoThresholdSlider``.  ``iso_threshold``
+    carries no ``ge``/``le`` -- a threshold is bounded relative to the data's
+    intensity range, not absolutely -- so its ``(0.0, 1.0)`` is a convention
+    for the normalised images cellier renders, stated rather than derived.
     """
 
     _default_value: ClassVar[Any] = 1.0

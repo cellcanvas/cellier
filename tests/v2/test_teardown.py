@@ -431,32 +431,67 @@ def _qt_viewer_with_window():
         appearance=MeshFlatAppearance(),
         controls=MeshControlsConfig(appearance=True),
     )
-    window = render_qt(
-        Layout(
-            center=build_canvas_widget(viewer, _RANGES),
-            left_dock=AppearanceControls(),
-        ),
-        viewer,
-    )
-    return viewer, window
+    canvas = build_canvas_widget(viewer, _RANGES)
+    window = render_qt(Layout(center=canvas, left_dock=AppearanceControls()), viewer)
+    return viewer, window, canvas
 
 
 def _subscription_count(controller) -> int:
     return sum(len(subs) for subs in controller._outgoing_events._subs.values())
 
 
+def _subscribed_owners(controller) -> set:
+    return {
+        getattr(subscription, "owner_id", None)
+        for subscriptions in controller._outgoing_events._subs.values()
+        for subscription in subscriptions
+    }
+
+
+def _dock_widget_ids(window) -> set:
+    """Ids of the dock widgets the renderer built, read off its own list.
+
+    Circular by nature -- it asks the renderer what it made -- so it can only
+    check that everything the renderer *tracked* is released, never that it
+    tracked the right things.  That second half is the center's, and it is
+    asserted against the canvas directly below.
+    """
+    return {
+        widget._id for widget in window._cellier_closeables if hasattr(widget, "_id")
+    }
+
+
 def test_closing_a_qt_window_unsubscribes_the_controls_it_built(qtbot):
-    """The Qt counterpart of ``_RenderView.close()``."""
+    """The Qt counterpart of ``_RenderView.close()``.
+
+    Asserted per widget rather than as "fewer subscriptions than before".
+    The weaker form was satisfied by tearing down the docks alone, which is
+    exactly what the renderer did: it never passed its ``closeables`` list
+    into the center, so the canvas's dims control stayed subscribed for the
+    life of the controller.
+
+    What is deliberately *not* asserted is that the buses end up empty. The
+    render manager and the render visuals keep their subscriptions, which is
+    the point of ``test_closing_a_qt_window_leaves_the_controller_usable``
+    below -- a window is a view, and the viewer may outlive it.
+    """
     pytest.importorskip("qtpy")
     pytest.importorskip("superqt")
 
-    viewer, window = _qt_viewer_with_window()
-    before = _subscription_count(viewer.controller)
-    assert before, "sanity: the dock subscribed something"
+    viewer, window, canvas = _qt_viewer_with_window()
+    # Captured before closing: teardown clears the list it walks.  The dims
+    # control is named off the *canvas*, not off that list -- the bug was the
+    # renderer never adding the center to it, which a list-derived expectation
+    # could never have caught.
+    widget_ids = _dock_widget_ids(window) | {canvas.dims_control._id}
+    assert widget_ids, "sanity: the renderer built some widgets"
+    assert widget_ids <= _subscribed_owners(viewer.controller), (
+        "sanity: every widget it built subscribed something"
+    )
 
     window.close()
 
-    assert _subscription_count(viewer.controller) < before
+    assert widget_ids & _subscribed_owners(viewer.controller) == set()
 
 
 def test_closing_a_qt_window_leaves_the_controller_usable(qtbot):
@@ -469,7 +504,7 @@ def test_closing_a_qt_window_leaves_the_controller_usable(qtbot):
     pytest.importorskip("qtpy")
     pytest.importorskip("superqt")
 
-    viewer, window = _qt_viewer_with_window()
+    viewer, window, _canvas = _qt_viewer_with_window()
     visual = viewer.scene.visuals[0]
 
     window.close()
@@ -483,6 +518,6 @@ def test_the_qt_window_teardown_is_idempotent(qtbot):
     pytest.importorskip("qtpy")
     pytest.importorskip("superqt")
 
-    _viewer, window = _qt_viewer_with_window()
+    _viewer, window, _canvas = _qt_viewer_with_window()
     window.close()
     window.close()

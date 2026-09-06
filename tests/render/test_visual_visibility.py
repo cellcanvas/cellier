@@ -29,6 +29,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from cellier.convenience._hosts import QtLayoutHost
+from cellier.convenience.layout._walk import render_dock
 from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.visuals._mesh_memory import MeshFlatAppearance
@@ -206,7 +208,6 @@ async def test_the_qt_visible_checkbox_hides_and_restores_the_picture(
 
     from cellier.convenience import Viewer
     from cellier.convenience.gui import MeshControlsConfig
-    from cellier.convenience.layout._qt_renderer import _render_dock_qt
     from cellier.convenience.layout._spec import AppearanceControls
     from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
     from cellier.visuals._mesh_memory import MeshFlatAppearance
@@ -222,7 +223,7 @@ async def test_the_qt_visible_checkbox_hides_and_restores_the_picture(
         controls=MeshControlsConfig(appearance=["visible"]),
     )
     viewer.controller.add_canvas(scene_id=viewer.scene.id)
-    dock = _render_dock_qt(AppearanceControls(), viewer)
+    dock = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
     await reslice(viewer.controller, viewer.scene.id)
 
     # The checkbox carries no text of its own: its row's label names it

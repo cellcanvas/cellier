@@ -131,6 +131,34 @@ class FrameRenderedEvent(NamedTuple):
     frame_time_ms: float
 
 
+class CanvasConnectedEvent(NamedTuple):
+    """Emitted once a canvas's front end is live and able to draw.
+
+    Distinct from :class:`FrameRenderedEvent`, which says a frame *has* been
+    drawn.  On Qt the two nearly coincide -- the widget is shown and the
+    continuous scheduler draws immediately -- but on the anywidget backend
+    they can be far apart, or the frame may never arrive at all: the canvas
+    exists in Python long before the browser mounts it, and nothing can be
+    rendered until it does.
+
+    Anything that must wait for a *usable* canvas rather than a *painted* one
+    should watch this.
+
+    Attributes
+    ----------
+    source_id : UUID
+        ID of the ``CanvasView`` reporting the connection.
+    canvas_id : UUID
+        Model-layer canvas identifier.
+    gui : str
+        Which front end connected, for diagnostics.
+    """
+
+    source_id: UUID
+    canvas_id: UUID
+    gui: str
+
+
 class CanvasSizeChangedEvent(NamedTuple):
     """Emitted when the physical pixel size of a canvas changes.
 

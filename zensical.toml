@@ -55,6 +55,7 @@ nav = [
         { "Slicing" = "Explanations/slicing.md" },
     ] },
     { "How-to" = [
+        { "Capture screenshots" = "How_To/capture_screenshots.md" },
         { "Debug events" = "How_To/debug_events.md" },
     ] },
     { "API Reference" = [

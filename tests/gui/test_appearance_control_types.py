@@ -68,6 +68,11 @@ CATALOG = [
     ("EdgeColorPicker", "edge_color", "Edge color"),
     ("EdgeThicknessSpin", "edge_thickness", "Edge thickness"),
     ("EdgeThicknessSpaceCombo", "edge_thickness_space", "Edge thickness space"),
+    # Image controls, made public and turned into layer-3 field classes by D10
+    # (``plans/gui_backend_unification.md``).  The composite
+    # ``*VolumeRenderControls`` draws its own selector and does not use these.
+    ("RenderModeCombo", "render_mode", "Render mode"),
+    ("IsoThresholdSlider", "iso_threshold", "Iso threshold"),
 ]
 
 
@@ -205,6 +210,10 @@ def test_the_field_name_matches_a_real_appearance_model_field(stem, field, _labe
     Section 10.1's rule runs the other way too: a widget must exist for every
     valid name, and every widget must name a real field.
     """
+    from cellier.visuals import (
+        InMemoryImageAppearance,
+        MultiscaleImageAppearance,
+    )
     from cellier.visuals._base_visual import BaseAppearance
     from cellier.visuals._graph_memory import GraphAppearance
     from cellier.visuals._label_memory import BaseLabelsAppearance
@@ -213,6 +222,9 @@ def test_the_field_name_matches_a_real_appearance_model_field(stem, field, _labe
     from cellier.visuals._points_memory import PointsMarkerAppearance
 
     models = (
+        # Image models too, since D10 made the image field controls public.
+        InMemoryImageAppearance,
+        MultiscaleImageAppearance,
         BaseAppearance,
         BaseLabelsAppearance,
         MeshFlatAppearance,
@@ -317,7 +329,10 @@ def test_every_control_type_applies_a_foreign_write_without_re_emitting(qtbot, t
         widget._apply(foreign)
 
         assert emitted == [], f"{toolkit}/{name} re-emitted on an inbound write"
-        actual = widget.value() if toolkit == "qt" else widget.value
+        # One spelling on both toolkits now: Qt's ``value`` is a property
+        # like the anywidget trait, so the branch this line used to need
+        # is gone (``plans/gui_backend_unification.md`` D7).
+        actual = widget.value
         if name == "color_picker":
             assert tuple(actual) == pytest.approx(foreign)
         else:
@@ -414,7 +429,7 @@ def test_a_choice_ignores_a_value_it_does_not_offer(qtbot):
     """Better a stale control than a blanked one."""
     visual_id = uuid4()
     for widget, read in (
-        (_qt("SideCombo")(visual_id, initial_value="both"), lambda w: w.value()),
+        (_qt("SideCombo")(visual_id, initial_value="both"), lambda w: w.value),
         (_any("SideCombo")(visual_id, initial_value="both"), lambda w: w.value),
     ):
         widget._apply("not_an_option")
@@ -422,7 +437,7 @@ def test_a_choice_ignores_a_value_it_does_not_offer(qtbot):
 
     qt_widget = _qt("SideCombo")(visual_id, initial_value="both")
     qt_widget._apply("not_an_option")
-    assert qt_widget.value() == "both"
+    assert qt_widget.value == "both"
 
 
 def test_only_the_salt_spin_offers_a_shuffle_button(qtbot):
@@ -492,7 +507,7 @@ def test_as_rgba_fills_a_missing_alpha():
 def test_a_colour_edit_emits_one_event_carrying_all_four_components(qtbot):
     """Not one event per component: the whole RGBA travels together."""
     for widget, read in (
-        (_qt("UniformColorPicker")(uuid4()), lambda w: w.value()),
+        (_qt("UniformColorPicker")(uuid4()), lambda w: w.value),
         (_any("UniformColorPicker")(uuid4()), lambda w: w.value),
     ):
         emitted: list = []

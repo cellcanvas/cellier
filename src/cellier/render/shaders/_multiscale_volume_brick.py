@@ -418,6 +418,20 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         buf_data["frame_index"] = self._frame_index
         self.vol_params_buffer.update_full()
 
+    def reset_frame_index(self) -> None:
+        """Rewind the jitter seed to its construction value.
+
+        The seed is a counter rather than a random draw, so N ticks from
+        zero always produce the same sequence of ray-start offsets.  Rewinding
+        it is therefore what turns "draw N frames" into a reproducible
+        picture, and it is the only reason this method exists -- see
+        ``cellier.render._capture``.
+        """
+        self._frame_index = 0
+        buf_data = self.vol_params_buffer.data
+        buf_data["frame_index"] = 0
+        self.vol_params_buffer.update_full()
+
 
 # ---------------------------------------------------------------------------
 # Shader

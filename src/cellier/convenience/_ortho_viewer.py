@@ -14,6 +14,8 @@ from uuid import UUID, uuid4
 
 from cellier.controller import CellierController
 from cellier.convenience._render_settings import RenderSettingsMixin
+from cellier.convenience._startup import StartupState
+from cellier.render._capture import write_png
 from cellier.scene.dims import (
     AxisAlignedSelection,
     CoordinateSystem,
@@ -23,6 +25,8 @@ from cellier.scene.scene import Scene
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import numpy as np
 
     from cellier.convenience.gui._controls_config import (
         BaseControlsConfig,
@@ -205,10 +209,13 @@ class OrthoViewer(RenderSettingsMixin):
         kept synchronized across all four panels.
     render_config : RenderManagerConfig or None
         Render pipeline configuration passed through to the controller.
-    gui : "qt" or "anywidget"
+    gui : "qt", "anywidget", or "offscreen"
         Which GUI toolkit the canvases should target. ``"qt"`` (default)
         renders into Qt widgets; ``"anywidget"`` renders into notebook canvases
-        for Jupyter / marimo. Fixed at construction.
+        for Jupyter / marimo; ``"offscreen"`` renders with no window at all,
+        for headless capture via :meth:`screenshot`. Fixed at construction.
+        ``"offscreen"`` orthoviewers have no embeddable widgets, so the grid
+        builders reject them.
     """
 
     def __init__(
@@ -218,7 +225,7 @@ class OrthoViewer(RenderSettingsMixin):
         spatial_axes: tuple[str, ...] | tuple[int, ...] | None = None,
         link_extra_axes: bool = True,
         render_config: RenderManagerConfig | None = None,
-        gui: Literal["qt", "anywidget"] = "qt",
+        gui: Literal["qt", "anywidget", "offscreen"] = "qt",
     ) -> None:
         self._controller = CellierController(render_config=render_config, gui=gui)
         self._spatial_axes = _resolve_spatial_axes(axis_labels, spatial_axes)
@@ -316,6 +323,252 @@ class OrthoViewer(RenderSettingsMixin):
         """
         for scene in self._scenes.values():
             scene.background = background.model_copy(deep=True)
+
+    @property
+    def startup_state(self) -> StartupState:
+        """How far this viewer has got through starting up.
+
+        Readable at any moment, with no callback, no event loop and no front
+        end -- which is the point.  A blank viewer used to be undiagnosable
+        from Python; now it can say whether it is waiting for the canvas to
+        reach the browser, waiting for a first frame, loading data, or done.
+
+        ``StartupState.IDLE`` until ``display``/``launch``/``show`` runs.
+        """
+        tracker = getattr(self, "_startup", None)
+        return StartupState.IDLE if tracker is None else tracker.state
+
+    @property
+    def scene_startup_states(self) -> dict[str, StartupState]:
+        """Each scene's startup state, keyed as this viewer keys its scenes.
+
+        An aggregate hides which panel is stuck; this does not.
+        """
+        tracker = getattr(self, "_startup", None)
+        return {} if tracker is None else tracker.scene_states
+
+    def startup_report(self) -> str:
+        """A one-line summary of startup progress, for a cell or a log line."""
+        tracker = getattr(self, "_startup", None)
+        if tracker is None:
+            return "idle (not started)"
+        return tracker.describe()
+
+    def on_scene_ready(self, key: str, callback: Callable[[], None]) -> None:
+        """Fire *callback* when one scene's data is on the GPU.
+
+        The per-scene counterpart of :meth:`on_ready`, which waits for *all*
+        of them.  Fires immediately if that scene is already ready.
+
+        Must be called after ``display``/``launch``, which is when the
+        startup tracker exists.
+
+        Parameters
+        ----------
+        key : str
+            The scene key -- ``"scene"`` for a single-scene viewer, or the
+            panel key (``"xy"``, ``"xz"``, ``"yz"``, ``"vol"``) for an
+            ``OrthoViewer``.
+        callback : Callable[[], None]
+            Zero-argument callback.
+        """
+        tracker = getattr(self, "_startup", None)
+        if tracker is None:
+            raise RuntimeError(
+                "on_scene_ready requires a started viewer; call it after "
+                "display()/launch()/show()."
+            )
+        tracker.on_scene_ready(key, callback)
+
+    def on_startup_progress(self, callback: Callable[[int, int], None]) -> None:
+        """Fire ``callback(scenes_ready, scenes_total)`` as scenes load.
+
+        For a progress bar over a slow or remote dataset, where the gap
+        between "shown" and "loaded" is long enough to need reporting.
+        """
+        tracker = getattr(self, "_startup", None)
+        if tracker is None:
+            raise RuntimeError(
+                "on_startup_progress requires a started viewer; call it after "
+                "display()/launch()/show()."
+            )
+        tracker.on_progress(callback)
+
+    def on_startup_stalled(self, callback: Callable[[dict], None]) -> None:
+        """Fire ``callback({scene key: state})`` if startup does not finish.
+
+        The signal that was missing entirely: startup could only ever report
+        success, so a viewer that never finished looked exactly like one still
+        working.  The payload names each unfinished scene and the state it
+        stopped in, so the report can say *what* it was waiting for.
+
+        Stalling is not an error -- slow remote data legitimately takes a
+        while -- it is the cue that something is worth looking at.  Tune the
+        window with ``display(..., stall_timeout=)``.
+        """
+        tracker = getattr(self, "_startup", None)
+        if tracker is None:
+            raise RuntimeError(
+                "on_startup_stalled requires a started viewer; call it after "
+                "display()/launch()/show()."
+            )
+        tracker.on_stalled(callback)
+
+    # ------------------------------------------------------------------
+    # Capture
+    # ------------------------------------------------------------------
+
+    def screenshot(
+        self,
+        *,
+        panel: str | None = None,
+        size: tuple[int, int] | None = None,
+        scale: float = 1.0,
+        frames: int | Literal["converged"] = 1,
+        save: str | Path | None = None,
+        **capture_kwargs,
+    ) -> np.ndarray:
+        """Capture one panel, or all four as a 2x2 grid, as RGBA uint8.
+
+        Each panel is rendered offscreen, so the result is reproducible and
+        does not need a window.
+
+        The capture shows the data **currently resident on the GPU** -- it does
+        not reslice.  Capture from :meth:`on_ready` when a load may still be
+        running.  A panel with **no canvas** renders empty, because slice
+        requests are planned per canvas: give every panel a canvas (the grid
+        builder does, and so does ``scripts/capture.py``) and let the reslice
+        finish before capturing.
+
+        Parameters
+        ----------
+        panel : str or None
+            Which panel to capture: ``"xy"``, ``"xz"``, ``"yz"`` or ``"vol"``.
+            With ``None`` (default) all four are captured and composited into
+            a 2x2 grid laid out the way ``build_ortho_grid_widget`` arranges
+            them -- XY and XZ on the top row, YZ and the 3D volume below.
+        size : tuple[int, int] or None
+            ``(width, height)`` **per panel**, before *scale*, so a grid
+            capture comes back at twice this in each direction.  Defaults to
+            each panel canvas's physical size, or ``(600, 600)`` when a panel
+            has no canvas.  A grid capture requires one size for all four, so
+            it falls back to ``(600, 600)`` unless the panels agree.
+        scale : float
+            Multiplier applied to *size*.
+        frames : int or "converged"
+            ``1`` (default) draws a single frame with temporal accumulation
+            off.  ``"converged"`` draws the number of frames the accumulator
+            needs to settle.  This matters more here than elsewhere: the
+            ``vol`` panel has accumulation enabled while the three slice
+            panels do not, so a fixed ``frames=N`` is right for one panel and
+            wrong for three.
+        save : str, Path, or None
+            When given, also write the frame to this path as a PNG.
+        **capture_kwargs
+            Forwarded to the capture helper.
+
+        Returns
+        -------
+        np.ndarray
+            RGBA uint8 array: ``(height, width, 4)`` for one panel, or
+            ``(2 * height, 2 * width, 4)`` for the grid.
+
+        Raises
+        ------
+        ValueError
+            If *panel* is not one of the four panel keys.
+
+        Notes
+        -----
+        The grid composite is **canvases only**.  The Qt grid carries ``XY`` /
+        ``XZ`` / ``YZ`` / ``3D`` labels above the panels; those are chrome and
+        do not appear here.  Use
+        :func:`~cellier.convenience.screenshot_window` for a picture with the
+        labels and docks in it.
+        """
+        if panel is not None:
+            if panel not in _PANEL_KEYS:
+                raise ValueError(
+                    f"Unknown panel {panel!r}. Expected one of {list(_PANEL_KEYS)}."
+                )
+            frame = self._screenshot_panel(
+                panel, size=size, scale=scale, frames=frames, **capture_kwargs
+            )
+        else:
+            frame = self._screenshot_grid(
+                size=size, scale=scale, frames=frames, **capture_kwargs
+            )
+        if save is not None:
+            write_png(save, frame)
+        return frame
+
+    def _screenshot_panel(
+        self,
+        panel: str,
+        *,
+        size: tuple[int, int] | None,
+        scale: float,
+        frames: int | Literal["converged"],
+        **capture_kwargs,
+    ) -> np.ndarray:
+        """Capture a single panel through its canvas, or by fitting its scene."""
+        scene_id = self._scenes[panel].id
+        canvas_ids = self._controller.get_canvas_ids(scene_id)
+        if canvas_ids:
+            return self._controller.screenshot(
+                canvas_ids[0], size=size, scale=scale, frames=frames, **capture_kwargs
+            )
+        return self._controller.screenshot_scene(
+            scene_id, size=size, scale=scale, frames=frames, **capture_kwargs
+        )
+
+    def _screenshot_grid(
+        self,
+        *,
+        size: tuple[int, int] | None,
+        scale: float,
+        frames: int | Literal["converged"],
+        **capture_kwargs,
+    ) -> np.ndarray:
+        """Capture all four panels and tile them into the on-screen arrangement."""
+        import numpy as np
+
+        panel_size = size if size is not None else self._common_panel_size()
+        frames_by_panel = {
+            key: self._screenshot_panel(
+                key,
+                size=panel_size,
+                scale=scale,
+                frames=frames,
+                **capture_kwargs,
+            )
+            for key in _PANEL_KEYS
+        }
+        # The arrangement ``build_ortho_grid_widget`` uses, so the composite
+        # reads like the window rather than like an arbitrary tiling.
+        top = np.hstack([frames_by_panel["xy"], frames_by_panel["xz"]])
+        bottom = np.hstack([frames_by_panel["yz"], frames_by_panel["vol"]])
+        return np.vstack([top, bottom])
+
+    def _common_panel_size(self) -> tuple[int, int]:
+        """Return one ``(width, height)`` all four panels can be captured at.
+
+        A grid needs equal tiles, and the four canvases need not be the same
+        size (a user can resize one Qt dock).  When they disagree -- or when
+        some panel has no canvas at all -- there is no honest "current" size,
+        so the capture default is used rather than silently stretching one
+        panel to match another.
+        """
+        sizes = set()
+        for key in _PANEL_KEYS:
+            canvas_ids = self._controller.get_canvas_ids(self._scenes[key].id)
+            if not canvas_ids:
+                return (600, 600)
+            view = self._controller.get_canvas_view(canvas_ids[0])
+            sizes.add(tuple(int(v) for v in view.widget.get_physical_size()))
+        if len(sizes) != 1:
+            return (600, 600)
+        return sizes.pop()
 
     # ------------------------------------------------------------------
     # Readiness

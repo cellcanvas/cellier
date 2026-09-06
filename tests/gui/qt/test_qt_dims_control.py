@@ -7,11 +7,11 @@ import pytest
 pytest.importorskip("qtpy")
 pytest.importorskip("superqt")
 
-from cellier._state import AxisAlignedSelectionState, DimsState  # noqa: E402
-from cellier.controller import CellierController  # noqa: E402
-from cellier.events import DimsChangedEvent  # noqa: E402
-from cellier.gui.qt._scene import QtDimsControl  # noqa: E402
-from cellier.scene.dims import CoordinateSystem  # noqa: E402
+from cellier._state import AxisAlignedSelectionState, DimsState
+from cellier.controller import CellierController
+from cellier.events import DimsChangedEvent
+from cellier.gui.qt._scene import QtDimsControl
+from cellier.scene.dims import CoordinateSystem
 
 
 def _make_controller_with_scene(*, dim="2d"):
@@ -114,3 +114,76 @@ def test_echoed_event_is_ignored(qtbot):
 
     # An event stamped with our own id is our own echo; it must not reapply.
     assert control._sliders[0].value() == 3
+
+
+# ---------------------------------------------------------------------------
+# D14: parity with the anywidget dims panel, which had twice this coverage --
+# in the area that produced D16-D18 (``plans/gui_backend_unification.md``).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("dim", "expected"), [("2d", "Switch to 3D"), ("3d", "Switch to 2D")]
+)
+def test_the_toggle_is_labelled_for_the_mode_it_switches_to(qtbot, dim, expected):
+    """At construction, before anything has been clicked.
+
+    A button that describes the mode it is *in* rather than the one it offers
+    is the failure D17 produced after a raising handler, and nothing pinned
+    the un-clicked case at all.
+    """
+    _controller, scene = _make_controller_with_scene(dim=dim)
+    control = _make_control(scene, qtbot)
+
+    assert control._toggle_button.text() == expected
+
+
+def test_a_slider_edit_reports_only_the_hidden_axes(qtbot):
+    """Displayed axes are drawn, not sliced, so they carry no slice index.
+
+    Reporting one would ask the slicer to slice an axis it is displaying.
+    """
+    _controller, scene = _make_controller_with_scene(dim="2d")
+    control = _make_control(scene, qtbot)
+    emitted = []
+    control.changed.connect(emitted.append)
+
+    control._on_slider_changed(0, 3)
+
+    assert emitted, "sanity: the edit reached the bus"
+    displayed = set(scene.dims.selection.displayed_axes)
+    assert set(emitted[-1].slice_indices).isdisjoint(displayed)
+
+
+def test_toggling_twice_returns_to_the_starting_mode(qtbot):
+    """The round trip, which no Qt test covered.
+
+    Its anywidget twin has had ``toggle_click_round_trip`` since it was
+    written; the Qt side checked one direction only.
+    """
+    _controller, scene = _make_controller_with_scene(dim="2d")
+    control = _make_control(scene, qtbot)
+    start = tuple(control._displayed_axes)
+    start_label = control._toggle_button.text()
+
+    control._on_toggle_click()
+    assert tuple(control._displayed_axes) != start
+
+    control._on_toggle_click()
+    assert tuple(control._displayed_axes) == start
+    assert control._toggle_button.text() == start_label
+
+
+def test_a_dims_change_does_not_relabel_a_control_with_no_toggle(qtbot):
+    """A control built without a toggle must not grow one, or crash reaching for it."""
+    controller, scene = _make_controller_with_scene(dim="2d")
+    control = _make_control(scene, qtbot, with_toggle=False)
+    controller.connect_widget(control, subscription_specs=control.subscription_specs())
+
+    assert control.has_toggle is False
+
+    control._on_dims_changed(
+        _dims_changed_event(controller._id, scene.id, displayed=(0, 1, 2), slices={})
+    )
+
+    assert control.has_toggle is False

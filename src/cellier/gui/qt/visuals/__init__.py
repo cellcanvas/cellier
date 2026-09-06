@@ -17,7 +17,7 @@ from cellier.gui.qt.visuals._base import (
 )
 from cellier.gui.qt.visuals._channel import QtChannelList
 from cellier.gui.qt.visuals._color import QtUniformColorPicker
-from cellier.gui.qt.visuals._colormap import QtColormapComboBox
+from cellier.gui.qt.visuals._colormap import QtColormapCombo
 from cellier.gui.qt.visuals._contrast_limits import QtClimRangeSlider
 from cellier.gui.qt.visuals._graph import (
     QtEdgeColorPicker,
@@ -29,7 +29,11 @@ from cellier.gui.qt.visuals._graph import (
     QtNodeSizeSpin,
     QtNodeVisibleToggle,
 )
-from cellier.gui.qt.visuals._image import QtVolumeRenderControls
+from cellier.gui.qt.visuals._image import (
+    QtIsoThresholdSlider,
+    QtRenderModeCombo,
+    QtVolumeRenderControls,
+)
 from cellier.gui.qt.visuals._labels import (
     QtBackgroundLabelSpin,
     QtLabelsRenderModeCombo,
@@ -63,7 +67,7 @@ __all__ = [
     "QtChoice",
     "QtClimRangeSlider",
     "QtColorPicker",
-    "QtColormapComboBox",
+    "QtColormapCombo",
     "QtEdgeColorPicker",
     "QtEdgeThicknessSpaceCombo",
     "QtEdgeThicknessSpin",
@@ -71,6 +75,7 @@ __all__ = [
     "QtFlatShadingToggle",
     "QtFloatSpin",
     "QtIntSpin",
+    "QtIsoThresholdSlider",
     "QtLabelsRenderModeCombo",
     "QtLodBiasSlider",
     "QtNodeColorPicker",
@@ -78,6 +83,7 @@ __all__ = [
     "QtNodeSizeSpin",
     "QtNodeVisibleToggle",
     "QtOpacitySlider",
+    "QtRenderModeCombo",
     "QtSaltSpin",
     "QtShininessSpin",
     "QtSideCombo",

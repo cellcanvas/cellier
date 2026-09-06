@@ -9,11 +9,11 @@ from cmap import Colormap
 pytest.importorskip("qtpy")
 pytest.importorskip("superqt")
 
-from cellier.controller import CellierController  # noqa: E402
-from cellier.data.image._image_memory_store import ImageMemoryStore  # noqa: E402
-from cellier.gui.qt.visuals import QtChannelList  # noqa: E402
-from cellier.scene.dims import CoordinateSystem  # noqa: E402
-from cellier.visuals._channel_appearance import ChannelAppearance  # noqa: E402
+from cellier.controller import CellierController
+from cellier.data.image._image_memory_store import ImageMemoryStore
+from cellier.gui.qt.visuals import QtChannelList
+from cellier.scene.dims import CoordinateSystem
+from cellier.visuals._channel_appearance import ChannelAppearance
 
 
 def _make_channel_appearance(**kwargs) -> ChannelAppearance:
@@ -126,3 +126,36 @@ def test_edit_fans_out_to_all_visual_ids(qtbot):
 
     assert visual0.channels[1].visible is False
     assert visual1.channels[1].visible is False
+
+
+def test_inbound_echo_filtered_by_source_id(qtbot):
+    """A widget must ignore the bus echo of its own write.
+
+    The core of the bus contract, and the one thing that stops a control and
+    its model oscillating.  Covered on every anywidget module and, until this,
+    on only three Qt ones -- the systematic half of D14
+    (``plans/gui_backend_unification.md``).
+
+    Driven through the handler rather than the controller, because the
+    controller stamps its own ``source_id``; the case under test is an event
+    carrying *this widget's* id.
+    """
+    from cellier.events import ChannelAppearanceChangedEvent
+
+    controller, visual = _make_controller_with_multichannel()
+    widget = QtChannelList([visual.id], visual.channels)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+
+    before = _find_control(widget, 0, "opacity").value()
+
+    widget._on_changed(
+        ChannelAppearanceChangedEvent(
+            source_id=widget._id,  # our own echo -> ignored
+            visual_id=visual.id,
+            channel_index=0,
+            field_name="opacity",
+            new_value=0.25,
+        )
+    )
+
+    assert _find_control(widget, 0, "opacity").value() == pytest.approx(before)

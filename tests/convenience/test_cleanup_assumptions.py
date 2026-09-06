@@ -21,16 +21,15 @@ import traitlets
 from cmap import Colormap
 from psygnal import EventedModel
 
-from cellier.convenience import Viewer
-from cellier.convenience.gui._appearance_widgets import (
-    build_appearance_widgets_anywidget,
-)
+from cellier.convenience import AppearanceControls, Viewer
+from cellier.convenience._backend import ANYWIDGET_BACKEND
+from cellier.convenience._hosts import QtLayoutHost
 from cellier.convenience.gui._controls_config import (
     BaseControlsConfig,
     InMemoryImageControlsConfig,
     MultiscaleImageControlsConfig,
 )
-from cellier.convenience.layout._qt_renderer import _render_appearance_controls_qt
+from cellier.convenience.layout._walk import build_appearance_widgets, render_dock
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.events import (
     AABBChangedEvent,
@@ -38,7 +37,7 @@ from cellier.events import (
 )
 from cellier.gui.anywidget.visuals import (
     AnywidgetAABBWidget,
-    AnywidgetClimSlider,
+    AnywidgetClimRangeSlider,
 )
 from cellier.visuals._base_visual import AABBParams, BaseVisual
 from cellier.visuals._image_memory import InMemoryImageAppearance
@@ -155,7 +154,7 @@ def test_appearance_echo_filter_drops_every_echo_under_fanout():
     ``test_writing_color_map_poisons_model_equality_process_wide``.
     """
     viewer, visuals = _two_image_viewer()
-    widget = AnywidgetClimSlider(
+    widget = AnywidgetClimRangeSlider(
         visuals[0].id, clim_range=(0.0, 100.0), initial_clim=(0.0, 1.0)
     )
 
@@ -189,7 +188,7 @@ def test_appearance_foreign_writes_apply_idempotently_under_fanout():
     emits nothing (each apply runs under the ``_applying`` guard).
     """
     viewer, visuals = _two_image_viewer()
-    widget = AnywidgetClimSlider(
+    widget = AnywidgetClimRangeSlider(
         visuals[0].id, clim_range=(0.0, 100.0), initial_clim=(0.0, 1.0)
     )
 
@@ -341,7 +340,7 @@ def test_appearance_true_now_means_the_default_panel_in_both_renderers(qtbot):
         control_labels_anywidget,
     )
 
-    container = _render_appearance_controls_qt(viewer)
+    container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
     assert container is not None
     assert control_labels(container) == [
         "Visible",
@@ -352,7 +351,9 @@ def test_appearance_true_now_means_the_default_panel_in_both_renderers(qtbot):
         "Bounding box",
     ]
 
-    built = build_appearance_widgets_anywidget(visual, config, viewer.controller)
+    built = build_appearance_widgets(
+        visual, config, viewer.controller, None, backend=ANYWIDGET_BACKEND
+    )
     assert control_labels_anywidget(built) == control_labels(container)
 
 

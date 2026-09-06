@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cellier.controller import CellierController
     from cellier.convenience._hosts import LayoutHost
     from cellier.convenience._viewer import Viewer
+    from cellier.gui._constants import GuiName
     from cellier.gui.anywidget._dims_panel import AnywidgetDimsPanel
     from cellier.gui.qt import QtCanvasWidget
     from cellier.scene.scene import Scene
@@ -55,6 +56,16 @@ class AnywidgetCanvasView:
     dims: AnywidgetDimsPanel
     canvas_size: tuple[int, int] = (600, 600)
 
+    @property
+    def dims_control(self) -> AnywidgetDimsPanel:
+        """The bus-facing dims widget, under the name every leaf uses.
+
+        ``QtCanvasWidget`` spells it ``dims_control``; this spells it ``dims``.
+        One name lets the shared canvas builder wire either without asking
+        which toolkit it is holding.
+        """
+        return self.dims
+
     def compose(self, host: LayoutHost) -> object:
         """Arrange canvas above dims, floored at ``canvas_size[0]``."""
         return host.stack(
@@ -67,83 +78,86 @@ class AnywidgetCanvasView:
         self.dims.close()
 
 
-def canvas_widget_for_scene(
+def build_canvas_view(
     controller: CellierController,
     scene: Scene,
     axis_ranges: dict[int, tuple[float, float]],
     *,
+    backend,
     render_modes: set[str] | None = None,
     initial_dim: str | None = None,
     fov: float = 70.0,
     depth_range_3d: tuple[float, float] = (1.0, 8000.0),
     depth_range_2d: tuple[float, float] = (-500.0, 500.0),
-) -> QtCanvasWidget:
-    """Build a wired ``QtCanvasWidget`` for *scene*, reusing any existing canvas.
+    canvas_size: tuple[int, int] | None = None,
+    non_displayed: tuple[int, ...] = (),
+):
+    """Build a wired canvas leaf for *scene*, reusing any existing canvas.
 
-    If *scene* already has a canvas (e.g. one restored by ``from_file``), that
-    canvas -- with its restored camera state -- is reused.  Otherwise a new
-    canvas is created.  The returned widget's dims sliders are connected to the
-    controller event bus.
+    One builder for every toolkit.  If *scene* already has a canvas -- one
+    restored by ``from_file``, say -- that canvas and its camera state are
+    reused; otherwise a new one is created.  *backend* decides which widget
+    wraps it, and the dims control is wired to the bus here so the wiring is
+    stated once rather than once per toolkit.
 
     Parameters
     ----------
     controller : CellierController
         The controller owning *scene*.
     scene : Scene
-        The scene whose canvas this widget controls.
+        The scene whose canvas this leaf controls.
     axis_ranges : dict[int, tuple[float, float]]
-        Mapping of axis index to ``(world_min, world_max)`` for slider ranges.
+        Axis index to ``(world_min, world_max)``, for the slider ranges.
+    backend : GuiBackend
+        Supplies the toolkit's canvas widget.
     render_modes : set[str] or None
-        Camera modes to prepare when creating a new canvas.  Defaults to the
-        scene's own ``render_modes``.  Ignored when reusing an existing canvas.
+        Camera modes to prepare on a new canvas.  Defaults to the scene's own.
+        Ignored when reusing an existing canvas, as are the arguments below.
     initial_dim : str or None
-        Active mode for a newly created canvas.  Inferred from the scene's
-        displayed axes when ``None``.
+        Active mode for a new canvas.  Inferred from the scene when ``None``.
     fov : float
-        Vertical field of view in degrees for a new 3D camera.  Default ``70``.
-    depth_range_3d : tuple[float, float]
-        ``(near, far)`` clip distances for a new 3D camera.
-    depth_range_2d : tuple[float, float]
-        ``(near, far)`` clip distances for a new 2D camera.
-
-    Returns
-    -------
-    QtCanvasWidget
+        Vertical field of view in degrees for a new 3D camera.
+    depth_range_3d, depth_range_2d : tuple[float, float]
+        ``(near, far)`` clip distances for a new 3D / 2D camera.
+    canvas_size : tuple[int, int] or None
+        Initial CSS pixel size.  Meaningful to the anywidget backend only.
+    non_displayed : tuple[int, ...]
+        Axes to exclude from the sliders regardless of dims state.
     """
-    from cellier.gui.qt import QtCanvasWidget
-
     canvas_ids = controller.get_canvas_ids(scene.id)
     if not canvas_ids:
         controller.add_canvas(
             scene.id,
-            render_modes=render_modes
-            if render_modes is not None
-            else set(scene.render_modes),
+            render_modes=set(scene.render_modes)
+            if render_modes is None
+            else render_modes,
             initial_dim=initial_dim,
             fov=fov,
             depth_range_3d=depth_range_3d,
             depth_range_2d=depth_range_2d,
+            canvas_size=canvas_size,
         )
         canvas_ids = controller.get_canvas_ids(scene.id)
 
-    canvas_view = controller.get_canvas_view(canvas_ids[-1])
-    canvas_widget = QtCanvasWidget.from_scene_and_canvas(
+    view = backend.canvas_view(
         scene,
-        canvas_view,
+        controller.get_canvas_view(canvas_ids[-1]),
         axis_ranges,
+        canvas_size=canvas_size,
+        non_displayed=non_displayed,
     )
     controller.connect_widget(
-        canvas_widget.dims_control,
-        subscription_specs=canvas_widget.dims_control.subscription_specs(),
+        view.dims_control,
+        subscription_specs=view.dims_control.subscription_specs(),
     )
-    return canvas_widget
+    return view
 
 
 def build_canvas_widget(
     viewer: Viewer,
     axis_ranges: dict[int, tuple[float, float]],
     *,
-    gui: Literal["qt", "anywidget"] | None = None,
+    gui: GuiName | None = None,
     render_modes: set[str] | None = None,
     initial_dim: str | None = None,
     fov: float = 70.0,
@@ -201,126 +215,39 @@ def build_canvas_widget(
     ValueError
         If *gui* conflicts with ``viewer.gui`` or is not recognised.
     """
+    from cellier.convenience._backend import backend_for
+
     gui = _resolve_gui(viewer, gui)
-    if gui == "qt":
-        import sys
-
-        from PySide6.QtWidgets import QApplication
-
-        QApplication.instance() or QApplication([sys.argv[0]])
-        return _build_qt_canvas_widget(
-            viewer,
-            axis_ranges,
-            render_modes=render_modes,
-            initial_dim=initial_dim,
-            fov=fov,
-            depth_range_3d=depth_range_3d,
-            depth_range_2d=depth_range_2d,
-        )
-    elif gui == "anywidget":
-        return anywidget_canvas_view_for_scene(
-            viewer.controller,
-            viewer.scene,
-            axis_ranges,
-            render_modes=render_modes,
-            initial_dim=initial_dim,
-            fov=fov,
-            depth_range_3d=depth_range_3d,
-            depth_range_2d=depth_range_2d,
-            canvas_size=canvas_size,
-        )
-    raise ValueError(f"Unknown gui {gui!r}. Expected 'qt' or 'anywidget'.")
-
-
-def _build_qt_canvas_widget(
-    viewer: Viewer,
-    axis_ranges: dict[int, tuple[float, float]],
-    *,
-    render_modes: set[str] | None = None,
-    initial_dim: str | None = None,
-    fov: float = 70.0,
-    depth_range_3d: tuple[float, float] = (1.0, 8000.0),
-    depth_range_2d: tuple[float, float] = (-500.0, 500.0),
-) -> QtCanvasWidget:
-    """Qt implementation of :func:`build_canvas_widget`."""
-    return canvas_widget_for_scene(
+    # Resolving the backend is also what refuses a gui with no widgets.
+    backend = backend_for(
+        gui, lacks="no embeddable widget, so no canvas widget can be built for it"
+    )
+    _ensure_qapplication(gui)
+    return build_canvas_view(
         viewer.controller,
         viewer.scene,
         axis_ranges,
+        backend=backend,
         render_modes=render_modes,
         initial_dim=initial_dim,
         fov=fov,
         depth_range_3d=depth_range_3d,
         depth_range_2d=depth_range_2d,
+        canvas_size=canvas_size,
     )
 
 
-def anywidget_canvas_view_for_scene(
-    controller: CellierController,
-    scene: Scene,
-    axis_ranges: dict[int, tuple[float, float]],
-    *,
-    render_modes: set[str] | None = None,
-    initial_dim: str | None = None,
-    fov: float = 70.0,
-    depth_range_3d: tuple[float, float] = (1.0, 8000.0),
-    depth_range_2d: tuple[float, float] = (-500.0, 500.0),
-    canvas_size: tuple[int, int] | None = None,
-    non_displayed: tuple[int, ...] = (),
-) -> AnywidgetCanvasView:
-    """Build a wired :class:`AnywidgetCanvasView` for *scene*, reusing any canvas.
+def _ensure_qapplication(gui: str) -> None:
+    """Create a ``QApplication`` if the Qt backend needs one and has none.
 
-    Mirrors :func:`canvas_widget_for_scene` for the anywidget gui: ensures a
-    canvas exists (the controller's ``gui == "anywidget"`` makes it a
-    rendercanvas anywidget), builds a dims panel, wires it to the bus, and
-    returns the leaves.
-
-    Parameters
-    ----------
-    controller : CellierController
-        The controller owning *scene* (must have ``gui="anywidget"``).
-    scene : Scene
-        The scene whose canvas + dims this view controls.
-    axis_ranges : dict[int, tuple[float, float]]
-        Mapping of axis index to ``(world_min, world_max)`` for slider ranges.
-    render_modes, initial_dim, fov, depth_range_3d, depth_range_2d, canvas_size
-        Forwarded to :meth:`CellierController.add_canvas` when a new canvas is
-        created.  Ignored when reusing an existing canvas.
-    non_displayed : tuple[int, ...]
-        Axes to exclude from the sliders regardless of dims state.
-
-    Returns
-    -------
-    AnywidgetCanvasView
+    Building a Qt widget without one crashes, and the convenience API is meant
+    to be callable from a bare script, so this is the one place that quietly
+    makes one.
     """
-    from cellier.gui.anywidget._dims_panel import AnywidgetDimsPanel
+    if gui != "qt":
+        return
+    import sys
 
-    canvas_ids = controller.get_canvas_ids(scene.id)
-    if not canvas_ids:
-        controller.add_canvas(
-            scene.id,
-            render_modes=render_modes
-            if render_modes is not None
-            else set(scene.render_modes),
-            initial_dim=initial_dim,
-            fov=fov,
-            depth_range_3d=depth_range_3d,
-            depth_range_2d=depth_range_2d,
-            canvas_size=canvas_size,
-        )
-        canvas_ids = controller.get_canvas_ids(scene.id)
+    from PySide6.QtWidgets import QApplication
 
-    canvas_view = controller.get_canvas_view(canvas_ids[-1])
-
-    dims_panel = AnywidgetDimsPanel.from_scene(
-        scene, axis_ranges, non_displayed=non_displayed
-    )
-    controller.connect_widget(
-        dims_panel, subscription_specs=dims_panel.subscription_specs()
-    )
-
-    return AnywidgetCanvasView(
-        canvas=canvas_view.widget,
-        dims=dims_panel,
-        canvas_size=canvas_size or (600, 600),
-    )
+    QApplication.instance() or QApplication([sys.argv[0]])
