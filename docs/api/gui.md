@@ -9,6 +9,6 @@ Qt widgets for building interactive cellier-based applications.
 
 ## Visual controls
 
-::: cellier.gui.qt.visuals.QtColormapComboBox
+::: cellier.gui.qt.visuals.QtColormapCombo
 ::: cellier.gui.qt.visuals.QtClimRangeSlider
 ::: cellier.gui.qt.visuals.QtVolumeRenderControls
