@@ -11,7 +11,11 @@ from cellier.scene.dims import (
     world_coordinate_system,
 )
 from cellier.scene.scene import Scene
-from cellier.visuals import MultiscaleImageAppearance, MultiscaleImageVisual
+from cellier.visuals import (
+    MultiscaleImageAppearance,
+    MultiscaleImageSingleAppearance,
+    MultiscaleImageVisual,
+)
 from tests._v2 import level_transforms
 
 
@@ -22,7 +26,7 @@ def test_scene_roundtrip(tmp_path):
         ),
         selection=AxisAlignedSelection(
             displayed_axes=(0, 1, 2),
-            slice_indices={},
+            slice_indices={0: 0, 1: 0, 2: 0},
         ),
     )
     visual = MultiscaleImageVisual(
@@ -32,7 +36,8 @@ def test_scene_roundtrip(tmp_path):
             [[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]],
             [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
         ),
-        appearance=MultiscaleImageAppearance(color_map="viridis"),
+        appearance=MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis"),
     )
     camera = PerspectiveCamera(controller=OrbitCameraController())
     canvas = Canvas(cameras={"3d": camera})

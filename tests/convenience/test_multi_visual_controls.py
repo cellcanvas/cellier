@@ -1,9 +1,9 @@
 """A controls dock serves every configured visual and follows its viewer.
 
-``plans/multi_visual_controls.md``: an ``AppearanceControls()`` or
-``ChannelControls()`` dock used to build controls for the *first* configured
-visual and nothing else, once, at render time.  It now offers a selector over
-every configured visual and rebuilds as visuals are added and removed.
+``plans/multi_visual_controls.md``: an ``AppearanceControls()`` dock used to build
+controls for the *first* configured visual and nothing else, once, at render time.  It
+now offers a selector over every configured visual and rebuilds as visuals are added and
+removed.
 """
 
 from __future__ import annotations
@@ -16,27 +16,19 @@ import pytest
 
 from cellier.convenience import (
     AppearanceControls,
-    ChannelControls,
     OrthoViewer,
     Viewer,
 )
-from cellier.convenience.gui._controls_config import (
-    ChannelControlsConfig,
-    InMemoryImageControlsConfig,
-)
+from cellier.convenience.gui._controls_config import InMemoryImageControlsConfig
 from cellier.convenience.layout import Layout, RenderControls, VStack
-from cellier.convenience.layout._controls_dock import (
-    APPEARANCE_PLACEHOLDER,
-    CHANNEL_PLACEHOLDER,
-)
+from cellier.convenience.layout._controls_dock import APPEARANCE_PLACEHOLDER
 from cellier.convenience.layout._walk import render_dock
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.scene.dims import spatial_axes
-from cellier.visuals._channel_appearance import ChannelAppearance
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 _PANELS = ("xy", "xz", "yz", "vol")
-_CHANNEL_AXES = [("z", "space"), ("c", "channel"), ("y", "space"), ("x", "space")]
 
 
 def _store() -> ImageMemoryStore:
@@ -46,22 +38,10 @@ def _store() -> ImageMemoryStore:
 def _add_image(viewer, name: str, *, controls: bool = True):
     return viewer.add_image(
         _store(),
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
         name=name,
         controls=InMemoryImageControlsConfig(appearance=["clim"]) if controls else None,
-    )
-
-
-def _add_multichannel(viewer, name: str):
-    data = np.random.default_rng(0).random((3, 2, 8, 8)).astype(np.float32)
-    return viewer.add_multichannel_image(
-        ImageMemoryStore(data=data),
-        channel_axis=1,
-        channels={
-            i: ChannelAppearance(color_map="viridis", clim=(0.0, 1.0)) for i in range(2)
-        },
-        name=name,
-        controls=ChannelControlsConfig(),
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
 
@@ -338,10 +318,10 @@ def test_the_selected_controls_drive_the_selected_visual(toolkit):
     dock, _root = _render(viewer, host_cls)
     dock.selector.select(1)
 
-    viewer.controller.update_appearance_field(b.id, "clim", (0.2, 0.8))
+    viewer.controller.update_single_appearance_field(b.id, "clim", (0.2, 0.8))
 
-    # The selected slider follows b, and a is untouched.
-    assert a.appearance.clim == pytest.approx((0.0, 1.0))
+    # The selected control follows b, and a is untouched.
+    assert a.single.clim == pytest.approx((0.0, 1.0))
     assert any(_subscriptions_of(viewer, widget) for widget in dock.widgets)
 
 
@@ -450,31 +430,6 @@ def test_closing_the_dock_stops_following_the_viewer(toolkit):
     assert all(_subscriptions_of(viewer, widget) == [] for widget in old)
 
 
-def test_the_channel_dock_selects_among_multichannel_visuals(toolkit):
-    gui, host_cls = toolkit
-    viewer = Viewer(_CHANNEL_AXES, dim="2d", gui=gui)
-    _add_multichannel(viewer, "first")
-    second = _add_multichannel(viewer, "second")
-    # An appearance config does not appear in the channel dock.
-    _add_image(viewer, "plain")
-
-    dock, root = _render(viewer, host_cls, ChannelControls())
-
-    assert dock.selector.labels == ("first", "second")
-    dock.selector.select(1)
-    assert dock.selected.visual_ids == [second.id]
-    (widget,) = dock.widgets
-    assert _subscriptions_of(viewer, widget)
-    _assert_shows(dock, root, gui)
-
-
-def test_the_channel_dock_placeholder(toolkit):
-    gui, host_cls = toolkit
-    viewer = Viewer(_CHANNEL_AXES, dim="2d", gui=gui)
-    _dock, root = _render(viewer, host_cls, ChannelControls())
-    _assert_placeholder(root, gui, CHANNEL_PLACEHOLDER)
-
-
 def test_the_ortho_dock_drives_every_panel_of_the_selected_add(toolkit):
     gui, host_cls = toolkit
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui=gui)
@@ -559,24 +514,16 @@ def test_the_slot_sends_children_as_composition_references():
     ("kwargs", "expected"),
     [
         (
-            {"appearance": "right", "channels": "right"},
-            {"right_dock": [AppearanceControls, ChannelControls]},
-        ),
-        (
             {"appearance": "right", "render": "right"},
             {"right_dock": [AppearanceControls, RenderControls]},
         ),
         (
-            {"channels": "left", "render": "left"},
-            {"left_dock": [ChannelControls, RenderControls]},
+            {"appearance": "top", "render": "top"},
+            {"top_dock": [AppearanceControls, RenderControls]},
         ),
         (
-            {"appearance": "top", "channels": "top", "render": "top"},
-            {"top_dock": [AppearanceControls, ChannelControls, RenderControls]},
-        ),
-        (
-            {"appearance": "left", "channels": "right"},
-            {"left_dock": [AppearanceControls], "right_dock": [ChannelControls]},
+            {"appearance": "left", "render": "right"},
+            {"left_dock": [AppearanceControls], "right_dock": [RenderControls]},
         ),
     ],
 )

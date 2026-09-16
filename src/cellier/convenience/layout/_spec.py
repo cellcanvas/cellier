@@ -8,7 +8,10 @@ reads the spec and produces the appropriate widget tree.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
+
+AppearancePresentation = Literal["selector", "collapsible_sections"]
+"""How an :class:`AppearanceControls` dock presents several visuals."""
 
 
 @dataclass
@@ -42,23 +45,31 @@ class Grid:
 class AppearanceControls:
     """Dock spec: appearance controls for the viewer's configured visuals.
 
-    Shows one visual's controls at a time.  With two or more visuals configured
-    through ``controls=`` a selector above the controls chooses which, and the
-    dock follows the viewer as configured visuals are added and removed.
+    The dock follows the viewer as visuals configured through ``controls=``
+    are added and removed.
+
+    Parameters
+    ----------
+    presentation : "selector" or "collapsible_sections"
+        How the dock presents several visuals.  ``"selector"`` (default) shows
+        one visual's controls at a time, with a selector above them once two
+        or more visuals are configured.  ``"collapsible_sections"`` shows
+        every configured visual at once, each in a collapsible section titled
+        with its name.  The first section the dock builds starts expanded and
+        every later one collapsed, so adding a visual never pushes open
+        controls down the dock.
     """
 
+    presentation: AppearancePresentation = "selector"
 
-@dataclass
-class ChannelControls:
-    """Dock spec: per-channel controls for the viewer's multichannel visuals.
-
-    Renders a channel-controls widget (Qt ``QtChannelList`` / anywidget
-    ``AnywidgetChannelList``) for a multichannel visual configured via
-    ``controls=`` on ``add_multichannel_image[_multiscale]``.  Like
-    :class:`AppearanceControls` it shows one visual at a time, with a selector
-    when several are configured, and follows the viewer.  For an
-    ``OrthoViewer`` the one widget drives every panel's sibling visual.
-    """
+    def __post_init__(self) -> None:
+        """Reject an unknown presentation here rather than at render time."""
+        valid = get_args(AppearancePresentation)
+        if self.presentation not in valid:
+            raise ValueError(
+                f"{self.presentation!r} is not a valid AppearanceControls "
+                f"presentation. Valid presentations: {list(valid)}."
+            )
 
 
 @dataclass
@@ -99,8 +110,7 @@ class Layout:
         view, so it does not need a dock of its own.
     left_dock, right_dock, top_dock, bottom_dock :
         Content for each dock region.  Accepts :class:`AppearanceControls`,
-        :class:`ChannelControls`, :class:`RenderControls`, or a stack of
-        those.  ``None`` hides the dock.
+        :class:`RenderControls`, or a stack of those.  ``None`` hides the dock.
     """
 
     center: object
@@ -115,7 +125,6 @@ class Layout:
         canvas,
         *,
         appearance: Literal["left", "right", "top", "bottom"] | bool = False,
-        channels: Literal["left", "right", "top", "bottom"] | bool = False,
         render: Literal["left", "right", "top", "bottom"] | bool = False,
     ) -> Layout:
         """Single-canvas preset.
@@ -126,21 +135,17 @@ class Layout:
             Canvas view returned by ``build_canvas_widget``.
         appearance : dock name or False
             Where to place appearance controls.  ``False`` (default) omits them.
-        channels : dock name or False
-            Where to place per-channel controls.  ``False`` (default) omits
-            them.
         render : dock name or False
             Where to place the renderer settings panels (outlines, ambient
             occlusion, temporal accumulation).  ``False`` (default) omits
             them.
 
         Controls placed in the same dock stack top to bottom in the order
-        appearance, channels, render.
+        appearance, render.
         """
         docks: dict[str, list] = {}
         for where, spec in (
             (appearance, AppearanceControls),
-            (channels, ChannelControls),
             (render, RenderControls),
         ):
             if where:

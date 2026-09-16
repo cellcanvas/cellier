@@ -12,7 +12,6 @@ from cellier.convenience._viewer import Viewer
 from cellier.convenience._window_capture import screenshot_window
 from cellier.convenience.gui._controls_config import (
     BaseControlsConfig,
-    ChannelControlsConfig,
     GraphControlsConfig,
     InMemoryImageControlsConfig,
     LabelsControlsConfig,
@@ -24,7 +23,6 @@ from cellier.convenience.gui._controls_config import (
 )
 from cellier.convenience.layout import (
     AppearanceControls,
-    ChannelControls,
     Grid,
     HStack,
     Layout,
@@ -37,8 +35,6 @@ from cellier.scene.dims import spatial_axes, world_coordinate_system
 __all__ = [
     "AppearanceControls",
     "BaseControlsConfig",
-    "ChannelControls",
-    "ChannelControlsConfig",
     "ContinuousAxisValues",
     "DiscreteAxisValues",
     "DisplayHandle",

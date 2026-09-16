@@ -1,4 +1,4 @@
-"""Paint controller for multiscale (zarr-backed) image data stores.
+"""Paint controller for multiscale (zarr-backed) label data stores.
 
 Architecture (Phase 3 — pyramid rebuild + autosave loop)
 ---------------------------------------------------------
@@ -69,12 +69,13 @@ class MultiscalePaintController(AbstractPaintController):
     scene_id :
     canvas_id :
     data_store :
-        Either ``OMEZarrImageDataStore`` or ``MultiscaleZarrDataStore``.
+        The store behind a ``MultiscaleLabelVisual``: an
+        ``OMEZarrLabelDataStore`` or a ``MultiscaleZarrDataStore``.
         Must expose ``_ts_stores: list[ts.TensorStore]`` and
         ``level_shapes`` / ``level_scales``.
     visual_block_size :
         Tile / brick side length used by the visual's render config.
-        Must match the ``MultiscaleImageRenderConfig.block_size`` of the
+        Must match the ``MultiscaleLabelRenderConfig.block_size`` of the
         rendered visual.
     displayed_axes :
         The two data-array axes currently displayed in 2D for the bound
@@ -159,7 +160,7 @@ class MultiscalePaintController(AbstractPaintController):
     def _apply_brush(self, world_coord: np.ndarray) -> None:
         """Re-order world_coord from pygfx (x, y) to data (row, col) order.
 
-        Both image visuals render ``data[r, c]`` at pygfx world ``(x=c, y=r)``.
+        The labels visuals render ``data[r, c]`` at pygfx world ``(x=c, y=r)``.
         ``CellierController._on_raw_pointer_event`` embeds the mouse position
         verbatim: ``world_coord[ax_row] = pygfx_x`` (column index),
         ``world_coord[ax_col] = pygfx_y`` (row index).  Swapping them here

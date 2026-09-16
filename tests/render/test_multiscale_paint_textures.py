@@ -1,4 +1,4 @@
-"""Integration tests for GFXMultiscaleImageVisual paint-texture path."""
+"""Integration tests for the GFXMultiscaleLabelVisual paint-texture path."""
 
 from __future__ import annotations
 
@@ -12,21 +12,21 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from cellier.controller import CellierController
-from cellier.data.image._ome_zarr_image_store import OMEZarrImageDataStore
+from cellier.data.label._ome_zarr_label_store import OMEZarrLabelDataStore
 from cellier.scene.dims import spatial_axes, world_coordinate_system
-from cellier.visuals._image import (
-    MultiscaleImageAppearance,
-    MultiscaleImageRenderConfig,
-    MultiscaleImageVisual,
+from cellier.visuals._labels import (
+    MultiscaleLabelRenderConfig,
+    MultiscaleLabelsAppearance,
+    MultiscaleLabelVisual,
 )
 from tests._v2 import scale_and_translation
 
 
 def _make_zarr(path: Path, shape: tuple[int, int] = (64, 64)) -> Path:
-    """Create a tiny single-level OME-Zarr v0.5 float32 store."""
+    """Create a tiny single-level OME-Zarr v0.5 int32 label store."""
     root = zarr.open_group(str(path), mode="w")
-    arr = root.create_array("s0", shape=shape, chunks=(32, 32), dtype=np.float32)
-    arr[:] = np.zeros(shape, dtype=np.float32)
+    arr = root.create_array("s0", shape=shape, chunks=(32, 32), dtype=np.int32)
+    arr[:] = np.zeros(shape, dtype=np.int32)
     root.attrs["ome"] = {
         "version": "0.5",
         "multiscales": [
@@ -52,10 +52,10 @@ def _make_zarr(path: Path, shape: tuple[int, int] = (64, 64)) -> Path:
 
 @pytest.fixture
 def visual_setup(qtbot, tmp_path):
-    """Build a GFXMultiscaleImageVisual backed by a small float32 OME-Zarr."""
+    """Build a GFXMultiscaleLabelVisual backed by a small int32 OME-Zarr."""
     zarr_path = tmp_path / "labels.ome.zarr"
     _make_zarr(zarr_path, shape=(64, 64))
-    data_store = OMEZarrImageDataStore.from_path(
+    data_store = OMEZarrLabelDataStore.from_path(
         f"file://{zarr_path.resolve()}", name="t"
     )
 
@@ -68,12 +68,12 @@ def visual_setup(qtbot, tmp_path):
         render_modes={"2d"},
     )
 
-    rc = MultiscaleImageRenderConfig(block_size=16, paint_max_tiles=4)
-    visual_model = MultiscaleImageVisual(
+    rc = MultiscaleLabelRenderConfig(block_size=16, paint_max_tiles=4)
+    visual_model = MultiscaleLabelVisual(
         name="t",
         data_store_id=str(data_store.id),
         level_transforms=data_store.level_transforms,
-        appearance=MultiscaleImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=MultiscaleLabelsAppearance(),
         render_config=rc,
         transform=scale_and_translation((1.0, 1.0)),
     )
@@ -86,39 +86,39 @@ def visual_setup(qtbot, tmp_path):
 @pytest.mark.asyncio
 async def test_paint_textures_are_allocated(visual_setup):
     _ctrl, gfx_visual = visual_setup
-    # block_size=16, paint_max_tiles=4 ⇒ paint cache shape (64, 16, 2).
+    # block_size=16, paint_max_tiles=4 => paint cache shape (64, 16, 2).
     assert gfx_visual._t_paint_cache.data.shape == (64, 16, 2)
-    # LUT shape: 64x64 image ÷ 16-block = 4x4 grid.
+    # LUT shape: 64x64 labels / 16-block = 4x4 grid.
     assert gfx_visual._t_paint_lut.data.shape == (4, 4, 2)
     np.testing.assert_array_equal(gfx_visual._t_paint_cache.data, 0.0)
     np.testing.assert_array_equal(gfx_visual._t_paint_lut.data, 0.0)
 
 
 @pytest.mark.asyncio
-async def test_patch_writes_value_and_alpha(visual_setup):
+async def test_patch_writes_label_and_presence(visual_setup):
     _ctrl, gfx_visual = visual_setup
     # Paint two voxels in the same tile (g0=1, g1=2): voxels at (16, 32) and (17, 33).
     voxels = np.array([[16, 32], [17, 33]], dtype=np.int64)
-    values = np.array([0.7, 0.4], dtype=np.float32)
+    values = np.array([7.0, 4.0], dtype=np.float32)
     n = gfx_visual.patch_paint_texture(voxels, values, displayed_axes=(0, 1))
     assert n == 1
 
     # Slot 0 should be allocated to (1, 2).
     assert gfx_visual._paint_slot_manager.get((1, 2)) == 0
-    # LUT entry: (slot=0, alpha=1).
+    # LUT entry: (slot=0, presence=1).
     np.testing.assert_array_equal(gfx_visual._t_paint_lut.data[1, 2], [0.0, 1.0])
     # Stripes layout: slot 0 occupies rows 0..16.
-    # Voxel (16, 32) → ty=0, tx=0 in tile (1, 2) → cache[0, 0]
-    # Voxel (17, 33) → ty=1, tx=1 in tile (1, 2) → cache[1, 1]
-    np.testing.assert_allclose(gfx_visual._t_paint_cache.data[0, 0], [0.7, 1.0])
-    np.testing.assert_allclose(gfx_visual._t_paint_cache.data[1, 1], [0.4, 1.0])
+    # Voxel (16, 32) -> ty=0, tx=0 in tile (1, 2) -> cache[0, 0]
+    # Voxel (17, 33) -> ty=1, tx=1 in tile (1, 2) -> cache[1, 1]
+    np.testing.assert_allclose(gfx_visual._t_paint_cache.data[0, 0], [7.0, 1.0])
+    np.testing.assert_allclose(gfx_visual._t_paint_cache.data[1, 1], [4.0, 1.0])
 
 
 @pytest.mark.asyncio
 async def test_multiple_tiles_get_distinct_slots(visual_setup):
     _ctrl, gfx_visual = visual_setup
     voxels = np.array([[0, 0], [16, 0], [0, 16]], dtype=np.int64)
-    values = np.array([0.1, 0.2, 0.3], dtype=np.float32)
+    values = np.array([1.0, 2.0, 3.0], dtype=np.float32)
     n = gfx_visual.patch_paint_texture(voxels, values, displayed_axes=(0, 1))
     assert n == 3
     sm = gfx_visual._paint_slot_manager
@@ -128,7 +128,7 @@ async def test_multiple_tiles_get_distinct_slots(visual_setup):
 @pytest.mark.asyncio
 async def test_pool_exhaustion_drops_excess_tiles(visual_setup):
     _ctrl, gfx_visual = visual_setup
-    # paint_max_tiles=4 — paint into 5 distinct tiles.
+    # paint_max_tiles=4 -- paint into 5 distinct tiles.
     voxels = np.array(
         [[0, 0], [16, 0], [0, 16], [16, 16], [32, 0]],
         dtype=np.int64,
@@ -146,10 +146,16 @@ async def test_clear_resets_textures(visual_setup):
     _ctrl, gfx_visual = visual_setup
     voxels = np.array([[0, 0]], dtype=np.int64)
     gfx_visual.patch_paint_texture(
-        voxels, np.array([0.5], dtype=np.float32), displayed_axes=(0, 1)
+        voxels, np.array([5.0], dtype=np.float32), displayed_axes=(0, 1)
     )
     assert gfx_visual._paint_slot_manager.n_allocated == 1
     gfx_visual.clear_paint_textures()
     np.testing.assert_array_equal(gfx_visual._t_paint_cache.data, 0.0)
     np.testing.assert_array_equal(gfx_visual._t_paint_lut.data, 0.0)
     assert gfx_visual._paint_slot_manager.n_allocated == 0
+
+
+@pytest.mark.asyncio
+async def test_invalidate_with_no_cached_tiles_evicts_nothing(visual_setup):
+    _ctrl, gfx_visual = visual_setup
+    assert gfx_visual.invalidate_painted_tiles_2d({(0, 0), (1, 2)}) == 0

@@ -7,7 +7,6 @@ from cellier.convenience.gui._canvas import (
 )
 from cellier.convenience.gui._controls_config import (
     BaseControlsConfig,
-    ChannelControlsConfig,
     GraphControlsConfig,
     InMemoryImageControlsConfig,
     LabelsControlsConfig,
@@ -29,7 +28,6 @@ __all__ = [
     "PANEL_LAYOUT",
     "AnywidgetCanvasView",
     "BaseControlsConfig",
-    "ChannelControlsConfig",
     "GraphControlsConfig",
     "InMemoryImageControlsConfig",
     "LabelsControlsConfig",

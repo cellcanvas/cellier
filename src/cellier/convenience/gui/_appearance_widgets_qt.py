@@ -21,45 +21,10 @@ from __future__ import annotations
 # builders nothing.
 
 
-def _qt_color_map(spec, visual_ids, controller):
-    from cellier.gui.qt.visuals import QtColormapCombo
+def _qt_image(spec, visual_ids, controller):
+    from cellier.gui.qt.visuals import QtImageControls
 
-    combo = QtColormapCombo(
-        visual_ids,
-        initial_colormap=spec.values["initial_colormap"],
-        title=spec.title,
-    )
-    names = spec.values["colormap_names"]
-    if names is not None:
-        combo.add_colormaps(names)
-    return combo
-
-
-def _qt_clim(spec, visual_ids, controller):
-    from cellier.gui.qt.visuals import QtClimRangeSlider
-
-    return QtClimRangeSlider(
-        visual_ids,
-        clim_range=spec.values["clim_range"],
-        initial_clim=spec.values["initial_clim"],
-        title=spec.title,
-    )
-
-
-def _qt_render(spec, visual_ids, controller):
-    from cellier.gui.qt.visuals import QtVolumeRenderControls
-
-    # ``dtype_max`` is a Qt-only construction keyword; the anywidget control
-    # does not accept it.  Deriving it here from the neutral ``clim_range`` is
-    # what keeps it out of the shared spec (design section 7.3).
-    return QtVolumeRenderControls(
-        visual_ids,
-        dtype_max=float(spec.values["clim_range"][1]),
-        initial_render_mode=spec.values["initial_render_mode"],
-        initial_threshold=spec.values["initial_threshold"],
-        initial_attenuation=spec.values["initial_attenuation"],
-        title=spec.title,
-    )
+    return QtImageControls(visual_ids, spec.values, title=spec.title)
 
 
 def _qt_lod_bias(spec, visual_ids, controller):
@@ -155,11 +120,18 @@ def _qt_visual_picking(spec, visual_ids, controller):
     return QtVisualPickingControls(visual_ids, spec.values, parent=None)
 
 
+def _qt_trail(spec, visual_ids, controller):
+    from cellier.gui.qt.visuals import QtTrailControls
+
+    return QtTrailControls(
+        visual_ids, spec.values["axes"], spec.values["trail"], title=spec.title
+    )
+
+
 QT_BUILDERS = {
-    "color_map": _qt_color_map,
-    "clim": _qt_clim,
-    "render": _qt_render,
+    "image": _qt_image,
     "lod_bias": _qt_lod_bias,
+    "trail": _qt_trail,
     "aabb": _qt_aabb,
     "visual_outline": _qt_visual_outline,
     "labels_outline": _qt_labels_outline,

@@ -35,11 +35,13 @@ from cellier.events import (
     AABBChangedEvent,
     AppearanceChangedEvent,
 )
+from cellier.gui._image_controls import image_control_values
 from cellier.gui.anywidget.visuals import (
     AnywidgetAABBWidget,
-    AnywidgetClimRangeSlider,
+    AnywidgetImageControls,
 )
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._base_visual import AABBParams, BaseVisual
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
@@ -72,7 +74,8 @@ def _two_image_viewer() -> tuple[Viewer, list]:
     visuals = [
         viewer.add_image(
             _image_store(),
-            appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+            appearance=InMemoryImageAppearance(),
+            single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
         )
         for _ in range(2)
     ]
@@ -151,12 +154,13 @@ def test_appearance_echo_filter_drops_every_echo_under_fanout():
     ``source_id`` filter must drop all N -- otherwise each echo re-enters the
     widget and emits again.
 
-    Driven through ``clim`` rather than ``color_map`` on purpose; see
+    Driven through the shared ``interpolation`` field rather than
+    ``color_map`` on purpose; see
     ``test_writing_color_map_poisons_model_equality_process_wide``.
     """
     viewer, visuals = _two_image_viewer()
-    widget = AnywidgetClimRangeSlider(
-        visuals[0].id, clim_range=(0.0, 100.0), initial_clim=(0.0, 1.0)
+    widget = AnywidgetImageControls(
+        visuals[0].id, image_control_values(visuals[0], fields=["clim"])
     )
 
     emitted: list = []
@@ -166,19 +170,19 @@ def test_appearance_echo_filter_drops_every_echo_under_fanout():
     for visual in visuals:
         viewer.controller._outgoing_events.subscribe(
             AppearanceChangedEvent,
-            widget._on_appearance_changed,
+            widget._on_event,
             entity_id=visual.id,
             owner_id=owner,
         )
 
     for visual in visuals:
         viewer.controller.update_appearance_field(
-            visual.id, "clim", (5.0, 50.0), source_id=widget._id
+            visual.id, "interpolation", "linear", source_id=widget._id
         )
 
-    assert [v.appearance.clim for v in visuals] == [(5.0, 50.0)] * 2
+    assert [v.appearance.interpolation for v in visuals] == ["linear"] * 2
     assert emitted == []  # all N echoes dropped
-    assert list(widget.clim) == [0.0, 1.0]  # never applied its own echo
+    assert widget.shared["interpolation"] == "nearest"  # never applied its echo
 
 
 def test_appearance_foreign_writes_apply_idempotently_under_fanout():
@@ -189,8 +193,8 @@ def test_appearance_foreign_writes_apply_idempotently_under_fanout():
     emits nothing (each apply runs under the ``_applying`` guard).
     """
     viewer, visuals = _two_image_viewer()
-    widget = AnywidgetClimRangeSlider(
-        visuals[0].id, clim_range=(0.0, 100.0), initial_clim=(0.0, 1.0)
+    widget = AnywidgetImageControls(
+        visuals[0].id, image_control_values(visuals[0], fields=["clim"])
     )
 
     emitted: list = []
@@ -199,17 +203,17 @@ def test_appearance_foreign_writes_apply_idempotently_under_fanout():
     for visual in visuals:
         viewer.controller._outgoing_events.subscribe(
             AppearanceChangedEvent,
-            widget._on_appearance_changed,
+            widget._on_event,
             entity_id=visual.id,
             owner_id=owner,
         )
 
     for visual in visuals:
         viewer.controller.update_appearance_field(
-            visual.id, "clim", (10.0, 90.0), source_id=uuid4()
+            visual.id, "interpolation", "linear", source_id=uuid4()
         )
 
-    assert list(widget.clim) == [10.0, 90.0]
+    assert widget.shared["interpolation"] == "linear"
     assert emitted == []
 
 
@@ -267,7 +271,7 @@ def test_aabb_and_appearance_travel_on_separate_events():
     assert len(aabb_events) == 1
     assert appearance_events == []
 
-    viewer.controller.update_appearance_field(visual.id, "clim", (0.0, 2.0))
+    viewer.controller.update_appearance_field(visual.id, "interpolation", "linear")
     assert len(aabb_events) == 1  # unchanged
     assert len(appearance_events) == 1
     assert aabb_events[0].field_name == "enabled"
@@ -331,8 +335,9 @@ def test_appearance_true_now_means_the_default_panel_in_both_renderers(qtbot):
     viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
     visual = viewer.add_image(
         _image_store(),
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
         controls=InMemoryImageControlsConfig(appearance=True),
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
     config = viewer._controls_configs[visual.id]
 
@@ -343,14 +348,7 @@ def test_appearance_true_now_means_the_default_panel_in_both_renderers(qtbot):
 
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
     assert container is not None
-    assert control_labels(container) == [
-        "Visible",
-        "Opacity",
-        "Colormap",
-        "Contrast limits",
-        "Render mode",
-        "Bounding box",
-    ]
+    assert control_labels(container) == ["Image", "Bounding box"]
 
     built = build_appearance_widgets(
         visual, config, viewer.controller, None, backend=ANYWIDGET_BACKEND

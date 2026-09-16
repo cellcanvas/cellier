@@ -71,23 +71,31 @@ class VisualOutline(EventedModel):
     placement: Literal["inward", "outward"] | None = None
 
 
-class BaseAppearance(EventedModel):
-    """Base model for all materials.
+class BaseDrawAppearance(EventedModel):
+    """How any visual is drawn, apart from its opacity.
+
+    Split out of :class:`BaseAppearance` so an image, whose opacity is per
+    channel (unified image design 3.1), does not inherit a visual-level
+    ``opacity`` that would mean nothing.
 
     Parameters
     ----------
     visible : bool
-        If True, the visual is visible.
-        Default value is True.
-    opacity : float
-        Master opacity multiplier in [0, 1].  Default 1.0.
+        If True, the visual is visible.  Default True.
     render_order : int
         Pygfx node render order.  Objects with higher values are drawn later
         and therefore appear on top when depth values are equal.  Default 0.
+    depth_test : bool
+        Whether the material tests against the depth buffer.
+    depth_write : bool
+        Whether the material writes to the depth buffer.
+    depth_compare : str
+        The depth comparison.
+    transparency_mode : str
+        The pygfx alpha mode.  Default ``"blend"``.
     """
 
     visible: bool = True
-    opacity: float = Field(default=1.0, ge=0.0, le=1.0)
     render_order: int = 0
     depth_test: bool = True
     depth_write: bool = True
@@ -95,6 +103,18 @@ class BaseAppearance(EventedModel):
     transparency_mode: Literal[
         "blend", "add", "multiply", "weighted_blend", "weighted_solid"
     ] = "blend"
+
+
+class BaseAppearance(BaseDrawAppearance):
+    """Base model for the materials of every non-image visual.
+
+    Parameters
+    ----------
+    opacity : float
+        Master opacity multiplier in [0, 1].  Default 1.0.
+    """
+
+    opacity: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class BaseVisual(EventedModel):
@@ -134,8 +154,8 @@ class BaseVisual(EventedModel):
     Notes
     -----
     Each concrete visual subclass declares its own typed ``appearance`` field.
-    Multichannel visuals do not carry a single ``appearance`` field; their
-    per-channel appearance is held in ``channels: dict[int, ChannelAppearance]``.
+    Image visuals also carry a ``single`` appearance and per-channel
+    ``channels`` appearances (unified image design 3.1).
     """
 
     name: str

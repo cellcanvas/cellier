@@ -30,6 +30,7 @@ from cellier.events import VisualRenderChangedEvent, VisualRenderUpdateEvent
 from cellier.render import OutlineConfig, RenderManagerConfig
 from cellier.visuals import (
     InMemoryImageAppearance,
+    InMemoryImageSingleAppearance,
     InMemoryLabelsAppearance,
     LinesMemoryAppearance,
     MeshFlatAppearance,
@@ -74,10 +75,11 @@ def _add_image(controller, scene, name="image", render_mode="iso"):
     return controller.add_image(
         data=ImageMemoryStore(data=data, name=name),
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(
+        appearance=InMemoryImageAppearance(),
+        name=name,
+        single=InMemoryImageSingleAppearance(
             color_map="gray", clim=(0.0, 1.0), render_mode=render_mode
         ),
-        name=name,
     )
 
 
@@ -373,7 +375,7 @@ def test_the_automatic_occlusion_rule_follows_the_render_mode(controller, scene)
     gfx_visual = manager._scenes[scene.id].get_visual(image.id)
     assert manager._mip_object_ids(gfx_visual) == set()
 
-    image.appearance.render_mode = "mip"
+    image.single.render_mode = "mip"
 
     assert len(manager._mip_object_ids(gfx_visual)) > 0
 
@@ -382,7 +384,7 @@ def test_an_explicit_occlusion_setting_survives_a_render_mode_change(controller,
     image = _add_image(controller, scene, render_mode="iso")
     image.ambient_occlusion = True
 
-    image.appearance.render_mode = "mip"
+    image.single.render_mode = "mip"
 
     assert image.ambient_occlusion is True
 
@@ -680,23 +682,23 @@ _ADD_METHODS = (
     "add_points",
     "add_lines",
     "add_graph",
-    "add_multichannel_image",
+    "add_image_with_channels",
 )
 
 
 def _call_add(controller, scene, method: str, **render_kwargs):
     """Call one ``add_*`` with a minimal valid payload plus *render_kwargs*."""
     from cellier.data import GraphMemoryStore
-    from cellier.visuals import GraphAppearance
-    from cellier.visuals._channel_appearance import ChannelAppearance
+    from cellier.visuals import GraphAppearance, InMemoryImageChannelAppearance
 
     common = {"scene_id": scene.id, **render_kwargs}
     if method == "add_image":
         data = np.zeros((8, 8, 8), dtype=np.float32)
         return controller.add_image(
             data=ImageMemoryStore(data=data, name="i"),
-            appearance=InMemoryImageAppearance(color_map="gray", clim=(0.0, 1.0)),
+            appearance=InMemoryImageAppearance(),
             **common,
+            single=InMemoryImageSingleAppearance(color_map="gray", clim=(0.0, 1.0)),
         )
     if method == "add_labels":
         data = np.zeros((8, 8, 8), dtype=np.int32)
@@ -741,11 +743,11 @@ def _call_add(controller, scene, method: str, **render_kwargs):
             appearance=GraphAppearance(),
             **common,
         )
-    data = np.zeros((2, 8, 8, 8), dtype=np.float32)
-    return controller.add_multichannel_image(
+    data = np.zeros((2, 8, 8), dtype=np.float32)
+    return controller.add_image(
         data=ImageMemoryStore(data=data, name="mc"),
         channel_axis=0,
-        channels={0: ChannelAppearance(color_map="red", clim=(0.0, 1.0))},
+        channels={0: InMemoryImageChannelAppearance(color_map="red")},
         **common,
     )
 

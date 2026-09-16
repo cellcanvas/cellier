@@ -49,7 +49,7 @@ def _build_viewer(small_zarr_store):
         world_coordinate_system=cs,
         selection=AxisAlignedSelection(
             displayed_axes=(0, 1, 2),
-            slice_indices={},
+            slice_indices={0: 0, 1: 0, 2: 0},
         ),
     )
     camera = PerspectiveCamera(

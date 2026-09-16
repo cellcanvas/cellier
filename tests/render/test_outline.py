@@ -37,6 +37,7 @@ from cellier.render._visual_lut import (
     encode_entry,
     lut_index,
 )
+from cellier.visuals import InMemoryImageSingleAppearance
 
 PICK_ID_MAX = 2**20 - 1
 
@@ -1043,7 +1044,8 @@ async def test_layer_combinations_in_2d(
     visual = controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)

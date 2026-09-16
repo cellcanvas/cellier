@@ -28,30 +28,6 @@ if TYPE_CHECKING:
     from cellier.convenience.gui._controls_config import BaseControlsConfig
 
 
-def check_channel_cap(
-    channels: dict, max_channels_2d: int, max_channels_3d: int
-) -> None:
-    """Refuse channel controls for more channels than the visual can draw.
-
-    Over-cap channels would become silent render no-ops (design section 7.3 /
-    11.4).  Checked at ``add_multichannel_image*`` rather than when a dock
-    builds the widget: the dock now rebuilds from a dropdown callback, which is
-    the worst place to raise, and every input to the check is known at the add.
-
-    Raises
-    ------
-    ValueError
-        When ``len(channels) > min(max_channels_2d, max_channels_3d)``.
-    """
-    cap = min(int(max_channels_2d), int(max_channels_3d))
-    if len(channels) > cap:
-        raise ValueError(
-            f"Channel controls require len(channels) <= min(max_channels_2d, "
-            f"max_channels_3d) = {cap}; got {len(channels)}. Raise the caps on "
-            f"add_multichannel_image* if you need more simultaneous channels."
-        )
-
-
 class ControlsRegistryMixin:
     """The ``controls=`` record shared by ``Viewer`` and ``OrthoViewer``.
 

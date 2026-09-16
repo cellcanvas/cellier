@@ -343,93 +343,54 @@ def test_dims_bridge_displayed_axes_flag_false():
         entity_id=scene.id,
     )
 
-    controller.get_scene(scene.id).dims.selection.slice_indices = {0: 3}
+    controller.get_scene(scene.id).dims.selection.slice_indices = {
+        0: 3.0,
+        1: 0.0,
+        2: 0.0,
+    }
     assert len(events) == 1
     assert events[0].displayed_axes_changed is False
 
 
-def test_dims_update_event_expand_applies_displayed_axes_first():
-    """Expanding displayed_axes must land before slice_indices drops entries.
+def test_dims_update_event_merges_positions_and_sets_displayed_axes():
+    """No ordering dance: every axis keeps a position while displayed (D36).
 
-    Regression test: applying slice_indices first would transiently uncover
-    the newly-displayed axis (dropped from slice_indices, but the model's
-    displayed_axes field hadn't caught up yet), which
-    AxisAlignedSelectionState.to_index_selection would read as "still
-    sliced" via absence rather than "now displayed."
+    The update names only the axes that moved, and the others keep theirs.
     """
-    from cellier.events import DimsChangedEvent, DimsUpdateEvent
+    from cellier.events import DimsUpdateEvent
 
     controller = CellierController()
     cs = _make_cs()
     scene = controller.add_scene(dim="2d", coordinate_system=cs, name="main")
-    assert scene.dims.selection.slice_indices == {0: 0}
-
-    events = []
-
-    def record(event):
-        # The snapshot stopped carrying the positions in Phase 8 (D5), so the
-        # ordering is observed against the live selection at the moment each
-        # event fires -- which is what the two mutations actually change.
-        events.append((event, dict(scene.dims.selection.slice_indices)))
-
-    controller._outgoing_events.subscribe(DimsChangedEvent, record, entity_id=scene.id)
+    assert scene.dims.selection.slice_indices == {0: 0.0, 1: 0.0, 2: 0.0}
+    controller.update_slice_indices(scene.id, {2: 7.0})
 
     controller._incoming_events.emit(
         DimsUpdateEvent(
             source_id=uuid4(),
             scene_id=scene.id,
-            slice_indices={},
+            slice_indices={0: 4.0},
             displayed_axes=(0, 1, 2),
         )
     )
 
-    assert len(events) == 2
-    (first, first_slices), (second, second_slices) = events
-    # First mutation: displayed_axes already expanded, slice_indices not
-    # yet touched (axis 0 still present).
-    assert len(first.dims_state.selection.displayed_axes) == 3
-    assert 0 in first_slices
-    # Second mutation: slice_indices catches up.
-    assert len(second.dims_state.selection.displayed_axes) == 3
-    assert 0 not in second_slices
+    assert scene.dims.selection.displayed_axes == (0, 1, 2)
+    assert scene.dims.selection.slice_indices == {0: 4.0, 1: 0.0, 2: 7.0}
 
 
-def test_dims_update_event_contract_applies_slice_indices_first():
-    """Contracting must apply slice_indices before displayed_axes shrinks."""
-    from cellier.events import DimsChangedEvent, DimsUpdateEvent
-
+def test_switching_displayed_axes_keeps_every_position():
+    """3D -> 2D -> 3D -> 2D reuses each axis's stored position."""
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
-    assert len(scene.dims.selection.displayed_axes) == 3
+    scene = controller.add_scene(dim="2d", coordinate_system=cs, name="main")
+    controller.update_slice_indices(scene.id, {0: 5.0, 1: 3.0})
 
-    events = []
-
-    def record(event):
-        events.append((event, dict(scene.dims.selection.slice_indices)))
-
-    controller._outgoing_events.subscribe(DimsChangedEvent, record, entity_id=scene.id)
-
-    controller._incoming_events.emit(
-        DimsUpdateEvent(
-            source_id=uuid4(),
-            scene_id=scene.id,
-            slice_indices={0: 4},
-            displayed_axes=(1, 2),
-        )
-    )
-
-    assert len(events) == 2
-    (first, first_slices), (second, _second_slices) = events
-    # First mutation: slice_indices already covers axis 0, displayed_axes
-    # not yet shrunk.
-    assert len(first.dims_state.selection.displayed_axes) == 3
-    assert first_slices.get(0) == 4
-    # Second mutation: displayed_axes catches up.
-    assert len(second.dims_state.selection.displayed_axes) == 2
+    for displayed in [(0, 1, 2), (1, 2), (0, 1, 2), (1, 2)]:
+        controller.set_displayed_axes(scene.id, displayed)
+        assert scene.dims.selection.slice_indices == {0: 5.0, 1: 3.0, 2: 0.0}
 
 
-def test_appearance_bridge_color_map(small_zarr_store):
+def test_appearance_bridge_shared_field(small_zarr_store):
     from cellier.events import AppearanceChangedEvent
 
     controller = CellierController()
@@ -445,9 +406,9 @@ def test_appearance_bridge_color_map(small_zarr_store):
         AppearanceChangedEvent, events.append, entity_id=visual.id
     )
 
-    visual.appearance.color_map = "plasma"
+    visual.appearance.interpolation = "linear"
     assert len(events) == 1
-    assert events[0].field_name == "color_map"
+    assert events[0].field_name == "interpolation"
     assert events[0].requires_reslice is False
 
 
@@ -532,7 +493,7 @@ def test_appearance_bridge_frustum_cull(small_zarr_store):
     assert reslice_calls[0] == visual.id
 
 
-def test_appearance_bridge_clim_does_not_reslice(small_zarr_store):
+def test_appearance_bridge_interpolation_does_not_reslice(small_zarr_store):
     controller = CellierController()
     cs = _make_cs()
     scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
@@ -545,7 +506,7 @@ def test_appearance_bridge_clim_does_not_reslice(small_zarr_store):
         reslice_calls.append(vid)
     )
 
-    visual.appearance.clim = (0.2, 0.8)
+    visual.appearance.interpolation = "linear"
 
     assert len(reslice_calls) == 0
 
@@ -643,7 +604,7 @@ def test_unsubscribe_all_cleans_up(small_zarr_store):
     )
     controller._outgoing_events.unsubscribe_all(visual.id)
 
-    visual.appearance.color_map = "plasma"
+    visual.appearance.interpolation = "linear"
     assert fired == []
 
 
@@ -806,7 +767,7 @@ def test_on_camera_changed_updates_orthographic_camera_model():
         world_coordinate_system=cs,
         selection=AxisAlignedSelection(
             displayed_axes=(1, 2),
-            slice_indices={0: 0},
+            slice_indices={0: 0, 1: 0, 2: 0},
         ),
     )
     ortho_camera = OrthographicCamera(
@@ -962,7 +923,7 @@ def test_remove_visual_disconnects_psygnal_bridge(small_zarr_store):
     )
 
     controller.remove_visual(visual.id)
-    visual.appearance.color_map = "plasma"
+    visual.appearance.interpolation = "linear"
 
     assert fired == []
 

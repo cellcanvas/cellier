@@ -19,6 +19,7 @@ import numpy as np
 from cellier.controller import CellierController
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
@@ -33,7 +34,8 @@ async def test_on_reslice_completed_fires_for_geometry_and_image(qtbot):
     img_visual = controller.add_image(
         data=img_store,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
     # In-memory points (geometry) visual.

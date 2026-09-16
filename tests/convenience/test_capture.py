@@ -16,6 +16,7 @@ import pytest
 from cellier.convenience import OrthoViewer, Viewer
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
@@ -33,7 +34,8 @@ def offscreen_viewer(volume_store, offscreen_gpu) -> Viewer:
     viewer = Viewer(spatial_axes("z", "y", "x"), gui="offscreen")
     viewer.add_image(
         data=volume_store,
-        appearance=InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     return viewer
 
@@ -44,7 +46,8 @@ def offscreen_ortho(volume_store, offscreen_gpu) -> OrthoViewer:
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui="offscreen")
     ortho.add_image(
         data=volume_store,
-        appearance=InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     return ortho
 

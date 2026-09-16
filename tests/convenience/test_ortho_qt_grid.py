@@ -21,6 +21,7 @@ from cellier.convenience.gui import (
     build_ortho_grid_widget,
 )
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 _PANELS = {"xy", "xz", "yz", "vol"}
@@ -30,7 +31,8 @@ def _ortho_with_image(image_store, gui="qt"):
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui=gui)
     ortho.add_image(
         image_store,
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
     return ortho
 

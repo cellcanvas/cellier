@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Callable, NamedTuple
 from uuid import uuid4
 
 import numpy as np
@@ -85,10 +85,17 @@ class _ImageDisplayedDataCoord(NamedTuple):
         on screen, which is not the same as the planes the current dims state
         implies: a slider moved since the last reslice changes the second and
         not the first, and a pick is a question about the first.
+    channel_index : int or None
+        The channel of the slot whose node was hit, or ``None`` when the
+        visual has no channel slots or the node is not one of them.
+    drawn_channels : tuple[int, ...]
+        The channel indices the visual's last plan draws, ascending.
     """
 
     displayed_data_coord: tuple[float, ...]
     collapsed_data_indices: tuple[tuple[int, int], ...] | None = None
+    channel_index: int | None = None
+    drawn_channels: tuple[int, ...] = ()
 
 
 class _LabelsDisplayedDataCoord(NamedTuple):
@@ -1112,6 +1119,42 @@ class RenderManager:
                 )
             )
 
+    def submit_pick_read(
+        self,
+        requests: list,
+        fetch_fn: Callable,
+        callback: Callable[[list], None],
+        on_complete: Callable[[], None],
+    ) -> UUID | None:
+        """Read pick values through the slicer, cancellable by the returned id.
+
+        Multiscale pick values are read at level 0 through the same cancellable
+        async service as slicing (unified image design 3.7).
+
+        Parameters
+        ----------
+        requests : list[ChunkRequest]
+            One point request per value, all sharing one ``slice_request_id``.
+        fetch_fn : Callable
+            The store's ``get_data`` coroutine.
+        callback : Callable[[list], None]
+            Receives each batch of ``(request, data)`` pairs.
+        on_complete : Callable[[], None]
+            Called once every batch has arrived; never after a cancel.
+
+        Returns
+        -------
+        UUID or None
+            The read's id, for :meth:`cancel_pick_read`.
+        """
+        return self._slicer.submit(
+            requests, fetch_fn, callback, consumer_id="pick", on_complete=on_complete
+        )
+
+    def cancel_pick_read(self, read_id: UUID) -> None:
+        """Cancel an in-flight pick read.  A finished or unknown id is a no-op."""
+        self._slicer.cancel(read_id)
+
     def set_pick_details_enabled(self, canvas_id: UUID, enabled: bool) -> None:
         """Enable or disable element-level pick extraction for one canvas.
 
@@ -1172,12 +1215,6 @@ class RenderManager:
         from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
         from cellier.render.visuals._image import GFXMultiscaleImageVisual
         from cellier.render.visuals._image_memory import GFXImageMemoryVisual
-        from cellier.render.visuals._image_memory_multichannel import (
-            GFXMultichannelImageMemoryVisual,
-        )
-        from cellier.render.visuals._image_multiscale_multichannel import (
-            GFXMultichannelMultiscaleImageVisual,
-        )
         from cellier.render.visuals._label_memory import GFXLabelMemoryVisual
         from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
         from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
@@ -1223,8 +1260,6 @@ class RenderManager:
         _IMAGE_TYPES = (
             GFXImageMemoryVisual,
             GFXMultiscaleImageVisual,
-            GFXMultichannelImageMemoryVisual,
-            GFXMultichannelMultiscaleImageVisual,
         )
         _LABELS_TYPES = (
             GFXLabelMemoryVisual,
@@ -1247,7 +1282,12 @@ class RenderManager:
                 displayed_data_coord=coord, collapsed_data_indices=collapsed_pairs
             )
         return _ImageDisplayedDataCoord(
-            displayed_data_coord=coord, collapsed_data_indices=collapsed_pairs
+            displayed_data_coord=coord,
+            collapsed_data_indices=collapsed_pairs,
+            # The pick-buffer winner in composite mode (design 3.7); the
+            # controller reads channel values from these.
+            channel_index=gfx_visual.pick_channel_index(hit_object),
+            drawn_channels=gfx_visual.drawn_channel_indices(),
         )
 
     def remove_visual(self, visual_id: UUID) -> None:
@@ -1259,6 +1299,11 @@ class RenderManager:
             ID of the visual to remove.
         """
         scene_id = self._visual_to_scene.pop(visual_id)
+        # Cancel this visual's in-flight slices on every canvas before its
+        # slots are released, so no batch lands on a closed visual.
+        for canvas_id, canvas_scene_id in list(self._canvas_to_scene.items()):
+            if canvas_scene_id == scene_id:
+                self._slice_coordinator.cancel_visual(scene_id, canvas_id, visual_id)
         self._data_stores.pop(visual_id)
         # Drop the per-visual render flags too.  Leaving them behind leaks,
         # and -- because the map is keyed by cellier visual id rather than by

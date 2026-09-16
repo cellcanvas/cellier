@@ -1,8 +1,10 @@
-"""GFXMultiscaleImageVisual — render-layer visual for multiscale images."""
+"""GFXMultiscaleImageVisual -- render-layer visual for multiscale images."""
 
 from __future__ import annotations
 
+import dataclasses
 import time
+from itertools import zip_longest
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -69,16 +71,18 @@ from cellier.render.shaders._multiscale_volume_brick import (
 from cellier.render.visuals._image_memory import (
     _box_wireframe_positions,
     _make_aabb_line,
+    _make_colormap,
     _rect_wireframe_positions,
-)
-from cellier.render.visuals._paint_tile_slot_manager import (
-    PaintTileSlotManager,
 )
 from cellier.render.visuals._pick import (
     multiscale_image_data_coordinate,
     multiscale_volume_data_coordinate,
 )
-from cellier.render.visuals._slicing import axis_selections_from_box
+from cellier.render.visuals._slicing import (
+    axis_selections_from_box,
+    image_plane_selection,
+)
+from cellier.visuals._image_memory import effective_transparency_mode
 
 if TYPE_CHECKING:
     from pygfx.resources import Buffer
@@ -87,9 +91,12 @@ if TYPE_CHECKING:
     from cellier.events._events import (
         AABBChangedEvent,
         AppearanceChangedEvent,
+        ChannelAppearanceChangedEvent,
         DataStoreContentsChangedEvent,
         DataStoreMetadataChangedEvent,
+        ImageCompositeChangedEvent,
         PickWriteChangedEvent,
+        SingleAppearanceChangedEvent,
         TransformChangedEvent,
         VisualVisibilityChangedEvent,
     )
@@ -1109,13 +1116,17 @@ class MultiscaleRegionPlanner:
         return axis_selections_from_box(box, level_shape, windows)
 
 
-class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
-    """Render-layer wrapper for one logical multiscale image visual.
+class _MultiscaleImageSlot(MultiscaleRegionPlanner):
+    """One channel's GPU resources on a multiscale image visual.
 
     Owns GPU resources (brick caches, LUT textures, pygfx nodes) for both
     2D and 3D rendering.  Implements ``build_slice_request()`` /
     ``build_slice_request_2d()`` and ``on_data_ready()`` /
-    ``on_data_ready_2d()`` for use by a ``SliceCoordinator``.
+    ``on_data_ready_2d()``, so one slot can also be driven on its own; the
+    public :class:`GFXMultiscaleImageVisual` plans once and materializes per
+    drawn channel through its slots (unified image design 3.8).  Appearance
+    is applied by that wrapper: a slot builds its nodes with neutral
+    defaults.
 
     Parameters
     ----------
@@ -1141,6 +1152,9 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
     """
 
     cancellable: bool = True
+    #: Applies the image slicing rule (design 3.2) itself, so the scene
+    #: manager's data-coverage pre-check does not skip it.
+    decides_empty_slices: bool = True
 
     def __init__(
         self,
@@ -1165,7 +1179,6 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
         aabb_line_width: float = 2.0,
         render_order: int = 0,
         pick_write: bool = True,
-        paint_max_tiles: int = 512,
     ) -> None:
         self.visual_model_id = visual_model_id
 
@@ -1238,6 +1251,14 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
         # All other appearance values are read from the model at build time
         # via build_node / _lazy_init_*.
         self._visible: bool = True
+        # Kept so a node built lazily on first entry into a mode writes pick.
+        self._pick_write: bool = pick_write
+        # True while a sliced axis selects no level-0 sample (design 3.2): the
+        # inner data nodes are hidden and nothing is planned.
+        self._slice_empty: bool = False
+        # Data axes the image slicing rule skips.  A multichannel wrapper sets
+        # its channel axis here, because each of its requests overwrites it.
+        self._unsliced_data_axes: tuple[int, ...] = ()
         # Construction-time config: not appearance, not event-driven, safe to cache.
         self._block_size: int = (
             volume_geometry.block_size
@@ -1303,14 +1324,6 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
                 level_shapes=image_geometry_2d.level_shapes,
                 block_size=image_geometry_2d.block_size,
             )
-
-        # ── 2D paint resources (Phase 2 GPU fast path) ──────────────────
-        self._paint_slot_manager: PaintTileSlotManager | None = None
-        self._t_paint_cache: gfx.Texture | None = None
-        self._t_paint_lut: gfx.Texture | None = None
-        self._paint_max_tiles: int = int(paint_max_tiles)
-        if image_geometry_2d is not None:
-            self._allocate_paint_resources_2d()
 
         # ── Brick-shader-specific buffers (3D only) ──────────────────────
         self._vol_params_buffer: Buffer | None = None
@@ -1408,124 +1421,6 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
         # displayed-axes change, which may never happen in a fixed viewer.
         if self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
-
-    @classmethod
-    def from_cellier_model(
-        cls,
-        model: MultiscaleImageVisual,
-        level_shapes: list[tuple[int, ...]],
-        render_modes: set[str],
-        displayed_axes: tuple[int, ...],
-    ) -> GFXMultiscaleImageVisual:
-        """Build a ``GFXMultiscaleImageVisual`` from a ``MultiscaleImageVisual`` model.
-
-        Block size and GPU budgets are read from ``model.render_config``.
-        Interpolation is read from ``model.appearance.interpolation``.
-
-        Parameters
-        ----------
-        model : MultiscaleImageVisual
-            Source visual model.  Must have a ``render_config`` field.
-        level_shapes : list[tuple[int, ...]]
-            Full nD shape per level, finest first.
-        render_modes : set[str]
-            Which nodes to build: ``{"3d"}``, ``{"2d"}``, or ``{"2d", "3d"}``.
-        displayed_axes : tuple[int, ...]
-            The axes currently displayed.  ``len == 3`` means the initial mode
-            is 3D; ``len == 2`` means 2D.  In dual-mode (``{"2d", "3d"}``),
-            when starting in 3D the 2D geometry is built from
-            ``displayed_axes[-2:]``.
-
-        Returns
-        -------
-        GFXMultiscaleImageVisual
-        """
-        render_config = model.render_config
-        block_size = render_config.block_size
-        interpolation = model.appearance.interpolation
-        gpu_budget_bytes = render_config.gpu_budget_bytes
-        gpu_budget_bytes_2d = render_config.gpu_budget_bytes_2d
-        threshold = model.appearance.iso_threshold
-        attenuation = model.appearance.attenuation
-        render_mode = model.appearance.render_mode
-
-        if len(displayed_axes) == 3:
-            axes_3d: tuple[int, ...] | None = displayed_axes
-            axes_2d: tuple[int, ...] | None = None
-        else:
-            axes_3d = None
-            axes_2d = displayed_axes
-
-        # Build 3D geometry when 3D rendering is requested and axes are
-        # available.  ``select_axes`` projects the per-data-axis level shape
-        # onto the 3 displayed data axes; the per-level transforms are handed
-        # over whole and projected inside, because a v2 transform cannot be
-        # rank-reduced without inventing two coordinate systems.
-        volume_geometry: MultiscaleBrickLayout3D | None = None
-        if "3d" in render_modes and axes_3d is not None:
-            fetch_3d = _fetch_order(_world_axes_to_data_axes(model.transform, axes_3d))
-            shapes_3d = [select_axes(s, fetch_3d) for s in level_shapes]
-            volume_geometry = MultiscaleBrickLayout3D(
-                level_shapes=shapes_3d,
-                level_transforms=list(model.level_transforms),
-                block_size=block_size,
-                fetch_axes=fetch_3d,
-            )
-
-        # Build 2D geometry when 2D rendering is requested and axes are known.
-        # When starting in 3D mode, axes_2d is None and geometry is deferred
-        # to the first call to rebuild_geometry with len(displayed_axes)==2.
-        image_geometry_2d: ImageGeometry3D | None = None
-        if "2d" in render_modes and axes_2d is not None:
-            fetch_2d = _fetch_order(_world_axes_to_data_axes(model.transform, axes_2d))
-            shapes_2d = [select_axes(s, fetch_2d) for s in level_shapes]
-            image_geometry_2d = ImageGeometry3D(
-                level_shapes=shapes_2d,
-                block_size=block_size,
-                n_levels=len(level_shapes),
-                level_transforms=list(model.level_transforms),
-                fetch_axes=fetch_2d,
-            )
-
-        colormap = model.appearance.color_map.to_pygfx(N=256)
-        clim = model.appearance.clim
-
-        instance = cls(
-            visual_model_id=model.id,
-            volume_geometry=volume_geometry,
-            image_geometry_2d=image_geometry_2d,
-            render_modes=render_modes,
-            displayed_axes=displayed_axes,
-            colormap=colormap,
-            clim=clim,
-            threshold=threshold,
-            attenuation=attenuation,
-            render_mode=render_mode,
-            interpolation=interpolation,
-            gpu_budget_bytes_3d=gpu_budget_bytes,
-            gpu_budget_bytes_2d=gpu_budget_bytes_2d,
-            aabb_enabled=model.aabb.enabled,
-            aabb_color=model.aabb.color,
-            aabb_line_width=model.aabb.line_width,
-            render_order=model.appearance.render_order,
-            transform=model.transform,
-            full_level_transforms=list(model.level_transforms),
-            full_level_shapes=list(level_shapes),
-            pick_write=model.pick_write,
-            paint_max_tiles=render_config.paint_max_tiles,
-        )
-        for mat in (instance.material_3d, instance.material_2d):
-            if mat is not None:
-                mat.opacity = model.appearance.opacity
-                mat.depth_test = model.appearance.depth_test
-                mat.depth_write = model.appearance.depth_write
-                mat.depth_compare = model.appearance.depth_compare
-                mat.alpha_mode = model.appearance.transparency_mode
-        instance._visible = model.appearance.visible
-        for node in (instance.node_3d, instance.node_2d):
-            if node is not None:
-                node.visible = model.appearance.visible
-        return instance
 
     # ── Properties ─────────────────────────────────────────────────────
 
@@ -1697,31 +1592,21 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
             return self.node_2d
         return None
 
-    def on_stacked_axes_changed(self, stacked_axes: tuple[int, ...]) -> None:
-        pass
-
     def _lazy_init_3d(self, displayed_axes: tuple[int, ...], visual_model=None) -> None:
         """Build 3D GPU resources on first entry into 3D mode.
 
-        When *visual_model* is provided (controller-driven path), appearance
-        values are read from it at call time and not stored.  When it is
-        ``None`` (e.g. multichannel slot path), safe defaults are used and
-        the caller is responsible for applying per-channel appearance afterward.
+        Built with neutral appearance defaults; the wrapper applies the
+        model's appearance afterwards.  *visual_model* is accepted for the
+        protocol and ignored.
 
         Sets ``node_3d.local.matrix`` directly — does NOT call
         ``_update_node_matrix`` so ``node_2d`` (if already built) is left
         unchanged.
         """
-        if visual_model is not None:
-            threshold = float(visual_model.appearance.iso_threshold)
-            attenuation = float(visual_model.appearance.attenuation)
-            render_mode = visual_model.appearance.render_mode
-            pick_write = visual_model.pick_write
-        else:
-            threshold = 0.5
-            attenuation = 1.0
-            render_mode = "mip"
-            pick_write = False
+        threshold = 0.5
+        attenuation = 1.0
+        render_mode = "mip"
+        pick_write = self._pick_write
 
         fetch_axes = _fetch_order(
             _world_axes_to_data_axes(self._transform, displayed_axes)
@@ -1789,34 +1674,21 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
         self._last_displayed_axes = displayed_axes
         if self._spaces is not None and self._transform is not None:
             self.node_3d.local.matrix = self._node_matrices()[0]
-        if visual_model is not None:
-            self.material_3d.opacity = visual_model.appearance.opacity
-            self.material_3d.depth_test = visual_model.appearance.depth_test
-            self.material_3d.depth_write = visual_model.appearance.depth_write
-            self.material_3d.depth_compare = visual_model.appearance.depth_compare
-            self.material_3d.alpha_mode = visual_model.appearance.transparency_mode
-            self.node_3d.visible = visual_model.appearance.visible
-        else:
-            self.node_3d.visible = self._visible
+        self.node_3d.visible = self._visible
 
     def _lazy_init_2d(self, displayed_axes: tuple[int, ...], visual_model=None) -> None:
         """Build 2D GPU resources on first entry into 2D mode.
 
-        When *visual_model* is provided (controller-driven path), appearance
-        values are read from it at call time and not stored.  When it is
-        ``None`` (e.g. multichannel slot path), safe defaults are used and
-        the caller is responsible for applying per-channel appearance afterward.
+        Built with neutral appearance defaults; the wrapper applies the
+        model's appearance afterwards.  *visual_model* is accepted for the
+        protocol and ignored.
 
         Sets ``node_2d.local.matrix`` directly — does NOT call
         ``_update_node_matrix`` so ``node_3d`` (if already built) is left
         unchanged.
         """
-        if visual_model is not None:
-            interpolation = visual_model.appearance.interpolation
-            pick_write = visual_model.pick_write
-        else:
-            interpolation = "linear"
-            pick_write = False
+        interpolation = "linear"
+        pick_write = self._pick_write
 
         fetch_axes = _fetch_order(
             _world_axes_to_data_axes(self._transform, displayed_axes)
@@ -1850,7 +1722,6 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
             level_shapes=self._image_geometry_2d.level_shapes,
             block_size=self._image_geometry_2d.block_size,
         )
-        self._allocate_paint_resources_2d()
         if self.material_3d is not None:
             colormap = self.material_3d.map
             clim = self.material_3d.clim
@@ -1871,15 +1742,7 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
         self._last_displayed_axes = displayed_axes
         if self._spaces is not None and self._transform is not None:
             self.node_2d.local.matrix = self._node_matrices()[1]
-        if visual_model is not None:
-            self.material_2d.opacity = visual_model.appearance.opacity
-            self.material_2d.depth_test = visual_model.appearance.depth_test
-            self.material_2d.depth_write = visual_model.appearance.depth_write
-            self.material_2d.depth_compare = visual_model.appearance.depth_compare
-            self.material_2d.alpha_mode = visual_model.appearance.transparency_mode
-            self.node_2d.visible = visual_model.appearance.visible
-        else:
-            self.node_2d.visible = self._visible
+        self.node_2d.visible = self._visible
 
     def _rebuild_3d_resources(self) -> None:
         """Rebuild 3D GPU resources after geometry update."""
@@ -1943,8 +1806,6 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
             level_shapes=geo2d.level_shapes,
             block_size=geo2d.block_size,
         )
-        # Re-allocate paint resources so they track the new geometry.
-        self._allocate_paint_resources_2d()
         # Rebuild node preserving current appearance
         if self.node_2d is not None:
             colormap = self.material_2d.map
@@ -2491,6 +2352,8 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
         t_plan_start = time.perf_counter()
         self._frame_number += 1
         self._begin_region_planning(selection)
+        if self._slice_empty:
+            return []
         geo = self._volume_geometry
         if geo is None or self._block_cache_3d is None:
             return []
@@ -2731,6 +2594,8 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
         t_plan_start = time.perf_counter()
         self._frame_number += 1
         self._begin_region_planning(selection)
+        if self._slice_empty:
+            return []
 
         # Record the current slice coordinate for two-phase LUT rebuild (Step 3).
         self._current_slice_coord = self._block_key_slice_coord()
@@ -3078,215 +2943,6 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
             return
         self.cancel_pending_2d()
 
-    def _allocate_paint_resources_2d(self) -> None:
-        """Allocate the 2D paint cache + LUT textures and the slot manager.
-
-        Called from ``__init__`` and from ``_rebuild_2d_resources`` so the
-        paint resources track the underlying 2D image geometry.
-        """
-        if self._image_geometry_2d is None:
-            return
-        bs = self._image_geometry_2d.block_size
-        gh, gw = self._image_geometry_2d.base_layout.grid_dims
-
-        # Stripes-of-tiles layout: row-stripe per slot of height bs.
-        # Two channels: (value, alpha).  Alpha=0 ⇒ this voxel is unpainted.
-        paint_cache_data = np.zeros(
-            (self._paint_max_tiles * bs, bs, 2), dtype=np.float32
-        )
-        self._t_paint_cache = gfx.Texture(paint_cache_data, dim=2, format="2xf4")
-
-        # Same grid as base LUT: per-tile (slot_index, alpha).
-        # alpha=0 ⇒ no slot allocated for this tile (skip the cache lookup).
-        paint_lut_data = np.zeros((gh, gw, 2), dtype=np.float32)
-        self._t_paint_lut = gfx.Texture(paint_lut_data, dim=2, format="2xf4")
-
-        self._paint_slot_manager = PaintTileSlotManager(self._paint_max_tiles)
-
-    def patch_paint_texture(
-        self,
-        voxel_indices: np.ndarray,
-        values: np.ndarray,
-        displayed_axes: tuple[int, int],
-    ) -> int:
-        """Write painted voxels into the GPU paint cache + LUT.
-
-        Used by ``MultiscalePaintController._write_values`` for sub-frame
-        paint feedback in 2-D.  No-op if the visual has no 2-D paint
-        resources (e.g. 3-D-only visual).
-
-        Parameters
-        ----------
-        voxel_indices :
-            Shape ``(N, ndim)`` int64.  Level-0 voxel indices in
-            data-array axis order.
-        values :
-            Shape ``(N,)`` float32.  Brush values to write.
-        displayed_axes :
-            Two-element tuple ``(row_axis, col_axis)`` describing which
-            data-array axes correspond to the displayed (row, col) of
-            the 2-D tile grid.  ``row_axis`` ↔ pygfx-y, ``col_axis`` ↔
-            pygfx-x; this matches the upload convention of the multiscale
-            2-D image (no transpose on upload).
-
-        Returns
-        -------
-        int
-            Number of distinct tiles successfully patched.  Tiles that
-            could not be allocated a slot (pool exhaustion) are silently
-            skipped; check ``self._paint_slot_manager.exhausted`` to
-            detect this.
-        """
-        if (
-            self._t_paint_cache is None
-            or self._t_paint_lut is None
-            or self._paint_slot_manager is None
-            or self._image_geometry_2d is None
-        ):
-            return 0
-        if voxel_indices.shape[0] == 0:
-            return 0
-
-        bs = int(self._image_geometry_2d.block_size)
-        ax_row, ax_col = displayed_axes
-
-        rows = voxel_indices[:, ax_row].astype(np.int64)
-        cols = voxel_indices[:, ax_col].astype(np.int64)
-        vals = values.astype(np.float32, copy=False)
-
-        gy = rows // bs
-        gx = cols // bs
-        ty = rows % bs
-        tx = cols % bs
-
-        cache_data = self._t_paint_cache.data
-        lut_data = self._t_paint_lut.data
-
-        cache_y_min = cache_data.shape[0]
-        cache_y_max = 0
-        cache_x_min = cache_data.shape[1]
-        cache_x_max = 0
-        lut_y_min = lut_data.shape[0]
-        lut_y_max = 0
-        lut_x_min = lut_data.shape[1]
-        lut_x_max = 0
-        n_tiles_patched = 0
-
-        # Group voxels by (gy, gx) so each tile gets one slot allocation.
-        pairs = np.stack([gy, gx], axis=1)
-        unique_pairs, inverse = np.unique(pairs, axis=0, return_inverse=True)
-
-        for tile_i in range(unique_pairs.shape[0]):
-            gy_t = int(unique_pairs[tile_i, 0])
-            gx_t = int(unique_pairs[tile_i, 1])
-            slot = self._paint_slot_manager.get_or_allocate((gy_t, gx_t))
-            if slot is None:
-                continue
-            n_tiles_patched += 1
-
-            sel = inverse == tile_i
-            ty_sel = ty[sel]
-            tx_sel = tx[sel]
-            v_sel = vals[sel]
-
-            # Stripes layout: this slot's pixel rows are
-            # cache_data[slot*bs : (slot+1)*bs, :, :]
-            slot_y0 = slot * bs
-            cache_data[slot_y0 + ty_sel, tx_sel, 0] = v_sel
-            cache_data[slot_y0 + ty_sel, tx_sel, 1] = 1.0
-
-            lut_data[gy_t, gx_t, 0] = float(slot)
-            lut_data[gy_t, gx_t, 1] = 1.0
-
-            cache_y_min = min(cache_y_min, slot_y0)
-            cache_y_max = max(cache_y_max, slot_y0 + bs)
-            cache_x_min = 0
-            cache_x_max = bs
-            lut_y_min = min(lut_y_min, gy_t)
-            lut_y_max = max(lut_y_max, gy_t + 1)
-            lut_x_min = min(lut_x_min, gx_t)
-            lut_x_max = max(lut_x_max, gx_t + 1)
-
-        if n_tiles_patched == 0:
-            return 0
-
-        # pygfx Texture.update_range takes (offset, size) in (x, y, z) order.
-        self._t_paint_cache.update_range(
-            (cache_x_min, cache_y_min, 0),
-            (cache_x_max - cache_x_min, cache_y_max - cache_y_min, 1),
-        )
-        self._t_paint_lut.update_range(
-            (lut_x_min, lut_y_min, 0),
-            (lut_x_max - lut_x_min, lut_y_max - lut_y_min, 1),
-        )
-        return n_tiles_patched
-
-    def clear_paint_textures(self) -> None:
-        """Reset all paint-cache slots and LUT entries to "no paint".
-
-        Called by ``MultiscalePaintController.commit`` and ``abort`` at
-        session end.
-        """
-        if (
-            self._t_paint_cache is None
-            or self._t_paint_lut is None
-            or self._paint_slot_manager is None
-        ):
-            return
-        self._t_paint_cache.data[:] = 0.0
-        self._t_paint_lut.data[:] = 0.0
-        # data.shape[:2] is (rows, cols); update_range size is (x, y, z)
-        # = (cols, rows, 1).
-        cache_h, cache_w = self._t_paint_cache.data.shape[:2]
-        lut_h, lut_w = self._t_paint_lut.data.shape[:2]
-        self._t_paint_cache.update_range((0, 0, 0), (cache_w, cache_h, 1))
-        self._t_paint_lut.update_range((0, 0, 0), (lut_w, lut_h, 1))
-        self._paint_slot_manager.clear()
-
-    def invalidate_painted_tiles_2d(
-        self, dirty_grid_coords: set[tuple[int, int]]
-    ) -> int:
-        """Evict committed finest-level tiles whose ``(gy, gx)`` is dirty.
-
-        Used by ``MultiscalePaintController`` to drop the visible cached
-        copy of a tile after a brush write so the next reslice re-fetches
-        through the open paint transaction (read-your-writes).
-
-        Only level-1 tiles (== finest-data level == level 0) are evicted.
-        Coarser levels show pre-paint data until the next paint-pyramid
-        rebuild (deferred to a follow-up).  In-flight slots are also
-        released so any pending stale fetches don't overwrite freshly
-        painted state.
-
-        Parameters
-        ----------
-        dirty_grid_coords :
-            Set of ``(gy, gx)`` finest-level tile-grid coordinates whose
-            corresponding tiles should be evicted.  Coordinates that
-            don't currently have a committed tile are silently ignored.
-
-        Returns
-        -------
-        int
-            Number of tiles evicted from the committed tilemap.
-        """
-        if self._block_cache_2d is None:
-            return 0
-        tm = self._block_cache_2d.tile_manager
-        # Always release in-flight to avoid races with stale fetches.
-        tm.release_all_in_flight()
-        self._pending_slot_map_2d = {}
-        evicted = 0
-        for key in list(tm.tilemap.keys()):
-            if key.level != 1:
-                continue
-            if (key.g0, key.g1) in dirty_grid_coords:
-                slot = tm.tilemap.pop(key)
-                tm.slot_index[slot.index] = None
-                tm.free_slots.append(slot.index)
-                evicted += 1
-        return evicted
-
     # ── EventBus handler methods ─────────────────────────────────────────
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
@@ -3377,6 +3033,44 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
             self.node_3d.visible = event.visible
         if self.node_2d is not None:
             self.node_2d.visible = event.visible
+
+    def _begin_region_planning(self, selection) -> None:
+        """Start a planning call, applying the image slicing rule first.
+
+        Design 3.2, decided on **level 0**: each sliced axis draws its nearest
+        level-0 sample within the thickness, and if any sliced axis has none
+        the visual draws nothing -- ``_slice_empty`` is set and the inner data
+        nodes are hidden until a later plan lands in the data.
+
+        Otherwise planning continues from a selection whose sliced slabs are
+        planes at the slice position.  Level 0 rounds that position to the
+        chosen sample; coarser levels keep their own rounding of it.  Labels
+        share the base planner and keep clamping.
+        """
+        planned = selection
+        empty = False
+        if (
+            selection is not None
+            and self._spaces is not None
+            and self._transform is not None
+            and self._full_level_shapes
+        ):
+            planned = image_plane_selection(
+                selection,
+                self._transform,
+                self._spaces,
+                tuple(self._full_level_shapes[0]),
+                exempt_data_axes=self._unsliced_data_axes,
+            )
+            empty = planned is None
+        self._slice_empty = empty
+        for inner in (
+            getattr(self, "_inner_node_2d", None),
+            getattr(self, "_inner_node_3d", None),
+        ):
+            if inner is not None:
+                inner.visible = not self._slice_empty
+        super()._begin_region_planning(selection if planned is None else planned)
 
     def pick_data_coordinate(
         self, hit_object, pick_info: dict
@@ -3560,8 +3254,6 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
             lut_texture=self._lut_manager_2d.lut_tex,
             lut_params_buffer=self._lut_params_buffer_2d,
             block_scales_buffer=self._block_scales_buffer_2d,
-            paint_cache_texture=self._t_paint_cache,
-            paint_lut_texture=self._t_paint_lut,
             clim=clim,
             map=colormap,
             pick_write=pick_write,
@@ -3586,3 +3278,832 @@ class GFXMultiscaleImageVisual(MultiscaleRegionPlanner):
         image.local.position = ((scale_x - 1.0) * 0.5, (scale_y - 1.0) * 0.5, 0.0)
 
         return image, material, proxy_tex
+
+
+# ---------------------------------------------------------------------------
+# GFXMultiscaleImageVisual
+# ---------------------------------------------------------------------------
+
+
+def _slot_geometries(
+    transform,
+    level_shapes: list[tuple[int, ...]],
+    level_transforms: list,
+    render_modes: set[str],
+    displayed_axes: tuple[int, ...],
+    block_size: int,
+) -> tuple[MultiscaleBrickLayout3D | None, ImageGeometry3D | None]:
+    """Build a slot's geometry for the mode *displayed_axes* selects.
+
+    The other mode's geometry is built lazily on first entry into it.
+    ``select_axes`` projects each level shape onto the data axes the
+    displayed world axes map to; the level transforms are handed over whole.
+    """
+    volume_geometry = None
+    image_geometry_2d = None
+    fetch = _fetch_order(_world_axes_to_data_axes(transform, displayed_axes))
+    if len(displayed_axes) == 3 and "3d" in render_modes:
+        volume_geometry = MultiscaleBrickLayout3D(
+            level_shapes=[select_axes(s, fetch) for s in level_shapes],
+            level_transforms=list(level_transforms),
+            block_size=block_size,
+            fetch_axes=fetch,
+        )
+    elif len(displayed_axes) == 2 and "2d" in render_modes:
+        image_geometry_2d = ImageGeometry3D(
+            level_shapes=[select_axes(s, fetch) for s in level_shapes],
+            block_size=block_size,
+            n_levels=len(level_shapes),
+            level_transforms=list(level_transforms),
+            fetch_axes=fetch,
+        )
+    return volume_geometry, image_geometry_2d
+
+
+class GFXMultiscaleImageVisual:
+    """Render-layer visual for one ``MultiscaleImageVisual``.
+
+    Draws the image single-channel or composited from a pool of
+    :class:`_MultiscaleImageSlot` (unified image design 3.8).  The pool holds
+    one slot when the visual has no ``channel_axis``, so a plain image keeps
+    the whole GPU budget, and ``max_channels`` slots when it does, each with
+    ``budget / pool size``.  Slots are keyed by channel index; single mode on
+    index ``k`` reuses ``k``'s slot, and a full pool reassigns the least
+    recently drawn slot the current mode does not need.
+
+    Each plan runs LOD selection once, on the first drawn slot, and
+    materializes the result per drawn channel.  Every channel's cache keys
+    carry its own index on the channel axis, so a switch between the modes
+    finds the bricks either mode already loaded.
+
+    Parameters
+    ----------
+    visual_model : MultiscaleImageVisual
+        The model, held for the life of the visual.
+    level_shapes : list[tuple[int, ...]]
+        Full nD shape per level, finest first.
+    render_modes : set[str]
+        Which nodes to build: ``{"2d"}``, ``{"3d"}``, or ``{"2d", "3d"}``.
+    displayed_axes : tuple[int, ...]
+        The world axes displayed at construction.
+    """
+
+    cancellable: bool = True
+    #: Applies the image slicing rule (design 3.2) itself, so the scene
+    #: manager's data-coverage pre-check does not skip it.
+    decides_empty_slices: bool = True
+
+    def __init__(
+        self,
+        visual_model: MultiscaleImageVisual,
+        level_shapes: list[tuple[int, ...]],
+        render_modes: set[str],
+        displayed_axes: tuple[int, ...],
+    ) -> None:
+        invalid = render_modes - {"2d", "3d"}
+        if invalid or not render_modes:
+            raise ValueError(
+                f"render_modes must be a non-empty subset of {{'2d', '3d'}}, "
+                f"got {render_modes!r}"
+            )
+        self.visual_model_id: UUID = visual_model.id
+        self.render_modes = render_modes
+        self._visual_model = visual_model
+        self._channel_axis: int | None = visual_model.channel_axis
+        self._full_level_shapes = [tuple(shape) for shape in level_shapes]
+        self._level_transforms = list(visual_model.level_transforms)
+        self._transform = visual_model.transform
+        self._spaces: RenderSpaces | None = None
+        self._last_displayed_axes: tuple[int, ...] = tuple(displayed_axes)
+        self._pick_write: bool = visual_model.pick_write
+        self._visible: bool = visual_model.appearance.visible
+        self._slice_empty: bool = False
+
+        config = visual_model.render_config
+        n_slots = 1 if self._channel_axis is None else visual_model.max_channels
+        # The budget is split between the channels the visual can *draw*, not
+        # between the pool's slots: the pool is sized by ``max_channels`` so a
+        # channel can be added later, but an unused slot's cache would only
+        # take budget away from the ones drawing.  A visual with no channel
+        # axis, or none configured, keeps the whole budget -- which is what a
+        # single-channel image had before the pool existed.
+        n_budget = max(1, len(visual_model.channels))
+        budget_3d = max(1, config.gpu_budget_bytes // n_budget)
+        budget_2d = max(1, config.gpu_budget_bytes_2d // n_budget)
+        self._slots: list[_MultiscaleImageSlot] = []
+        for index in range(n_slots):
+            volume_geometry, image_geometry_2d = _slot_geometries(
+                self._transform,
+                self._full_level_shapes,
+                self._level_transforms,
+                render_modes,
+                self._last_displayed_axes,
+                config.block_size,
+            )
+            slot = _MultiscaleImageSlot(
+                visual_model_id=visual_model.id,
+                volume_geometry=volume_geometry,
+                image_geometry_2d=image_geometry_2d,
+                render_modes=render_modes,
+                displayed_axes=self._last_displayed_axes,
+                interpolation=visual_model.appearance.interpolation,
+                gpu_budget_bytes_3d=budget_3d,
+                gpu_budget_bytes_2d=budget_2d,
+                transform=self._transform,
+                full_level_transforms=self._level_transforms,
+                full_level_shapes=self._full_level_shapes,
+                # One wireframe per visual: the first slot draws it.
+                aabb_enabled=visual_model.aabb.enabled if index == 0 else False,
+                aabb_color=visual_model.aabb.color,
+                aabb_line_width=visual_model.aabb.line_width,
+                render_order=visual_model.appearance.render_order,
+                pick_write=self._pick_write,
+            )
+            slot._block_size = config.block_size
+            slot.key = None
+            slot.last_drawn = 0
+            slot.color_map_source = None
+            slot.colormap = None
+            self._slots.append(slot)
+
+        self._slot_for_key: dict[int, int] = {}
+        self._drawn: dict[int, int] = {}
+        self._clock = 0
+        self._current_slice_request_id_3d: UUID | None = None
+        self._current_slice_request_id_2d: UUID | None = None
+
+        self.node_3d: gfx.Group | None = gfx.Group() if "3d" in render_modes else None
+        self.node_2d: gfx.Group | None = gfx.Group() if "2d" in render_modes else None
+        for slot in self._slots:
+            if self.node_3d is not None and slot.node_3d is not None:
+                self.node_3d.add(slot.node_3d)
+            if self.node_2d is not None and slot.node_2d is not None:
+                self.node_2d.add(slot.node_2d)
+        for group in (self.node_3d, self.node_2d):
+            if group is not None:
+                group.render_order = visual_model.appearance.render_order
+                group.visible = self._visible
+
+        keys = self._initial_keys()
+        self._drawn = dict(zip(keys, self._assign_slots(keys), strict=True))
+        self._apply_materials()
+        self._apply_slot_visibility()
+
+    @classmethod
+    def from_cellier_model(
+        cls,
+        model: MultiscaleImageVisual,
+        level_shapes: list[tuple[int, ...]],
+        render_modes: set[str],
+        displayed_axes: tuple[int, ...],
+    ) -> GFXMultiscaleImageVisual:
+        """Build the render visual for *model*.
+
+        Parameters
+        ----------
+        model : MultiscaleImageVisual
+            Source visual model.
+        level_shapes : list[tuple[int, ...]]
+            Full nD shape per level, finest first.
+        render_modes : set[str]
+            Which nodes to build.
+        displayed_axes : tuple[int, ...]
+            The axes currently displayed.
+
+        Returns
+        -------
+        GFXMultiscaleImageVisual
+        """
+        return cls(model, level_shapes, render_modes, displayed_axes)
+
+    # ── Properties ─────────────────────────────────────────────────────
+
+    @property
+    def slots(self) -> tuple[_MultiscaleImageSlot, ...]:
+        """The slot pool."""
+        return tuple(self._slots)
+
+    @property
+    def n_levels(self) -> int:
+        """Number of LOD levels."""
+        return len(self._full_level_shapes)
+
+    # The first slot is the one a plain image draws with; these name its
+    # resources for callers that inspect a single-channel visual.
+
+    @property
+    def material_3d(self) -> MultiscaleVolumeBrickMaterial | None:
+        """The first slot's 3D material."""
+        return self._slots[0].material_3d
+
+    @property
+    def material_2d(self) -> ImageBlockMaterial | None:
+        """The first slot's 2D material."""
+        return self._slots[0].material_2d
+
+    @property
+    def _inner_node_3d(self):
+        return self._slots[0]._inner_node_3d
+
+    @property
+    def _inner_node_2d(self):
+        return self._slots[0]._inner_node_2d
+
+    @property
+    def _block_cache_3d(self):
+        return self._slots[0]._block_cache_3d
+
+    @property
+    def _block_cache_2d(self):
+        return self._slots[0]._block_cache_2d
+
+    @property
+    def _volume_geometry(self):
+        return self._slots[0]._volume_geometry
+
+    @property
+    def _image_geometry_2d(self):
+        return self._slots[0]._image_geometry_2d
+
+    @property
+    def _last_plan_stats(self) -> dict:
+        return self._slots[0]._last_plan_stats
+
+    # ── Slots ───────────────────────────────────────────────────────────
+
+    def _channel_size(self) -> int | None:
+        if self._channel_axis is None:
+            return None
+        return int(self._full_level_shapes[0][self._channel_axis])
+
+    def _composite(self) -> bool:
+        return bool(self._visual_model.composite) and self._channel_axis is not None
+
+    def _initial_keys(self) -> list[int]:
+        if self._composite():
+            return list(self._visual_model.drawn_channels(self._channel_size()))
+        return [0]
+
+    def _assign_slots(self, keys: list[int]) -> list[int]:
+        """Give every key a slot, reusing a key's own slot first (design 3.8)."""
+        self._clock += 1
+        wanted = set(keys)
+        taken: set[int] = set()
+        assigned: list[int] = []
+        for key in keys:
+            index = self._slot_for_key.get(key)
+            if index is None or index in taken:
+                free = [
+                    i
+                    for i, slot in enumerate(self._slots)
+                    if slot.key is None and i not in taken
+                ]
+                if free:
+                    index = free[0]
+                else:
+                    index = min(
+                        (
+                            i
+                            for i, slot in enumerate(self._slots)
+                            if i not in taken and slot.key not in wanted
+                        ),
+                        key=lambda i: self._slots[i].last_drawn,
+                    )
+                    self._slot_for_key.pop(self._slots[index].key, None)
+                self._slots[index].key = key
+                self._slot_for_key[key] = index
+            taken.add(index)
+            self._slots[index].last_drawn = self._clock
+            assigned.append(index)
+        return assigned
+
+    def _mode_appearance(self, key: int):
+        if self._composite():
+            return self._visual_model.channels.get(key)
+        return self._visual_model.single
+
+    def _colormap_for(self, slot: _MultiscaleImageSlot, color_map) -> gfx.TextureMap:
+        if color_map is not slot.color_map_source or slot.colormap is None:
+            slot.colormap = _make_colormap(color_map)
+            slot.color_map_source = color_map
+        return slot.colormap
+
+    def _apply_materials(self) -> None:
+        """Re-apply every drawn slot's appearance from the model."""
+        model = self._visual_model
+        if model is None:
+            return
+        shared = model.appearance
+        alpha_mode = effective_transparency_mode(model)
+        overlap = len(self._drawn) > 1
+        for key, index in self._drawn.items():
+            mode_appearance = self._mode_appearance(key)
+            if mode_appearance is None:
+                continue
+            slot = self._slots[index]
+            colormap = self._colormap_for(slot, mode_appearance.color_map)
+            for node in (slot.node_3d, slot.node_2d):
+                if node is not None:
+                    node.render_order = shared.render_order
+            material = slot.material_3d
+            if material is not None:
+                material.map = colormap
+                material.clim = mode_appearance.clim
+                material.threshold = float(mode_appearance.iso_threshold)
+                material.attenuation = float(shared.attenuation)
+                material.render_mode = mode_appearance.render_mode
+                material.opacity = mode_appearance.opacity
+                material.interpolation = shared.interpolation
+                material.alpha_mode = alpha_mode
+                material.pick_write = self._pick_write
+                material.depth_test = shared.depth_test
+                # Overlapping channel volumes: the first to draw would write
+                # its hit depth and clip the rest into speckle.
+                material.depth_write = shared.depth_write and not overlap
+                material.depth_compare = shared.depth_compare
+            material = slot.material_2d
+            if material is not None:
+                material.map = colormap
+                material.clim = mode_appearance.clim
+                material.opacity = mode_appearance.opacity
+                material.interpolation = shared.interpolation
+                material.alpha_mode = alpha_mode
+                material.pick_write = self._pick_write
+                material.depth_compare = shared.depth_compare
+                # Every channel plane sits at the same depth: with more than
+                # one drawn, the first would hide the rest.
+                material.depth_test = shared.depth_test and not overlap
+                material.depth_write = shared.depth_write and not overlap
+
+    def _apply_slot_visibility(self) -> None:
+        drawn = set(self._drawn.values())
+        for index, slot in enumerate(self._slots):
+            visible = index in drawn and not self._slice_empty
+            for inner in (slot._inner_node_3d, slot._inner_node_2d):
+                if inner is not None:
+                    inner.visible = visible
+            for node in (slot.node_3d, slot.node_2d):
+                if node is not None:
+                    node.visible = True
+
+    def _prune_undrawn(self) -> None:
+        if not self._composite():
+            return
+        drawn = set(self._visual_model.drawn_channels(self._channel_size()))
+        self._drawn = {k: i for k, i in self._drawn.items() if k in drawn}
+
+    def _slice_coord_for(self, base: tuple, key: int) -> tuple:
+        """*base* with this channel's own index on the channel axis."""
+        if self._channel_axis is None:
+            return base
+        return tuple(
+            (axis, key if axis == self._channel_axis else value) for axis, value in base
+        )
+
+    def _plan_keys(self, selection) -> list[int]:
+        """Apply the slicing rule and name the channels to draw (design 3.3)."""
+        composite = self._composite()
+        exempt = (self._channel_axis,) if composite else ()
+        for slot in self._slots:
+            slot._unsliced_data_axes = exempt
+        probe = self._slots[0]
+        probe._begin_region_planning(selection)
+        self._slice_empty = probe._slice_empty
+        if self._slice_empty:
+            return []
+        if composite:
+            return list(self._visual_model.drawn_channels(self._channel_size()))
+        if self._channel_axis is None:
+            return [0]
+        selections = probe._level0_axis_selections()
+        value = 0 if selections is None else selections[self._channel_axis]
+        return [int(value) if not isinstance(value, tuple) else int(value[0])]
+
+    def _begin_plan(self, selection) -> tuple[list[int], list[_MultiscaleImageSlot]]:
+        keys = self._plan_keys(selection)
+        indices = self._assign_slots(keys)
+        self._drawn = dict(zip(keys, indices, strict=True))
+        self._apply_materials()
+        self._apply_slot_visibility()
+        slots = [self._slots[i] for i in indices]
+        for slot in slots:
+            slot._begin_region_planning(selection)
+        # _begin_region_planning shows or hides a slot's data node from its
+        # own slicing verdict; the pool's visibility is the wrapper's call.
+        self._apply_slot_visibility()
+        return keys, slots
+
+    # ── Node selection ─────────────────────────────────────────────────
+
+    def _rebuild_slot_geometries(self, displayed_axes: tuple[int, ...]) -> None:
+        self._last_displayed_axes = tuple(displayed_axes)
+        group = self.node_3d if len(displayed_axes) == 3 else self.node_2d
+        for slot in self._slots:
+            old_node, new_node = slot.rebuild_geometry(
+                self._full_level_shapes, displayed_axes
+            )
+            if group is None or old_node is new_node:
+                continue
+            if old_node is not None and old_node.parent is group:
+                group.remove(old_node)
+            if new_node is not None:
+                group.add(new_node)
+        self._apply_materials()
+        self._apply_slot_visibility()
+
+    def get_node_for_dims(self, displayed_axes: tuple[int, ...]) -> gfx.Group | None:
+        """Rebuild the slots' geometry if needed and return the group."""
+        mode_attr = "node_3d" if len(displayed_axes) == 3 else "node_2d"
+        if tuple(displayed_axes) != self._last_displayed_axes or any(
+            getattr(slot, mode_attr) is None for slot in self._slots
+        ):
+            self._rebuild_slot_geometries(displayed_axes)
+        return self.node_3d if len(displayed_axes) == 3 else self.node_2d
+
+    def has_node(self, mode: str) -> bool:
+        """Return True if the group for *mode* exists."""
+        return (self.node_3d if mode == "3d" else self.node_2d) is not None
+
+    def get_node(self, mode: str) -> gfx.WorldObject | None:
+        """Return the group for *mode*."""
+        return self.node_3d if mode == "3d" else self.node_2d
+
+    def build_node(
+        self,
+        mode: str,
+        visual_model,
+        displayed_axes: tuple[int, ...],
+        level_shapes: list[tuple[int, ...]],
+        level_transforms: list,
+    ) -> gfx.WorldObject | None:
+        """Build the slots' nodes for *mode* and return the group."""
+        self._full_level_shapes = [tuple(s) for s in level_shapes]
+        return self.get_node_for_dims(displayed_axes)
+
+    def rebuild_node_geometry(
+        self,
+        mode: str,
+        displayed_axes: tuple[int, ...],
+        level_shapes: list[tuple[int, ...]],
+        level_transforms: list,
+    ) -> gfx.WorldObject | None:
+        """Rebuild the slots' geometry after a dims change."""
+        self._full_level_shapes = [tuple(s) for s in level_shapes]
+        return self.get_node_for_dims(displayed_axes)
+
+    # ── Planning ───────────────────────────────────────────────────────
+
+    def build_slice_request(
+        self,
+        camera_pos_world: np.ndarray,
+        frustum_corners_world: np.ndarray | None,
+        fov_y_rad: float,
+        screen_height_px: float,
+        lod_bias: float = 1.0,
+        dims_state: DimsState | None = None,
+        force_level: int | None = None,
+        selection: RegionSelection | None = None,
+    ) -> list[ChunkRequest]:
+        """Plan 3D bricks once, then materialize them per drawn channel."""
+        if dims_state is not None:
+            displayed = tuple(dims_state.selection.displayed_axes)
+            if displayed != self._last_displayed_axes:
+                self._rebuild_slot_geometries(displayed)
+        keys, slots = self._begin_plan(selection)
+        if not keys:
+            return []
+        planner = slots[0]
+        if planner._volume_geometry is None or planner._block_cache_3d is None:
+            return []
+        for slot in slots:
+            if self._last_displayed_axes != slot._last_displayed_axes:
+                slot._update_node_matrix(self._last_displayed_axes)
+        base_coord = planner._block_key_slice_coord()
+        brick_arr = planner._plan_bricks(
+            camera_pos_world,
+            frustum_corners_world,
+            fov_y_rad,
+            screen_height_px,
+            lod_bias,
+            force_level,
+        )
+        if not len(brick_arr):
+            return []
+
+        slice_request_id = uuid4()
+        self._current_slice_request_id_3d = slice_request_id
+        composite = self._composite()
+        request_lists: list[list[ChunkRequest]] = []
+        for key, slot in zip(keys, slots, strict=True):
+            coord = self._slice_coord_for(base_coord, key)
+            slot._current_slice_coord_3d = coord
+            slot._frame_number += 1
+            if force_level is not None:
+                slot._block_cache_3d.tile_manager.evict_finer_than(force_level)
+            requests = slot._materialize_brick_requests(
+                brick_arr,
+                slice_request_id,
+                dims_state,
+                fill={self._channel_axis: key} if composite else None,
+                slice_coord=coord,
+            )
+            # Unconditional, as on a lone slot: reserve-tier hits are promoted
+            # during staging with no fill, so without this rebuild they stay
+            # invisible until a later batch arrives (see build_slice_request
+            # on the slot).
+            slot._lut_manager_3d.rebuild(
+                slot._block_cache_3d.tile_manager, current_slice_coord=coord
+            )
+            slot._last_plan_stats = {
+                "hits": len(brick_arr) - len(requests),
+                "misses": len(requests),
+                "fills": len(requests),
+                "total_required": len(brick_arr),
+            }
+            request_lists.append(requests)
+        return [
+            request
+            for group in zip_longest(*request_lists)
+            for request in group
+            if request is not None
+        ]
+
+    def build_slice_request_2d(
+        self,
+        camera_pos_world: np.ndarray,
+        viewport_width_px: float,
+        world_width: float,
+        view_min_world: np.ndarray | None,
+        view_max_world: np.ndarray | None,
+        dims_state: DimsState,
+        lod_bias: float = 1.0,
+        force_level: int | None = None,
+        use_culling: bool = True,
+        selection: RegionSelection | None = None,
+    ) -> list[ChunkRequest]:
+        """Plan 2D tiles once, then materialize them per drawn channel."""
+        displayed = tuple(dims_state.selection.displayed_axes)
+        if displayed != self._last_displayed_axes:
+            self._rebuild_slot_geometries(displayed)
+        keys, slots = self._begin_plan(selection)
+        if not keys:
+            return []
+        planner = slots[0]
+        if planner._image_geometry_2d is None or planner._block_cache_2d is None:
+            return []
+        for slot in slots:
+            if displayed != slot._last_displayed_axes:
+                slot._update_node_matrix(displayed)
+
+        base_coord = planner._block_key_slice_coord()
+        planner_coord = self._slice_coord_for(base_coord, keys[0])
+        planner._current_slice_coord = planner_coord
+        required, target_level = planner._plan_tiles_2d(
+            camera_pos_world=camera_pos_world,
+            viewport_width_px=viewport_width_px,
+            world_width=world_width,
+            view_min_world=view_min_world,
+            view_max_world=view_max_world,
+            lod_bias=lod_bias,
+            force_level=force_level,
+            use_culling=use_culling,
+        )
+        viewport_cells = planner._current_viewport_cells
+
+        slice_request_id = uuid4()
+        self._current_slice_request_id_2d = slice_request_id
+        composite = self._composite()
+        request_lists: list[list[ChunkRequest]] = []
+        for key, slot in zip(keys, slots, strict=True):
+            coord = self._slice_coord_for(base_coord, key)
+            slot._current_slice_coord = coord
+            slot._current_viewport_cells = viewport_cells
+            slot._frame_number += 1
+            if coord == planner_coord:
+                slot_required = required
+            else:
+                slot_required = {
+                    dataclasses.replace(block_key, slice_coord=coord): value
+                    for block_key, value in required.items()
+                }
+            request_lists.append(
+                slot._materialize_tile_requests(
+                    slot_required,
+                    target_level,
+                    dims_state,
+                    slice_request_id,
+                    fill={self._channel_axis: key} if composite else None,
+                )
+            )
+        return [
+            request
+            for group in zip_longest(*request_lists)
+            for request in group
+            if request is not None
+        ]
+
+    # ── Commit ─────────────────────────────────────────────────────────
+
+    def _slot_for_request(self, request: ChunkRequest) -> _MultiscaleImageSlot | None:
+        if self._channel_axis is None:
+            return self._slots[0] if self._slots else None
+        value = request.axis_selections[self._channel_axis]
+        if isinstance(value, tuple):
+            return None
+        index = self._slot_for_key.get(int(value))
+        return None if index is None else self._slots[index]
+
+    def _route(self, batch, current_id) -> dict:
+        routed: dict[int, tuple[_MultiscaleImageSlot, list]] = {}
+        for request, data in batch:
+            if request.slice_request_id != current_id:
+                continue
+            slot = self._slot_for_request(request)
+            if slot is None:
+                continue
+            routed.setdefault(id(slot), (slot, []))[1].append((request, data))
+        return routed
+
+    def on_data_ready(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
+        """Route arriving 3D bricks to their channel's slot."""
+        for slot, sub_batch in self._route(
+            batch, self._current_slice_request_id_3d
+        ).values():
+            slot.on_data_ready(sub_batch)
+        owner = self._slots[0] if self._slots else None
+        if owner is not None and not owner._data_ready_3d:
+            if owner._aabb_line_3d is not None and any(
+                s._data_ready_3d for s in self._slots
+            ):
+                owner._data_ready_3d = True
+                owner._aabb_line_3d.visible = owner._aabb_enabled
+
+    def on_data_ready_2d(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
+        """Route arriving 2D tiles to their channel's slot."""
+        for slot, sub_batch in self._route(
+            batch, self._current_slice_request_id_2d
+        ).values():
+            slot.on_data_ready_2d(sub_batch)
+        owner = self._slots[0] if self._slots else None
+        if owner is not None and not owner._data_ready_2d:
+            if owner._aabb_line_2d is not None and any(
+                s._data_ready_2d for s in self._slots
+            ):
+                owner._data_ready_2d = True
+                owner._aabb_line_2d.visible = owner._aabb_enabled
+
+    def cancel_pending(self) -> None:
+        """Release every slot's in-flight 3D reservations."""
+        for slot in self._slots:
+            slot.cancel_pending()
+
+    def cancel_pending_2d(self) -> None:
+        """Release every slot's in-flight 2D reservations."""
+        for slot in self._slots:
+            slot.cancel_pending_2d()
+
+    def invalidate_2d_cache(self) -> None:
+        """Cancel every slot's in-flight 2D requests on a slice move."""
+        for slot in self._slots:
+            slot.invalidate_2d_cache()
+
+    def close(self) -> None:
+        """Release the slots, their caches and nodes.  Unusable afterwards."""
+        self.cancel_pending()
+        self.cancel_pending_2d()
+        for group in (self.node_3d, self.node_2d):
+            if group is not None:
+                group.clear()
+        self._slots = []
+        self._slot_for_key = {}
+        self._drawn = {}
+        self._visual_model = None
+
+    # ── Event handlers ─────────────────────────────────────────────────
+
+    def on_transform_changed(self, event: TransformChangedEvent) -> None:
+        """Hand the new transform to every slot."""
+        self._transform = event.transform
+        for slot in self._slots:
+            slot.on_transform_changed(event)
+
+    def set_render_spaces(self, spaces: RenderSpaces | None) -> None:
+        """Hand the coordinate systems to every slot."""
+        self._spaces = spaces
+        for slot in self._slots:
+            slot.set_render_spaces(spaces)
+
+    def on_appearance_changed(self, event: AppearanceChangedEvent) -> None:
+        """A shared field changed: restyle every drawn slot."""
+        if event.field_name == "render_order":
+            for group in (self.node_3d, self.node_2d):
+                if group is not None:
+                    group.render_order = event.new_value
+        self._apply_materials()
+
+    def on_single_appearance_changed(self, event: SingleAppearanceChangedEvent) -> None:
+        """A single-mode field changed: restyle when single mode is drawn."""
+        if not self._composite():
+            self._apply_materials()
+
+    def on_channel_appearance_changed(
+        self, event: ChannelAppearanceChangedEvent
+    ) -> None:
+        """A channel field changed: restyle, and hide a channel switched off."""
+        if not self._composite():
+            return
+        if event.field_name == "visible" and not event.new_value:
+            self._prune_undrawn()
+            self._apply_slot_visibility()
+        self._apply_materials()
+
+    def on_image_composite_changed(self, event: ImageCompositeChangedEvent) -> None:
+        """The mode switched: restyle now; the controller's reslice follows."""
+        self._prune_undrawn()
+        self._apply_materials()
+        self._apply_slot_visibility()
+
+    def on_visibility_changed(self, event: VisualVisibilityChangedEvent) -> None:
+        """Toggle the whole visual."""
+        self._visible = event.visible
+        for group in (self.node_3d, self.node_2d):
+            if group is not None:
+                group.visible = event.visible
+
+    def _slot_owning(self, hit_object) -> _MultiscaleImageSlot | None:
+        for slot in self._slots:
+            if hit_object in (slot._inner_node_3d, slot._inner_node_2d):
+                return slot
+        return None
+
+    def pick_channel_index(self, hit_object) -> int | None:
+        """The channel index of the slot whose node *hit_object* is, if any."""
+        slot = self._slot_owning(hit_object)
+        return None if slot is None else slot.key
+
+    def drawn_channel_indices(self) -> tuple[int, ...]:
+        """The channel indices the last plan draws, ascending."""
+        return tuple(sorted(self._drawn))
+
+    def pick_collapsed_indices(self) -> dict[int, int] | None:
+        """The level-0 planes the drawn slots last planned.
+
+        In composite mode the channel axis is left out: each drawn channel
+        sits at its own index.
+
+        Returns
+        -------
+        dict[int, int] or None
+            Data axis to level-0 voxel index.
+        """
+        if not self._drawn:
+            return None
+        slot = self._slots[next(iter(self._drawn.values()))]
+        collapsed = slot.pick_collapsed_indices()
+        if collapsed is None:
+            return None
+        skip = self._channel_axis if self._composite() else None
+        return {axis: value for axis, value in collapsed.items() if axis != skip}
+
+    def pick_data_coordinate(
+        self, hit_object, pick_info: dict
+    ) -> tuple[float, ...] | None:
+        """Level-0 data coordinate of a pick on one of the slots' nodes."""
+        slot = self._slot_owning(hit_object) or (
+            self._slots[0] if self._slots else None
+        )
+        if slot is None:
+            return None
+        return slot.pick_data_coordinate(hit_object, pick_info)
+
+    def on_pick_write_changed(self, event: PickWriteChangedEvent) -> None:
+        """Update pick_write on every slot."""
+        self._pick_write = event.pick_write
+        for slot in self._slots:
+            slot._pick_write = event.pick_write
+            slot.on_pick_write_changed(event)
+
+    def on_aabb_changed(self, event: AABBChangedEvent) -> None:
+        """Apply an AABB change to the visual's one wireframe (the first slot's)."""
+        if self._slots:
+            self._slots[0].on_aabb_changed(event)
+
+    def on_data_store_contents_changed(
+        self, event: DataStoreContentsChangedEvent
+    ) -> None:
+        """Stub -- brick eviction deferred to a future phase."""
+
+    def on_data_store_metadata_changed(
+        self, event: DataStoreMetadataChangedEvent
+    ) -> None:
+        """Stub -- geometry rebuild deferred to a future phase."""
+
+    def tick(self) -> None:
+        """Advance every slot's jitter seed."""
+        for slot in self._slots:
+            slot.tick()
+
+    def reset_tick(self) -> None:
+        """Rewind every slot's jitter seed."""
+        for slot in self._slots:
+            slot.reset_tick()

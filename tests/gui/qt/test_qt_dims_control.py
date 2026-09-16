@@ -41,10 +41,8 @@ def _make_control(scene, qtbot, *, with_toggle=True) -> QtDimsControl:
     return control
 
 
-def _dims_changed_event(source_id, scene_id, *, displayed, slices, stacked=()):
-    selection = AxisAlignedSelectionState(
-        displayed_axes=displayed, stacked_axes=stacked
-    )
+def _dims_changed_event(source_id, scene_id, *, displayed, slices):
+    selection = AxisAlignedSelectionState(displayed_axes=displayed)
     state = DimsState(axis_labels=("z", "y", "x"), selection=selection)
     return DimsChangedEvent(
         source_id=source_id,

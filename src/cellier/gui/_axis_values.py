@@ -5,11 +5,11 @@ like depends on the axis: a spatial axis can be sliced at any world position,
 while a channel axis only has a handful of valid values.  The two models here
 say which, per axis, and every dims front end reads the same mapping.
 
-Nothing here infers which kind an axis is.  The caller states it: the
-helpers that derive an axis's extent from the loaded data
-(:func:`cellier.convenience.axis_values_from_viewer`) return
-:class:`ContinuousAxisValues` for every axis, and a caller that wants a
-discrete slider replaces that axis's entry with a :class:`DiscreteAxisValues`.
+Nothing here infers which kind an axis is.  The helpers that derive the
+values from the loaded data (:func:`cellier.convenience.axis_values_from_viewer`)
+decide from the data's axis sampling: a channel or time axis that every
+store samples discretely gets a :class:`DiscreteAxisValues`, and everything
+else a :class:`ContinuousAxisValues`.  A caller can replace any entry.
 
 Toolkit-free on purpose: both the Qt and the anywidget dims panels import it.
 """

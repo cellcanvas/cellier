@@ -1,0 +1,167 @@
+.cellier-image-controls {
+  font-family: var(--jp-ui-font-family, sans-serif);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 260px;
+}
+
+.cellier-channel-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.cellier-channel-row:first-child {
+  border-top: none;
+}
+
+.cellier-section-title {
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.65;
+  margin-bottom: 1px;
+}
+
+.cellier-app-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cellier-app-label {
+  min-width: 5.5em;
+  text-align: right;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.cellier-app-row-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+
+.cellier-app-readout {
+  min-width: 3em;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.cellier-app-select {
+  flex: 1 1 auto;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.cellier-app-row input[type="range"] {
+  flex: 1 1 auto;
+}
+
+/* ── Contrast limits dual-range (mirrors panel.css) ──────────────────────── */
+
+.cellier-clim-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 20px;
+}
+
+.cellier-clim-track input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cellier-clim-track input[type="range"]::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.cellier-clim-rail {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 4px;
+  transform: translateY(-50%);
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.cellier-clim-fill {
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  transform: translateY(-50%);
+  background: color-mix(in srgb, currentColor 60%, transparent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.cellier-clim-lo::-webkit-slider-thumb,
+.cellier-clim-hi::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: all;
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #888;
+  background: #ccc;
+}
+
+.cellier-clim-lo::-moz-range-thumb,
+.cellier-clim-hi::-moz-range-thumb {
+  pointer-events: all;
+  cursor: pointer;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #888;
+  background: #ccc;
+}
+.cellier-group-title {
+  font-weight: 600;
+  padding-bottom: 2px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.cellier-image-shared {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cellier-image-switch {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cellier-image-page {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cellier-image-empty {
+  opacity: 0.65;
+  font-style: italic;
+}

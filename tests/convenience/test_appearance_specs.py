@@ -20,20 +20,16 @@ import pytest
 
 from cellier.convenience.gui._controls_config import (
     BaseControlsConfig,
-    ChannelControlsConfig,
     InMemoryImageControlsConfig,
     MultiscaleImageControlsConfig,
 )
 from cellier.convenience.layout._shared import (
     appearance_specs,
     appearance_targets,
-    channel_targets,
     next_selection,
     unique_labels,
 )
 from cellier.visuals._base_visual import AABBParams
-from cellier.visuals._image import MultiscaleImageAppearance
-from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
 class _FakeVisual:
@@ -46,12 +42,28 @@ class _FakeVisual:
         self.name = name
 
 
-def _in_memory(**kwargs) -> _FakeVisual:
-    return _FakeVisual(InMemoryImageAppearance(color_map="grays", **kwargs))
+def _in_memory(**single_kwargs):
+    """A real in-memory image model; *single_kwargs* go to its ``single``."""
+    from cellier.visuals import ImageVisual, InMemoryImageSingleAppearance
+
+    return ImageVisual(
+        name="image",
+        data_store_id="store",
+        single=InMemoryImageSingleAppearance(color_map="grays", **single_kwargs),
+    )
 
 
-def _multiscale(**kwargs) -> _FakeVisual:
-    return _FakeVisual(MultiscaleImageAppearance(color_map="viridis", **kwargs))
+def _multiscale(**single_kwargs):
+    """A real multiscale image model; *single_kwargs* go to its ``single``."""
+    from cellier.visuals import MultiscaleImageSingleAppearance, MultiscaleImageVisual
+    from tests._v2 import level_transforms
+
+    return MultiscaleImageVisual(
+        name="image",
+        data_store_id="store",
+        level_transforms=level_transforms([[1.0, 1.0, 1.0]], [[0.0, 0.0, 0.0]]),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", **single_kwargs),
+    )
 
 
 def kinds(result) -> list[str]:
@@ -76,12 +88,19 @@ def test_every_multiscale_field_maps_to_a_control():
             ]
         ),
     )
-    assert kinds(result) == ["color_map", "clim", "render", "lod_bias", "aabb"]
+    assert kinds(result) == ["image", "lod_bias", "aabb"]
+    assert result.specs[0].values["fields"] == [
+        "color_map",
+        "clim",
+        "render_mode",
+        "iso_threshold",
+        "attenuation",
+    ]
     assert result.skipped == []
 
 
-def test_the_three_render_fields_collapse_into_one_control():
-    """``render_mode``/``iso_threshold``/``attenuation`` share one widget."""
+def test_every_image_field_collapses_into_one_control():
+    """The unified image control draws them all (unified image design 3.10)."""
     for fields in (
         ["render_mode"],
         ["iso_threshold"],
@@ -90,7 +109,7 @@ def test_the_three_render_fields_collapse_into_one_control():
         result = appearance_specs(
             _multiscale(), MultiscaleImageControlsConfig(appearance=fields)
         )
-        assert kinds(result) == ["render", "aabb"], fields
+        assert kinds(result) == ["image", "aabb"], fields
 
 
 def test_order_is_the_config_maps_order_not_the_callers():
@@ -103,7 +122,7 @@ def test_order_is_the_config_maps_order_not_the_callers():
     result = appearance_specs(
         _in_memory(), InMemoryImageControlsConfig(appearance=["clim", "color_map"])
     )
-    assert kinds(result) == ["color_map", "clim", "aabb"]
+    assert kinds(result) == ["image", "aabb"]
 
 
 # A field the config class does not know -- a typo, or a real name that does
@@ -120,7 +139,7 @@ def test_a_field_missing_from_the_visuals_model_is_skipped():
     result = appearance_specs(
         _in_memory(), MultiscaleImageControlsConfig(appearance=["clim", "lod_bias"])
     )
-    assert kinds(result) == ["clim", "aabb"]
+    assert kinds(result) == ["image", "aabb"]
     assert result.skipped == ["lod_bias"]
 
 
@@ -138,14 +157,7 @@ def test_appearance_true_resolves_to_the_config_classes_default_list():
     result = appearance_specs(
         _in_memory(), InMemoryImageControlsConfig(appearance=True)
     )
-    assert kinds(result) == [
-        "visible",
-        "opacity",
-        "color_map",
-        "clim",
-        "render",
-        "aabb",
-    ]
+    assert kinds(result) == ["image", "aabb"]
 
 
 def test_a_default_list_does_not_report_fields_the_model_lacks():
@@ -186,9 +198,9 @@ def test_clim_range_is_inferred_from_the_current_clim():
         _in_memory(clim=(-5.0, 200.0)),
         InMemoryImageControlsConfig(appearance=["clim"]),
     )
-    (clim_spec, _aabb) = result.specs
-    assert clim_spec.values["clim_range"] == (-5.0, 200.0)
-    assert clim_spec.values["initial_clim"] == (-5.0, 200.0)
+    (image_spec, _aabb) = result.specs
+    assert image_spec.values["clim_range"] == [-5.0, 200.0]
+    assert image_spec.values["single"]["clim"] == [-5.0, 200.0]
 
 
 def test_a_clim_inside_the_unit_interval_is_widened_to_it():
@@ -196,7 +208,7 @@ def test_a_clim_inside_the_unit_interval_is_widened_to_it():
         _in_memory(clim=(0.25, 0.75)),
         InMemoryImageControlsConfig(appearance=["clim"]),
     )
-    assert result.specs[0].values["clim_range"] == (0.0, 1.0)
+    assert result.specs[0].values["clim_range"] == [0.0, 1.0]
 
 
 def test_a_configured_clim_range_wins_over_the_inferred_one():
@@ -204,20 +216,19 @@ def test_a_configured_clim_range_wins_over_the_inferred_one():
         _in_memory(clim=(0.0, 1.0)),
         InMemoryImageControlsConfig(appearance=["clim"], clim_range=(0.0, 4095.0)),
     )
-    assert result.specs[0].values["clim_range"] == (0.0, 4095.0)
+    assert result.specs[0].values["clim_range"] == [0.0, 4095.0]
 
 
-def test_the_render_spec_carries_clim_range_for_qts_dtype_max():
-    """Qt derives ``dtype_max`` from this; the anywidget builder ignores it.
+def test_the_image_spec_widens_clim_range_over_every_channel():
+    """Composite channels count too, so every contrast slider fits its limits."""
+    from cellier.visuals import InMemoryImageChannelAppearance
 
-    A toolkit-specific keyword derived inside that toolkit's builder is the
-    seam's escape hatch for exactly this kind of asymmetry (section 7.3).
-    """
+    visual = _in_memory()
+    visual.channels = {0: InMemoryImageChannelAppearance(clim=(0.0, 4096.0))}
     result = appearance_specs(
-        _multiscale(clim=(0.0, 65535.0)),
-        MultiscaleImageControlsConfig(appearance=["render_mode"]),
+        visual, InMemoryImageControlsConfig(appearance=["render_mode"])
     )
-    assert result.specs[0].values["clim_range"] == (0.0, 65535.0)
+    assert result.specs[0].values["clim_range"] == [0.0, 4096.0]
 
 
 def test_colormap_names_come_from_the_config():
@@ -229,7 +240,7 @@ def test_colormap_names_come_from_the_config():
     )
     assert result.specs[0].values["colormap_names"] == ["magma", "grays"]
     # Normalised through ``colormap_to_str``, which is what the widgets take.
-    assert result.specs[0].values["initial_colormap"] == "colorbrewer:greys"
+    assert result.specs[0].values["single"]["color_map"] == "colorbrewer:greys"
 
 
 def test_the_aabb_spec_is_seeded_from_the_visual_not_from_defaults():
@@ -253,11 +264,11 @@ def test_dataset_info_is_appended_last_and_only_when_non_empty():
         appearance=["color_map"], dataset_info=[("Scale levels", "4")]
     )
     result = appearance_specs(_multiscale(), config)
-    assert kinds(result) == ["color_map", "aabb", "dataset_info"]
+    assert kinds(result) == ["image", "aabb", "dataset_info"]
     assert result.specs[-1].values == {"rows": [("Scale levels", "4")]}
 
     config.dataset_info = ()
-    assert kinds(appearance_specs(_multiscale(), config)) == ["color_map", "aabb"]
+    assert kinds(appearance_specs(_multiscale(), config)) == ["image", "aabb"]
 
 
 def test_dataset_info_rows_are_coerced_to_strings():
@@ -283,9 +294,7 @@ def test_titles_are_shared_by_both_front_ends():
         ),
     )
     assert [spec.title for spec in result.specs] == [
-        "Colormap",
-        "Contrast limits",
-        "Render mode",
+        "Image",
         "LOD bias",
         "Bounding box",
     ]
@@ -317,7 +326,7 @@ def test_the_same_field_name_can_mean_different_controls_per_config():
         labels_visual, _FakeLabelsConfig(appearance=["render_mode"])
     )
 
-    assert kinds(image_result)[0] == "render"
+    assert kinds(image_result)[0] == "image"
     assert kinds(labels_result)[0] == "labels_render"
     # A single-field kind carries the field's value, plus the Literal's own
     # options where it has them -- which is how one labels config serves both
@@ -328,7 +337,7 @@ def test_the_same_field_name_can_mean_different_controls_per_config():
     }
 
 
-# ── appearance_targets / channel_targets ─────────────────────────────────────
+# ── appearance_targets ─────────────────────────────────────
 
 
 class _FakeController:
@@ -361,21 +370,6 @@ def test_targets_are_every_configured_visual_in_registration_order():
     assert [t.config for t in targets] == [config_b, config_a]
     assert [t.label for t in targets] == ["second", "first"]
     assert [t.visual_ids for t in targets] == [["b"], ["a"]]
-
-
-def test_appearance_and_channel_targets_partition_the_configs():
-    image = _FakeVisual(None, visual_id="a", name="image")
-    channel = _FakeVisual(None, visual_id="b", name="cells")
-    viewer = _FakeViewer(
-        [image, channel],
-        {
-            "a": InMemoryImageControlsConfig(appearance=["clim"]),
-            "b": ChannelControlsConfig(fields=["visible"]),
-        },
-    )
-
-    assert [t.key for t in appearance_targets(viewer)] == ["a"]
-    assert [t.key for t in channel_targets(viewer)] == ["b"]
 
 
 def test_a_config_asking_for_no_panel_is_not_a_target():
@@ -421,7 +415,6 @@ def test_targets_are_empty_without_a_controller_or_a_config():
     visual = _FakeVisual(None, visual_id="a")
     assert appearance_targets(_FakeViewer([visual], {})) == []
     assert appearance_targets(object()) == []
-    assert channel_targets(object()) == []
 
 
 def test_duplicate_names_are_numbered_in_order():
@@ -525,14 +518,14 @@ def test_dataset_info_true_asks_the_store_to_describe_itself():
         MultiscaleImageControlsConfig(appearance=["color_map"], dataset_info=True),
         _FakeStore(info),
     )
-    assert kinds(result) == ["color_map", "aabb", "dataset_info"]
+    assert kinds(result) == ["image", "aabb", "dataset_info"]
     assert result.specs[-1].values == {"info": info}
 
 
 def test_dataset_info_true_without_a_store_builds_no_block():
     """A block asserting that a store has no metadata is worse than no block."""
     config = MultiscaleImageControlsConfig(appearance=["color_map"], dataset_info=True)
-    assert kinds(appearance_specs(_multiscale(), config)) == ["color_map", "aabb"]
+    assert kinds(appearance_specs(_multiscale(), config)) == ["image", "aabb"]
 
 
 def test_dataset_info_accepts_a_prebuilt_dataset_info():

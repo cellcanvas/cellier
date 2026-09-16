@@ -6,7 +6,11 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from cellier.visuals import MultiscaleImageAppearance, MultiscaleImageVisual
+from cellier.visuals import (
+    MultiscaleImageAppearance,
+    MultiscaleImageSingleAppearance,
+    MultiscaleImageVisual,
+)
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
 from tests._v2 import level_transforms, scale_and_translation
 
@@ -22,8 +26,6 @@ def _make_level_transforms_3d(factors):
 def test_image_appearance_roundtrip(tmp_path):
     # Non-default values including the new LOD/frustum fields
     original = MultiscaleImageAppearance(
-        color_map="viridis",
-        clim=(0.1, 0.9),
         lod_bias=2.0,
         force_level=1,
         frustum_cull=False,
@@ -34,10 +36,7 @@ def test_image_appearance_roundtrip(tmp_path):
     assert original.model_dump_json() == deserialized.model_dump_json()
 
     # force_level=None roundtrip
-    original_none = MultiscaleImageAppearance(
-        color_map="gray",
-        force_level=None,
-    )
+    original_none = MultiscaleImageAppearance(force_level=None)
     path2 = tmp_path / "appearance_none.json"
     path2.write_text(original_none.model_dump_json())
     deserialized_none = MultiscaleImageAppearance.model_validate_json(path2.read_text())
@@ -52,12 +51,9 @@ def test_multiscale_image_visual_roundtrip(tmp_path):
         data_store_id=store_id,
         level_transforms=transforms,
         appearance=MultiscaleImageAppearance(
-            color_map="viridis",
-            clim=(0.0, 1.0),
-            lod_bias=1.5,
-            force_level=None,
-            frustum_cull=True,
+            lod_bias=1.5, force_level=None, frustum_cull=True
         ),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     path = tmp_path / "visual.json"
     path.write_text(original.model_dump_json())
@@ -86,7 +82,8 @@ def test_multiscale_image_visual_requires_camera_reslice_true():
         name="vol",
         data_store_id="00000000-0000-0000-0000-000000000000",
         level_transforms=_make_level_transforms_3d([1, 2]),
-        appearance=MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     assert v.requires_camera_reslice is True
 
@@ -96,7 +93,8 @@ def test_requires_camera_reslice_is_frozen():
         name="vol",
         data_store_id="00000000-0000-0000-0000-000000000000",
         level_transforms=_make_level_transforms_3d([1, 2]),
-        appearance=MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     with pytest.raises((ValidationError, TypeError)):
         v.requires_camera_reslice = False
@@ -138,25 +136,27 @@ def test_visual_roundtrip_with_non_identity_transform():
         name="vol",
         data_store_id="00000000-0000-0000-0000-000000000000",
         level_transforms=_make_level_transforms_3d([1, 2]),
-        appearance=MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=MultiscaleImageAppearance(),
         transform=t,
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     json_str = v.model_dump_json()
     v2 = MultiscaleImageVisual.model_validate_json(json_str)
     np.testing.assert_allclose(v2.transform.matrix, t.matrix, atol=1e-6)
 
 
-def test_image_appearance_inherits_color_map_and_clim():
-    a = MultiscaleImageAppearance(color_map="viridis")
+def test_single_appearance_defaults_color_map_and_clim():
+    a = MultiscaleImageSingleAppearance()
     assert a.clim == (0.0, 1.0)
     assert a.color_map is not None
+    assert a.render_mode == "iso"
 
 
-def test_image_appearance_inherits_interpolation():
-    a = MultiscaleImageAppearance(color_map="viridis", interpolation="linear")
+def test_shared_appearance_carries_interpolation():
+    a = MultiscaleImageAppearance(interpolation="linear")
     assert a.interpolation == "linear"
 
 
 def test_image_appearance_interpolation_default():
-    a = MultiscaleImageAppearance(color_map="viridis")
+    a = MultiscaleImageAppearance()
     assert a.interpolation == "nearest"

@@ -1,33 +1,38 @@
 """Models for data visuals."""
 
-from cellier.visuals._base_visual import AABBParams
+from cellier.visuals._base_visual import AABBParams, VisualOutline
 from cellier.visuals._canvas_overlay import (
     CanvasOverlay,
     CenteredAxes2D,
     CenteredAxes2DAppearance,
 )
-from cellier.visuals._channel_appearance import ChannelAppearance
 from cellier.visuals._graph_memory import (
     GraphAppearance,
     GraphVisual,
     TrailConfig,
 )
 from cellier.visuals._image import (
-    MultichannelMultiscaleImageVisual,
     MultiscaleImageAppearance,
+    MultiscaleImageChannelAppearance,
     MultiscaleImageRenderConfig,
+    MultiscaleImageSingleAppearance,
     MultiscaleImageVisual,
 )
 from cellier.visuals._image_memory import (
     BaseImageAppearance,
+    BaseImageSingleAppearance,
+    BaseImageVisual,
     ImageVisual,
     InMemoryImageAppearance,
-    MultichannelImageVisual,
+    InMemoryImageChannelAppearance,
+    InMemoryImageSingleAppearance,
+    effective_transparency_mode,
 )
 from cellier.visuals._label_memory import (
     BaseLabelsAppearance,
     InMemoryLabelsAppearance,
     LabelMemoryVisual,
+    OutlineMode,
 )
 from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
@@ -48,16 +53,19 @@ from cellier.visuals._types import VisualType
 __all__ = [
     "AABBParams",
     "BaseImageAppearance",
+    "BaseImageSingleAppearance",
+    "BaseImageVisual",
     "BaseLabelsAppearance",
     "CanvasOverlay",
     "CanvasOverlayType",
     "CenteredAxes2D",
     "CenteredAxes2DAppearance",
-    "ChannelAppearance",
     "GraphAppearance",
     "GraphVisual",
     "ImageVisual",
     "InMemoryImageAppearance",
+    "InMemoryImageChannelAppearance",
+    "InMemoryImageSingleAppearance",
     "InMemoryLabelsAppearance",
     "LabelMemoryVisual",
     "LinesMemoryAppearance",
@@ -66,16 +74,19 @@ __all__ = [
     "MeshFlatAppearance",
     "MeshPhongAppearance",
     "MeshVisual",
-    "MultichannelImageVisual",
-    "MultichannelMultiscaleImageVisual",
     "MultiscaleImageAppearance",
+    "MultiscaleImageChannelAppearance",
     "MultiscaleImageRenderConfig",
+    "MultiscaleImageSingleAppearance",
     "MultiscaleImageVisual",
     "MultiscaleLabelRenderConfig",
     "MultiscaleLabelVisual",
     "MultiscaleLabelsAppearance",
+    "OutlineMode",
     "PointsMarkerAppearance",
     "PointsVisual",
     "TrailConfig",
+    "VisualOutline",
     "VisualType",
+    "effective_transparency_mode",
 ]

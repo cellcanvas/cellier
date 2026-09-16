@@ -20,6 +20,7 @@ from cellier.render.visuals import GFXMultiscaleLabelVisual
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
 from cellier.visuals import (
     MultiscaleImageAppearance,
+    MultiscaleImageSingleAppearance,
     MultiscaleImageVisual,
     MultiscaleLabelsAppearance,
     MultiscaleLabelVisual,
@@ -35,9 +36,8 @@ def _make_multiscale_image_node_2d(level_shapes):
             [[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]],
             [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
         ),
-        appearance=MultiscaleImageAppearance(
-            color_map="grays", clim=(0.0, 255.0), visible=True
-        ),
+        appearance=MultiscaleImageAppearance(visible=True),
+        single=MultiscaleImageSingleAppearance(color_map="grays", clim=(0.0, 255.0)),
     )
     gfx_visual = GFXMultiscaleImageVisual.from_cellier_model(
         model=model,
@@ -121,8 +121,9 @@ def test_multiscale_3d_volume_bounds_are_the_voxel_extent(
         visual = controller.add_image_multiscale(
             data=store,
             scene_id=scene.id,
-            appearance=MultiscaleImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+            appearance=MultiscaleImageAppearance(),
             transform=transform,
+            single=MultiscaleImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
         )
     else:
         visual = controller.add_labels_multiscale(

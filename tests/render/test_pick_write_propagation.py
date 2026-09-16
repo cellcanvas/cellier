@@ -18,8 +18,7 @@ from cellier.data.lines._lines_memory_store import LinesMemoryStore
 from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.scene.dims import spatial_axes, world_coordinate_system
-from cellier.visuals import MeshFlatAppearance
-from cellier.visuals._channel_appearance import ChannelAppearance
+from cellier.visuals import InMemoryImageChannelAppearance, MeshFlatAppearance
 
 
 def _scene(controller, axis_labels=("z", "y", "x")):
@@ -40,25 +39,27 @@ def test_label_memory_pick_write_2d_and_3d():
     assert gv._inner_node_3d.material.pick_write is True
 
 
-def test_multichannel_image_memory_pick_write_pools():
+def test_composite_image_memory_pick_write_on_every_slot():
     controller = CellierController()
     scene = _scene(controller, axis_labels=("c", "z", "y", "x"))
     store = ImageMemoryStore(data=np.zeros((2, 4, 4, 4), dtype=np.float32), name="mc")
     channels = {
-        0: ChannelAppearance(color_map="red", clim=(0.0, 1.0)),
-        1: ChannelAppearance(color_map="green", clim=(0.0, 1.0)),
+        0: InMemoryImageChannelAppearance(color_map="red"),
+        1: InMemoryImageChannelAppearance(color_map="green"),
     }
-    visual = controller.add_multichannel_image(
+    visual = controller.add_image(
         data=store,
         scene_id=scene.id,
         channel_axis=0,
+        composite=True,
         channels=channels,
         name="mci",
     )
 
     gv = controller._render_manager._scenes[scene.id].get_visual(visual.id)
-    assert all(node.material.pick_write is True for node in gv._pool_2d)
-    assert all(node.material.pick_write is True for node in gv._pool_3d)
+    assert all(
+        node.material.pick_write is True for slot in gv.slots for node in slot.nodes()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -112,26 +113,29 @@ def test_mesh_pick_write_runtime_toggle():
     assert gv._material_2d.pick_write is True
 
 
-def test_multichannel_image_memory_pick_write_runtime_toggle():
+def test_composite_image_memory_pick_write_runtime_toggle():
     controller = CellierController()
     scene = _scene(controller, axis_labels=("c", "z", "y", "x"))
     store = ImageMemoryStore(data=np.zeros((2, 4, 4, 4), dtype=np.float32), name="mc")
     channels = {
-        0: ChannelAppearance(color_map="red", clim=(0.0, 1.0)),
-        1: ChannelAppearance(color_map="green", clim=(0.0, 1.0)),
+        0: InMemoryImageChannelAppearance(color_map="red"),
+        1: InMemoryImageChannelAppearance(color_map="green"),
     }
-    visual = controller.add_multichannel_image(
+    visual = controller.add_image(
         data=store,
         scene_id=scene.id,
         channel_axis=0,
+        composite=True,
         channels=channels,
         name="mci",
     )
     gv = controller._render_manager._scenes[scene.id].get_visual(visual.id)
 
     visual.pick_write = False
-    assert all(node.material.pick_write is False for node in gv._pool_2d)
-    assert all(node.material.pick_write is False for node in gv._pool_3d)
+    assert all(
+        node.material.pick_write is False for slot in gv.slots for node in slot.nodes()
+    )
     visual.pick_write = True
-    assert all(node.material.pick_write is True for node in gv._pool_2d)
-    assert all(node.material.pick_write is True for node in gv._pool_3d)
+    assert all(
+        node.material.pick_write is True for slot in gv.slots for node in slot.nodes()
+    )

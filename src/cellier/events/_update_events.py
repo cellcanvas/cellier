@@ -38,11 +38,12 @@ class AppearanceUpdateEvent(NamedTuple):
 
 
 class DimsUpdateEvent(NamedTuple):
-    """Request to update slice indices and/or displayed axes for a scene.
+    """Request to update slice positions and/or displayed axes for a scene.
 
     Set whichever fields you want to change; leave the others as ``None``.
-    When both are set, ``slice_indices`` is applied first so that the dims
-    state is consistent when the ``displayed_axes`` mutation fires.
+    ``slice_indices`` is **merged** into the scene's positions, so it names
+    only the axes that moved.  Every axis keeps a position whatever is
+    displayed, so a 2D/3D switch sends ``displayed_axes`` alone.
 
     Fields
     ------
@@ -51,22 +52,40 @@ class DimsUpdateEvent(NamedTuple):
     scene_id :
         Target scene.
     slice_indices :
-        Mapping of axis index → slice position, or ``None`` to leave
-        the current slice indices unchanged.
+        Mapping of axis index -> world slice position for the axes that
+        moved, or ``None`` to leave every position unchanged.
     displayed_axes :
         Tuple of axis indices to display, or ``None`` to leave the
         current displayed axes unchanged.
-    stacked_axes :
-        Tuple of axis indices whose full extent is composited by the render
-        layer (e.g. channel axis), or ``None`` to leave the current
-        stacked axes unchanged.
     """
 
     source_id: UUID
     scene_id: UUID
-    slice_indices: dict[int, int] | None
+    slice_indices: dict[int, float] | None
     displayed_axes: tuple[int, ...] | None
-    stacked_axes: tuple[int, ...] | None = None
+
+
+class SliderOverrideUpdateEvent(NamedTuple):
+    """Request to force a world axis's slider shown or hidden, or clear that.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``SliderAxesChangedEvent``
+        when the effective slider axes change.
+    scene_id :
+        Target scene.
+    axis :
+        World axis index.
+    value :
+        ``True`` force-shows, ``False`` force-hides, ``None`` returns the
+        axis to automatic.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    axis: int
+    value: bool | None
 
 
 class AABBUpdateEvent(NamedTuple):
@@ -91,7 +110,7 @@ class AABBUpdateEvent(NamedTuple):
 
 
 class ChannelAppearanceUpdateEvent(NamedTuple):
-    """Request to set one appearance field on one channel of a multichannel visual.
+    """Request to set one appearance field on one channel of an image visual.
 
     Fields
     ------
@@ -113,6 +132,45 @@ class ChannelAppearanceUpdateEvent(NamedTuple):
     channel_index: int
     field: str
     value: Any
+
+
+class SingleAppearanceUpdateEvent(NamedTuple):
+    """Request to set one field on an image visual's single-mode appearance.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``SingleAppearanceChangedEvent``.
+    visual_id :
+        Target image visual.
+    field :
+        Attribute name on ``visual.single``, e.g. ``"clim"``.
+    value :
+        New value for the field.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    field: str
+    value: Any
+
+
+class ImageCompositeUpdateEvent(NamedTuple):
+    """Request to switch an image visual between single and composite mode.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``ImageCompositeChangedEvent``.
+    visual_id :
+        Target image visual.
+    composite :
+        ``True`` for composite mode, ``False`` for single mode.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    composite: bool
 
 
 class BackgroundUpdateEvent(NamedTuple):
@@ -187,14 +245,43 @@ class VisualRenderUpdateEvent(NamedTuple):
     value: Any
 
 
+class TrailUpdateEvent(NamedTuple):
+    """Request to set or clear the trail window on one axis of a graph visual.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``TrailChangedEvent`` so the
+        caller can echo-filter on its own subscription.
+    visual_id :
+        Target graph visual.
+    axis :
+        The data-axis index ``GraphVisual.trail`` keys the window by.
+    config :
+        The complete ``TrailConfig`` for *axis*, or ``None`` to remove the
+        window on that axis.  A whole config rather than one field, so one
+        event can both switch a window on and say what it looks like.  Pass a
+        config no other visual holds: the controller may adopt the object.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    axis: int
+    config: Any
+
+
 CellierUpdateEventTypes = (
     AppearanceUpdateEvent
     | DimsUpdateEvent
+    | SliderOverrideUpdateEvent
     | AABBUpdateEvent
     | ChannelAppearanceUpdateEvent
+    | SingleAppearanceUpdateEvent
+    | ImageCompositeUpdateEvent
     | BackgroundUpdateEvent
     | RenderConfigUpdateEvent
     | VisualRenderUpdateEvent
+    | TrailUpdateEvent
 )
 
 

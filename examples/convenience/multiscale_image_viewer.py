@@ -44,7 +44,7 @@ from cellier.convenience import (
 from cellier.convenience.gui import MultiscaleImageControlsConfig, build_canvas_widget
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
 from cellier.scene.dims import spatial_axes
-from cellier.visuals import MultiscaleImageAppearance
+from cellier.visuals import MultiscaleImageAppearance, MultiscaleImageSingleAppearance
 
 # ---------------------------------------------------------------------------
 # Data helpers
@@ -124,12 +124,14 @@ viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d")
 viewer.add_image_multiscale(
     store,
     appearance=MultiscaleImageAppearance(
+        lod_bias=1.0,
+        attenuation=1.0,
+    ),
+    single=MultiscaleImageSingleAppearance(
         color_map="viridis",
         clim=(0.0, 1.0),
         render_mode="iso",
         iso_threshold=0.45,
-        lod_bias=1.0,
-        attenuation=1.0,
     ),
     controls=MultiscaleImageControlsConfig(
         appearance=[

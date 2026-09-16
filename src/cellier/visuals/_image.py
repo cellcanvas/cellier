@@ -1,153 +1,127 @@
-"""Visuals for representing image data."""
+"""Multiscale image visual models (unified image design 3.1)."""
 
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from cellier.transform import AffineTransform
-from cellier.visuals._base_visual import BaseVisual
-from cellier.visuals._channel_appearance import ChannelAppearance
-from cellier.visuals._image_memory import BaseImageAppearance
+from cellier.visuals._image_memory import (
+    BaseImageAppearance,
+    BaseImageSingleAppearance,
+    BaseImageVisual,
+)
 
 
 class MultiscaleImageAppearance(BaseImageAppearance):
-    """Appearance parameters for a multiscale image visual.
+    """Shared appearance of a multiscale image visual.
 
-    Extends ``BaseImageAppearance`` with LOD-control and volume rendering
-    fields needed for multiscale brick-streamed visuals.
+    Adds the fields both modes share on a brick-streamed visual.
 
     Parameters
     ----------
-    color_map : cmap.Colormap
-        Inherited from ``BaseImageAppearance``.
-    clim : tuple[float, float]
-        Inherited from ``BaseImageAppearance``.
-    interpolation : str
-        Inherited from ``BaseImageAppearance``. Controls the shader sampler filter.
-    lod_bias : float
-        Multiplier on the screen-space LOD threshold. Default 1.0.
-    force_level : int | None
-        Overrides automatic LOD selection when set. Default None.
-    frustum_cull : bool
-        Skip bricks outside the camera frustum. Default True.
-    iso_threshold : float
-        Isosurface threshold for 3D raycast rendering. Default 0.2.
-    render_mode : str
-        Volume rendering mode. Default ``"iso"``.
     attenuation : float
-        Depth attenuation coefficient for ``"attenuated_mip"`` mode.
+        Depth attenuation coefficient for ``"attenuated_mip"``.  Default 1.0.
+    lod_bias : float
+        Divisor on the screen-space LOD threshold: higher is coarser.
         Default 1.0.
+    force_level : int or None
+        Overrides automatic LOD selection when set.  Default None.
+    frustum_cull : bool
+        Skip bricks outside the camera frustum.  Default True.
     """
 
+    attenuation: float = 1.0
     lod_bias: float = 1.0
     force_level: int | None = None
     frustum_cull: bool = True
-    iso_threshold: float = 0.2
+
+
+class MultiscaleImageSingleAppearance(BaseImageSingleAppearance):
+    """Single-mode appearance of a multiscale image visual.
+
+    Parameters
+    ----------
+    render_mode : str
+        ``"iso"`` (default), ``"mip"``, ``"smooth_iso"`` or
+        ``"attenuated_mip"``.
+    iso_threshold : float
+        Isosurface threshold.  Default 0.2.
+    """
+
     render_mode: Literal["iso", "mip", "smooth_iso", "attenuated_mip"] = "iso"
-    attenuation: float = 1.0
+    iso_threshold: float = 0.2
+
+
+class MultiscaleImageChannelAppearance(MultiscaleImageSingleAppearance):
+    """One channel's appearance on a multiscale image, in composite mode.
+
+    Parameters
+    ----------
+    visible : bool
+        Whether composite mode draws this channel.  Default ``True``.
+    """
+
+    visible: bool = True
 
 
 class MultiscaleImageRenderConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
     """Render-layer configuration for a multiscale image visual.
 
-    These parameters control GPU resource allocation and shader selection.
-    They are stored in the model so they round-trip through serialization.
+    These parameters control GPU resource allocation.  They are stored in the
+    model so they round-trip through serialization.
 
     Parameters
     ----------
     block_size : int
         Brick / tile side length in voxels. Default 32.
     gpu_budget_bytes : int
-        Maximum GPU memory for the 3-D brick cache. Default 1 GiB.
+        Maximum GPU memory for the 3-D brick caches, split evenly between the
+        channels the visual can draw -- its ``channels``, not the slot pool's
+        ``max_channels``, so an unused slot takes no budget from a drawing
+        one.  A visual with no channel axis, or none configured, gets all of
+        it. Default 1 GiB.
     gpu_budget_bytes_2d : int
-        Maximum GPU memory for the 2-D tile cache. Default 64 MiB.
-    paint_max_tiles : int
-        Maximum number of finest-level tiles that can be simultaneously
-        painted on during one paint session.  Each slot consumes
-        ``block_size**2 * 2 * 4`` bytes of GPU memory (e.g. 8 KB at
-        block_size=32).  Default 512 = 4 MB.  When exhausted during a
-        session, further paint is staged to the WriteBuffer (and persisted
-        on commit) but invisible until commit.
+        Maximum GPU memory for the 2-D tile caches, split likewise.
+        Default 64 MiB.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     block_size: int = 32
     gpu_budget_bytes: int = 1 * 1024**3
     gpu_budget_bytes_2d: int = 64 * 1024**2
-    paint_max_tiles: int = 512
 
 
-class MultiscaleImageVisual(BaseVisual):
+class MultiscaleImageVisual(BaseImageVisual):
     """Model for a multiscale image visual.
 
     Parameters
     ----------
     visual_type : Literal["multiscale_image"]
         Discriminator field. Always ``"multiscale_image"``.
-    name : str
-        The name of the visual
-    data_store_id : str
-        The id of the data store to be visualized.
     level_transforms : list[AffineTransform]
-        Per-level transforms mapping level-k voxel coords to level-0
-        voxel coords.  ``level_transforms[0]`` is the identity.  Copied from
-        the data store by the controller, which is the only object that has
-        both the store and the scene.
+        Per-level transforms mapping level-k voxel coords to level-0 voxel
+        coords.  Copied from the data store by the controller.
     appearance : MultiscaleImageAppearance
-        The material to use for the labels visual.
-    pick_write : bool
-        If True, the visual can be picked.
-        Default value is True.
-    id : str
-        The unique id of the visual.
-        The default value is a uuid4-generated hex string.
-        Do not populate this field manually.
+        Shared by both modes.
+    single : MultiscaleImageSingleAppearance
+        Single mode's appearance.
+    channels : dict[int, MultiscaleImageChannelAppearance]
+        Composite mode's per-channel appearances.
+    render_config : MultiscaleImageRenderConfig
+        GPU cache configuration.
     """
 
     visual_type: Literal["multiscale_image"] = "multiscale_image"
     level_transforms: list[AffineTransform]
-    appearance: MultiscaleImageAppearance
+    appearance: MultiscaleImageAppearance = Field(
+        default_factory=MultiscaleImageAppearance
+    )
+    single: MultiscaleImageSingleAppearance = Field(
+        default_factory=MultiscaleImageSingleAppearance
+    )
+    channels: dict[int, MultiscaleImageChannelAppearance] = Field(default_factory=dict)
     render_config: MultiscaleImageRenderConfig = Field(
         default_factory=MultiscaleImageRenderConfig
     )
-    requires_camera_reslice: bool = Field(default=True, frozen=True)
-
-
-class MultichannelMultiscaleImageVisual(BaseVisual):
-    """Model-layer visual for a multichannel multiscale image.
-
-    Parameters
-    ----------
-    channel_axis : int
-        Data-axis index for the channel dimension. Immutable after construction.
-    channels : dict[int, ChannelAppearance]
-        Per-channel appearance; keys are channel indices.
-    interpolation : str
-        Texture sampler filter applied to all channels. ``"nearest"`` or
-        ``"linear"``. Default ``"nearest"``.
-    level_transforms : list[AffineTransform]
-        Per-level voxel-level-k -> voxel-level-0 transforms, copied from the
-        data store by the controller.
-    render_config : MultiscaleImageRenderConfig
-        Render-layer brick cache and LOD configuration.
-    max_channels_2d : int
-        2D node pool size. Default 8.
-    max_channels_3d : int
-        3D node pool size. Default 4.
-    requires_camera_reslice : bool
-        Always ``True`` (frozen). Camera movement triggers reslicing.
-    """
-
-    visual_type: Literal["multichannel_multiscale_image"] = (
-        "multichannel_multiscale_image"
-    )
-    channel_axis: int = Field(frozen=True)
-    channels: dict[int, ChannelAppearance]
-    interpolation: Literal["linear", "nearest"] = "nearest"
-    level_transforms: list[AffineTransform]
-    render_config: MultiscaleImageRenderConfig = Field(
-        default_factory=MultiscaleImageRenderConfig
-    )
-    max_channels_2d: int = 8
-    max_channels_3d: int = 4
     requires_camera_reslice: bool = Field(default=True, frozen=True)

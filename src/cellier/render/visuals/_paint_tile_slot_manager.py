@@ -1,4 +1,4 @@
-"""Slot allocator for the multiscale-image GPU paint cache."""
+"""Slot allocator for the multiscale-labels GPU paint cache."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ class PaintTileSlotManager:
     Parameters
     ----------
     max_slots : int
-        Pool size (== ``MultiscaleImageRenderConfig.paint_max_tiles``).
+        Pool size (== ``MultiscaleLabelRenderConfig.paint_max_tiles``).
     """
 
     def __init__(self, max_slots: int) -> None:
@@ -55,7 +55,7 @@ class PaintTileSlotManager:
                 _logger.warning(
                     "PaintTileSlotManager: paint_max_tiles=%d exhausted; "
                     "subsequent paint will not be visible until commit. "
-                    "Increase MultiscaleImageRenderConfig.paint_max_tiles "
+                    "Increase MultiscaleLabelRenderConfig.paint_max_tiles "
                     "to raise the limit.",
                     self._max_slots,
                 )

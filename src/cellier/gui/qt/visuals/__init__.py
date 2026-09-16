@@ -15,10 +15,8 @@ from cellier.gui.qt.visuals._base import (
     QtIntSpin,
     QtToggle,
 )
-from cellier.gui.qt.visuals._channel import QtChannelList
+from cellier.gui.qt.visuals._chrome import labelled_row, titled_group
 from cellier.gui.qt.visuals._color import QtUniformColorPicker
-from cellier.gui.qt.visuals._colormap import QtColormapCombo
-from cellier.gui.qt.visuals._contrast_limits import QtClimRangeSlider
 from cellier.gui.qt.visuals._graph import (
     QtEdgeColorPicker,
     QtEdgeThicknessSpaceCombo,
@@ -29,11 +27,7 @@ from cellier.gui.qt.visuals._graph import (
     QtNodeSizeSpin,
     QtNodeVisibleToggle,
 )
-from cellier.gui.qt.visuals._image import (
-    QtIsoThresholdSlider,
-    QtRenderModeCombo,
-    QtVolumeRenderControls,
-)
+from cellier.gui.qt.visuals._image_controls import QtImageControls
 from cellier.gui.qt.visuals._labels import (
     QtBackgroundLabelSpin,
     QtLabelsRenderModeCombo,
@@ -56,6 +50,7 @@ from cellier.gui.qt.visuals._points import (
     QtSizeSpaceCombo,
     QtSizeSpin,
 )
+from cellier.gui.qt.visuals._trail import QtTrailControls
 from cellier.gui.qt.visuals._visible import QtVisibleToggle
 
 __all__ = [
@@ -63,19 +58,16 @@ __all__ = [
     "QtAppearanceField",
     "QtBackgroundLabelSpin",
     "QtBoundedSlider",
-    "QtChannelList",
     "QtChoice",
-    "QtClimRangeSlider",
     "QtColorPicker",
-    "QtColormapCombo",
     "QtEdgeColorPicker",
     "QtEdgeThicknessSpaceCombo",
     "QtEdgeThicknessSpin",
     "QtEdgeVisibleToggle",
     "QtFlatShadingToggle",
     "QtFloatSpin",
+    "QtImageControls",
     "QtIntSpin",
-    "QtIsoThresholdSlider",
     "QtLabelsRenderModeCombo",
     "QtLodBiasSlider",
     "QtNodeColorPicker",
@@ -83,7 +75,6 @@ __all__ = [
     "QtNodeSizeSpin",
     "QtNodeVisibleToggle",
     "QtOpacitySlider",
-    "QtRenderModeCombo",
     "QtSaltSpin",
     "QtShininessSpin",
     "QtSideCombo",
@@ -92,9 +83,11 @@ __all__ = [
     "QtThicknessSpaceCombo",
     "QtThicknessSpin",
     "QtToggle",
+    "QtTrailControls",
     "QtUniformColorPicker",
     "QtVisibleToggle",
-    "QtVolumeRenderControls",
     "QtWireframeThicknessSpin",
     "QtWireframeToggle",
+    "labelled_row",
+    "titled_group",
 ]

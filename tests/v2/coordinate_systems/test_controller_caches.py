@@ -15,6 +15,7 @@ from cellier.controller import CellierController
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.scene.dims import spatial_axes
 from cellier.transform import RenderedCoordinateSystem
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
@@ -31,7 +32,8 @@ def controller_with_canvas():
     visual = controller.add_image(
         data=store,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="gray", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="gray", clim=(0.0, 1.0)),
     )
     canvas_id = controller.get_canvas_ids(scene.id)[0]
     return controller, scene, canvas_id, visual, store
@@ -178,8 +180,9 @@ def test_two_visuals_over_one_store_get_distinct_spaces(controller_with_canvas):
     second = controller.add_image(
         data=store,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="gray", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
         name="second",
+        single=InMemoryImageSingleAppearance(color_map="gray", clim=(0.0, 1.0)),
     )
     one = controller._visual_spaces[(first.id, "3d")]
     two = controller._visual_spaces[(second.id, "3d")]

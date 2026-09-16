@@ -326,6 +326,23 @@ def _ngff_coordinate_systems(
     return level_systems(data_coordinate_system, n_levels, name)
 
 
+def _omero_channel_labels(metadata: Any) -> list[str] | None:
+    """The channel labels an image's ``omero`` block names, or ``None``.
+
+    ``omero`` is transitional NGFF metadata, but it is where OME-Zarr writers
+    put channel names.  A channel listed without a label is called by its
+    index, so the result has one entry per listed channel.
+    """
+    omero = getattr(metadata, "omero", None)
+    channels = getattr(omero, "channels", None)
+    if not channels:
+        return None
+    return [
+        str(channel.label) if getattr(channel, "label", None) else str(index)
+        for index, channel in enumerate(channels)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # OMEZarrImageDataStore
 # ---------------------------------------------------------------------------
@@ -360,6 +377,10 @@ class OMEZarrImageDataStore(BaseDataStore):
     physical_translation : list[float]
         Level-0 data-to-world translation per axis, the companion to
         ``physical_scale``.  Empty when not known.
+    channel_labels : list[str] or None
+        One name per channel, in channel-index order, from the image's
+        ``omero`` metadata.  ``None`` when the image has no ``omero`` block.
+        ``axis_values_from_viewer`` uses them to label a channel slider.
     name : str
         Human-readable name for the store.
     id : UUID4
@@ -383,6 +404,7 @@ class OMEZarrImageDataStore(BaseDataStore):
     scale_names: list[str]
     physical_scale: list[float] = Field(default_factory=list)
     physical_translation: list[float] = Field(default_factory=list)
+    channel_labels: list[str] | None = None
     anonymous: bool = False
     name: str = "ome zarr image data store"
 
@@ -515,6 +537,7 @@ class OMEZarrImageDataStore(BaseDataStore):
         return cls(
             zarr_path=zarr_path,
             multiscale_index=multiscale_index,
+            channel_labels=_omero_channel_labels(metadata),
             scale_names=[ds.path for ds in ms.datasets],
             level_scales=level_scales,
             level_translations=level_translations,

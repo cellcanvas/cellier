@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 
 from cellier.controller import CellierController
-from cellier.data.image._image_memory_store import ImageMemoryStore
+from cellier.data.label._label_memory_store import LabelMemoryStore
 from cellier.paint._history import PaintStrokeCommand
 from cellier.scene.dims import spatial_axes, world_coordinate_system
-from cellier.visuals._image_memory import InMemoryImageAppearance
+from cellier.visuals._label_memory import InMemoryLabelsAppearance
 
 if TYPE_CHECKING:
     from cellier.paint import SyncPaintController
@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def paint_setup(qtbot):
-    """Build a 2D scene/canvas/visual and a SyncPaintController.
+    """Build a 2D scene/canvas/labels visual and a SyncPaintController.
 
-    The fixture is ``async`` so pytest-asyncio (mode=auto) installs an
-    event loop — ``reslice_scene`` calls ``asyncio.ensure_future`` from
+    The tests are ``async`` so pytest-asyncio (mode=auto) installs an
+    event loop -- ``reslice_scene`` calls ``asyncio.ensure_future`` from
     within ``_write_values``, and a running loop is required.
     """
     controller = CellierController()
@@ -34,14 +34,13 @@ def paint_setup(qtbot):
         render_modes={"2d"},
     )
 
-    data = np.zeros((32, 32), dtype=np.float32)
-    store = ImageMemoryStore(data=data, name="paint_store")
-    appearance = InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0))
-    visual = controller.add_image(
+    data = np.zeros((32, 32), dtype=np.int32)
+    store = LabelMemoryStore(data=data, name="paint_store")
+    visual = controller.add_labels(
         data=store,
         scene_id=scene.id,
-        appearance=appearance,
-        name="paint_image",
+        appearance=InMemoryLabelsAppearance(),
+        name="paint_labels",
     )
 
     controller.add_canvas(scene_id=scene.id)
@@ -50,7 +49,7 @@ def paint_setup(qtbot):
     paint_ctrl = controller.add_paint_controller(
         visual_id=visual.id,
         canvas_id=canvas_id,
-        brush_value=1.0,
+        brush_value=1,
         brush_radius_voxels=2.0,
     )
     return controller, paint_ctrl, store, canvas_id
@@ -77,44 +76,44 @@ def _push_stroke(
 async def test_brush_paints_voxels(paint_setup):
     _controller, paint_ctrl, store, _canvas_id = paint_setup
     indices = np.array([[5, 5], [5, 6], [6, 5]], dtype=np.int64)
-    values = np.array([1.0, 1.0, 1.0], dtype=np.float32)
+    values = np.array([1, 1, 1], dtype=np.int32)
 
     paint_ctrl._write_values(indices, values)
 
-    assert store.data[5, 5] == pytest.approx(1.0)
-    assert store.data[5, 6] == pytest.approx(1.0)
-    assert store.data[6, 5] == pytest.approx(1.0)
+    assert store.data[5, 5] == 1
+    assert store.data[5, 6] == 1
+    assert store.data[6, 5] == 1
 
 
 async def test_undo_reverts_voxels(paint_setup):
     _controller, paint_ctrl, store, _canvas_id = paint_setup
     indices = np.array([[10, 10], [10, 11]], dtype=np.int64)
     old = paint_ctrl._read_old_values(indices)
-    new = np.array([1.0, 1.0], dtype=np.float32)
+    new = np.array([1, 1], dtype=np.int32)
 
     paint_ctrl._write_values(indices, new)
     _push_stroke(paint_ctrl, indices, old, new)
 
     paint_ctrl.undo()
 
-    assert store.data[10, 10] == pytest.approx(0.0)
-    assert store.data[10, 11] == pytest.approx(0.0)
+    assert store.data[10, 10] == 0
+    assert store.data[10, 11] == 0
 
 
 async def test_redo_replays_voxels(paint_setup):
     _controller, paint_ctrl, store, _canvas_id = paint_setup
     indices = np.array([[20, 20]], dtype=np.int64)
     old = paint_ctrl._read_old_values(indices)
-    new = np.array([1.0], dtype=np.float32)
+    new = np.array([1], dtype=np.int32)
     paint_ctrl._write_values(indices, new)
     _push_stroke(paint_ctrl, indices, old, new)
 
     paint_ctrl.undo()
-    assert store.data[20, 20] == pytest.approx(0.0)
+    assert store.data[20, 20] == 0
 
     paint_ctrl.redo()
 
-    assert store.data[20, 20] == pytest.approx(1.0)
+    assert store.data[20, 20] == 1
 
 
 async def test_abort_reverts_all_strokes(paint_setup):
@@ -122,16 +121,16 @@ async def test_abort_reverts_all_strokes(paint_setup):
     for r, c in [(3, 3), (4, 4)]:
         idx = np.array([[r, c]], dtype=np.int64)
         old = paint_ctrl._read_old_values(idx)
-        new = np.array([1.0], dtype=np.float32)
+        new = np.array([1], dtype=np.int32)
         paint_ctrl._write_values(idx, new)
         _push_stroke(paint_ctrl, idx, old, new)
-    assert store.data[3, 3] == pytest.approx(1.0)
-    assert store.data[4, 4] == pytest.approx(1.0)
+    assert store.data[3, 3] == 1
+    assert store.data[4, 4] == 1
 
     paint_ctrl.abort()
 
-    assert store.data[3, 3] == pytest.approx(0.0)
-    assert store.data[4, 4] == pytest.approx(0.0)
+    assert store.data[3, 3] == 0
+    assert store.data[4, 4] == 0
     assert paint_ctrl._history.can_undo is False
 
 
@@ -141,8 +140,8 @@ async def test_commit_clears_history(paint_setup):
     _push_stroke(
         paint_ctrl,
         idx,
-        np.array([0.0], dtype=np.float32),
-        np.array([1.0], dtype=np.float32),
+        np.array([0], dtype=np.int32),
+        np.array([1], dtype=np.int32),
     )
     assert paint_ctrl._history.can_undo is True
 
@@ -177,8 +176,8 @@ async def test_camera_controller_restored_on_abort(paint_setup):
     assert canvas_view._controller.enabled is True
 
 
-async def test_add_paint_controller_unsupported_store_raises(qtbot):
-    """Non-ImageMemoryStore visuals raise TypeError in Phase 2."""
+async def test_add_paint_controller_unsupported_visual_raises(qtbot):
+    """A visual type with no paint controller raises TypeError."""
     from cellier.data.points._points_memory_store import PointsMemoryStore
     from cellier.visuals._points_memory import PointsMarkerAppearance
 

@@ -1,5 +1,5 @@
-// Dims anywidget ESM.  Renders one labeled range slider per non-displayed
-// axis -- continuous over [min, max], or stepping through a discrete axis's
+// Dims anywidget ESM.  Renders one labeled range slider per slider axis
+// that is not displayed -- continuous over [min, max], or stepping through a discrete axis's
 // listed values -- plus an optional 2D/3D toggle button.  All the axis-slice logic
 // extracted from panel.js so dims can live in a separate widget below the
 // canvas while appearance controls stay on the left.
@@ -183,13 +183,12 @@ function render({ model, el }) {
 
   function updateVisibility() {
     const displayed = (model.get("displayed_axes") || []).map(String);
-    const stacked = (model.get("stacked_axes") || []).map(String);
-    const nondisp = (model.get("non_displayed") || []).map(String);
+    // null means every axis gets a slider (a panel built without a scene).
+    const sliderAxes = model.get("slider_axes");
+    const sliders = sliderAxes == null ? null : sliderAxes.map(String);
     for (const axis of Object.keys(rows)) {
       const hidden =
-        displayed.includes(axis) ||
-        stacked.includes(axis) ||
-        nondisp.includes(axis);
+        displayed.includes(axis) || (sliders !== null && !sliders.includes(axis));
       rows[axis].row.style.display = hidden ? "none" : "";
     }
   }
@@ -237,8 +236,7 @@ function render({ model, el }) {
   model.on("change:slice_indices", syncValues);
   model.on("change:discrete_index", syncDiscrete);
   model.on("change:displayed_axes", updateVisibility);
-  model.on("change:stacked_axes", updateVisibility);
-  model.on("change:non_displayed", updateVisibility);
+  model.on("change:slider_axes", updateVisibility);
   model.on("change:label", updateToggle);
   model.on("change:has_toggle", updateToggle);
 }

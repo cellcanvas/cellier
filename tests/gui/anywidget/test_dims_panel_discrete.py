@@ -85,8 +85,8 @@ def test_inbound_positions_show_the_nearest_value_without_emitting():
     assert emitted == []
 
 
-def test_toggle_hands_over_the_shown_value():
-    """Matches ``QtDimsControl.current_index`` for the same inbound position."""
+def test_toggle_sends_only_the_displayed_axes():
+    """The model keeps every position (D36), so the toggle hands over none."""
     panel = _make_panel(displayed=(0, 1, 2), with_toggle=True)
     panel._on_dims_changed(
         _event(panel._scene_id, slices={0: 0.7}, displayed=(0, 1, 2))
@@ -96,7 +96,8 @@ def test_toggle_hands_over_the_shown_value():
 
     panel._clicks += 1
 
-    assert emitted[-1].slice_indices[0] == 1.0
+    assert emitted[-1].slice_indices is None
+    assert emitted[-1].displayed_axes == (1, 2)
 
 
 def test_bare_pairs_are_rejected():

@@ -1,4 +1,4 @@
-"""Synchronous in-memory paint controller for ImageMemoryStore and LabelMemoryStore."""
+"""Synchronous in-memory paint controller for LabelMemoryStore."""
 
 from __future__ import annotations
 
@@ -12,13 +12,12 @@ if TYPE_CHECKING:
     import numpy as np
 
     from cellier.controller import CellierController
-    from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.data.label._label_memory_store import LabelMemoryStore
     from cellier.paint._history import PaintStrokeCommand
 
 
 class SyncPaintController(AbstractPaintController):
-    """Paint controller for :class:`ImageMemoryStore` and :class:`LabelMemoryStore`.
+    """Paint controller for :class:`LabelMemoryStore`.
 
     Directly and synchronously mutates the backing numpy array on every
     brush application, then calls
@@ -32,7 +31,7 @@ class SyncPaintController(AbstractPaintController):
     visual_id : UUID
     scene_id : UUID
     canvas_id : UUID
-    data_store : ImageMemoryStore | LabelMemoryStore
+    data_store : LabelMemoryStore
         The store whose ``.data`` array is painted directly.
     displayed_axes : tuple[int, int]
         The two data-array axes currently displayed in 2D for the bound
@@ -48,13 +47,13 @@ class SyncPaintController(AbstractPaintController):
         visual_id: UUID,
         scene_id: UUID,
         canvas_id: UUID,
-        data_store: ImageMemoryStore | LabelMemoryStore,
+        data_store: LabelMemoryStore,
         displayed_axes: tuple[int, ...],
         brush_value: int = 1,
         brush_radius_voxels: float = 2.0,
         history_depth: int = 100,
     ) -> None:
-        self._data_store: ImageMemoryStore | LabelMemoryStore = data_store
+        self._data_store: LabelMemoryStore = data_store
         self._data_shape = data_store.shape
         self._displayed_axes: tuple[int, int] = tuple(displayed_axes)  # type: ignore[assignment]
         self._store_dtype: np.dtype = data_store.data.dtype

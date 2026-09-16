@@ -10,6 +10,7 @@ import numpy as np
 from cellier._state import AxisAlignedSelectionState, DimsState
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.image._image_requests import ChunkRequest
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import ImageVisual, InMemoryImageAppearance
 from tests._v2 import Context
 
@@ -23,7 +24,7 @@ def _make_store(shape=(10, 20, 30)) -> ImageMemoryStore:
 
 
 def _make_appearance() -> InMemoryImageAppearance:
-    return InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0))
+    return InMemoryImageAppearance()
 
 
 def _make_visual_model(store: ImageMemoryStore) -> ImageVisual:
@@ -331,8 +332,8 @@ def test_identity_transform_preserves_slice_index(mock_gfx):
 
 
 @patch("cellier.render.visuals._image_memory.gfx")
-def test_slice_index_clamped_to_store_bounds(mock_gfx):
-    """Transformed slice index should be clamped to valid range."""
+def test_slice_index_outside_store_bounds_draws_nothing(mock_gfx):
+    """A transformed slice index outside the data plans nothing (design 3.2)."""
     from cellier.render.visuals import GFXImageMemoryVisual
 
     store = _make_store(shape=(10, 20, 30))
@@ -348,7 +349,7 @@ def test_slice_index_clamped_to_store_bounds(mock_gfx):
         axis_labels=("z", "y", "x"),
         selection=AxisAlignedSelectionState(
             displayed_axes=(1, 2),
-            # world z=5, data z=10 → clamped to 9
+            # world z=5, data z=10 -> past the last plane
         ),
     )
     requests = visual.build_slice_request_2d(
@@ -360,7 +361,8 @@ def test_slice_index_clamped_to_store_bounds(mock_gfx):
         dims_state=dims,
         selection=ctx.selection,
     )
-    assert requests[0].axis_selections[0] == 9  # clamped
+    assert requests == []
+    assert visual._slice_empty is True
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +556,8 @@ def _make_iso_model(store, render_mode="iso", iso_threshold=0.5):
     return ImageVisual(
         name="test",
         data_store_id=str(store.id),
-        appearance=InMemoryImageAppearance(
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(
             color_map="viridis",
             clim=(0.0, 1.0),
             render_mode=render_mode,
@@ -565,7 +568,9 @@ def _make_iso_model(store, render_mode="iso", iso_threshold=0.5):
 
 def test_appearance_render_mode_defaults():
     """Default render_mode is mip; iso_threshold defaults to 0.5."""
-    appearance = InMemoryImageAppearance(color_map="viridis")
+    from cellier.visuals import InMemoryImageSingleAppearance
+
+    appearance = InMemoryImageSingleAppearance(color_map="viridis")
     assert appearance.render_mode == "mip"
     assert appearance.iso_threshold == 0.5
 
@@ -608,27 +613,27 @@ def test_3d_material_minip():
     assert isinstance(visual._inner_node_3d.material, gfx.VolumeMinipMaterial)
 
 
-def test_on_appearance_changed_render_mode_swaps_material():
+def test_single_render_mode_change_swaps_material():
     """Changing render_mode swaps the 3D material and preserves settings."""
     import pygfx as gfx
 
-    from cellier.events._events import AppearanceChangedEvent
+    from cellier.events._events import SingleAppearanceChangedEvent
     from cellier.render.visuals import GFXImageMemoryVisual
 
     store = _make_store(shape=(4, 5, 6))
     model = _make_visual_model(store)  # defaults to mip
+    model.single.opacity = 0.5
     visual = GFXImageMemoryVisual(model, store, render_modes={"3d"})
-    visual._inner_node_3d.material.opacity = 0.5
 
     assert isinstance(visual._inner_node_3d.material, gfx.VolumeMipMaterial)
 
-    visual.on_appearance_changed(
-        AppearanceChangedEvent(
+    model.single.render_mode = "iso"
+    visual.on_single_appearance_changed(
+        SingleAppearanceChangedEvent(
             source_id=uuid4(),
             visual_id=model.id,
             field_name="render_mode",
             new_value="iso",
-            requires_reslice=False,
         )
     )
 
@@ -639,21 +644,21 @@ def test_on_appearance_changed_render_mode_swaps_material():
     assert tuple(new_material.clim) == (0.0, 1.0)
 
 
-def test_on_appearance_changed_iso_threshold_updates_material():
-    from cellier.events._events import AppearanceChangedEvent
+def test_single_iso_threshold_change_updates_material():
+    from cellier.events._events import SingleAppearanceChangedEvent
     from cellier.render.visuals import GFXImageMemoryVisual
 
     store = _make_store(shape=(4, 5, 6))
     model = _make_iso_model(store, render_mode="iso", iso_threshold=0.5)
     visual = GFXImageMemoryVisual(model, store, render_modes={"3d"})
 
-    visual.on_appearance_changed(
-        AppearanceChangedEvent(
+    model.single.iso_threshold = 0.8
+    visual.on_single_appearance_changed(
+        SingleAppearanceChangedEvent(
             source_id=uuid4(),
             visual_id=model.id,
             field_name="iso_threshold",
             new_value=0.8,
-            requires_reslice=False,
         )
     )
 

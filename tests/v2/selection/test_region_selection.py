@@ -94,21 +94,21 @@ async def test_an_explicit_thickness_makes_a_slab(viewer):
     assert box.max_coordinate[0] == pytest.approx(5.5)
 
 
-def test_a_stacked_axis_is_left_unbounded(viewer):
-    """D5: ``stacked_axes`` selects which channel planes are composited, not
-    which region of space is fetched, so it never enters the region."""
+def test_a_displayed_axis_position_is_left_unbounded(viewer):
+    """D36: a displayed axis keeps a stored position, which never bounds the
+    region -- it is drawn, not sliced."""
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
         coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")], dim="3d"
     )
-    scene.dims.selection.slice_indices = {}
-    scene.dims.selection.stacked_axes = (0,)
+    controller.update_slice_indices(scene.id, {1: 4.0, 2: 5.0, 3: 6.0})
     controller.add_canvas(scene.id)
     canvas_id = controller.get_canvas_ids(scene.id)[0]
     rendered, embedding = controller._rendered[canvas_id]
     box = scene.dims.to_selection(rendered, embedding).region.bounding_box()
-    assert box.min_coordinate[0] == -np.inf
-    assert box.max_coordinate[0] == np.inf
+    for axis in (1, 2, 3):
+        assert box.min_coordinate[axis] == -np.inf
+        assert box.max_coordinate[axis] == np.inf
 
 
 def test_the_embedding_never_declares_a_broadcast_axis(viewer):

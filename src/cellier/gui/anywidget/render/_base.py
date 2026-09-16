@@ -7,7 +7,7 @@ ranges and explanations exist once and neither toolkit can quietly grow a
 control the other lacks.
 
 One panel is one ``AnyWidget`` with one flattened, synced trait per field,
-following ``AnywidgetChannelList`` rather than a single nested dict: a
+following the former per-channel list rather than a single nested dict: a
 scalar trait per control is what lets the JS observe exactly the one that
 changed.  A dotted config path (``selection.inward_thickness``) is not a
 legal trait name, so it is spelled with a double underscore

@@ -12,6 +12,7 @@ from cellier.convenience import ContinuousAxisValues, Viewer, axis_values_from_v
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
@@ -24,8 +25,9 @@ def _add_image(viewer: Viewer, data: np.ndarray, name: str = "img"):
     viewer.controller.add_data_store(store)
     viewer.add_image(
         store,
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
         name=name,
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
     return store
 

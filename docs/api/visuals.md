@@ -3,18 +3,29 @@
 Visuals describe how a data store is rendered, together with the appearance
 models that configure their look.
 
-## In-memory image
+## Images
+
+One image visual draws single-channel or composited.  `channel_axis` names
+the data axis channels lie along; `composite` picks the mode.  The shared
+appearance applies to both modes, `single` to single mode, and `channels`
+to composite mode (one appearance per channel index).
+
+::: cellier.visuals.BaseImageAppearance
+::: cellier.visuals.effective_transparency_mode
+
+### In-memory image
 
 ::: cellier.visuals.ImageVisual
-::: cellier.visuals.MultichannelImageVisual
-::: cellier.visuals.BaseImageAppearance
 ::: cellier.visuals.InMemoryImageAppearance
+::: cellier.visuals.InMemoryImageSingleAppearance
+::: cellier.visuals.InMemoryImageChannelAppearance
 
-## Multiscale image
+### Multiscale image
 
 ::: cellier.visuals.MultiscaleImageVisual
-::: cellier.visuals.MultichannelMultiscaleImageVisual
 ::: cellier.visuals.MultiscaleImageAppearance
+::: cellier.visuals.MultiscaleImageSingleAppearance
+::: cellier.visuals.MultiscaleImageChannelAppearance
 ::: cellier.visuals.MultiscaleImageRenderConfig
 
 ## In-memory labels
@@ -56,5 +67,4 @@ models that configure their look.
 ## Common
 
 ::: cellier.visuals.AABBParams
-::: cellier.visuals.ChannelAppearance
 ::: cellier.visuals.VisualType

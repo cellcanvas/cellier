@@ -14,6 +14,7 @@ import pytest
 from cellier.controller import CellierController
 from cellier.convenience import screenshot_window
 from cellier.data.image._image_memory_store import ImageMemoryStore
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
@@ -31,7 +32,8 @@ def window_with_canvas(qtbot, offscreen_gpu):
     controller.add_image(
         data=ImageMemoryStore(data=data, name="gradient"),
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     canvas_widget = controller.add_canvas(scene_id=scene.id)
 

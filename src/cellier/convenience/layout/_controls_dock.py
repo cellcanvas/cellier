@@ -1,16 +1,18 @@
 """A controls dock that follows its viewer (``plans/multi_visual_controls.md``).
 
-An ``AppearanceControls()`` or ``ChannelControls()`` dock shows the controls for
+An ``AppearanceControls()`` dock shows the controls for
 one configured visual at a time.  When the viewer has several, a selector above
 the controls chooses which; when visuals are added or removed after the layout
 is shown, the dock rebuilds from the viewer's ``_controls_changed`` signal.
+``AppearanceControls(presentation="collapsible_sections")`` shows every
+configured visual at once instead, one collapsible section each.
 
 Controller-aware, so it lives beside ``_walk.py`` rather than in ``_shared.py``;
 every decision it makes -- which targets exist, what they are called, which one
 stays selected -- is a pure function in ``_shared.py``.  Everything
 toolkit-specific is reached through the host: ``live_slot`` for a region whose
 contents can be replaced after it is presented, and ``backend.target_selector``
-for the selector.
+and ``backend.collapsible_section`` for the chrome around the controls.
 
 **Every target's controls are built up front; selecting only swaps.**  On
 marimo a widget can only be constructed while a cell is running -- building
@@ -20,7 +22,8 @@ built in :meth:`ControlsDock.refresh`, which runs from the initial render or
 from an ``add_*`` / removal (both cell code), and the selector callback never
 constructs anything.  Verified in a browser: building on selection raised
 ``AssertionError`` from marimo's ``virtual_file`` and left the dock showing the
-previous visual's closed controls.
+previous visual's closed controls.  Sections are built in ``refresh`` for the
+same reason, and expanding one is a front-end toggle that builds nothing.
 """
 
 from __future__ import annotations
@@ -40,8 +43,11 @@ SELECTOR_TITLE = "Visual"
 APPEARANCE_PLACEHOLDER = "No visuals with appearance controls"
 """What an appearance dock says while no visual has an appearance config."""
 
-CHANNEL_PLACEHOLDER = "No visuals with channel controls"
-"""What a channel dock says while no visual has a channel config."""
+SELECTOR = "selector"
+"""The presentation that shows one target at a time, chosen by a selector."""
+
+COLLAPSIBLE_SECTIONS = "collapsible_sections"
+"""The presentation that shows every target at once, one collapsible section each."""
 
 
 def _same_target(a: ControlTarget | None, b: ControlTarget | None) -> bool:
@@ -78,6 +84,8 @@ class ControlsDock:
         target.  The dock closes them when it stops showing them.
     placeholder :
         What the dock says while it has no targets.
+    presentation :
+        :data:`SELECTOR` (default) or :data:`COLLAPSIBLE_SECTIONS`.
     """
 
     def __init__(
@@ -88,12 +96,14 @@ class ControlsDock:
         resolve: Callable[[object], list[ControlTarget]],
         build: Callable[[ControlTarget], list],
         placeholder: str,
+        presentation: str = SELECTOR,
     ) -> None:
         self._viewer = viewer
         self._host = host
         self._resolve = resolve
         self._build = build
         self._placeholder = placeholder
+        self._presentation = presentation
 
         self._slot = host.live_slot()
         self._targets: list[ControlTarget] = []
@@ -101,6 +111,11 @@ class ControlsDock:
         # key -> (the target the widgets were built for, the widgets)
         self._built: dict[object, tuple[ControlTarget, list]] = {}
         self._selector = None
+        # key -> (the section, the widget list it wraps); sections only.
+        self._sections: dict[object, tuple[object, list]] = {}
+        # Sections no longer shown, closed once the slot has let go of them.
+        self._dropped_sections: list = []
+        self._any_section_built = False
         self._shown: tuple | None = None
         self._closed = False
 
@@ -117,18 +132,33 @@ class ControlsDock:
         return self._slot.root
 
     @property
+    def presentation(self) -> str:
+        """How the dock presents several targets."""
+        return self._presentation
+
+    @property
     def targets(self) -> list[ControlTarget]:
         """The targets the dock can currently drive, in selector order."""
         return list(self._targets)
 
     @property
     def selected(self) -> ControlTarget | None:
-        """The target whose controls are shown."""
+        """The target whose controls are shown, or last expanded by :meth:`select`."""
         return self._selected
 
     @property
     def widgets(self) -> list:
-        """The controls currently shown, without the selector."""
+        """The controls on show, without the selector or any section around them.
+
+        With collapsible sections that is every target's controls, in target
+        order, whether or not their section is expanded.
+        """
+        if self._presentation == COLLAPSIBLE_SECTIONS:
+            return [
+                widget
+                for target in self._targets
+                for widget in self._built.get(target.key, (None, []))[1]
+            ]
         if self._selected is None:
             return []
         entry = self._built.get(self._selected.key)
@@ -136,8 +166,20 @@ class ControlsDock:
 
     @property
     def selector(self) -> object | None:
-        """The selector, or ``None`` while the dock has fewer than two targets."""
+        """The selector, or ``None`` while the dock has fewer than two targets.
+
+        Always ``None`` with collapsible sections, which need no selector.
+        """
         return self._selector
+
+    @property
+    def sections(self) -> list:
+        """The collapsible sections, in target order.  Empty with a selector."""
+        return [
+            self._sections[target.key][0]
+            for target in self._targets
+            if target.key in self._sections
+        ]
 
     def refresh(self) -> None:
         """Re-resolve the targets, build what is new and release what is gone."""
@@ -150,11 +192,20 @@ class ControlsDock:
         self._render()
 
     def select(self, key: object) -> None:
-        """Show the controls for the target recorded under *key*."""
+        """Show the controls for the target recorded under *key*.
+
+        With collapsible sections every target is already shown, so this
+        expands the target's section instead.
+        """
         for index, target in enumerate(self._targets):
-            if target.key == key:
+            if target.key != key:
+                continue
+            if self._presentation == COLLAPSIBLE_SECTIONS:
+                self._selected = target
+                self._sections[key][0].set_expanded(True)
+            else:
                 self._on_selector(index)
-                return
+            return
         raise KeyError(key)
 
     def close(self) -> None:
@@ -167,6 +218,10 @@ class ControlsDock:
         for _target, widgets in self._built.values():
             _close_all(widgets)
         self._built = {}
+        _close_all([section for section, _widgets in self._sections.values()])
+        _close_all(self._dropped_sections)
+        self._sections = {}
+        self._dropped_sections = []
         if self._selector is not None:
             _close(self._selector)
             self._selector = None
@@ -202,9 +257,66 @@ class ControlsDock:
             if target.key not in kept:
                 kept[target.key] = (target, list(self._build(target)))
         self._built = {target.key: kept[target.key] for target in targets}
+        if self._presentation == COLLAPSIBLE_SECTIONS:
+            self._sync_sections(targets)
+
+    def _sync_sections(self, targets: list[ControlTarget]) -> None:
+        """Keep one section per target, wrapping the widgets built for it.
+
+        A section whose widgets were kept is kept too, and retitled in case
+        the target's label changed (a duplicate name added elsewhere).  One
+        whose widgets were rebuilt is rebuilt around them and keeps whether it
+        was expanded.  A brand-new section starts expanded only when it is the
+        first this dock has built.
+        """
+        sections: dict[object, tuple[object, list]] = {}
+        for target in targets:
+            widgets = self._built[target.key][1]
+            entry = self._sections.get(target.key)
+            if entry is not None and entry[1] is widgets:
+                entry[0].set_title(target.label)
+                sections[target.key] = entry
+                continue
+            if entry is not None:
+                expanded = bool(entry[0].expanded)
+            else:
+                expanded = not self._any_section_built
+            section = self._host.backend.collapsible_section(
+                target.label, widgets, expanded=expanded
+            )
+            self._any_section_built = True
+            sections[target.key] = (section, widgets)
+        self._dropped_sections.extend(
+            entry[0]
+            for key, entry in self._sections.items()
+            if sections.get(key) is not entry
+        )
+        self._sections = sections
 
     def _render(self) -> None:
-        dropped_selector = None
+        dropped: list = []
+        if self._presentation == COLLAPSIBLE_SECTIONS:
+            items = self.sections
+        else:
+            items = self._selector_items(dropped)
+
+        placeholder = None if self._targets else self._placeholder
+        shown = (tuple(id(item) for item in items), placeholder)
+        if shown != self._shown:
+            self._slot.set(items, placeholder=placeholder)
+            self._shown = shown
+        # After the slot has let go of them, so the old content cannot take a
+        # live selector or section down with it.
+        dropped.extend(self._dropped_sections)
+        self._dropped_sections = []
+        _close_all(dropped)
+
+    def _selector_items(self, dropped: list) -> list:
+        """The selector, when there is a choice to make, then the selected controls.
+
+        A selector that is no longer needed is appended to *dropped* rather
+        than closed, so the caller can close it after the slot lets go.
+        """
         items: list = []
         if len(self._targets) >= 2:
             labels = [target.label for target in self._targets]
@@ -222,18 +334,10 @@ class ControlsDock:
                 self._selector.set_choices(labels, index)
             items.append(self._selector)
         elif self._selector is not None:
-            dropped_selector, self._selector = self._selector, None
+            dropped.append(self._selector)
+            self._selector = None
         items.extend(self.widgets)
-
-        placeholder = None if self._targets else self._placeholder
-        shown = (tuple(id(item) for item in items), placeholder)
-        if shown != self._shown:
-            self._slot.set(items, placeholder=placeholder)
-            self._shown = shown
-        # After the slot has let go of it, so the old content cannot take a
-        # live selector down with it.
-        if dropped_selector is not None:
-            _close(dropped_selector)
+        return items
 
 
 def _close_all(widgets: list) -> None:

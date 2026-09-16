@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from cellier.render._capture import frames_to_settle, write_png
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
@@ -30,14 +31,9 @@ def loaded_volume_scene(controller, image_volume, offscreen_renderer):
     controller.add_image(
         data=image_volume,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(
-            color_map="viridis",
-            clim=(0.0, 1.0),
-            # An isosurface, not the default MIP: ambient occlusion needs
-            # surfaces before it has anything to darken, and one test here
-            # turns it on to check that accumulation changes the image.
-            render_mode="iso",
-            iso_threshold=0.5,
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(
+            color_map="viridis", clim=(0.0, 1.0), render_mode="iso", iso_threshold=0.5
         ),
     )
     controller.add_canvas(scene_id=scene.id, canvas_size=(128, 96))

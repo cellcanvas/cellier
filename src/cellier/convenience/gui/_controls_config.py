@@ -67,9 +67,6 @@ member that still silently did nothing (design section 9.2).
 validation and then render nothing, which is the bug the validation removes.
 """
 
-ChannelField = Literal["visible", "color_map", "clim", "opacity"]
-"""Per-channel field names ``ChannelControlsConfig.fields`` accepts."""
-
 
 def _validate_field_names(
     requested: Iterable[str],
@@ -213,29 +210,40 @@ class BaseControlsConfig:
 class InMemoryImageControlsConfig(BaseControlsConfig):
     """Controls configuration for in-memory image visuals.
 
+    Every image field is drawn by one unified image control (unified image
+    design 3.10): a shared section, a composite switch when the visual has a
+    channel axis, and a page per mode.  The fields listed choose which rows
+    that control shows; the blending and interpolation rows and the switch
+    are always there.
+
     Parameters
     ----------
-    appearance : list[str] or False
-        Appearance fields in display order, e.g.
-        ``["color_map", "clim", "render_mode", "iso_threshold"]``.
+    appearance : list[str] or bool
+        Fields to show, e.g. ``["visible", "color_map", "clim"]``.  ``True``
+        shows them all.
     colormap_names : list[str] or None
-        Names available in the colormap dropdown.  Defaults to a curated
+        Names available in the colormap dropdowns.  Defaults to a curated
         list when ``None``.
     clim_range : tuple[float, float] or None
-        ``(min, max)`` bounds for the contrast-limits slider.  Inferred
-        from the visual's current clim when ``None``.
+        ``(min, max)`` bounds for the contrast-limits sliders.  Inferred
+        from the current limits when ``None``.
+    channel_labels : dict[int, str] or None
+        Per-channel names on the composite page.  ``"Channel {i}"`` when
+        ``None``.
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
-        **BaseControlsConfig.APPEARANCE_CONTROLS,
-        "color_map": "color_map",
-        "clim": "clim",
-        "render_mode": "render",
-        "iso_threshold": "render",
+        "visible": "image",
+        "opacity": "image",
+        "color_map": "image",
+        "clim": "image",
+        "render_mode": "image",
+        "iso_threshold": "image",
     }
 
     colormap_names: list[str] | None = None
     clim_range: tuple[float, float] | None = None
+    channel_labels: dict[int, str] | None = None
 
 
 @dataclass
@@ -262,7 +270,7 @@ class MultiscaleImageControlsConfig(InMemoryImageControlsConfig):
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
         **InMemoryImageControlsConfig.APPEARANCE_CONTROLS,
-        "attenuation": "render",
+        "attenuation": "image",
         "lod_bias": "lod_bias",
     }
 
@@ -393,6 +401,18 @@ class GraphControlsConfig(BaseControlsConfig):
     appearance : list[AppearanceField] or bool
         Appearance fields.  ``True`` shows every field this class drives --
         ten controls, which is a lot; a list is usually the better choice.
+    trail_controls : bool or list[int | str]
+        Show the trail-window controls -- on/off, the extent before and after
+        the slice position, and fade -- for one or more of the graph's data
+        axes.  ``False`` (default) omits them.  ``True`` offers the axes that
+        already have a window in ``GraphVisual.trail``, or the store's time
+        axes when none do.  A list names the axes by data-axis index or name,
+        which is how to offer an axis that has no window yet.  An axis is
+        resolved against the store when the panel is built, since the config
+        does not know the store.
+
+        Like ``outline_controls`` this adds to the appearance panel, so it
+        shows nothing while ``appearance`` is ``False``.
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
@@ -407,49 +427,22 @@ class GraphControlsConfig(BaseControlsConfig):
         "edge_thickness_space": "edge_thickness_space",
     }
 
-
-@dataclass
-class ChannelControlsConfig(BaseControlsConfig):
-    """Controls configuration for multichannel image visuals.
-
-    Parameters
-    ----------
-    fields : list[ChannelField] or None
-        Per-channel fields to expose, in display order.  Defaults to
-        ``["visible", "color_map", "clim", "opacity"]`` when ``None``.  An
-        unknown name raises ``ValueError``: the channel widget's
-        ``if field == ... elif ...`` chain would otherwise fall through every
-        branch and produce no control (design section 9.1).
-    colormap_names : list[str] or None
-        Names available in each channel's colormap control.  Defaults to a
-        curated list when ``None``.
-    clim_range : tuple[float, float] or None
-        ``(min, max)`` bounds for the contrast-limits sliders.  Inferred from
-        the channels' current clim when ``None``.
-    channel_labels : dict[int, str] or None
-        Optional per-channel display labels keyed by channel index.  Defaults
-        to ``"Channel {i}"`` when ``None``.
-    """
-
-    CHANNEL_FIELDS: ClassVar[tuple[str, ...]] = (
-        "visible",
-        "color_map",
-        "clim",
-        "opacity",
-    )
-
-    fields: list[ChannelField] | None = None
-    colormap_names: list[str] | None = None
-    clim_range: tuple[float, float] | None = None
-    channel_labels: dict[int, str] | None = None
+    trail_controls: bool | list[int | str] = False
 
     def __post_init__(self) -> None:
-        """Validate ``fields`` as well as the inherited ``appearance``."""
+        """Check the shape of ``trail_controls`` as well as ``appearance``.
+
+        Only the shape: whether an axis name or index exists depends on the
+        graph's store, which is checked when the panel is built.
+        """
         super().__post_init__()
-        if self.fields is not None:
-            _validate_field_names(
-                self.fields,
-                self.CHANNEL_FIELDS,
-                config_name=type(self).__name__,
-                argument="channel",
+        axes = self.trail_controls
+        if isinstance(axes, bool):
+            return
+        if not isinstance(axes, (list, tuple)) or not all(
+            isinstance(axis, (int, str)) and not isinstance(axis, bool) for axis in axes
+        ):
+            raise TypeError(
+                "trail_controls must be a bool or a list of data-axis indices "
+                f"or names; got {axes!r}."
             )

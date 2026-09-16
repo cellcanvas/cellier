@@ -33,10 +33,8 @@ def _make_panel(*, with_toggle=True, displayed_axes=(1, 2)):
     return AnywidgetDimsPanel(**kwargs), scene_id
 
 
-def _dims_changed_event(source_id, scene_id, *, displayed, slices, stacked=()):
-    selection = AxisAlignedSelectionState(
-        displayed_axes=displayed, stacked_axes=stacked
-    )
+def _dims_changed_event(source_id, scene_id, *, displayed, slices):
+    selection = AxisAlignedSelectionState(displayed_axes=displayed)
     state = DimsState(axis_labels=("z", "y", "x"), selection=selection)
     return DimsChangedEvent(
         source_id=source_id,
@@ -80,19 +78,20 @@ def test_slice_indices_edit_emits_update_event():
     event = emitted[0]
     assert event.source_id == panel._id
     assert event.scene_id == scene_id
-    assert event.slice_indices == {0: 5, 1: 0, 2: 0}
+    # Only the axis that moved: ``update_slice_indices`` merges.
+    assert event.slice_indices == {0: 5}
     assert event.displayed_axes is None
 
 
-def test_slice_indices_edit_excludes_hidden_axes():
+def test_a_second_edit_reports_only_the_axis_it_moved():
     panel, _scene_id = _make_panel(with_toggle=False, displayed_axes=(1, 2))
     emitted = []
     panel.changed.connect(emitted.append)
 
-    panel.slice_indices = {"0": 5, "1": 1, "2": 1}
+    panel.slice_indices = {"0": 5, "1": 0, "2": 0}
+    panel.slice_indices = {"0": 5, "1": 0, "2": 3}
 
-    # Axes 1 and 2 are displayed -> excluded from the outgoing slice payload.
-    assert emitted[0].slice_indices == {0: 5}
+    assert emitted[-1].slice_indices == {2: 3}
 
 
 def test_toggle_click_emits_event_and_applies_optimistically():
@@ -107,8 +106,8 @@ def test_toggle_click_emits_event_and_applies_optimistically():
     assert event.source_id == panel._id
     assert event.scene_id == scene_id
     assert event.displayed_axes == (0, 1, 2)
-    # Axis 0 was newly displayed -> excluded from the outgoing slice payload.
-    assert 0 not in event.slice_indices
+    # Every axis keeps its position in the model (D36): nothing to hand over.
+    assert event.slice_indices is None
 
     # Unlike QtDimsControl, the anywidget panel applies the toggle
     # immediately instead of waiting for the echoed DimsChangedEvent.
@@ -146,20 +145,22 @@ def test_inbound_dims_changed_updates_traits_without_reemit():
     assert emitted == []  # applied under _applying, no echo
 
 
-def test_inbound_echo_filtered_by_source_id():
+def test_inbound_echo_skips_slider_values_but_applies_displayed_axes():
     panel, scene_id = _make_panel(with_toggle=True, displayed_axes=(1, 2))
 
     event = _dims_changed_event(
-        source_id=panel._id,  # our own echo -> ignored
+        source_id=panel._id,  # our own echo
         scene_id=scene_id,
         displayed=(0, 1, 2),
         slices={0: 999, 1: 0, 2: 0},
     )
     panel._on_dims_changed(event)
 
-    assert panel.slice_indices["0"] == 0  # unchanged default
-    assert list(panel.displayed_axes) == [1, 2]
-    assert panel.label == "Switch to 3D"
+    # A drag has moved on since it sent the values, so they are skipped; the
+    # displayed axes are the model's state and are applied.
+    assert panel.slice_indices["0"] == 0
+    assert list(panel.displayed_axes) == [0, 1, 2]
+    assert panel.label == "Switch to 2D"
 
 
 def test_inbound_dims_changed_without_toggle_does_not_relabel():

@@ -34,6 +34,10 @@ from cellier.convenience.layout._spec import (
 )
 from cellier.convenience.layout._walk import render_center, render_dock
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import (
+    InMemoryImageSingleAppearance,
+    MultiscaleImageSingleAppearance,
+)
 from cellier.visuals._image import MultiscaleImageAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
@@ -67,44 +71,47 @@ def test_appearance_controls_builds_colormap_and_clim_groups(qtbot, image_store)
     viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
     viewer.add_image(
         image_store,
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
         controls=InMemoryImageControlsConfig(appearance=["color_map", "clim"]),
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
     assert container is not None
-    assert {"Colormap", "Contrast limits"} <= _control_names(container)
+    assert "Image" in _control_names(container)
 
 
 def test_appearance_controls_explicit_clim_range(qtbot, image_store):
     viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
     viewer.add_image(
         image_store,
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
         controls=InMemoryImageControlsConfig(
             appearance=["clim"], clim_range=(0.0, 5.0)
         ),
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
     assert container is not None
-    assert "Contrast limits" in _control_names(container)
+    assert "Image" in _control_names(container)
 
 
 def test_appearance_controls_multiscale_render_and_lod(qtbot, multiscale_image_store):
     viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
     viewer.add_image_multiscale(
         multiscale_image_store,
-        appearance=MultiscaleImageAppearance(color_map="viridis", render_mode="mip"),
+        appearance=MultiscaleImageAppearance(),
         controls=MultiscaleImageControlsConfig(appearance=["render_mode", "lod_bias"]),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", render_mode="mip"),
     )
 
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
     assert container is not None
-    assert {"Render mode", "LOD bias"} <= _control_names(container)
+    assert {"Image", "LOD bias"} <= _control_names(container)
 
 
 def test_appearance_controls_placeholder_without_configs(qtbot, image_store):
@@ -116,7 +123,8 @@ def test_appearance_controls_placeholder_without_configs(qtbot, image_store):
     viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
     viewer.add_image(
         image_store,
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
@@ -190,8 +198,9 @@ def test_render_dock_stack_of_appearance(qtbot, image_store):
     viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
     viewer.add_image(
         image_store,
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
         controls=InMemoryImageControlsConfig(appearance=["color_map"]),
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
     rendered = render_dock(
@@ -212,8 +221,9 @@ def test_render_qt_builds_window_with_dock(qtbot, image_store):
     viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
     viewer.add_image(
         image_store,
-        appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
         controls=InMemoryImageControlsConfig(appearance=["color_map", "clim"]),
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
     leaf = _leaf()
     layout = Layout(center=leaf, right_dock=AppearanceControls())

@@ -1,6 +1,7 @@
 """Components for data handling."""
 
 from cellier.data._base_data_store import BaseDataStore
+from cellier.data._dataset_info import DatasetInfo
 from cellier.data._types import DataStoreType
 from cellier.data.graph._graph_memory_store import GraphMemoryStore
 from cellier.data.graph._graph_requests import GraphData, GraphSliceRequest
@@ -21,6 +22,7 @@ __all__ = [
     "BaseDataStore",
     "ChunkRequest",
     "DataStoreType",
+    "DatasetInfo",
     "GraphData",
     "GraphMemoryStore",
     "GraphSliceRequest",

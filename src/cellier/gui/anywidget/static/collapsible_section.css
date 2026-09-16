@@ -1,0 +1,29 @@
+.cellier-section {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--jp-ui-font-family, sans-serif);
+  font-size: 12px;
+}
+
+/* The summary line: the visual's name, and the click target that opens or
+   closes the section.  Weighted like a group heading so a stack of sections
+   reads as a list of visuals rather than as more controls. */
+.cellier-section-title {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 3px 0;
+  user-select: none;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.cellier-section-body {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 0 8px 12px;
+}
+
+/* As in container.css: the body's `gap` is the one source of spacing between
+   children, so a child view's own default margin must not add to it. */
+.cellier-section-body > * {
+  margin: 0 !important;
+}

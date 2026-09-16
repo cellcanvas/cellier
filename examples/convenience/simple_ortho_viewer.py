@@ -29,7 +29,7 @@ from cellier.convenience import (
 from cellier.convenience.gui import build_ortho_grid_widget
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.scene.dims import spatial_axes
-from cellier.visuals import InMemoryImageAppearance
+from cellier.visuals import InMemoryImageSingleAppearance
 
 # ---------------------------------------------------------------------------
 # Data
@@ -48,7 +48,7 @@ viewer.controller.add_data_store(store)
 
 viewer.add_image(
     store,
-    appearance=InMemoryImageAppearance(
+    single=InMemoryImageSingleAppearance(
         color_map="viridis",
         clim=(0.0, 1.0),
         render_mode="iso",

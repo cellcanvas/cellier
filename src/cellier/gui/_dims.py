@@ -20,15 +20,12 @@ if TYPE_CHECKING:
 def initial_slice_indices(
     selection: object, axis_values: Mapping[int, AxisValues]
 ) -> dict[int, float]:
-    """Return a slice index for **every** axis, not only the hidden ones.
+    """Return a slider value for **every** axis in *axis_values*.
 
-    A dims panel needs a position for each axis, including the ones currently
-    displayed: switching a 3D scene to 2D hides an axis that had no index a
-    moment earlier, and the slicer needs one for it immediately.
-
-    The scene's own value wins where it has one.  A displayed axis has none --
-    a scene showing all three axes carries an empty ``slice_indices`` -- so
-    those are seeded to the middle of the axis, matching what
+    The scene's own value wins.  A scene holds a position for every axis,
+    displayed ones included (D36), so the fallback below only matters for a
+    selection built without one -- a panel constructed by hand.  Such an axis
+    is seeded to the middle of its range, matching what
     ``OrthoViewer.center_slices`` picks and what a reader expects the first
     slice of a volume to be.
 

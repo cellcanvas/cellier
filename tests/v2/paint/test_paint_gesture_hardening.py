@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from cellier.controller import CellierController
-from cellier.data.image._image_memory_store import ImageMemoryStore
+from cellier.data.label._label_memory_store import LabelMemoryStore
 from cellier.events._events import (
     CanvasMouseMove2DEvent,
     CanvasMousePress2DEvent,
@@ -21,12 +21,12 @@ from cellier.events._events import (
     CanvasPickInfo,
 )
 from cellier.scene.dims import spatial_axes, world_coordinate_system
-from cellier.visuals._image_memory import InMemoryImageAppearance
+from cellier.visuals._label_memory import InMemoryLabelsAppearance
 
 
 @pytest.fixture
 def paint_setup(qtbot):
-    """Build a 2D scene/canvas/visual and a SyncPaintController."""
+    """Build a 2D scene/canvas/labels visual and a SyncPaintController."""
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
     scene = controller.add_scene(
@@ -36,14 +36,13 @@ def paint_setup(qtbot):
         render_modes={"2d"},
     )
 
-    data = np.zeros((8, 32, 32), dtype=np.float32)
-    store = ImageMemoryStore(data=data, name="paint_store")
-    appearance = InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0))
-    visual = controller.add_image(
+    data = np.zeros((8, 32, 32), dtype=np.int32)
+    store = LabelMemoryStore(data=data, name="paint_store")
+    visual = controller.add_labels(
         data=store,
         scene_id=scene.id,
-        appearance=appearance,
-        name="paint_image",
+        appearance=InMemoryLabelsAppearance(),
+        name="paint_labels",
     )
 
     controller.add_canvas(scene_id=scene.id)
@@ -52,7 +51,7 @@ def paint_setup(qtbot):
     paint_ctrl = controller.add_paint_controller(
         visual_id=visual.id,
         canvas_id=canvas_id,
-        brush_value=1.0,
+        brush_value=1,
         brush_radius_voxels=2.0,
     )
     return controller, paint_ctrl, store, scene.id, canvas_id

@@ -93,7 +93,6 @@ def build_canvas_view(
     depth_range_3d: tuple[float, float] = (1.0, 8000.0),
     depth_range_2d: tuple[float, float] = (-500.0, 500.0),
     canvas_size: tuple[int, int] | None = None,
-    non_displayed: tuple[int, ...] = (),
 ):
     """Build a wired canvas leaf for *scene*, reusing any existing canvas.
 
@@ -124,8 +123,16 @@ def build_canvas_view(
         ``(near, far)`` clip distances for a new 3D / 2D camera.
     canvas_size : tuple[int, int] or None
         Initial CSS pixel size.  Meaningful to the anywidget backend only.
-    non_displayed : tuple[int, ...]
-        Axes to exclude from the sliders regardless of dims state.
+
+    Notes
+    -----
+    A **new** canvas on a scene that renders both ways also moves the scene's
+    displayed axes to the middle of their slider range.  Every axis keeps a
+    slice position while displayed (D36), and a scene starts every one at 0 --
+    the edge of the data, where a first switch from 3D to 2D would land on a
+    blank plane (``plans/gui_backend_seam.md`` D16).  A scene that renders one
+    way (an ``OrthoViewer`` panel) has no toggle, so nothing is moved; nor is
+    anything moved on a reused canvas, so a restored session stays put.
     """
     from cellier.gui._axis_values import coerce_axis_values
 
@@ -146,19 +153,45 @@ def build_canvas_view(
             canvas_size=canvas_size,
         )
         canvas_ids = controller.get_canvas_ids(scene.id)
+        _center_displayed_axes(controller, scene, axis_values)
 
     view = backend.canvas_view(
         scene,
         controller.get_canvas_view(canvas_ids[-1]),
         axis_values,
         canvas_size=canvas_size,
-        non_displayed=non_displayed,
     )
     controller.connect_widget(
         view.dims_control,
         subscription_specs=view.dims_control.subscription_specs(),
     )
     return view
+
+
+def _center_displayed_axes(
+    controller: CellierController,
+    scene: Scene,
+    axis_values: Mapping[int, AxisValues],
+) -> None:
+    """Move each displayed continuous axis's stored position to its midpoint.
+
+    Only for a scene with a 2D/3D toggle, which is what would slice at the
+    stored position.  A discrete axis has no meaningful middle and is left
+    where it is, as is an axis with no slider values.
+    """
+    from cellier.gui._axis_values import ContinuousAxisValues
+
+    if not {"2d", "3d"} <= {str(mode) for mode in scene.render_modes}:
+        return
+    selection = scene.dims.selection
+    updates = {
+        int(axis): (spec.min + spec.max) / 2.0
+        for axis, spec in axis_values.items()
+        if int(axis) in selection.displayed_axes
+        and isinstance(spec, ContinuousAxisValues)
+    }
+    if updates:
+        controller.update_slice_indices(scene.id, updates)
 
 
 def build_canvas_widget(

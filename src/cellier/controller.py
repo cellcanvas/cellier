@@ -36,6 +36,8 @@ from cellier.events import (
     DimsUpdateEvent,
     EventBus,
     FrameRenderedEvent,
+    ImageCompositeChangedEvent,
+    ImageCompositeUpdateEvent,
     PickWriteChangedEvent,
     RenderConfigChangedEvent,
     RenderConfigUpdateEvent,
@@ -43,9 +45,14 @@ from cellier.events import (
     ResliceStartedEvent,
     SceneAddedEvent,
     SceneRemovedEvent,
+    SingleAppearanceChangedEvent,
+    SingleAppearanceUpdateEvent,
+    SliderAxesChangedEvent,
+    SliderOverrideUpdateEvent,
     SubscriptionHandle,
     SubscriptionSpec,
     TrailChangedEvent,
+    TrailUpdateEvent,
     TransformChangedEvent,
     VisualAddedEvent,
     VisualRemovedEvent,
@@ -54,12 +61,26 @@ from cellier.events import (
     VisualVisibilityChangedEvent,
 )
 from cellier.events._events import (
+    PICK_EVENT_TYPES,
     CanvasMouseMove2DEvent,
     CanvasMouseMove3DEvent,
     CanvasMousePress2DEvent,
     CanvasMousePress3DEvent,
     CanvasMouseRelease2DEvent,
     CanvasMouseRelease3DEvent,
+    GraphEdgePickInfo,
+    GraphNodePickInfo,
+    GraphPickEvent,
+    ImagePickEvent,
+    ImagePickInfo,
+    LabelsPickEvent,
+    LabelsPickInfo,
+    LinesPickEvent,
+    LinesPickInfo,
+    MeshPickEvent,
+    MeshPickInfo,
+    PointsPickEvent,
+    PointsPickInfo,
     _CanvasRawPointerEvent,
 )
 from cellier.logging import _CAMERA_LOGGER, _SOURCE_ID_LOGGER
@@ -81,12 +102,6 @@ from cellier.render.visuals._canvas_overlay import GFXCenteredAxes2D
 from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
 from cellier.render.visuals._image_memory import GFXImageMemoryVisual
-from cellier.render.visuals._image_memory_multichannel import (
-    GFXMultichannelImageMemoryVisual,
-)
-from cellier.render.visuals._image_multiscale_multichannel import (
-    GFXMultichannelMultiscaleImageVisual,
-)
 from cellier.render.visuals._label_memory import GFXLabelMemoryVisual
 from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
 from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
@@ -123,6 +138,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from cellier.visuals._base_visual import BaseVisual, VisualOutline
+    from cellier.visuals._label_memory import OutlineMode
 from cellier.visuals._canvas_overlay import CenteredAxes2D
 from cellier.visuals._graph_memory import (
     GraphAppearance,
@@ -130,15 +146,18 @@ from cellier.visuals._graph_memory import (
     TrailConfig,
 )
 from cellier.visuals._image import (
-    MultichannelMultiscaleImageVisual,
     MultiscaleImageAppearance,
+    MultiscaleImageChannelAppearance,
     MultiscaleImageRenderConfig,
+    MultiscaleImageSingleAppearance,
     MultiscaleImageVisual,
 )
 from cellier.visuals._image_memory import (
-    BaseImageAppearance,
+    BaseImageVisual,
     ImageVisual,
-    MultichannelImageVisual,
+    InMemoryImageAppearance,
+    InMemoryImageChannelAppearance,
+    InMemoryImageSingleAppearance,
 )
 from cellier.visuals._label_memory import (
     BaseLabelsAppearance,
@@ -177,17 +196,94 @@ if TYPE_CHECKING:
     from cellier.render._config import RenderManagerConfig
     from cellier.render.canvas_view import CanvasView
     from cellier.visuals._canvas_overlay import CanvasOverlay
-    from cellier.visuals._channel_appearance import ChannelAppearance
     from cellier.visuals._types import VisualType
 
 
 # Appearance fields that require a reslice (not just a GPU material update).
 _RESLICE_FIELDS: frozenset[str] = frozenset({"lod_bias", "force_level", "frustum_cull"})
 
-#: Image visuals that load nothing while hidden; showing one reslices it.
-#: Multichannel images are absent on purpose: they already skip every channel
-#: whose own ``visible`` is off, and showing a channel reslices the visual.
-_SKIP_WHEN_HIDDEN = (ImageVisual, MultiscaleImageVisual)
+#: Visuals that load nothing while they draw nothing; showing one reslices it.
+_SKIP_WHEN_HIDDEN = (BaseImageVisual,)
+
+
+#: The pick event for each render-layer pick detail that is complete as
+#: decoded.  Image and labels details are promoted first; see
+#: ``CellierController._emit_pick_event``.
+_PICK_EVENT_FOR_INFO: dict[type, type] = {
+    PointsPickInfo: PointsPickEvent,
+    LinesPickInfo: LinesPickEvent,
+    MeshPickInfo: MeshPickEvent,
+    GraphNodePickInfo: GraphPickEvent,
+    GraphEdgePickInfo: GraphPickEvent,
+}
+
+
+def _pick_event_type(raw_pick: Any) -> type | None:
+    """The public pick event type for a render-layer pick detail, if any."""
+    from cellier.render.render_manager import (
+        _ImageDisplayedDataCoord,
+        _LabelsDisplayedDataCoord,
+    )
+
+    if isinstance(raw_pick, _ImageDisplayedDataCoord):
+        return ImagePickEvent
+    if isinstance(raw_pick, _LabelsDisplayedDataCoord):
+        return LabelsPickEvent
+    return _PICK_EVENT_FOR_INFO.get(type(raw_pick))
+
+
+def _voxel_index(
+    coordinate: tuple[float, ...], shape: tuple[int, ...]
+) -> tuple[int, ...] | None:
+    """``floor`` of every component, or ``None`` outside an array of *shape*."""
+    if len(coordinate) != len(shape):
+        return None
+    index = tuple(int(np.floor(value)) for value in coordinate)
+    if any(not 0 <= i < size for i, size in zip(index, shape, strict=True)):
+        return None
+    return index
+
+
+def _image_pick_positions(
+    visual: Any,
+    coordinate: tuple[float, ...],
+    raw_pick: Any,
+    camera_type: str,
+) -> tuple[tuple[float, ...], dict[int, tuple[float, ...]]]:
+    """The reported coordinate and where to read each channel's value.
+
+    Implements the channel rows of design 3.7: no channel axis reads ``{0}``;
+    single mode reads the drawn plane the coordinate already names; composite
+    mode moves the channel component to the pick-buffer winner and reads
+    every drawn channel on a 2D canvas, or only the winner on a 3D one.
+
+    Returns
+    -------
+    coordinate : tuple[float, ...]
+        The data coordinate to report.
+    positions : dict[int, tuple[float, ...]]
+        Channel index -> the data coordinate to read.
+    """
+    axis = getattr(visual, "channel_axis", None)
+    if axis is None:
+        return coordinate, {0: coordinate}
+    if not visual.composite:
+        return coordinate, {int(np.floor(coordinate[axis])): coordinate}
+    drawn = tuple(raw_pick.drawn_channels)
+    winner = raw_pick.channel_index
+    if winner is None:
+        if not drawn:
+            return coordinate, {}
+        winner = drawn[0]
+
+    def at(channel: int) -> tuple[float, ...]:
+        return tuple(
+            channel + 0.5 if data_axis == axis else value
+            for data_axis, value in enumerate(coordinate)
+        )
+
+    channels = (winner,) if camera_type == "3d" else drawn
+    return at(winner), {channel: at(channel) for channel in channels}
 
 
 def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
@@ -202,10 +298,11 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
     -------
     VisualRenderConfig
         LOD settings from a multiscale visual's appearance, and
-        ``slicing_enabled=False`` for a hidden image visual.
+        ``slicing_enabled=False`` for an image visual that draws nothing:
+        hidden, or composite with no drawn channel (unified image design 3.3).
     """
     slicing_enabled = not (
-        isinstance(visual, _SKIP_WHEN_HIDDEN) and not visual.appearance.visible
+        isinstance(visual, _SKIP_WHEN_HIDDEN) and visual.draws_nothing()
     )
     if isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual)):
         return VisualRenderConfig(
@@ -487,6 +584,8 @@ def _apply_render_settings(
     outline=None,
     ambient_occlusion: bool | None = None,
     outline_selected_labels: dict[int, int] | None = None,
+    pick_write: bool | None = None,
+    outline_mode: str | None = None,
 ):
     """Apply the screen-space render settings an ``add_*`` call carried.
 
@@ -502,6 +601,21 @@ def _apply_render_settings(
         visual_model.ambient_occlusion = ambient_occlusion
     if outline_selected_labels is not None:
         visual_model.outline_selected_labels = dict(outline_selected_labels)
+    if pick_write is not None:
+        visual_model.pick_write = pick_write
+    if outline_mode is not None:
+        from typing import get_args
+
+        from cellier.visuals._label_memory import OutlineMode
+
+        # Checked here because the labels model does not validate on
+        # assignment: an unknown mode would otherwise be stored silently.
+        valid = get_args(OutlineMode)
+        if outline_mode not in valid:
+            raise ValueError(
+                f"outline_mode must be one of {list(valid)}; got {outline_mode!r}."
+            )
+        visual_model.outline_mode = outline_mode
     return visual_model
 
 
@@ -547,6 +661,10 @@ class CellierController:
         # itself is unchanged, which is what keeps axis ids stable across a
         # slider drag.
         self._slice_cache: dict[UUID, tuple] = {}
+        # The last ``Scene.slider_axes`` emitted per scene.  Used only to
+        # decide whether a model change moved the derived set and so needs a
+        # ``SliderAxesChangedEvent``; nothing reads it as state (design 3.5).
+        self._slider_axes_cache: dict[UUID, tuple[int, ...]] = {}
         # id -> coordinate system, for every system this session knows about:
         # the stored ones (world, per-level data) and the runtime ones
         # (rendered, visual).  Three v2 methods -- map_bounding_box, then and
@@ -572,13 +690,21 @@ class CellierController:
         self._scene_render_modes: dict[UUID, set[Literal["2d", "3d"]]] = {}
         # Camera settle
         self._settle_tasks: dict[UUID, asyncio.Task] = {}
-        # Per-canvas count of active element-picking subscribers (the six
-        # on_mouse_* registrations).  Drives RenderManager pick-detail gating
-        # (Decision 4).  Keyed by canvas_id.
+        # Per-canvas count of active pick-event subscribers (``on_pick``).
+        # Drives RenderManager pick-detail gating (Decision 4).  Keyed by
+        # canvas_id.
         self._pick_subscriber_counts: dict[UUID, int] = {}
-        # Map a mouse SubscriptionHandle's id to its canvas so that
-        # unsubscribe_mouse can decrement the right counter.
-        self._mouse_handle_canvas: dict[int, UUID] = {}
+        # The same count per (canvas, pick event type): a pick event is built,
+        # and image and labels values are read, only while its type has one.
+        self._pick_event_counts: dict[tuple[UUID, type], int] = {}
+        # A pick SubscriptionHandle's id -> (canvas, event type), so that
+        # unsubscribe_pick can decrement the right counters.
+        self._pick_handles: dict[int, tuple[UUID, type]] = {}
+        # In-flight asynchronous pick value reads (design 3.7): the ``move``
+        # read per canvas, which a newer pointer event cancels, and every read
+        # per visual, which ``remove_visual`` cancels.
+        self._move_pick_reads: dict[UUID, UUID] = {}
+        self._pick_reads_by_visual: dict[UUID, set[UUID]] = {}
         # Stored psygnal bridge handlers keyed by visual_id.
         # Each entry is a list of (signal, handler) pairs.  psygnal
         # disconnect() requires the exact handler object; closures are not
@@ -586,6 +712,11 @@ class CellierController:
         # Storing the signal alongside the handler avoids branching on visual
         # type during teardown.
         self._visual_psygnal_handlers: dict[UUID, list[tuple]] = {}
+        # Per image visual: the channel appearance handlers, rewired whenever
+        # ``channels`` is replaced, and the model + handler of the ``single``
+        # bridge, moved whenever ``single`` is replaced.
+        self._channel_psygnal_handlers: dict[UUID, list[tuple]] = {}
+        self._single_bridges: dict[UUID, tuple] = {}
         # Same bookkeeping for the scene-level dims bridge, so it can be
         # disconnected on teardown.  Without a record the handler -- which
         # closes over ``self`` -- keeps the whole controller reachable from
@@ -646,6 +777,11 @@ class CellierController:
             owner_id=self._id,
         )
         self._incoming_events.subscribe(
+            SliderOverrideUpdateEvent,
+            self._on_slider_override_update,
+            owner_id=self._id,
+        )
+        self._incoming_events.subscribe(
             AABBUpdateEvent,
             self._on_aabb_update,
             owner_id=self._id,
@@ -653,6 +789,16 @@ class CellierController:
         self._incoming_events.subscribe(
             ChannelAppearanceUpdateEvent,
             self._on_channel_appearance_update,
+            owner_id=self._id,
+        )
+        self._incoming_events.subscribe(
+            SingleAppearanceUpdateEvent,
+            self._on_single_appearance_update,
+            owner_id=self._id,
+        )
+        self._incoming_events.subscribe(
+            ImageCompositeUpdateEvent,
+            self._on_image_composite_update,
             owner_id=self._id,
         )
         self._incoming_events.subscribe(
@@ -668,6 +814,11 @@ class CellierController:
         self._incoming_events.subscribe(
             VisualRenderUpdateEvent,
             self._on_visual_render_update,
+            owner_id=self._id,
+        )
+        self._incoming_events.subscribe(
+            TrailUpdateEvent,
+            self._on_trail_update,
             owner_id=self._id,
         )
 
@@ -884,7 +1035,8 @@ class CellierController:
                 f"at least {n_displayed}."
             )
         displayed_axes = tuple(range(ndim - n_displayed, ndim))
-        slice_indices = {i: 0 for i in range(ndim) if i not in displayed_axes}
+        # Every axis gets a position, displayed ones included (D36).
+        slice_indices = dict.fromkeys(range(ndim), 0.0)
         dims = DimsManager(
             world_coordinate_system=world,
             selection=AxisAlignedSelection(
@@ -987,12 +1139,6 @@ class CellierController:
             return self._add_multiscale_image_visual(scene_id, visual_model)
         elif isinstance(visual_model, ImageVisual):
             return self._add_image_visual(scene_id, visual_model)
-        elif isinstance(visual_model, MultichannelImageVisual):
-            return self._add_multichannel_image_memory_visual(scene_id, visual_model)
-        elif isinstance(visual_model, MultichannelMultiscaleImageVisual):
-            return self._add_multichannel_multiscale_image_visual(
-                scene_id, visual_model
-            )
         elif isinstance(visual_model, MultiscaleLabelVisual):
             return self._add_multiscale_label_visual(scene_id, visual_model)
         elif isinstance(visual_model, LabelMemoryVisual):
@@ -1015,13 +1161,25 @@ class CellierController:
         self,
         data: ImageMemoryStore,
         scene_id: UUID,
-        appearance: BaseImageAppearance,
+        appearance: InMemoryImageAppearance | None = None,
         name: str = "image",
+        *,
+        single: InMemoryImageSingleAppearance | None = None,
+        channel_axis: int | None = None,
+        composite: bool = False,
+        channels: dict[int, InMemoryImageChannelAppearance] | None = None,
+        max_channels: int = 4,
         transform: AffineTransform | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
     ) -> ImageVisual:
         """Add an in-memory image visual to a scene.
+
+        One visual draws the image single-channel or composited
+        (unified image design 3.1): ``composite`` picks the mode, ``single``
+        is the appearance single mode draws with, and ``channels`` the
+        per-channel appearances composite mode draws with.
 
         Parameters
         ----------
@@ -1029,39 +1187,63 @@ class CellierController:
             The backing data store.
         scene_id : UUID
             ID of an existing scene.
-        appearance : BaseImageAppearance
-            Appearance parameters.
+        appearance : InMemoryImageAppearance or None
+            Shared by both modes.  ``None`` uses the defaults.
         name : str
             Human-readable label. Default ``"image"``.
+        single : InMemoryImageSingleAppearance or None
+            Single mode's appearance.  ``None`` uses the defaults.
+        channel_axis : int or None
+            The data axis a composite draws channels along.  It must map to a
+            world axis.  ``None`` (default) gives an image with no channels.
+        composite : bool
+            Start in composite mode.  Requires *channel_axis*.
+        channels : dict[int, InMemoryImageChannelAppearance] or None
+            Composite mode's per-channel appearances.  ``None`` is none.
+        max_channels : int
+            The most channels the visual may hold.  Default 4.
         transform : AffineTransform or None
-            The ``data -> world`` transform, from the store's level-0
-            coordinate system to the scene's world.  ``None`` (default) is the
-            identity between them.  It must name those two systems: a
-            transform built against a look-alike pair describes a different
-            space and is refused.
+            The ``data -> world`` transform.  ``None`` (default) is the
+            identity between the store's level-0 system and the world.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
-            visual unoutlined.  Requires the outline pass to be enabled;
-            see :attr:`outline_enabled`.
+            visual unoutlined.
         ambient_occlusion : bool or None
             Whether this visual receives ambient occlusion.  ``None``
-            (default) is automatic: excluded while it renders in a
-            MIP-family mode, included otherwise.
+            (default) is automatic.
+        pick_write : bool
+            Whether the visual writes to the pick buffer.  Default ``True``.
 
         Returns
         -------
         ImageVisual
+
+        Raises
+        ------
+        ValueError
+            If *composite* is set without *channel_axis*, if *channel_axis*
+            maps to no world axis, if the composited axis is displayed, or if
+            *channels* has more than *max_channels* entries.
         """
         visual_model = ImageVisual(
             name=name,
             data_store_id=str(data.id),
-            appearance=appearance,
+            appearance=appearance
+            if appearance is not None
+            else InMemoryImageAppearance(),
+            single=single if single is not None else InMemoryImageSingleAppearance(),
+            channel_axis=channel_axis,
+            composite=composite,
+            channels=dict(channels or {}),
+            max_channels=max_channels,
             transform=self._prepare_transform(scene_id, data, transform),
         )
+        self._check_image_axes(scene_id, visual_model)
         _apply_render_settings(
             visual_model,
             outline=outline,
             ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -1074,7 +1256,9 @@ class CellierController:
         transform: AffineTransform | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
         outline_selected_labels: dict[int, int] | None = None,
+        outline_mode: OutlineMode = "per_label",
     ) -> LabelMemoryVisual:
         """Add an in-memory label visual to a scene.
 
@@ -1099,10 +1283,24 @@ class CellierController:
             Whether this visual receives ambient occlusion.  ``None``
             (default) is automatic: excluded while it renders in a
             MIP-family mode, included otherwise.
+        pick_write : bool
+            Whether the visual writes to the pick buffer.  ``True`` (default)
+            makes it pickable.  ``False`` keeps it out -- say, a volume drawn
+            over outlined visuals, whose pick ids would otherwise erase their
+            outlines.  Outlines and ambient-occlusion exclusions are both
+            derived from the pick buffer, so turning it off stops them on
+            this visual; asking for an outline as well turns it back on,
+            with a warning.
         outline_selected_labels : dict[int, int] or None
             Maps a label value to the palette slot the selection layer
             draws it in.  ``None`` (default) selects no label, so an
             outlined labels visual shows boundaries only.
+        outline_mode : {"per_label", "whole_object", "all_boundaries"}
+            How the labels are outlined.  ``"per_label"`` (default) outlines
+            the label values in ``outline_selected_labels``, each in its own
+            slot's colour.  ``"whole_object"`` outlines the volume as one
+            silhouette and ``"all_boundaries"`` every label's boundary, both
+            in the colour of the ``outline`` slot.
 
         Returns
         -------
@@ -1124,7 +1322,9 @@ class CellierController:
             visual_model,
             outline=outline,
             ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
             outline_selected_labels=outline_selected_labels,
+            outline_mode=outline_mode,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -1137,6 +1337,7 @@ class CellierController:
         transform: AffineTransform | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
     ) -> MeshVisual:
         """Add a mesh visual to a scene.
 
@@ -1164,6 +1365,14 @@ class CellierController:
             Whether this visual receives ambient occlusion.  ``None``
             (default) is automatic: excluded while it renders in a
             MIP-family mode, included otherwise.
+        pick_write : bool
+            Whether the visual writes to the pick buffer.  ``True`` (default)
+            makes it pickable.  ``False`` keeps it out -- say, a volume drawn
+            over outlined visuals, whose pick ids would otherwise erase their
+            outlines.  Outlines and ambient-occlusion exclusions are both
+            derived from the pick buffer, so turning it off stops them on
+            this visual; asking for an outline as well turns it back on,
+            with a warning.
 
         Returns
         -------
@@ -1180,6 +1389,7 @@ class CellierController:
             visual_model,
             outline=outline,
             ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -1192,6 +1402,7 @@ class CellierController:
         transform: AffineTransform | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
     ) -> PointsVisual:
         """Add a points visual backed by a PointsMemoryStore.
 
@@ -1217,6 +1428,14 @@ class CellierController:
             Whether this visual receives ambient occlusion.  ``None``
             (default) is automatic: excluded while it renders in a
             MIP-family mode, included otherwise.
+        pick_write : bool
+            Whether the visual writes to the pick buffer.  ``True`` (default)
+            makes it pickable.  ``False`` keeps it out -- say, a volume drawn
+            over outlined visuals, whose pick ids would otherwise erase their
+            outlines.  Outlines and ambient-occlusion exclusions are both
+            derived from the pick buffer, so turning it off stops them on
+            this visual; asking for an outline as well turns it back on,
+            with a warning.
 
         Returns
         -------
@@ -1236,6 +1455,7 @@ class CellierController:
             visual_model,
             outline=outline,
             ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -1248,6 +1468,7 @@ class CellierController:
         transform: AffineTransform | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
     ) -> LinesVisual:
         """Add a lines visual backed by a LinesMemoryStore.
 
@@ -1273,6 +1494,14 @@ class CellierController:
             Whether this visual receives ambient occlusion.  ``None``
             (default) is automatic: excluded while it renders in a
             MIP-family mode, included otherwise.
+        pick_write : bool
+            Whether the visual writes to the pick buffer.  ``True`` (default)
+            makes it pickable.  ``False`` keeps it out -- say, a volume drawn
+            over outlined visuals, whose pick ids would otherwise erase their
+            outlines.  Outlines and ambient-occlusion exclusions are both
+            derived from the pick buffer, so turning it off stops them on
+            this visual; asking for an outline as well turns it back on,
+            with a warning.
 
         Returns
         -------
@@ -1292,6 +1521,7 @@ class CellierController:
             visual_model,
             outline=outline,
             ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -1305,6 +1535,7 @@ class CellierController:
         trail: dict[int, TrailConfig] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
     ) -> GraphVisual:
         """Add a spatial-graph visual backed by a GraphMemoryStore.
 
@@ -1337,6 +1568,14 @@ class CellierController:
             Whether this visual receives ambient occlusion.  ``None``
             (default) is automatic: excluded while it renders in a
             MIP-family mode, included otherwise.
+        pick_write : bool
+            Whether the visual writes to the pick buffer.  ``True`` (default)
+            makes it pickable.  ``False`` keeps it out -- say, a volume drawn
+            over outlined visuals, whose pick ids would otherwise erase their
+            outlines.  Outlines and ambient-occlusion exclusions are both
+            derived from the pick buffer, so turning it off stops them on
+            this visual; asking for an outline as well turns it back on,
+            with a warning.
 
         Returns
         -------
@@ -1376,6 +1615,7 @@ class CellierController:
             visual_model,
             outline=outline,
             ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -1383,43 +1623,65 @@ class CellierController:
         self,
         data: BaseDataStore,
         scene_id: UUID,
-        appearance: MultiscaleImageAppearance,
+        appearance: MultiscaleImageAppearance | None = None,
         name: str = "image",
         render_config: MultiscaleImageRenderConfig | None = None,
         transform: AffineTransform | None = None,
+        *,
+        single: MultiscaleImageSingleAppearance | None = None,
+        channel_axis: int | None = None,
+        composite: bool = False,
+        channels: dict[int, MultiscaleImageChannelAppearance] | None = None,
+        max_channels: int = 4,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
     ) -> MultiscaleImageVisual:
         """Add a multiscale image visual to a scene.
+
+        The multiscale twin of :meth:`add_image`; see it for the two modes.
 
         Parameters
         ----------
         data : BaseDataStore
-            The backing data store.
+            The backing multiscale data store.
         scene_id : UUID
             ID of an existing scene.
-        appearance : MultiscaleImageAppearance
-            Visual appearance parameters.
+        appearance : MultiscaleImageAppearance or None
+            Shared by both modes, including the LOD settings.  ``None`` uses
+            the defaults.
         name : str
             Human-readable label. Default ``"image"``.
         render_config : MultiscaleImageRenderConfig or None
-            Render-layer configuration. Defaults to
-            ``MultiscaleImageRenderConfig()`` with all default values if None.
+            GPU cache configuration.  The budget is split evenly between the
+            visual's slots: one without a channel axis, ``max_channels`` with.
         transform : AffineTransform or None
             Data-to-world transform. Defaults to identity when None.
-
+        single : MultiscaleImageSingleAppearance or None
+            Single mode's appearance.
+        channel_axis : int or None
+            The data axis a composite draws channels along.
+        composite : bool
+            Start in composite mode.  Requires *channel_axis*.
+        channels : dict[int, MultiscaleImageChannelAppearance] or None
+            Composite mode's per-channel appearances.
+        max_channels : int
+            The most channels the visual may hold.  Default 4.
         outline : VisualOutline or None
-            Screen-space outline assignment.  ``None`` (default) leaves the
-            visual unoutlined.  Requires the outline pass to be enabled;
-            see :attr:`outline_enabled`.
+            Screen-space outline assignment.
         ambient_occlusion : bool or None
-            Whether this visual receives ambient occlusion.  ``None``
-            (default) is automatic: excluded while it renders in a
-            MIP-family mode, included otherwise.
+            Whether this visual receives ambient occlusion.
+        pick_write : bool
+            Whether the visual writes to the pick buffer.  Default ``True``.
 
         Returns
         -------
         MultiscaleImageVisual
+
+        Raises
+        ------
+        ValueError
+            As :meth:`add_image`.
         """
         if render_config is None:
             render_config = MultiscaleImageRenderConfig()
@@ -1429,14 +1691,23 @@ class CellierController:
             name=name,
             data_store_id=str(data.id),
             level_transforms=data.level_transforms,
-            appearance=appearance,
+            appearance=(
+                appearance if appearance is not None else MultiscaleImageAppearance()
+            ),
+            single=single if single is not None else MultiscaleImageSingleAppearance(),
+            channel_axis=channel_axis,
+            composite=composite,
+            channels=dict(channels or {}),
+            max_channels=max_channels,
             render_config=render_config,
             transform=resolved_transform,
         )
+        self._check_image_axes(scene_id, visual_model)
         _apply_render_settings(
             visual_model,
             outline=outline,
             ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -1450,7 +1721,9 @@ class CellierController:
         transform: AffineTransform | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
         outline_selected_labels: dict[int, int] | None = None,
+        outline_mode: OutlineMode = "per_label",
     ) -> MultiscaleLabelVisual:
         """Add a multiscale label visual to a scene.
 
@@ -1478,10 +1751,24 @@ class CellierController:
             Whether this visual receives ambient occlusion.  ``None``
             (default) is automatic: excluded while it renders in a
             MIP-family mode, included otherwise.
+        pick_write : bool
+            Whether the visual writes to the pick buffer.  ``True`` (default)
+            makes it pickable.  ``False`` keeps it out -- say, a volume drawn
+            over outlined visuals, whose pick ids would otherwise erase their
+            outlines.  Outlines and ambient-occlusion exclusions are both
+            derived from the pick buffer, so turning it off stops them on
+            this visual; asking for an outline as well turns it back on,
+            with a warning.
         outline_selected_labels : dict[int, int] or None
             Maps a label value to the palette slot the selection layer
             draws it in.  ``None`` (default) selects no label, so an
             outlined labels visual shows boundaries only.
+        outline_mode : {"per_label", "whole_object", "all_boundaries"}
+            How the labels are outlined.  ``"per_label"`` (default) outlines
+            the label values in ``outline_selected_labels``, each in its own
+            slot's colour.  ``"whole_object"`` outlines the volume as one
+            silhouette and ``"all_boundaries"`` every label's boundary, both
+            in the colour of the ``outline`` slot.
 
         Returns
         -------
@@ -1503,158 +1790,9 @@ class CellierController:
             visual_model,
             outline=outline,
             ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
             outline_selected_labels=outline_selected_labels,
-        )
-        return self.add_visual(scene_id, visual_model, data_store=data)
-
-    def add_multichannel_image(
-        self,
-        data: ImageMemoryStore,
-        scene_id: UUID,
-        channel_axis: int,
-        channels: dict[int, ChannelAppearance],
-        name: str = "multichannel_image",
-        max_channels_2d: int = 8,
-        max_channels_3d: int = 4,
-        outline: VisualOutline | None = None,
-        ambient_occlusion: bool | None = None,
-    ) -> MultichannelImageVisual:
-        """Add an in-memory multichannel image visual to a scene.
-
-        Parameters
-        ----------
-        data : ImageMemoryStore
-            Backing data store.
-        scene_id : UUID
-            Target scene.
-        channel_axis : int
-            Data axis index for the channel dimension.
-        channels : dict[int, ChannelAppearance]
-            Per-channel appearance keyed by channel index.
-        name : str
-            Display name for the visual.
-        max_channels_2d : int
-            Maximum simultaneous 2D channel nodes.
-        max_channels_3d : int
-            Maximum simultaneous 3D channel nodes.
-
-        outline : VisualOutline or None
-            Screen-space outline assignment.  ``None`` (default) leaves the
-            visual unoutlined.  Requires the outline pass to be enabled;
-            see :attr:`outline_enabled`.
-        ambient_occlusion : bool or None
-            Whether this visual receives ambient occlusion.  ``None``
-            (default) is automatic: excluded while it renders in a
-            MIP-family mode, included otherwise.
-
-        Returns
-        -------
-        MultichannelImageVisual
-        """
-        if len(channels) > max_channels_2d:
-            raise ValueError(
-                f"len(channels)={len(channels)} exceeds "
-                f"max_channels_2d={max_channels_2d}."
-            )
-        visual_model = MultichannelImageVisual(
-            name=name,
-            data_store_id=str(data.id),
-            channel_axis=channel_axis,
-            channels=channels,
-            max_channels_2d=max_channels_2d,
-            max_channels_3d=max_channels_3d,
-            transform=self._prepare_transform(
-                scene_id, data, None, channel_axis=channel_axis
-            ),
-        )
-        _apply_render_settings(
-            visual_model,
-            outline=outline,
-            ambient_occlusion=ambient_occlusion,
-        )
-        return self.add_visual(scene_id, visual_model, data_store=data)
-
-    def add_multichannel_image_multiscale(
-        self,
-        data: BaseDataStore,
-        scene_id: UUID,
-        channel_axis: int,
-        channels: dict[int, ChannelAppearance],
-        name: str = "multichannel_image",
-        render_config: MultiscaleImageRenderConfig | None = None,
-        transform: AffineTransform | None = None,
-        max_channels_2d: int = 8,
-        max_channels_3d: int = 4,
-        outline: VisualOutline | None = None,
-        ambient_occlusion: bool | None = None,
-    ) -> MultichannelMultiscaleImageVisual:
-        """Add a multiscale multichannel image visual to a scene.
-
-        Parameters
-        ----------
-        data : BaseDataStore
-            Backing multiscale data store.
-        scene_id : UUID
-            Target scene.
-        channel_axis : int
-            Data axis index for the channel dimension.
-        channels : dict[int, ChannelAppearance]
-            Per-channel appearance keyed by channel index.
-        name : str
-            Display name for the visual.
-        render_config : MultiscaleImageRenderConfig or None
-            LOD and rendering configuration; uses defaults when ``None``.
-        transform : AffineTransform or None
-            Data-to-world transform; uses identity when ``None``.
-        max_channels_2d : int
-            Maximum simultaneous 2D channel nodes.
-        max_channels_3d : int
-            Maximum simultaneous 3D channel nodes.
-
-        outline : VisualOutline or None
-            Screen-space outline assignment.  ``None`` (default) leaves the
-            visual unoutlined.  Requires the outline pass to be enabled;
-            see :attr:`outline_enabled`.
-        ambient_occlusion : bool or None
-            Whether this visual receives ambient occlusion.  ``None``
-            (default) is automatic: excluded while it renders in a
-            MIP-family mode, included otherwise.
-
-        Returns
-        -------
-        MultichannelMultiscaleImageVisual
-        """
-        if render_config is None:
-            render_config = MultiscaleImageRenderConfig()
-        if len(channels) > max_channels_2d:
-            raise ValueError(
-                f"len(channels)={len(channels)} exceeds "
-                f"max_channels_2d={max_channels_2d}."
-            )
-        # The transform is full-rank ``data -> world`` and stays that way.
-        # It used to be stripped of its channel axis here so the GFX layer
-        # could ``expand_dims`` it back; a v2 transform names its own axes and
-        # the slots take it whole.
-        # Resolved first: it installs the store's coordinate systems, and
-        # ``level_transforms`` does not exist until they do.
-        resolved_transform = self._prepare_transform(
-            scene_id, data, transform, channel_axis=channel_axis
-        )
-        visual_model = MultichannelMultiscaleImageVisual(
-            name=name,
-            data_store_id=str(data.id),
-            channel_axis=channel_axis,
-            channels=channels,
-            level_transforms=data.level_transforms,
-            render_config=render_config,
-            max_channels_2d=max_channels_2d,
-            max_channels_3d=max_channels_3d,
-            transform=resolved_transform,
-        )
-        _apply_render_settings(
-            visual_model,
-            outline=outline,
-            ambient_occlusion=ambient_occlusion,
+            outline_mode=outline_mode,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -1677,48 +1815,58 @@ class CellierController:
         self,
         visual_id: UUID,
         channel_index: int,
-        appearance: ChannelAppearance,
+        appearance: InMemoryImageChannelAppearance | MultiscaleImageChannelAppearance,
     ) -> None:
-        """Add a channel to a multichannel image visual.
+        """Add a channel to an image visual's composite channels.
+
+        The ``channels`` bridge reslices the visual, so a composite draws the
+        new channel straight away.
 
         Parameters
         ----------
         visual_id : UUID
-            ID of a MultichannelImageVisual or MultichannelMultiscaleImageVisual.
+            ID of an ``ImageVisual`` or ``MultiscaleImageVisual``.
         channel_index : int
-            Index along the visual's channel_axis. Must not already be present.
-        appearance : ChannelAppearance
-            Colormap, clim, and opacity settings for the new channel.
+            Index along the visual's ``channel_axis``.  Must not already be
+            present.
+        appearance : channel appearance
+            The channel's appearance, of the visual's own family.
 
         Raises
         ------
         ValueError
-            If channel_index is already present.
-        RuntimeError
-            If the pool is full.
+            If the visual has no ``channel_axis``, *channel_index* is already
+            present, or the visual already holds ``max_channels`` channels.
         """
         visual = self._get_visual_model(visual_id)
+        if not isinstance(visual, BaseImageVisual) or visual.channel_axis is None:
+            raise ValueError(
+                f"Visual {visual_id} has no channel_axis, so it has no channels."
+            )
         if channel_index in visual.channels:
             raise ValueError(
                 f"channel_index={channel_index} already in visual.channels."
             )
-        if len(visual.channels) >= visual.max_channels_2d:
-            raise RuntimeError(
-                f"Pool is full ({visual.max_channels_2d} channels). "
-                "Increase max_channels_2d or remove a channel first."
+        if len(visual.channels) >= visual.max_channels:
+            raise ValueError(
+                f"The visual already holds max_channels={visual.max_channels} "
+                "channels.  Remove one first, or build it with a larger "
+                "max_channels."
             )
         new_channels = dict(visual.channels)
         new_channels[channel_index] = appearance
         visual.channels = new_channels
-        self.reslice_visual(visual_id)
 
     def remove_channel(self, visual_id: UUID, channel_index: int) -> None:
-        """Remove a channel from a multichannel image visual.
+        """Remove a channel from an image visual's composite channels.
+
+        Any channel may be removed, including the last (D35); an empty
+        composite draws nothing.  The ``channels`` bridge reslices.
 
         Parameters
         ----------
         visual_id : UUID
-            ID of a MultichannelImageVisual or MultichannelMultiscaleImageVisual.
+            ID of an ``ImageVisual`` or ``MultiscaleImageVisual``.
         channel_index : int
             Index of the channel to remove.
 
@@ -1730,8 +1878,49 @@ class CellierController:
         visual = self._get_visual_model(visual_id)
         if channel_index not in visual.channels:
             raise KeyError(f"channel_index={channel_index} not in visual.channels.")
-        new_channels = {k: v for k, v in visual.channels.items() if k != channel_index}
-        visual.channels = new_channels
+        visual.channels = {
+            k: v for k, v in visual.channels.items() if k != channel_index
+        }
+
+    def _composited_world_axis(self, visual: Any) -> int | None:
+        """The world axis an image in composite mode composites, else ``None``."""
+        if (
+            not isinstance(visual, BaseImageVisual)
+            or not visual.composite
+            or visual.channel_axis is None
+            or visual.transform is None
+        ):
+            return None
+        return visual.transform.axis_correspondence().get(visual.channel_axis)
+
+    def _check_image_axes(self, scene_id: UUID, visual: BaseImageVisual) -> None:
+        """Refuse an image whose channel axis is unusable where it is going.
+
+        The channel axis must map to a world axis (design 3.1), and a
+        composited axis cannot be displayed (design 3.4).
+
+        Raises
+        ------
+        ValueError
+            On either.
+        """
+        if visual.channel_axis is None or visual.transform is None:
+            return
+        correspondence = visual.transform.axis_correspondence()
+        if visual.channel_axis not in correspondence:
+            raise ValueError(
+                f"channel_axis={visual.channel_axis} maps to no world axis "
+                f"through this visual's transform.  A channel axis with no "
+                f"world counterpart is not supported."
+            )
+        world_axis = correspondence[visual.channel_axis]
+        displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
+        if visual.composite and world_axis in displayed:
+            raise ValueError(
+                f"Cannot composite channel_axis={visual.channel_axis}: it maps "
+                f"to world axis {world_axis}, which the scene displays "
+                f"{tuple(displayed)}."
+            )
 
     # ------------------------------------------------------------------
     # Visual management — private dispatch methods
@@ -1772,8 +1961,9 @@ class CellierController:
         # psygnal bridges
         if hasattr(visual_model, "appearance"):
             self._wire_appearance(visual_model)
-        if hasattr(visual_model, "channels"):
-            self._wire_channels(visual_model)
+        if isinstance(visual_model, BaseImageVisual):
+            self._check_image_axes(scene_id, visual_model)
+            self._wire_image(visual_model)
         if isinstance(visual_model, GraphVisual):
             self._wire_trail(visual_model)
         self._wire_aabb(visual_model)
@@ -1784,12 +1974,15 @@ class CellierController:
         # an outline already set is outlined on its first frame rather than
         # needing a post-hoc call.
         self._seed_visual_render(visual_model)
+        self._check_slider_axes(scene_id)
 
         # EventBus subscriptions — only subscribe when the GFX visual implements
         # the handler so new visual types get wired automatically.
         for event_type, handler_name in (
             (AppearanceChangedEvent, "on_appearance_changed"),
             (ChannelAppearanceChangedEvent, "on_channel_appearance_changed"),
+            (SingleAppearanceChangedEvent, "on_single_appearance_changed"),
+            (ImageCompositeChangedEvent, "on_image_composite_changed"),
             (AABBChangedEvent, "on_aabb_changed"),
             (VisualVisibilityChangedEvent, "on_visibility_changed"),
             (TrailChangedEvent, "on_trail_changed"),
@@ -1876,53 +2069,6 @@ class CellierController:
             visual_model=visual_model,
             data_store=data_store,
             render_modes=render_modes,
-            transform=visual_model.transform,
-        )
-        self._register_visual(
-            scene_id, visual_model, gfx_visual, data_store, displayed_axes
-        )
-        return visual_model
-
-    def _add_multichannel_image_memory_visual(
-        self,
-        scene_id: UUID,
-        visual_model: MultichannelImageVisual,
-    ) -> MultichannelImageVisual:
-        """Wire and register a pre-built MultichannelImageVisual."""
-        data_store = self._model.data.stores[UUID(visual_model.data_store_id)]
-        scene = self._model.scenes[scene_id]
-        displayed_axes = scene.dims.selection.displayed_axes
-        render_modes = self._scene_render_modes.get(
-            scene_id, {"3d"} if len(displayed_axes) == 3 else {"2d"}
-        )
-        gfx_visual = GFXMultichannelImageMemoryVisual(
-            visual_model=visual_model,
-            data_store=data_store,
-            render_modes=render_modes,
-            transform=visual_model.transform,
-        )
-        self._register_visual(
-            scene_id, visual_model, gfx_visual, data_store, displayed_axes
-        )
-        return visual_model
-
-    def _add_multichannel_multiscale_image_visual(
-        self,
-        scene_id: UUID,
-        visual_model: MultichannelMultiscaleImageVisual,
-    ) -> MultichannelMultiscaleImageVisual:
-        """Wire and register a pre-built MultichannelMultiscaleImageVisual."""
-        data_store = self._model.data.stores[UUID(visual_model.data_store_id)]
-        scene = self._model.scenes[scene_id]
-        displayed_axes = scene.dims.selection.displayed_axes
-        render_modes = self._scene_render_modes.get(
-            scene_id, {"3d"} if len(displayed_axes) == 3 else {"2d"}
-        )
-        gfx_visual = GFXMultichannelMultiscaleImageVisual(
-            visual_model=visual_model,
-            level_shapes=list(data_store.level_shapes),
-            render_modes=render_modes,
-            displayed_axes=displayed_axes,
             transform=visual_model.transform,
         )
         self._register_visual(
@@ -2973,9 +3119,7 @@ class CellierController:
 
         The embedding's linear block is a selection matrix, and every world
         axis the canvas does not display is a ``constant_output_axes`` entry
-        -- never a broadcast one.  A sliced axis sits at its slice position;
-        a stacked axis sits at zero, which nothing reads: the render layer
-        composites its whole extent and the region never constrains it.
+        -- never a broadcast one.  A sliced axis sits at its slice position.
         """
         scene = self._model.scenes[scene_id]
         world = scene.dims.world_coordinate_system
@@ -3207,11 +3351,27 @@ class CellierController:
 
         Compared rather than the whole selection because ``displayed_axes``
         has its own, coarser, invalidation: this one rebuilds only the
-        embedding.
+        embedding.  Only the **sliced** axes count: a displayed axis keeps a
+        stored position (D36) that nothing is sliced at.
         """
+        displayed = set(getattr(selection, "displayed_axes", ()))
         return (
-            tuple(sorted(getattr(selection, "slice_indices", {}).items())),
-            tuple(sorted(getattr(selection, "thickness", {}).items())),
+            tuple(
+                sorted(
+                    (axis, position)
+                    for axis, position in getattr(
+                        selection, "slice_indices", {}
+                    ).items()
+                    if axis not in displayed
+                )
+            ),
+            tuple(
+                sorted(
+                    (axis, half)
+                    for axis, half in getattr(selection, "thickness", {}).items()
+                    if axis not in displayed
+                )
+            ),
         )
 
     def _dims_state_for_scene(self, scene_id: UUID) -> DimsState:
@@ -3231,6 +3391,17 @@ class CellierController:
         scene.dims.events.connect(handler)
         self._scene_psygnal_handlers.setdefault(scene.id, []).append(
             (scene.dims.events, handler)
+        )
+        # ``Scene.slider_axes`` is derived, so its change detection hangs off
+        # every model signal that can move it.  A whole-list reassignment of
+        # ``scene.visuals`` arrives here; the controller's own add and remove
+        # mutate the list in place, which emits nothing, so they call
+        # ``_check_slider_axes`` themselves.
+        self._slider_axes_cache[scene.id] = scene.slider_axes
+        visuals_handler = self._make_slider_axes_check(scene.id)
+        scene.events.visuals.connect(visuals_handler)
+        self._scene_psygnal_handlers[scene.id].append(
+            (scene.events.visuals, visuals_handler)
         )
 
     def _wire_scene_background(self, scene: Scene) -> None:
@@ -3335,10 +3506,52 @@ class CellierController:
         # on this path asks for a frame.
         self._request_draw_for_scene(scene_id)
 
+    def _make_slider_axes_check(self, scene_id: UUID) -> Callable:
+        """Return a psygnal handler that re-checks a scene's slider axes."""
+
+        def _on_slider_axes_input(*_args: Any) -> None:
+            self._check_slider_axes(scene_id)
+
+        return _on_slider_axes_input
+
+    def _check_slider_axes(self, scene_id: UUID) -> None:
+        """Emit ``SliderAxesChangedEvent`` if ``Scene.slider_axes`` moved.
+
+        Called after every model change that can alter the derived set: a
+        visual added or removed, a transform replaced, an image's composite
+        flag, or a slider override (design 3.5, D38).  Recomputes, compares
+        with the last value emitted for the scene, and emits only on change.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            The scene to check.  A scene that is no longer registered is
+            ignored.
+        """
+        scene = self._model.scenes.get(scene_id)
+        if scene is None or scene_id not in self._slider_axes_cache:
+            return
+        slider_axes = scene.slider_axes
+        if slider_axes == self._slider_axes_cache[scene_id]:
+            return
+        self._slider_axes_cache[scene_id] = slider_axes
+        self._outgoing_events.emit(
+            SliderAxesChangedEvent(
+                source_id=_source_id_override.get() or self._id,
+                scene_id=scene_id,
+                slider_axes=slider_axes,
+            )
+        )
+
     def _make_dims_handler(self, scene_id: UUID) -> Callable:
         """Return a psygnal catch-all handler for a scene's DimsManager."""
 
         def _on_dims_psygnal(info: EmissionInfo) -> None:
+            if info.signal.name == "slider_overrides":
+                # Overrides change which sliders are shown, not what is
+                # sliced: no reslice and no DimsChangedEvent.
+                self._check_slider_axes(scene_id)
+                return
             selection = self._model.scenes[scene_id].dims.selection
             new_state = self._model.scenes[scene_id].dims.to_state()
             prev_axes = self._dims_cache[scene_id]
@@ -3367,6 +3580,7 @@ class CellierController:
                 )
             elif prev_slice != new_slice:
                 self._rebuild_rendered_embedding(scene_id)
+            region_changed = displayed_axes_changed or prev_slice != new_slice
             resolved_source_id = _source_id_override.get() or self._id
             _SOURCE_ID_LOGGER.debug(
                 "bridge  handler=_on_dims_psygnal  scene=%s"
@@ -3382,6 +3596,7 @@ class CellierController:
                     dims_state=new_state,
                     displayed_axes_changed=displayed_axes_changed,
                     slice_indices=dict(selection.slice_indices),
+                    region_changed=region_changed,
                 )
             )
 
@@ -3470,8 +3685,10 @@ class CellierController:
 
         def _on_transform(new_transform: AffineTransform) -> None:
             # A replaced transform can carry a different axis correspondence,
-            # which the render spaces read back off the matrix.
+            # which the render spaces read back off the matrix -- and which
+            # decides the world axes this visual wants sliders for.
             self._push_render_spaces(scene_id)
+            self._check_slider_axes(scene_id)
             self._outgoing_events.emit(
                 TransformChangedEvent(
                     source_id=self._id,
@@ -3499,31 +3716,120 @@ class CellierController:
             (visual.appearance.events, handler)
         )
 
-    def _wire_channels(
-        self,
-        visual: MultichannelImageVisual | MultichannelMultiscaleImageVisual,
-    ) -> None:
-        """Subscribe to field changes on every ``ChannelAppearance`` in a visual.
+    def _wire_image(self, visual: BaseImageVisual) -> None:
+        """Bridge an image visual's mode, single and channel models (design 3.3).
 
-        One psygnal handler is registered per channel. Handlers are stored in
-        ``self._visual_psygnal_handlers`` so they can be disconnected on teardown.
+        Four connections:
 
-        This wires per-field changes only. Whole-dict replacement
-        (``visual.channels = new_dict``) is handled by a direct psygnal connect
-        inside the GFX visual, because it is a structural pool-management
-        operation rather than an appearance field push.
+        1. ``events.composite`` -- emits ``ImageCompositeChangedEvent``,
+           re-checks the scene's slider axes and reslices.  On the model event,
+           so a direct ``visual.composite = ...`` behaves like
+           :meth:`set_image_composite` (D38).
+        2. ``single.events`` -- per-field ``SingleAppearanceChangedEvent``.
+        3. ``events.single`` -- a replaced ``single`` model: moves connection 2
+           and emits one event with ``field_name=None``.
+        4. ``events.channels`` -- a replaced ``channels`` dict: rewires the
+           per-channel handlers and reslices when the key set changed.
         """
+        visual_id = visual.id
+        handlers = self._visual_psygnal_handlers.setdefault(visual_id, [])
+
+        def _on_composite(new_value: bool) -> None:
+            resolved_source_id = _source_id_override.get() or self._id
+            self._outgoing_events.emit(
+                ImageCompositeChangedEvent(
+                    source_id=resolved_source_id,
+                    visual_id=visual_id,
+                    composite=bool(new_value),
+                )
+            )
+            scene_id = self._visual_to_scene.get(visual_id)
+            if scene_id is None:
+                return
+            self._check_slider_axes(scene_id)
+            self.reslice_visual(visual_id)
+            self._request_draw_for_visual(visual_id)
+
+        visual.events.composite.connect(_on_composite)
+        handlers.append((visual.events.composite, _on_composite))
+
+        self._connect_single_bridge(visual)
+
+        def _on_single_replaced(new_single: Any) -> None:
+            wired = self._single_bridges.get(visual_id)
+            if wired is not None and wired[0] is new_single:
+                return
+            self._connect_single_bridge(visual)
+            self._outgoing_events.emit(
+                SingleAppearanceChangedEvent(
+                    source_id=_source_id_override.get() or self._id,
+                    visual_id=visual_id,
+                    field_name=None,
+                    new_value=new_single,
+                )
+            )
+            self._request_draw_for_visual(visual_id)
+
+        visual.events.single.connect(_on_single_replaced)
+        handlers.append((visual.events.single, _on_single_replaced))
+
+        self._wire_channels(visual)
+        known_keys = {"keys": set(visual.channels)}
+
+        def _on_channels_replaced(new_channels: dict) -> None:
+            self._wire_channels(visual)
+            keys = set(new_channels)
+            changed = keys != known_keys["keys"]
+            known_keys["keys"] = keys
+            if changed and visual_id in self._visual_to_scene:
+                self.reslice_visual(visual_id)
+                self._request_draw_for_visual(visual_id)
+
+        visual.events.channels.connect(_on_channels_replaced)
+        handlers.append((visual.events.channels, _on_channels_replaced))
+
+    def _connect_single_bridge(self, visual: BaseImageVisual) -> None:
+        """Attach the per-field bridge to *visual*'s current ``single`` model."""
+        previous = self._single_bridges.pop(visual.id, None)
+        if previous is not None:
+            model, handler = previous
+            model.events.disconnect(handler)
+        visual_id = visual.id
+
+        def _on_single_field(info: EmissionInfo) -> None:
+            self._outgoing_events.emit(
+                SingleAppearanceChangedEvent(
+                    source_id=_source_id_override.get() or self._id,
+                    visual_id=visual_id,
+                    field_name=info.signal.name,
+                    new_value=info.args[0],
+                )
+            )
+            self._request_draw_for_visual(visual_id)
+
+        visual.single.events.connect(_on_single_field)
+        self._single_bridges[visual_id] = (visual.single, _on_single_field)
+
+    def _wire_channels(self, visual: BaseImageVisual) -> None:
+        """(Re)subscribe to field changes on every channel appearance of *visual*.
+
+        One psygnal handler per channel.  Called at registration and again
+        whenever ``channels`` is replaced, so a channel added later is heard
+        from too; the previous handlers are disconnected first.
+        """
+        for signal, handler in self._channel_psygnal_handlers.pop(visual.id, []):
+            signal.disconnect(handler)
+        wired = []
         for channel_index, appearance in visual.channels.items():
             handler = self._make_channel_appearance_handler(visual.id, channel_index)
             appearance.events.connect(handler)
-            self._visual_psygnal_handlers.setdefault(visual.id, []).append(
-                (appearance.events, handler)
-            )
+            wired.append((appearance.events, handler))
+        self._channel_psygnal_handlers[visual.id] = wired
 
     def _make_channel_appearance_handler(
         self, visual_id: UUID, channel_index: int
     ) -> Callable:
-        """Return a psygnal catch-all handler for one ``ChannelAppearance``."""
+        """Return a psygnal catch-all handler for one channel appearance."""
 
         def _on_channel_appearance_psygnal(info: EmissionInfo) -> None:
             field_name: str = info.signal.name
@@ -3546,6 +3852,7 @@ class CellierController:
                 and visual_id in self._visual_to_scene
             ):
                 self.reslice_visual(visual_id)
+            self._request_draw_for_visual(visual_id)
 
         return _on_channel_appearance_psygnal
 
@@ -3762,6 +4069,79 @@ class CellierController:
     def _on_visual_render_update(self, event: VisualRenderUpdateEvent) -> None:
         self.update_visual_render_field(
             event.visual_id, event.field, event.value, source_id=event.source_id
+        )
+
+    def update_visual_trail(
+        self,
+        visual_id: UUID,
+        axis: int,
+        config: TrailConfig | None,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Set or clear the trail window on one axis of a graph visual.
+
+        The seam a GUI drives.  An axis that already has a window is edited
+        in place, one field event per field that differs, so nudging one spin
+        box reslices once rather than rebuilding the whole trail.  Adding or
+        removing an axis replaces ``visual.trail``, which is what rewires the
+        per-config handlers (see :meth:`_wire_trail`).
+
+        Parameters
+        ----------
+        visual_id :
+            Target graph visual.
+        axis :
+            The data-axis index the window is keyed by.
+        config :
+            The complete window for *axis*, or ``None`` to remove it.  When
+            the axis has no window yet the object itself is adopted, so pass
+            one no other visual holds.
+        source_id :
+            UUID to stamp on the emitted ``TrailChangedEvent``.  GUI widgets
+            should pass ``source_id=self._id`` so their own subscription can
+            ignore the echo.
+
+        Raises
+        ------
+        TypeError
+            If the visual is not a graph visual.
+        ValueError
+            If *axis* is out of range for the graph's store.
+        """
+        visual = self._get_visual_model(visual_id)
+        if not isinstance(visual, GraphVisual):
+            raise TypeError(
+                f"Only graph visuals have a trail; got a {type(visual).__name__}."
+            )
+        existing = visual.trail.get(axis)
+        token = _source_id_override.set(source_id)
+        try:
+            if config is None:
+                if existing is not None:
+                    visual.trail = {
+                        key: value for key, value in visual.trail.items() if key != axis
+                    }
+            elif existing is None:
+                data_store = self._model.data.stores[UUID(visual.data_store_id)]
+                # Checked here so a bad axis raises a plain ValueError rather
+                # than psygnal's EmitLoopError from inside the dict handler.
+                self._validate_trail_axes({axis: config}, data_store)
+                visual.trail = {**visual.trail, axis: config}
+            else:
+                differing = {
+                    name: getattr(config, name)
+                    for name in type(existing).model_fields
+                    if getattr(config, name) != getattr(existing, name)
+                }
+                if differing:
+                    existing.update(differing)
+        finally:
+            _source_id_override.reset(token)
+
+    def _on_trail_update(self, event: TrailUpdateEvent) -> None:
+        self.update_visual_trail(
+            event.visual_id, event.axis, event.config, source_id=event.source_id
         )
 
     def _model_visual_or_none(self, visual_id: UUID) -> BaseVisual | None:
@@ -4203,7 +4583,9 @@ class CellierController:
                 visual_model.transform = transform
 
     def _on_dims_changed_bus(self, event: DimsChangedEvent) -> None:
-        """Bus handler — reslice the scene whenever its dims state changes."""
+        """Bus handler -- reslice the scene when what it shows changed."""
+        if not event.region_changed:
+            return
         self.reslice_scene(event.scene_id)
 
     # ------------------------------------------------------------------
@@ -4213,11 +4595,15 @@ class CellierController:
     def update_slice_indices(
         self,
         scene_id: UUID,
-        slice_indices: dict[int, int],
+        slice_indices: Mapping[int, float],
         *,
         source_id: UUID | None = None,
     ) -> None:
-        """Set ``slice_indices`` on a scene's dims.
+        """Move the slice position of one or more world axes on a scene.
+
+        **Merges** into the scene's positions: axes absent from
+        *slice_indices* keep theirs.  Every world axis has a position whether
+        or not it is displayed (D36), so this never adds or removes one.
 
         Tags the emitted bus event with *source_id*.
         GUI widgets should pass ``source_id=self._id`` so their own
@@ -4228,11 +4614,29 @@ class CellierController:
         scene_id :
             Target scene.
         slice_indices :
-            Mapping of axis index → slice position.
+            Mapping of world axis index -> world slice position.
         source_id :
             UUID to stamp on the emitted ``DimsChangedEvent``.  Defaults
             to the controller's own ID.
+
+        Raises
+        ------
+        ValueError
+            If a key is not an axis of the scene's world.  Nothing is changed.
         """
+        dims = self._model.scenes[scene_id].dims
+        unknown = sorted(set(slice_indices) - set(range(dims.ndim)))
+        if unknown:
+            raise ValueError(
+                f"slice_indices names axes {unknown} outside the scene's "
+                f"world {dims.axis_labels} (ndim={dims.ndim})."
+            )
+        merged = dict(dims.selection.slice_indices)
+        merged.update(
+            {int(axis): float(value) for axis, value in slice_indices.items()}
+        )
+        if merged == dims.selection.slice_indices:
+            return
         resolved_source_id = source_id if source_id is not None else self._id
         _SOURCE_ID_LOGGER.debug(
             "set  scene=%s  source=%s",
@@ -4241,10 +4645,95 @@ class CellierController:
         )
         token = _source_id_override.set(source_id)
         try:
-            self._model.scenes[scene_id].dims.selection.slice_indices = slice_indices
+            dims.selection.slice_indices = merged
         finally:
             _source_id_override.reset(token)
             _SOURCE_ID_LOGGER.debug("reset  scene=%s", scene_id)
+
+    def update_thickness(
+        self,
+        scene_id: UUID,
+        thickness: Mapping[int, float],
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Replace a scene's per-axis half-thicknesses.
+
+        Parameters
+        ----------
+        scene_id :
+            Target scene.
+        thickness :
+            World axis index -> half-thickness in world units.  An axis
+            absent from the mapping slices a plane.
+        source_id :
+            UUID to stamp on the emitted ``DimsChangedEvent``.
+
+        Raises
+        ------
+        ValueError
+            If a key is not an axis of the scene's world.
+        """
+        dims = self._model.scenes[scene_id].dims
+        unknown = sorted(set(thickness) - set(range(dims.ndim)))
+        if unknown:
+            raise ValueError(
+                f"thickness names axes {unknown} outside the scene's "
+                f"world {dims.axis_labels} (ndim={dims.ndim})."
+            )
+        new = {int(axis): float(value) for axis, value in thickness.items()}
+        if new == dims.selection.thickness:
+            return
+        token = _source_id_override.set(source_id)
+        try:
+            dims.selection.thickness = new
+        finally:
+            _source_id_override.reset(token)
+
+    def set_slider_override(
+        self,
+        scene_id: UUID,
+        axis: int,
+        value: bool | None,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Force a world axis's slider shown or hidden, or return it to automatic.
+
+        Parameters
+        ----------
+        scene_id :
+            Target scene.
+        axis :
+            World axis index.
+        value :
+            ``True`` force-shows the slider, ``False`` force-hides it, and
+            ``None`` removes the override so the visuals decide.
+        source_id :
+            UUID to stamp on the ``SliderAxesChangedEvent`` this may emit.
+
+        Raises
+        ------
+        ValueError
+            If *axis* is not an axis of the scene's world.
+        """
+        dims = self._model.scenes[scene_id].dims
+        if not 0 <= int(axis) < dims.ndim:
+            raise ValueError(
+                f"axis {axis} is outside the scene's world {dims.axis_labels}."
+            )
+        overrides = dict(dims.slider_overrides)
+        if value is None:
+            overrides.pop(int(axis), None)
+        else:
+            overrides[int(axis)] = bool(value)
+        if overrides == dims.slider_overrides:
+            return
+        token = _source_id_override.set(source_id)
+        try:
+            dims.slider_overrides = overrides
+        finally:
+            _source_id_override.reset(token)
 
     def update_appearance_field(
         self,
@@ -4427,7 +4916,7 @@ class CellierController:
         *,
         source_id: UUID | None = None,
     ) -> None:
-        """Set one field on one channel of a multichannel visual.
+        """Set one field on one channel of an image visual.
 
         Tags the emitted bus event with *source_id*.  GUI widgets should pass
         ``source_id=self._id`` so their own ``ChannelAppearanceChangedEvent``
@@ -4447,7 +4936,7 @@ class CellierController:
         visual_id :
             Target visual.
         channel_index :
-            Index into ``visual.channels`` selecting the ``ChannelAppearance``.
+            Index into ``visual.channels`` selecting the channel appearance.
         field :
             Attribute name on the channel appearance model, e.g. ``"clim"``.
         value :
@@ -4511,6 +5000,164 @@ class CellierController:
             self.update_channel_appearance_field(
                 visual_id, channel_index, field, value, source_id=source_id
             )
+
+    def update_single_appearance_field(
+        self,
+        visual_id: UUID,
+        field: str,
+        value: Any,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Set one field on an image visual's single-mode appearance.
+
+        A ``pydantic.ValidationError`` from a malformed *value* propagates.
+
+        Parameters
+        ----------
+        visual_id :
+            Target image visual.
+        field :
+            Attribute name on ``visual.single``, e.g. ``"clim"``.
+        value :
+            New value for the field.
+        source_id :
+            UUID to stamp on the emitted ``SingleAppearanceChangedEvent``.
+        """
+        visual = self.get_visual_model(visual_id)
+        token = _source_id_override.set(source_id)
+        try:
+            setattr(visual.single, field, value)
+        finally:
+            _source_id_override.reset(token)
+
+    def update_single_group_field(
+        self,
+        visual_ids: list[UUID],
+        field: str,
+        value: Any,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Set one single-mode field across a group of image visuals in lock-step.
+
+        Parameters
+        ----------
+        visual_ids :
+            Target visuals, kept equal -- an ``OrthoViewer``'s panel siblings.
+        field :
+            Attribute name on each ``single`` model.
+        value :
+            New value for the field.
+        source_id :
+            UUID to stamp on each emitted event.
+        """
+        for visual_id in visual_ids:
+            self.update_single_appearance_field(
+                visual_id, field, value, source_id=source_id
+            )
+
+    def set_image_composite(
+        self,
+        visual_id: UUID,
+        composite: bool,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Switch an image visual between single and composite mode.
+
+        Validates, then assigns.  The reslice, ``ImageCompositeChangedEvent``
+        and any ``SliderAxesChangedEvent`` come from the ``composite`` model
+        bridge, so a direct ``visual.composite = ...`` gets them too -- but a
+        direct assignment skips the checks below (design 3.4).
+
+        Parameters
+        ----------
+        visual_id :
+            Target image visual.
+        composite :
+            ``True`` for composite mode.
+        source_id :
+            UUID to stamp on the emitted ``ImageCompositeChangedEvent``.
+
+        Raises
+        ------
+        ValueError
+            If *composite* is ``True`` and the visual has no ``channel_axis``,
+            or its channel axis is displayed.  The model is unchanged.
+        """
+        visual = self.get_visual_model(visual_id)
+        if not isinstance(visual, BaseImageVisual):
+            raise TypeError(f"Visual {visual_id} is not an image visual.")
+        composite = bool(composite)
+        if composite == visual.composite:
+            return
+        if composite:
+            if visual.channel_axis is None:
+                raise ValueError(
+                    f"Visual {visual_id} has no channel_axis, so it cannot composite."
+                )
+            scene_id = self._visual_to_scene[visual_id]
+            world_axis = visual.transform.axis_correspondence().get(visual.channel_axis)
+            displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
+            if world_axis in displayed:
+                raise ValueError(
+                    f"Cannot composite channel_axis={visual.channel_axis}: it "
+                    f"maps to world axis {world_axis}, which the scene "
+                    f"displays {tuple(displayed)}."
+                )
+        token = _source_id_override.set(source_id)
+        try:
+            visual.composite = composite
+        finally:
+            _source_id_override.reset(token)
+
+    def set_image_composite_group(
+        self,
+        visual_ids: list[UUID],
+        composite: bool,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Switch a group of image visuals' mode in lock-step.
+
+        Every visual is validated before any is changed, so the group is
+        never left split between the two modes.
+
+        Parameters
+        ----------
+        visual_ids :
+            Target visuals -- an ``OrthoViewer``'s panel siblings.
+        composite :
+            ``True`` for composite mode.
+        source_id :
+            UUID to stamp on each emitted event.
+
+        Raises
+        ------
+        ValueError
+            As :meth:`set_image_composite`, for any visual in the group.
+        """
+        if composite:
+            for visual_id in visual_ids:
+                visual = self.get_visual_model(visual_id)
+                if visual.channel_axis is None:
+                    raise ValueError(
+                        f"Visual {visual_id} has no channel_axis, so it cannot "
+                        "composite."
+                    )
+                scene_id = self._visual_to_scene[visual_id]
+                world_axis = visual.transform.axis_correspondence().get(
+                    visual.channel_axis
+                )
+                displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
+                if world_axis in displayed:
+                    raise ValueError(
+                        f"Cannot composite visual {visual_id}: world axis "
+                        f"{world_axis} is displayed {tuple(displayed)}."
+                    )
+        for visual_id in visual_ids:
+            self.set_image_composite(visual_id, composite, source_id=source_id)
 
     def update_aabb_field(
         self,
@@ -4576,39 +5223,18 @@ class CellierController:
             UUID to stamp on the emitted ``DimsChangedEvent``.  Defaults
             to the controller's own ID.
         """
+        scene = self._model.scenes[scene_id]
+        for visual in scene.visuals:
+            world_axis = self._composited_world_axis(visual)
+            if world_axis is not None and world_axis in displayed_axes:
+                raise ValueError(
+                    f"Cannot display world axis {world_axis}: image visual "
+                    f"'{visual.name}' composites it.  Switch it to single mode "
+                    f"first."
+                )
         token = _source_id_override.set(source_id)
         try:
-            self._model.scenes[scene_id].dims.selection.displayed_axes = displayed_axes
-        finally:
-            _source_id_override.reset(token)
-
-    def update_stacked_axes(
-        self,
-        scene_id: UUID,
-        stacked_axes: tuple[int, ...],
-        *,
-        source_id: UUID | None = None,
-    ) -> None:
-        """Set ``stacked_axes`` on a scene's dims.
-
-        Tags the emitted bus event with *source_id*.
-        GUI widgets should pass ``source_id=self._id`` so their own
-        ``DimsChangedEvent`` subscription can ignore the echo.
-
-        Parameters
-        ----------
-        scene_id :
-            Target scene.
-        stacked_axes :
-            Tuple of axis indices whose full extent is composited by the render
-            layer (e.g. channel axis).  Pass ``()`` for no stacked axes.
-        source_id :
-            UUID to stamp on the emitted ``DimsChangedEvent``.  Defaults
-            to the controller's own ID.
-        """
-        token = _source_id_override.set(source_id)
-        try:
-            self._model.scenes[scene_id].dims.selection.stacked_axes = stacked_axes
+            scene.dims.selection.displayed_axes = displayed_axes
         finally:
             _source_id_override.reset(token)
 
@@ -4636,36 +5262,6 @@ class CellierController:
         """
         self.update_displayed_axes(scene_id, displayed_axes, source_id=source_id)
 
-    def set_stacked_axes(
-        self,
-        scene_id: UUID,
-        stacked_axes: tuple[int, ...],
-        *,
-        source_id: UUID | None = None,
-    ) -> None:
-        """Set stacked axes on a scene's dims (preferred public API).
-
-        Equivalent to :meth:`update_stacked_axes`.  After updating the model,
-        notifies each visual via ``on_stacked_axes_changed`` so they can
-        adjust internal state (e.g. LUT channel routing) without a node swap.
-
-        Parameters
-        ----------
-        scene_id :
-            Target scene.
-        stacked_axes :
-            Tuple of axis indices whose full extent is composited by the
-            render layer (e.g. channel axis).  Pass ``()`` for none.
-        source_id :
-            UUID stamped on the emitted ``DimsChangedEvent``.
-        """
-        self.update_stacked_axes(scene_id, stacked_axes, source_id=source_id)
-        scene = self._model.scenes[scene_id]
-        scene_manager = self._render_manager._scenes[scene_id]
-        for visual_model in scene.visuals:
-            gfx_visual = scene_manager.get_visual(visual_model.id)
-            gfx_visual.on_stacked_axes_changed(stacked_axes)
-
     # ------------------------------------------------------------------
     # IncomingEventBus handlers
     # ------------------------------------------------------------------
@@ -4676,45 +5272,21 @@ class CellierController:
         )
 
     def _on_dims_update(self, event: DimsUpdateEvent) -> None:
-        if event.displayed_axes is not None and event.slice_indices is not None:
-            # Order matters: every axis must stay covered by either
-            # "displayed" or "sliced" at all times (see
-            # AxisAlignedSelectionState.to_index_selection). Expanding the
-            # displayed set must extend displayed_axes before slice_indices
-            # drops the newly-displayed axes; contracting must add the
-            # newly-hidden axes to slice_indices before displayed_axes
-            # shrinks. Mirrors Viewer.set_displayed_dimensions.
-            current_displayed = set(
-                self._model.scenes[event.scene_id].dims.selection.displayed_axes
+        # No ordering between the two: every axis keeps a position whether or
+        # not it is displayed (D36), so neither write can leave one uncovered.
+        if event.slice_indices is not None:
+            self.update_slice_indices(
+                event.scene_id, event.slice_indices, source_id=event.source_id
             )
-            is_expanding = bool(set(event.displayed_axes) - current_displayed)
-            if is_expanding:
-                self.update_displayed_axes(
-                    event.scene_id, event.displayed_axes, source_id=event.source_id
-                )
-                self.update_slice_indices(
-                    event.scene_id, event.slice_indices, source_id=event.source_id
-                )
-            else:
-                self.update_slice_indices(
-                    event.scene_id, event.slice_indices, source_id=event.source_id
-                )
-                self.update_displayed_axes(
-                    event.scene_id, event.displayed_axes, source_id=event.source_id
-                )
-        else:
-            if event.slice_indices is not None:
-                self.update_slice_indices(
-                    event.scene_id, event.slice_indices, source_id=event.source_id
-                )
-            if event.displayed_axes is not None:
-                self.update_displayed_axes(
-                    event.scene_id, event.displayed_axes, source_id=event.source_id
-                )
-        if event.stacked_axes is not None:
-            self.update_stacked_axes(
-                event.scene_id, event.stacked_axes, source_id=event.source_id
+        if event.displayed_axes is not None:
+            self.update_displayed_axes(
+                event.scene_id, event.displayed_axes, source_id=event.source_id
             )
+
+    def _on_slider_override_update(self, event: SliderOverrideUpdateEvent) -> None:
+        self.set_slider_override(
+            event.scene_id, event.axis, event.value, source_id=event.source_id
+        )
 
     def _on_aabb_update(self, event: AABBUpdateEvent) -> None:
         self.update_aabb_field(
@@ -4724,6 +5296,16 @@ class CellierController:
     def _on_background_update(self, event: BackgroundUpdateEvent) -> None:
         self.update_background_field(
             event.scene_id, event.field, event.value, source_id=event.source_id
+        )
+
+    def _on_single_appearance_update(self, event: SingleAppearanceUpdateEvent) -> None:
+        self.update_single_appearance_field(
+            event.visual_id, event.field, event.value, source_id=event.source_id
+        )
+
+    def _on_image_composite_update(self, event: ImageCompositeUpdateEvent) -> None:
+        self.set_image_composite(
+            event.visual_id, event.composite, source_id=event.source_id
         )
 
     def _on_channel_appearance_update(
@@ -5219,7 +5801,13 @@ class CellierController:
         history_depth: int = 100,
         autosave_interval_s: float | None = None,
     ):
-        """Create and wire a paint controller for the visual's data store.
+        """Create and wire a paint controller for a labels visual.
+
+        Only labels can be painted.  The controller is chosen by the visual's
+        type -- a ``LabelMemoryVisual`` gets a ``SyncPaintController`` and a
+        ``MultiscaleLabelVisual`` a ``MultiscalePaintController`` -- rather
+        than by its store, because a multiscale labels visual may be backed
+        by a generic ``MultiscaleZarrDataStore``.  Image visuals raise.
 
         Parameters
         ----------
@@ -5248,21 +5836,17 @@ class CellierController:
         Raises
         ------
         TypeError
-            If the data store type has no registered paint controller.
+            If the visual type has no registered paint controller.
         """
-        from cellier.data.image._image_memory_store import ImageMemoryStore
-        from cellier.data.image._ome_zarr_image_store import OMEZarrImageDataStore
-        from cellier.data.image._zarr_multiscale_store import (
-            MultiscaleZarrDataStore,
-        )
-        from cellier.data.label._label_memory_store import LabelMemoryStore
+        from cellier.visuals._label_memory import LabelMemoryVisual
+        from cellier.visuals._labels import MultiscaleLabelVisual
 
         scene_id = self._visual_to_scene[visual_id]
         scene = self._model.scenes[scene_id]
         visual_model = next(v for v in scene.visuals if v.id == visual_id)
         data_store = self._model.data.stores[UUID(visual_model.data_store_id)]
 
-        if isinstance(data_store, (ImageMemoryStore, LabelMemoryStore)):
+        if isinstance(visual_model, LabelMemoryVisual):
             from cellier.paint import SyncPaintController
 
             displayed_axes = scene.dims.selection.displayed_axes
@@ -5284,12 +5868,7 @@ class CellierController:
                 history_depth=history_depth,
             )
 
-        from cellier.data.label._ome_zarr_label_store import OMEZarrLabelDataStore
-
-        if isinstance(
-            data_store,
-            (OMEZarrImageDataStore, MultiscaleZarrDataStore, OMEZarrLabelDataStore),
-        ):
+        if isinstance(visual_model, MultiscaleLabelVisual):
             from cellier.paint import MultiscalePaintController
 
             displayed_axes = scene.dims.selection.displayed_axes
@@ -5317,10 +5896,9 @@ class CellierController:
             )
 
         raise TypeError(
-            f"No PaintController implementation for data store type "
-            f"{type(data_store).__name__!r}.  "
-            f"Supported: ImageMemoryStore, LabelMemoryStore, "
-            f"OMEZarrImageDataStore, MultiscaleZarrDataStore, OMEZarrLabelDataStore."
+            f"No PaintController implementation for visual type "
+            f"{type(visual_model).__name__!r}.  "
+            f"Supported: LabelMemoryVisual, MultiscaleLabelVisual."
         )
 
     def remove_scene(self, scene_id: UUID) -> None:
@@ -5367,6 +5945,7 @@ class CellierController:
         self._forget_coordinate_systems(scene.dims.world_coordinate_system)
         self._dims_cache.pop(scene_id, None)
         self._slice_cache.pop(scene_id, None)
+        self._slider_axes_cache.pop(scene_id, None)
         self._scene_render_modes.pop(scene_id, None)
         self._scene_background_bridges.pop(scene_id, None)
 
@@ -5411,6 +5990,9 @@ class CellierController:
         # 2. Remove bus subscriptions owned by this canvas.
         self._outgoing_events.unsubscribe_all(canvas_id)
         self._pick_subscriber_counts.pop(canvas_id, None)
+        for key in [key for key in self._pick_event_counts if key[0] == canvas_id]:
+            del self._pick_event_counts[key]
+        self._cancel_move_pick_read(canvas_id)
 
         # 3. Update controller lookup maps.
         self._canvas_to_scene.pop(canvas_id)
@@ -5454,9 +6036,16 @@ class CellierController:
         # 2. Disconnect psygnal bridge handlers.
         for signal, handler in self._visual_psygnal_handlers.pop(visual_id, []):
             signal.disconnect(handler)
+        for signal, handler in self._channel_psygnal_handlers.pop(visual_id, []):
+            signal.disconnect(handler)
+        single_bridge = self._single_bridges.pop(visual_id, None)
+        if single_bridge is not None:
+            single_bridge[0].events.disconnect(single_bridge[1])
 
-        # 3. Remove bus subscriptions for this visual's GFX handlers.
+        # 3. Remove bus subscriptions for this visual's GFX handlers, and
+        #    cancel its pick value reads, press and release included.
         self._outgoing_events.unsubscribe_all(visual_id)
+        self._cancel_visual_pick_reads(visual_id)
 
         # 4. Remove from controller lookup maps.
         self._visual_to_scene.pop(visual_id)
@@ -5464,6 +6053,7 @@ class CellierController:
 
         # 5. Render-layer teardown.
         self._render_manager.remove_visual(visual_id)
+        self._check_slider_axes(scene_id)
 
         # 6. Notify external observers.
         self._outgoing_events.emit(
@@ -5735,54 +6325,30 @@ class CellierController:
         return tuple(float(value) for value in coordinate)
 
     def _on_raw_pointer_event(self, event: _CanvasRawPointerEvent) -> None:
-        """Embed the 2D camera position in N-dimensional world space.
+        """Emit the public mouse event, then the typed pick event for a hit.
 
         Reads displayed_axes and slice_indices from the scene model to fill
-        the full world coordinate, then emits the public canvas mouse event.
-        No render-layer access occurs here.
+        the full world coordinate, emits the canvas mouse event, and then --
+        for a hit that some ``on_pick`` subscriber wants -- the matching pick
+        event (design 3.7).
         """
-        from cellier.events._events import (
-            CanvasPickInfo,
-            ImagePickInfo,
-            LabelsPickInfo,
-        )
-        from cellier.render.render_manager import (
-            _ImageDisplayedDataCoord,
-            _LabelsDisplayedDataCoord,
-        )
+        from cellier.events._events import CanvasPickInfo
 
         scene_model = self._model.scenes[event.scene_id]
         dims = scene_model.dims
         displayed_axes = dims.selection.displayed_axes
-        slice_indices = dims.selection.slice_indices
+        # A displayed axis keeps a stored position (D36), but the pointer
+        # supplies its coordinate; only the sliced axes come from dims.
+        slice_indices = {
+            axis: position
+            for axis, position in dims.selection.slice_indices.items()
+            if axis not in displayed_axes
+        }
         axis_labels = dims.axis_labels
         n_dims = len(axis_labels)
 
-        # Promote render-layer intermediates to full-rank public pick types.
-        # The render layer decodes the displayed axes into level-0 data
-        # coordinates; the controller fills the remaining axes from the dims
-        # slice state, which since D3 holds a **world** position and so has to
-        # be pulled back through the visual's transform first.
-        raw_pick = event.pick_details
-        if isinstance(raw_pick, (_ImageDisplayedDataCoord, _LabelsDisplayedDataCoord)):
-            full_coord = self._promote_pick_coordinate(
-                raw_pick.displayed_data_coord,
-                displayed_axes=displayed_axes,
-                slice_indices=slice_indices,
-                world_ndim=n_dims,
-                hit_visual_id=event.hit_visual_id,
-                collapsed_data_indices=raw_pick.collapsed_data_indices,
-            )
-            if isinstance(raw_pick, _ImageDisplayedDataCoord):
-                promoted_pick = ImagePickInfo(data_coordinate=full_coord)
-            else:
-                promoted_pick = LabelsPickInfo(data_coordinate=full_coord)
-        else:
-            promoted_pick = raw_pick
-
-        pick_info = CanvasPickInfo(
-            hit_visual_id=event.hit_visual_id, details=promoted_pick
-        )
+        pick_info = CanvasPickInfo(hit_visual_id=event.hit_visual_id)
+        world_coord: np.ndarray | None = None
 
         if event.camera_type == "2d":
             world_coord = np.empty(n_dims, dtype=np.float64)
@@ -5835,10 +6401,217 @@ class CellierController:
                 )
             )
 
+        # A newer pointer event supersedes an in-flight ``move`` value read;
+        # ``press`` and ``release`` reads always complete (design 3.7).
+        self._cancel_move_pick_read(event.canvas_id)
+        if event.hit_visual_id is not None and event.pick_details is not None:
+            self._emit_pick_event(
+                event,
+                world_coordinate=world_coord,
+                displayed_axes=displayed_axes,
+                slice_indices=slice_indices,
+                world_ndim=n_dims,
+            )
+
+    def _emit_pick_event(
+        self,
+        event: _CanvasRawPointerEvent,
+        *,
+        world_coordinate: np.ndarray | None,
+        displayed_axes: tuple[int, ...],
+        slice_indices: dict[int, float],
+        world_ndim: int,
+    ) -> None:
+        """Emit the typed pick event for a hit, if its type has a subscriber.
+
+        Points, lines, mesh and graph details are complete as decoded.  Image
+        and labels picks are promoted to full-rank data coordinates first, and
+        carry the values under them: read now from an in-memory store's array,
+        or at level 0 through the slicer for any other store, in which case the
+        event is emitted when the read completes.
+        """
+        from cellier.render.render_manager import (
+            _ImageDisplayedDataCoord,
+            _LabelsDisplayedDataCoord,
+        )
+
+        raw_pick = event.pick_details
+        event_type = _pick_event_type(raw_pick)
+        if event_type is None or not self._pick_event_counts.get(
+            (event.canvas_id, event_type)
+        ):
+            return
+        common = {
+            "source_id": event.canvas_id,
+            "scene_id": event.scene_id,
+            "visual_id": event.hit_visual_id,
+            "action": event.action,
+            "camera_type": event.camera_type,
+            "world_coordinate": world_coordinate,
+            "ray": event.ray,
+            "button": event.button,
+            "buttons": event.buttons,
+            "modifiers": event.modifiers,
+            "gesture_id": event.gesture_id,
+        }
+        if not isinstance(
+            raw_pick, (_ImageDisplayedDataCoord, _LabelsDisplayedDataCoord)
+        ):
+            self._outgoing_events.emit(event_type(**common, pick_info=raw_pick))
+            return
+
+        visual = self._model_visual_or_none(event.hit_visual_id)
+        store = (
+            None
+            if visual is None
+            else self._model.data.stores.get(UUID(visual.data_store_id))
+        )
+        if store is None:
+            return
+        # The render layer decodes the displayed axes into level-0 data
+        # coordinates; the other axes come from the plan the visual last drew,
+        # or failing that from the dims state pulled back through the
+        # visual's transform.
+        coordinate = self._promote_pick_coordinate(
+            raw_pick.displayed_data_coord,
+            displayed_axes=displayed_axes,
+            slice_indices=slice_indices,
+            world_ndim=world_ndim,
+            hit_visual_id=event.hit_visual_id,
+            collapsed_data_indices=raw_pick.collapsed_data_indices,
+        )
+        shape = tuple(int(size) for size in store.level_shapes[0])
+
+        if isinstance(raw_pick, _LabelsDisplayedDataCoord):
+            index = _voxel_index(coordinate, shape)
+            reads = {} if index is None else {0: index}
+            labels_coordinate = coordinate
+
+            def build(values: dict) -> LabelsPickEvent:
+                return LabelsPickEvent(
+                    **common,
+                    pick_info=LabelsPickInfo(
+                        data_coordinate=labels_coordinate,
+                        value=int(values.get(0, 0)),
+                    ),
+                )
+
+        else:
+            image_coordinate, positions = _image_pick_positions(
+                visual, coordinate, raw_pick, event.camera_type
+            )
+            reads = {}
+            for channel, position in positions.items():
+                index = _voxel_index(position, shape)
+                if index is not None:
+                    reads[channel] = index
+
+            def build(values: dict) -> ImagePickEvent:
+                return ImagePickEvent(
+                    **common,
+                    pick_info=ImagePickInfo(
+                        data_coordinate=image_coordinate,
+                        channel_values={
+                            channel: float(values[channel])
+                            for channel in sorted(values)
+                        },
+                    ),
+                )
+
+        self._read_pick_values(event, store, reads, build)
+
+    def _read_pick_values(
+        self,
+        event: _CanvasRawPointerEvent,
+        store: Any,
+        reads: dict[int, tuple[int, ...]],
+        build: Callable[[dict], Any],
+    ) -> None:
+        """Read the voxels in *reads* from *store* and emit ``build(values)``.
+
+        An in-memory store holds a plain array (its ``get_data`` is a
+        coroutine only for the slicer's sake), so the read and the emit happen
+        here.  Any other store is read at level 0 through the render layer's
+        cancellable slicer, and the event is emitted when every value has
+        arrived -- never, if the read is cancelled.
+        """
+        array = getattr(store, "data", None)
+        if not reads or isinstance(array, np.ndarray):
+            values = (
+                {key: array[index] for key, index in reads.items()} if reads else {}
+            )
+            self._outgoing_events.emit(build(values))
+            return
+
+        from cellier.data.image._image_requests import ChunkRequest
+
+        read_id = uuid4()
+        keys: dict[UUID, int] = {}
+        requests = []
+        for key, index in reads.items():
+            request = ChunkRequest(
+                chunk_request_id=uuid4(),
+                slice_request_id=read_id,
+                scale_index=0,
+                axis_selections=index,
+            )
+            keys[request.chunk_request_id] = key
+            requests.append(request)
+        values: dict[int, Any] = {}
+        canvas_id = event.canvas_id
+        visual_id = event.hit_visual_id
+
+        def on_batch(batch: list) -> None:
+            for request, data in batch:
+                values[keys[request.chunk_request_id]] = np.asarray(data).reshape(-1)[0]
+
+        def on_complete() -> None:
+            self._forget_pick_read(canvas_id, visual_id, read_id)
+            self._outgoing_events.emit(build(values))
+
+        self._render_manager.submit_pick_read(
+            requests, store.get_data, on_batch, on_complete
+        )
+        self._pick_reads_by_visual.setdefault(visual_id, set()).add(read_id)
+        if event.action == "move":
+            self._move_pick_reads[canvas_id] = read_id
+
+    def _forget_pick_read(
+        self, canvas_id: UUID, visual_id: UUID, read_id: UUID
+    ) -> None:
+        """Drop a finished pick read from the bookkeeping."""
+        reads = self._pick_reads_by_visual.get(visual_id)
+        if reads is not None:
+            reads.discard(read_id)
+            if not reads:
+                del self._pick_reads_by_visual[visual_id]
+        if self._move_pick_reads.get(canvas_id) == read_id:
+            del self._move_pick_reads[canvas_id]
+
+    def _cancel_move_pick_read(self, canvas_id: UUID) -> None:
+        """Cancel the canvas's in-flight ``move`` value read, if any."""
+        read_id = self._move_pick_reads.pop(canvas_id, None)
+        if read_id is None:
+            return
+        self._render_manager.cancel_pick_read(read_id)
+        for visual_id, reads in list(self._pick_reads_by_visual.items()):
+            reads.discard(read_id)
+            if not reads:
+                del self._pick_reads_by_visual[visual_id]
+
+    def _cancel_visual_pick_reads(self, visual_id: UUID) -> None:
+        """Cancel every in-flight value read for *visual_id*."""
+        reads = self._pick_reads_by_visual.pop(visual_id, set())
+        for read_id in reads:
+            self._render_manager.cancel_pick_read(read_id)
+        for canvas_id, read_id in list(self._move_pick_reads.items()):
+            if read_id in reads:
+                del self._move_pick_reads[canvas_id]
+
     def _register_pick_subscriber(
         self, canvas_id: UUID, handle: SubscriptionHandle
     ) -> SubscriptionHandle:
-        """Record a mouse subscription and enable pick details for its canvas.
+        """Record a pick subscription and enable pick details for its canvas.
 
         Increments the per-canvas picking-subscriber count; the first
         subscriber flips on element-detail extraction in the render layer.
@@ -5855,7 +6628,6 @@ class CellierController:
         SubscriptionHandle
             The same handle, for convenient return from the callers.
         """
-        self._mouse_handle_canvas[id(handle)] = canvas_id
         count = self._pick_subscriber_counts.get(canvas_id, 0)
         self._pick_subscriber_counts[canvas_id] = count + 1
         if count == 0:
@@ -5863,20 +6635,105 @@ class CellierController:
         return handle
 
     def unsubscribe_mouse(self, handle: SubscriptionHandle) -> None:
-        """Remove a mouse subscription created by an ``on_mouse_*`` method.
+        """Remove a subscription created by an ``on_mouse_*`` method.
 
-        Use this in place of ``EventBus.unsubscribe`` for handles returned by
-        the six ``on_mouse_*`` methods so the per-canvas picking-subscriber
-        count stays accurate; the last unsubscribe disables element-detail
-        extraction for that canvas.
+        Mouse subscriptions do not gate pick details; this is
+        ``EventBus.unsubscribe``, kept so a handle from ``on_pick`` passed
+        here by mistake still updates the pick counters.
 
         Parameters
         ----------
         handle : SubscriptionHandle
             A handle returned by one of the ``on_mouse_*`` methods.
         """
-        canvas_id = self._mouse_handle_canvas.pop(id(handle), None)
-        if canvas_id is not None:
+        self.unsubscribe_pick(handle)
+
+    def on_pick(
+        self,
+        canvas_id: UUID,
+        event_type: type,
+        callback: Callable[[Any], None],
+        *,
+        owner_id: UUID,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired when a visual of one kind is picked.
+
+        Mouse events say *that* something was hit; pick events say *what*
+        (unified image design 3.7).  A pick event follows the mouse event for
+        the same pointer event, carries the same ``gesture_id``, ``action``,
+        button, buttons and modifiers, and is emitted only for hits.  Image
+        and labels events carry the values under the pointer; for multiscale
+        visuals those are read asynchronously, so match events by
+        ``gesture_id`` and ``action`` rather than by arrival order.
+
+        Pick details are extracted while the canvas has any pick subscriber,
+        and image and labels values are read only while that event type has
+        one.
+
+        Parameters
+        ----------
+        canvas_id : UUID
+            The canvas to watch.
+        event_type : type
+            One of :data:`cellier.events.PICK_EVENT_TYPES`: ``ImagePickEvent``,
+            ``LabelsPickEvent``, ``PointsPickEvent``, ``LinesPickEvent``,
+            ``MeshPickEvent`` or ``GraphPickEvent``.
+        callback : Callable
+            Called with each pick event.
+        owner_id : UUID
+            UUID under which this subscription is registered for bulk removal
+            via ``unsubscribe_all(owner_id)``.
+        weak : bool
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+            Pass it to :meth:`unsubscribe_pick`.
+
+        Raises
+        ------
+        TypeError
+            If *event_type* is not a pick event type.
+        """
+        if event_type not in PICK_EVENT_TYPES:
+            names = ", ".join(t.__name__ for t in PICK_EVENT_TYPES)
+            raise TypeError(
+                f"on_pick takes a pick event type ({names}), got {event_type!r}."
+            )
+        handle = self._outgoing_events.subscribe(
+            event_type,
+            callback,
+            entity_id=canvas_id,
+            owner_id=owner_id,
+            weak=weak,
+        )
+        key = (canvas_id, event_type)
+        self._pick_event_counts[key] = self._pick_event_counts.get(key, 0) + 1
+        self._pick_handles[id(handle)] = key
+        return self._register_pick_subscriber(canvas_id, handle)
+
+    def unsubscribe_pick(self, handle: SubscriptionHandle) -> None:
+        """Remove a subscription created by :meth:`on_pick`.
+
+        Keeps the per-canvas and per-type subscriber counts accurate: the last
+        subscriber for a type stops its value reads, and the last for a canvas
+        disables pick-detail extraction there.
+
+        Parameters
+        ----------
+        handle : SubscriptionHandle
+            A handle returned by :meth:`on_pick`.
+        """
+        key = self._pick_handles.pop(id(handle), None)
+        if key is not None:
+            canvas_id, _event_type = key
+            remaining = self._pick_event_counts.get(key, 0) - 1
+            if remaining <= 0:
+                self._pick_event_counts.pop(key, None)
+            else:
+                self._pick_event_counts[key] = remaining
             count = self._pick_subscriber_counts.get(canvas_id, 0) - 1
             if count <= 0:
                 self._pick_subscriber_counts.pop(canvas_id, None)
@@ -5914,7 +6771,7 @@ class CellierController:
             owner_id=owner_id,
             weak=weak,
         )
-        return self._register_pick_subscriber(canvas_id, handle)
+        return handle
 
     def on_mouse_move_2d(
         self,
@@ -5932,7 +6789,7 @@ class CellierController:
             owner_id=owner_id,
             weak=weak,
         )
-        return self._register_pick_subscriber(canvas_id, handle)
+        return handle
 
     def on_mouse_release_2d(
         self,
@@ -5950,7 +6807,7 @@ class CellierController:
             owner_id=owner_id,
             weak=weak,
         )
-        return self._register_pick_subscriber(canvas_id, handle)
+        return handle
 
     def on_mouse_press_3d(
         self,
@@ -5981,7 +6838,7 @@ class CellierController:
             owner_id=owner_id,
             weak=weak,
         )
-        return self._register_pick_subscriber(canvas_id, handle)
+        return handle
 
     def on_mouse_move_3d(
         self,
@@ -5999,7 +6856,7 @@ class CellierController:
             owner_id=owner_id,
             weak=weak,
         )
-        return self._register_pick_subscriber(canvas_id, handle)
+        return handle
 
     def on_mouse_release_3d(
         self,
@@ -6017,7 +6874,7 @@ class CellierController:
             owner_id=owner_id,
             weak=weak,
         )
-        return self._register_pick_subscriber(canvas_id, handle)
+        return handle
 
     def set_camera_controller_enabled(self, canvas_id: UUID, enabled: bool) -> None:
         """Enable or disable the camera controller for one canvas.
@@ -6216,14 +7073,7 @@ class CellierController:
         visible :
             ``True`` to show, ``False`` to hide.
         """
-        visual = self.get_visual_model(visual_id)
-        if isinstance(
-            visual, (MultichannelImageVisual, MultichannelMultiscaleImageVisual)
-        ):
-            for ch in visual.channels.values():
-                ch.visible = visible
-        else:
-            self.update_appearance_field(visual_id, "visible", visible)
+        self.update_appearance_field(visual_id, "visible", visible)
 
     def set_visual_outline(
         self,

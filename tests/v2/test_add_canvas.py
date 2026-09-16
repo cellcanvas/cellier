@@ -23,7 +23,7 @@ def _make_scene(
     n_axes = max(displayed_axes) + 1
     axis_labels = tuple(f"axis_{i}" for i in range(n_axes))
     cs = world_coordinate_system(spatial_axes(*axis_labels), name="world")
-    slice_indices = {i: 0 for i in range(n_axes) if i not in displayed_axes}
+    slice_indices = dict.fromkeys(range(n_axes), 0)
     dims = DimsManager(
         world_coordinate_system=cs,
         selection=AxisAlignedSelection(

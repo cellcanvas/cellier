@@ -9,14 +9,12 @@ register one data store and fan a visual out to every panel.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Literal, TypeVar
-from uuid import UUID, uuid4
+from typing import TYPE_CHECKING, Any, Callable, Literal, TypeVar
+from uuid import UUID
 
 from cellier.controller import CellierController
-from cellier.convenience._controls_registry import (
-    ControlsRegistryMixin,
-    check_channel_cap,
-)
+from cellier.convenience._controls_registry import ControlsRegistryMixin
+from cellier.convenience._ortho_dims import OrthoDimsController
 from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
 from cellier.render._capture import write_png
@@ -35,7 +33,6 @@ if TYPE_CHECKING:
 
     from cellier.convenience.gui._controls_config import (
         BaseControlsConfig,
-        ChannelControlsConfig,
         GraphControlsConfig,
         InMemoryImageControlsConfig,
         LabelsControlsConfig,
@@ -52,25 +49,28 @@ if TYPE_CHECKING:
     from cellier.data.lines._lines_memory_store import LinesMemoryStore
     from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
     from cellier.data.points._points_memory_store import PointsMemoryStore
-    from cellier.events import DimsChangedEvent
     from cellier.render._config import RenderManagerConfig
     from cellier.scene._background import BackgroundAppearance
     from cellier.transform import BaseTransform, WorldCoordinateSystem
     from cellier.visuals._base_visual import VisualOutline
-    from cellier.visuals._channel_appearance import ChannelAppearance
     from cellier.visuals._graph_memory import (
         GraphAppearance,
         GraphVisual,
         TrailConfig,
     )
     from cellier.visuals._image import (
-        MultichannelMultiscaleImageVisual,
         MultiscaleImageAppearance,
+        MultiscaleImageChannelAppearance,
         MultiscaleImageRenderConfig,
+        MultiscaleImageSingleAppearance,
         MultiscaleImageVisual,
     )
-    from cellier.visuals._image_memory import BaseImageAppearance, ImageVisual
-    from cellier.visuals._image_memory_multichannel import MultichannelImageVisual
+    from cellier.visuals._image_memory import (
+        ImageVisual,
+        InMemoryImageAppearance,
+        InMemoryImageChannelAppearance,
+        InMemoryImageSingleAppearance,
+    )
     from cellier.visuals._label_memory import BaseLabelsAppearance, LabelMemoryVisual
     from cellier.visuals._labels import (
         MultiscaleLabelRenderConfig,
@@ -87,60 +87,29 @@ _T = TypeVar("_T", bound="BaseDataStore")
 _PANEL_KEYS: tuple[str, ...] = ("xy", "xz", "yz", "vol")
 
 
-class _ExtraAxisSyncer:
-    """Fans non-spatial (extra) axis slice changes across all four panels.
+def _copy(model):
+    """A copy of *model*, so each panel's visual owns its appearance.
 
-    The three spatial axes are displayed/sliced differently per panel and are
-    never synced.  Every other axis (channel, time, ...) represents the same
-    global coordinate in all panels, so a change on one panel is propagated to
-    the others.  ``update_slice_indices`` is a full replacement, so each target
-    scene's current ``slice_indices`` is read, patched, and written back.
+    A new model built from the same field values.  Not ``model_copy``: a
+    shallow copy of an ``EventedModel`` shares its signal group, so every
+    panel would hear every other panel's edits, and a deep copy of a
+    ``Colormap`` loses its registered name.  Field values such as a
+    ``Colormap`` are immutable and shared safely.  A plain dict (validated
+    later by the visual model) is copied too.
     """
+    if model is None:
+        return None
+    if isinstance(model, dict):
+        return dict(model)
+    return type(model)(
+        **{name: getattr(model, name) for name in type(model).model_fields}
+    )
 
-    def __init__(
-        self,
-        controller: CellierController,
-        scenes_by_id: dict[UUID, Scene],
-        extra_axes: set[int],
-    ) -> None:
-        self._id = uuid4()
-        self._controller = controller
-        self._scenes_by_id = scenes_by_id
-        self._extra_axes = set(extra_axes)
-        self._syncing = False
-        self.enabled = True
 
-    @property
-    def owner_id(self) -> UUID:
-        """UUID under which this syncer's subscriptions are registered."""
-        return self._id
-
-    def handle(self, event: DimsChangedEvent) -> None:
-        """Propagate extra-axis positions from the source scene to the others."""
-        if not self.enabled or self._syncing:
-            return
-        source = self._scenes_by_id.get(event.scene_id)
-        if source is None:
-            return
-        slice_indices = source.dims.selection.slice_indices
-        updates = {a: slice_indices[a] for a in self._extra_axes if a in slice_indices}
-        if not updates:
-            return
-        self._syncing = True
-        try:
-            for scene_id, scene in self._scenes_by_id.items():
-                if scene_id == event.scene_id:
-                    continue
-                current = dict(scene.dims.selection.slice_indices)
-                changed = False
-                for axis, value in updates.items():
-                    if current.get(axis) != value:
-                        current[axis] = value
-                        changed = True
-                if changed:
-                    self._controller.update_slice_indices(scene_id, current)
-        finally:
-            self._syncing = False
+def _copy_channels(channels):
+    if channels is None:
+        return None
+    return {index: _copy(appearance) for index, appearance in channels.items()}
 
 
 def _resolve_spatial_axes(
@@ -201,8 +170,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
     The three spatial axes (default: the last three axis labels, treated as
     ``z, y, x``) define the slice planes.  Any remaining axes are "extra" axes
-    (e.g. channel or time): they appear as sliders on every panel and, by
-    default, stay synchronized across panels.
+    (e.g. channel or time).  By default every axis's slice position, thickness
+    and slider override is mirrored across the four panels by an
+    :class:`~cellier.convenience._ortho_dims.OrthoDimsController`, so the
+    panels share one world point (design 3.6).
 
     Parameters
     ----------
@@ -215,9 +186,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     spatial_axes : tuple[str, ...], tuple[int, ...], or None
         The three axes (names or indices, in ``z, y, x`` order) that form the
         orthogonal planes.  Defaults to the last three axes when ``None``.
-    link_extra_axes : bool
-        When ``True`` (default), extra (non-spatial) axis slider positions are
-        kept synchronized across all four panels.
+    link_axes : bool
+        When ``True`` (default), every axis's slice position, thickness and
+        slider override is mirrored across the four panels.
     render_config : RenderManagerConfig or None
         Render pipeline configuration passed through to the controller.
     gui : "qt", "anywidget", or "offscreen"
@@ -234,7 +205,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         axes: WorldAxesLike,
         *,
         spatial_axes: tuple[str, ...] | tuple[int, ...] | None = None,
-        link_extra_axes: bool = True,
+        link_axes: bool = True,
         render_config: RenderManagerConfig | None = None,
         gui: Literal["qt", "anywidget", "offscreen"] = "qt",
     ) -> None:
@@ -244,7 +215,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._ndim = world.ndim
         self._extra_axes = {i for i in range(self._ndim) if i not in self._spatial_axes}
         self._scenes = self._build_scenes(world)
-        self._syncer: _ExtraAxisSyncer | None = None
+        self._dims_controller: OrthoDimsController | None = None
         # Per-visual controls configs, keyed by a representative (first-panel)
         # visual id; _visual_groups maps that id to every panel's sibling
         # visual id so one widget can drive them all.  Not channel-specific:
@@ -253,8 +224,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         # Callbacks fired once all panel scenes' startup data is on the GPU;
         # consumed by the launcher (see convenience._launch._init_view).
         self._ready_callbacks: list[Callable[[], None]] = []
-        if link_extra_axes and self._extra_axes:
-            self._wire_extra_axis_sync()
+        if link_axes:
+            self._wire_axis_sync()
 
     # ------------------------------------------------------------------
     # Scene construction
@@ -273,7 +244,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         for key in _PANEL_KEYS:
             displayed = displayed_by_key[key]
             render_modes = {"3d"} if key == "vol" else {"2d"}
-            slice_indices = {i: 0 for i in range(self._ndim) if i not in displayed}
+            # Every axis gets a position, displayed ones included (D36).
+            slice_indices = dict.fromkeys(range(self._ndim), 0.0)
             scene = Scene(
                 name=key,
                 dims=DimsManager(
@@ -289,15 +261,11 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             scenes[key] = self._controller.add_scene_model(scene)
         return scenes
 
-    def _wire_extra_axis_sync(self) -> None:
-        """Subscribe the cross-panel extra-axis syncer to all panels."""
-        scenes_by_id = {scene.id: scene for scene in self._scenes.values()}
-        syncer = _ExtraAxisSyncer(self._controller, scenes_by_id, self._extra_axes)
-        for scene in self._scenes.values():
-            self._controller.on_dims_changed(
-                scene.id, syncer.handle, owner_id=syncer.owner_id
-            )
-        self._syncer = syncer
+    def _wire_axis_sync(self) -> None:
+        """Mirror dims across the panels, xy first so it wins a disagreement."""
+        self._dims_controller = OrthoDimsController(
+            self._controller, [self._scenes[key] for key in _PANEL_KEYS]
+        )
 
     # ------------------------------------------------------------------
     # Public properties
@@ -363,6 +331,55 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         if tracker is None:
             return "idle (not started)"
         return tracker.describe()
+
+    # ------------------------------------------------------------------
+    # Picking
+    # ------------------------------------------------------------------
+
+    def on_pick(
+        self,
+        canvas_id: UUID,
+        event_type: type,
+        callback: Callable[[Any], None],
+        *,
+        owner_id: UUID | None = None,
+        weak: bool = False,
+    ) -> Any:
+        """Register a callback fired when a visual of one kind is picked.
+
+        Mirrors :meth:`CellierController.on_pick`; see it for the events,
+        their timing and gating.
+
+        Parameters
+        ----------
+        canvas_id : UUID
+            The canvas to watch, e.g. one of a panel scene's canvases.
+        event_type : type
+            One of :data:`cellier.events.PICK_EVENT_TYPES`.
+        callback : Callable
+            Called with each pick event.
+        owner_id : UUID or None
+            Owner for bulk removal.  Defaults to *canvas_id*, so removing the
+            canvas removes the subscription.
+        weak : bool
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+            Pass it to :meth:`unsubscribe_pick`.
+        """
+        return self._controller.on_pick(
+            canvas_id,
+            event_type,
+            callback,
+            owner_id=canvas_id if owner_id is None else owner_id,
+            weak=weak,
+        )
+
+    def unsubscribe_pick(self, handle: Any) -> None:
+        """Remove a subscription created by :meth:`on_pick`."""
+        self._controller.unsubscribe_pick(handle)
 
     def on_scene_ready(self, key: str, callback: Callable[[], None]) -> None:
         """Fire *callback* when one scene's data is on the GPU.
@@ -615,17 +632,22 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         return set(self._extra_axes)
 
     @property
-    def extra_axis_sync_enabled(self) -> bool:
-        """Whether extra-axis positions are synced across panels."""
-        return self._syncer is not None and self._syncer.enabled
+    def dims_controller(self) -> OrthoDimsController | None:
+        """The controller mirroring dims across the panels, if linked."""
+        return self._dims_controller
 
-    @extra_axis_sync_enabled.setter
-    def extra_axis_sync_enabled(self, value: bool) -> None:
-        if self._syncer is None:
-            if value and self._extra_axes:
-                self._wire_extra_axis_sync()
+    @property
+    def axis_sync_enabled(self) -> bool:
+        """Whether dims edits are mirrored across the panels."""
+        return self._dims_controller is not None and self._dims_controller.enabled
+
+    @axis_sync_enabled.setter
+    def axis_sync_enabled(self, value: bool) -> None:
+        if self._dims_controller is None:
+            if value:
+                self._wire_axis_sync()
             return
-        self._syncer.enabled = value
+        self._dims_controller.enabled = value
 
     # ------------------------------------------------------------------
     # Serialization
@@ -636,8 +658,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Captures the four scenes (dims, slice positions), visuals, data stores,
         canvas camera state, and the render pipeline configuration.  The live
-        extra-axis sync wiring is *not* serialized; :meth:`from_file`
-        re-establishes it.
+        dims mirroring is *not* serialized -- the panels are saved in agreement
+        -- and :meth:`from_file` re-establishes it.
 
         Parameters
         ----------
@@ -651,22 +673,22 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         cls,
         path: str | Path,
         *,
-        link_extra_axes: bool = True,
+        link_axes: bool = True,
         render_config: RenderManagerConfig | None = None,
     ) -> OrthoViewer:
         """Restore an ``OrthoViewer`` from a previously serialized file.
 
         The four panels are rebound by scene name (``xy``, ``xz``, ``yz``,
         ``vol``) and the spatial axes are recovered from the ``vol`` panel's
-        displayed axes -- no extra metadata is stored.  Extra-axis sync is
-        re-established when *link_extra_axes* is ``True``.
+        displayed axes -- no extra metadata is stored.  Dims mirroring is
+        re-established when *link_axes* is ``True``.
 
         Parameters
         ----------
         path : str or Path
             Path to a JSON file written by :meth:`to_file`.
-        link_extra_axes : bool
-            Re-subscribe the cross-panel extra-axis syncer.  Default ``True``.
+        link_axes : bool
+            Re-establish the cross-panel dims mirroring.  Default ``True``.
         render_config : RenderManagerConfig or None
             Override the serialized render pipeline configuration.
 
@@ -703,10 +725,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         obj._spatial_axes = vol_displayed  # type: ignore[assignment]
         obj._ndim = ndim
         obj._extra_axes = {i for i in range(ndim) if i not in vol_displayed}
-        obj._syncer = None
+        obj._dims_controller = None
         obj._init_controls_registry()
-        if link_extra_axes and obj._extra_axes:
-            obj._wire_extra_axis_sync()
+        if link_axes:
+            obj._wire_axis_sync()
         return obj
 
     # ------------------------------------------------------------------
@@ -714,11 +736,12 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     # ------------------------------------------------------------------
 
     def center_slices(self) -> None:
-        """Move each panel's sliced spatial axis to the middle of the data.
+        """Move the three spatial slice positions to the middle of the data.
 
-        Reads the world-space extent of the loaded visuals and sets each 2D
-        panel's sliced spatial axis to its midpoint.  Extra-axis positions are
-        left unchanged.  Call after adding data.
+        Reads the world-space extent of the loaded visuals and sets every
+        panel's position on each spatial axis to its midpoint -- once, through
+        the dims controller when the panels are linked.  Extra-axis positions
+        are left unchanged.  Call after adding data.
 
         Raises
         ------
@@ -728,19 +751,21 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         from cellier.convenience._geometry import axis_values_from_ortho
 
         ranges = axis_values_from_ortho(self)
+        # A slice position is a float world coordinate (D3), so the midpoint
+        # is not rounded.  Every panel keeps a position for every axis (D36),
+        # so the displayed ones are centred too.
+        midpoints = {
+            axis: (ranges[axis].min + ranges[axis].max) / 2.0
+            for axis in self._spatial_axes
+            if axis in ranges
+        }
+        if not midpoints:
+            return
+        if self.axis_sync_enabled:
+            self._dims_controller.set_slice_positions(midpoints)
+            return
         for scene in self._scenes.values():
-            new_slices = dict(scene.dims.selection.slice_indices)
-            updated = False
-            for axis in self._spatial_axes:
-                if axis in new_slices and axis in ranges:
-                    low, high = ranges[axis].min, ranges[axis].max
-                    # A slice position is a float world coordinate (D3), so
-                    # the midpoint is not rounded -- the same value the dims
-                    # panel seeds a displayed axis to (initial_slice_indices).
-                    new_slices[axis] = (low + high) / 2.0
-                    updated = True
-            if updated:
-                self._controller.update_slice_indices(scene.id, new_slices)
+            self._controller.update_slice_indices(scene.id, midpoints)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -762,35 +787,52 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     def add_image(
         self,
         data: ImageMemoryStore | UUID,
-        appearance: BaseImageAppearance,
+        appearance: InMemoryImageAppearance | None = None,
         name: str = "image",
         controls: InMemoryImageControlsConfig | None = None,
+        *,
+        single: InMemoryImageSingleAppearance | None = None,
+        channel_axis: int | None = None,
+        composite: bool = False,
+        channels: dict[int, InMemoryImageChannelAppearance] | None = None,
+        max_channels: int = 4,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
     ) -> dict[str, ImageVisual]:
         """Add an in-memory image to every panel from a single data store.
 
+        Each panel gets its own visual model with its own copy of the
+        appearances.  Keep them equal through :meth:`set_image_composite`,
+        :meth:`update_image_single_field` and
+        :meth:`update_image_channel_field` (or the image control, which uses
+        them).  A composited axis cannot be one of the spatial axes, since some
+        panel always displays it (unified image design 3.4).
+
         Parameters
         ----------
         data : ImageMemoryStore or UUID
             Backing data store or the UUID of an already-registered store.
-        appearance : BaseImageAppearance
-            Appearance parameters.
+        appearance : InMemoryImageAppearance or None
+            Shared by both modes.
         name : str
             Base label; each panel's visual is named ``f"{name}_{key}"``.
         controls : InMemoryImageControlsConfig or None
-            Appearance controls configuration shared across all four panels:
-            one dock widget drives every panel's visual in lock-step.  When
-            ``None`` (default), no appearance controls are created.
-
+            Appearance controls configuration shared across all four panels.
+        single : single appearance or None
+            Single mode's appearance.  ``None`` uses the defaults.
+        channel_axis : int or None
+            The data axis a composite draws channels along; it must map to a
+            world axis.  ``None`` (default) gives an image with no channels.
+        composite : bool
+            Start in composite mode.  Requires *channel_axis*.
+        channels : dict[int, channel appearance] or None
+            Composite mode's per-channel appearances.
+        max_channels : int
+            The most channels the visual may hold.  Default 4.
         outline : VisualOutline or None
-            Screen-space outline assignment.  ``None`` (default) leaves the
-            visual unoutlined.  Requires the outline pass to be enabled; see
-            ``outline_enabled``.
+            Screen-space outline assignment.
         ambient_occlusion : bool or None
-            Whether this visual receives ambient occlusion.  ``None``
-            (default) is automatic: excluded while it renders in a
-            MIP-family mode, included otherwise.
+            Whether this visual receives ambient occlusion.
 
         Returns
         -------
@@ -802,8 +844,13 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             lambda key, scene: self._controller.add_image(
                 store,
                 scene.id,
-                appearance,
+                _copy(appearance),
                 f"{name}_{key}",
+                single=_copy(single),
+                channel_axis=channel_axis,
+                composite=composite,
+                channels=_copy_channels(channels),
+                max_channels=max_channels,
                 outline=outline,
                 ambient_occlusion=ambient_occlusion,
             )
@@ -1105,41 +1152,53 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     def add_image_multiscale(
         self,
         data: BaseDataStore | UUID,
-        appearance: MultiscaleImageAppearance,
+        appearance: MultiscaleImageAppearance | None = None,
         name: str = "image",
         render_config: MultiscaleImageRenderConfig | None = None,
         transform: BaseTransform | None = None,
         controls: MultiscaleImageControlsConfig | None = None,
+        *,
+        single: MultiscaleImageSingleAppearance | None = None,
+        channel_axis: int | None = None,
+        composite: bool = False,
+        channels: dict[int, MultiscaleImageChannelAppearance] | None = None,
+        max_channels: int = 4,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
     ) -> dict[str, MultiscaleImageVisual]:
         """Add a multiscale image to every panel from a single data store.
 
+        See :meth:`add_image` for the modes and the group methods.
+
         Parameters
         ----------
         data : BaseDataStore or UUID
             Backing multiscale store or UUID of an already-registered store.
-        appearance : MultiscaleImageAppearance
-            Appearance parameters.
+        appearance : MultiscaleImageAppearance or None
+            Shared by both modes.
         name : str
             Base label; each panel's visual is named ``f"{name}_{key}"``.
         render_config : MultiscaleImageRenderConfig or None
-            LOD and rendering configuration.  Uses defaults when ``None``.
+            GPU cache configuration.  Uses defaults when ``None``.
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
         controls : MultiscaleImageControlsConfig or None
-            Appearance controls configuration shared across all four panels:
-            one dock widget drives every panel's visual in lock-step.  When
-            ``None`` (default), no appearance controls are created.
-
+            Appearance controls configuration shared across all four panels.
+        single : single appearance or None
+            Single mode's appearance.  ``None`` uses the defaults.
+        channel_axis : int or None
+            The data axis a composite draws channels along; it must map to a
+            world axis.  ``None`` (default) gives an image with no channels.
+        composite : bool
+            Start in composite mode.  Requires *channel_axis*.
+        channels : dict[int, channel appearance] or None
+            Composite mode's per-channel appearances.
+        max_channels : int
+            The most channels the visual may hold.  Default 4.
         outline : VisualOutline or None
-            Screen-space outline assignment.  ``None`` (default) leaves the
-            visual unoutlined.  Requires the outline pass to be enabled; see
-            ``outline_enabled``.
+            Screen-space outline assignment.
         ambient_occlusion : bool or None
-            Whether this visual receives ambient occlusion.  ``None``
-            (default) is automatic: excluded while it renders in a
-            MIP-family mode, included otherwise.
+            Whether this visual receives ambient occlusion.
 
         Returns
         -------
@@ -1150,10 +1209,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             lambda key, scene: self._controller.add_image_multiscale(
                 store,
                 scene.id,
-                appearance,
+                _copy(appearance),
                 f"{name}_{key}",
                 render_config,
                 transform,
+                single=_copy(single),
+                channel_axis=channel_axis,
+                composite=composite,
+                channels=_copy_channels(channels),
+                max_channels=max_channels,
                 outline=outline,
                 ambient_occlusion=ambient_occlusion,
             )
@@ -1226,141 +1290,90 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._record_controls(visuals, controls)
         return visuals
 
-    def add_multichannel_image(
-        self,
-        data: ImageMemoryStore | UUID,
-        channel_axis: int,
-        channels: dict[int, ChannelAppearance],
-        name: str = "multichannel_image",
-        max_channels_2d: int = 8,
-        max_channels_3d: int = 4,
-        controls: ChannelControlsConfig | None = None,
-        outline: VisualOutline | None = None,
-        ambient_occlusion: bool | None = None,
-    ) -> dict[str, MultichannelImageVisual]:
-        """Add an in-memory multichannel image to every panel from one store.
+    # ------------------------------------------------------------------
+    # Image group methods (mode and settings mirrored across the panels)
+    # ------------------------------------------------------------------
+
+    def image_group(self, visual: object) -> list[UUID]:
+        """The four panel siblings of an image added with ``add_image*``.
 
         Parameters
         ----------
-        data : ImageMemoryStore or UUID
-            Backing data store or UUID of an already-registered store.
-        channel_axis : int
-            Data axis index for the channel dimension.
-        channels : dict[int, ChannelAppearance]
-            Per-channel appearance keyed by channel index.
-        name : str
-            Base label; each panel's visual is named ``f"{name}_{key}"``.
-        max_channels_2d : int
-            Maximum simultaneous 2D channel nodes.
-        max_channels_3d : int
-            Maximum simultaneous 3D channel nodes.
-        controls : ChannelControlsConfig or None
-            Per-channel controls configuration shared across all four
-            panels. When ``None`` (default), no channel controls are created.
-
-        outline : VisualOutline or None
-            Screen-space outline assignment.  ``None`` (default) leaves the
-            visual unoutlined.  Requires the outline pass to be enabled; see
-            ``outline_enabled``.
-        ambient_occlusion : bool or None
-            Whether this visual receives ambient occlusion.  ``None``
-            (default) is automatic: excluded while it renders in a
-            MIP-family mode, included otherwise.
+        visual : UUID, visual model, or dict
+            Any panel's visual (or its id), or the dict ``add_image*``
+            returned.
 
         Returns
         -------
-        dict[str, MultichannelImageVisual]
-        """
-        if controls is not None:
-            check_channel_cap(channels, max_channels_2d, max_channels_3d)
-        store = self._resolve_data_store(data)
-        visuals = self._fan_out(
-            lambda key, scene: self._controller.add_multichannel_image(
-                store,
-                scene.id,
-                channel_axis,
-                channels,
-                f"{name}_{key}",
-                max_channels_2d,
-                max_channels_3d,
-                outline=outline,
-                ambient_occlusion=ambient_occlusion,
-            )
-        )
-        self._record_controls(visuals, controls)
-        return visuals
+        list[UUID]
+            The sibling visual ids, in panel order.
 
-    def add_multichannel_image_multiscale(
-        self,
-        data: BaseDataStore | UUID,
-        channel_axis: int,
-        channels: dict[int, ChannelAppearance],
-        name: str = "multichannel_image",
-        render_config: MultiscaleImageRenderConfig | None = None,
-        transform: BaseTransform | None = None,
-        max_channels_2d: int = 8,
-        max_channels_3d: int = 4,
-        controls: ChannelControlsConfig | None = None,
-        outline: VisualOutline | None = None,
-        ambient_occlusion: bool | None = None,
-    ) -> dict[str, MultichannelMultiscaleImageVisual]:
-        """Add a multiscale multichannel image to every panel from one store.
+        Raises
+        ------
+        KeyError
+            If *visual* is not a panel image of this viewer.
+        """
+        if isinstance(visual, dict):
+            return [v.id for v in visual.values()]
+        visual_id = getattr(visual, "id", visual)
+        model = self._controller.get_visual_model(visual_id)
+        base = str(model.name).rsplit("_", 1)[0]
+        group = []
+        for key in _PANEL_KEYS:
+            for candidate in self._scenes[key].visuals:
+                if candidate.name == f"{base}_{key}" and type(candidate) is type(model):
+                    group.append(candidate.id)
+        if visual_id not in group:
+            raise KeyError(f"{visual_id} is not a panel image of this OrthoViewer.")
+        return group
+
+    def set_image_composite(self, visual: object, composite: bool) -> None:
+        """Switch every panel's image between single and composite mode.
 
         Parameters
         ----------
-        data : BaseDataStore or UUID
-            Backing multiscale store or UUID of an already-registered store.
-        channel_axis : int
-            Data axis index for the channel dimension.
-        channels : dict[int, ChannelAppearance]
-            Per-channel appearance keyed by channel index.
-        name : str
-            Base label; each panel's visual is named ``f"{name}_{key}"``.
-        render_config : MultiscaleImageRenderConfig or None
-            LOD and rendering configuration.  Uses defaults when ``None``.
-        transform : BaseTransform or None
-            Data-to-world transform.  Defaults to identity when ``None``.
-        max_channels_2d : int
-            Maximum simultaneous 2D channel nodes.
-        max_channels_3d : int
-            Maximum simultaneous 3D channel nodes.
-        controls : ChannelControlsConfig or None
-            Per-channel controls configuration shared across all four
-            panels. When ``None`` (default), no channel controls are created.
-
-        outline : VisualOutline or None
-            Screen-space outline assignment.  ``None`` (default) leaves the
-            visual unoutlined.  Requires the outline pass to be enabled; see
-            ``outline_enabled``.
-        ambient_occlusion : bool or None
-            Whether this visual receives ambient occlusion.  ``None``
-            (default) is automatic: excluded while it renders in a
-            MIP-family mode, included otherwise.
-
-        Returns
-        -------
-        dict[str, MultichannelMultiscaleImageVisual]
+        visual : UUID, visual model, or dict
+            Any panel's visual; see :meth:`image_group`.
+        composite : bool
+            ``True`` for composite mode.
         """
-        if controls is not None:
-            check_channel_cap(channels, max_channels_2d, max_channels_3d)
-        store = self._resolve_data_store(data)
-        visuals = self._fan_out(
-            lambda key, scene: self._controller.add_multichannel_image_multiscale(
-                store,
-                scene.id,
-                channel_axis,
-                channels,
-                f"{name}_{key}",
-                render_config,
-                transform,
-                max_channels_2d,
-                max_channels_3d,
-                outline=outline,
-                ambient_occlusion=ambient_occlusion,
-            )
+        self._controller.set_image_composite_group(self.image_group(visual), composite)
+
+    def update_image_single_field(self, visual: object, field: str, value) -> None:
+        """Set one single-mode field on every panel's image.
+
+        Parameters
+        ----------
+        visual : UUID, visual model, or dict
+            Any panel's visual; see :meth:`image_group`.
+        field : str
+            Field name on ``single``.
+        value :
+            New value.
+        """
+        self._controller.update_single_group_field(
+            self.image_group(visual), field, value
         )
-        self._record_controls(visuals, controls)
-        return visuals
+
+    def update_image_channel_field(
+        self, visual: object, channel_index: int, field: str, value
+    ) -> None:
+        """Set one channel field on every panel's image.
+
+        Parameters
+        ----------
+        visual : UUID, visual model, or dict
+            Any panel's visual; see :meth:`image_group`.
+        channel_index : int
+            The channel.
+        field : str
+            Field name on the channel appearance.
+        value :
+            New value.
+        """
+        self._controller.update_channel_group_field(
+            self.image_group(visual), channel_index, field, value
+        )
 
     def _record_controls(
         self,
@@ -1373,9 +1386,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         and maps that id to every panel's sibling visual id so one widget can
         drive all four panels (design section 7.4).
 
-        Channel-agnostic: the appearance docks resolve the same record through
-        ``appearance_targets`` that the channel docks resolve through
-        ``channel_targets``, which is what makes ``AppearanceControls()`` work
-        on an ``OrthoViewer`` at all (section 4.1).
+        The appearance docks resolve this record through
+        ``appearance_targets``, which is what makes ``AppearanceControls()``
+        work on an ``OrthoViewer`` at all (section 4.1).
         """
         self._store_controls([v.id for v in visuals.values()], controls)

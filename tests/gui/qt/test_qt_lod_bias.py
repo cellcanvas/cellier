@@ -35,9 +35,7 @@ def _make_controller_with_visual(small_zarr_store, initial_lod_bias=1.0):
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
     scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
     store = _make_store(small_zarr_store)
-    appearance = MultiscaleImageAppearance(
-        color_map="viridis", clim=(0.0, 1.0), lod_bias=initial_lod_bias
-    )
+    appearance = MultiscaleImageAppearance(lod_bias=initial_lod_bias)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=appearance, name="vol"
     )
@@ -114,6 +112,6 @@ def test_unrelated_field_change_ignored(qtbot, small_zarr_store):
     qtbot.addWidget(slider.widget)
     controller.connect_widget(slider, subscription_specs=slider.subscription_specs())
 
-    controller.update_appearance_field(visual.id, "clim", (0.0, 500.0))
+    controller.update_appearance_field(visual.id, "interpolation", "linear")
 
     assert slider._slider.value() == pytest.approx(1.0)

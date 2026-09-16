@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
 import pygfx as gfx
 import wgpu
 from pygfx.objects import Image
@@ -57,8 +56,6 @@ class ImageBlockMaterial(gfx.ImageBasicMaterial):
         lut_texture: gfx.Texture,
         lut_params_buffer: Buffer,
         block_scales_buffer: Buffer,
-        paint_cache_texture: gfx.Texture | None = None,
-        paint_lut_texture: gfx.Texture | None = None,
         clim: tuple[float, float] = (0.0, 1.0),
         map: gfx.TextureMap | None = None,
         interpolation: str = "nearest",
@@ -74,8 +71,6 @@ class ImageBlockMaterial(gfx.ImageBasicMaterial):
         self.lut_texture = lut_texture
         self.lut_params_buffer = lut_params_buffer
         self.block_scales_buffer = block_scales_buffer
-        self.paint_cache_texture = paint_cache_texture
-        self.paint_lut_texture = paint_lut_texture
 
 
 _vertex_and_fragment = wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT
@@ -152,38 +147,6 @@ class ImageBlockShader(ImageShader):
                 "FRAGMENT",
                 structname="BlockScales",
             )
-        )
-
-        # Paint cache + LUT bindings.  The WGSL unconditionally samples
-        # both, so fall back to 1x1 zero textures when the material was
-        # constructed without paint resources (defensive; in practice the
-        # multiscale visual always passes real textures).
-        if material.paint_cache_texture is None:
-            paint_cache_view = GfxTextureView(
-                gfx.Texture(
-                    np.zeros((1, 1, 2), dtype=np.float32),
-                    dim=2,
-                    format="2xf4",
-                )
-            )
-        else:
-            paint_cache_view = GfxTextureView(material.paint_cache_texture)
-        bindings.append(
-            Binding("t_paint_cache", "texture/auto", paint_cache_view, "FRAGMENT")
-        )
-
-        if material.paint_lut_texture is None:
-            paint_lut_view = GfxTextureView(
-                gfx.Texture(
-                    np.zeros((1, 1, 2), dtype=np.float32),
-                    dim=2,
-                    format="2xf4",
-                )
-            )
-        else:
-            paint_lut_view = GfxTextureView(material.paint_lut_texture)
-        bindings.append(
-            Binding("t_paint_lut", "texture/auto", paint_lut_view, "FRAGMENT")
         )
 
         bindings = dict(enumerate(bindings))

@@ -6,6 +6,9 @@ from pydantic import Field
 
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
 
+OutlineMode = Literal["per_label", "whole_object", "all_boundaries"]
+"""How a labels visual is outlined; see ``BaseLabelsVisual``."""
+
 
 class BaseLabelsAppearance(BaseAppearance):
     """Base appearance parameters shared by all label visuals.
@@ -103,7 +106,7 @@ class BaseLabelsVisual(BaseVisual):
     texture is lost when that happens.
     """
 
-    outline_mode: Literal["per_label", "whole_object", "all_boundaries"] = "per_label"
+    outline_mode: OutlineMode = "per_label"
     outline_selected_labels: dict[int, int] = Field(default_factory=dict)
 
 

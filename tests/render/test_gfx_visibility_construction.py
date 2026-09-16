@@ -12,6 +12,7 @@ import uuid
 import numpy as np
 import pytest
 
+from cellier.visuals import InMemoryImageSingleAppearance
 from tests._v2 import level_transforms
 
 # ── GFXImageMemoryVisual ──────────────────────────────────────────────────────
@@ -30,7 +31,8 @@ def _image_model(store, visible: bool):
     return ImageVisual(
         name="img",
         data_store_id=str(store.id),
-        appearance=InMemoryImageAppearance(color_map="grays", visible=visible),
+        appearance=InMemoryImageAppearance(visible=visible),
+        single=InMemoryImageSingleAppearance(color_map="grays"),
     )
 
 

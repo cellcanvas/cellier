@@ -118,7 +118,7 @@ class VisualIdGroup:
 
     A ``Viewer`` gives a control one visual; an ``OrthoViewer`` gives it the
     four panel visuals that share a data store, and the control must keep them
-    equal.  ``QtChannelList`` established the shape (design section 8.1) and
+    equal.  the per-channel list established the shape (design section 8.1) and
     this generalises it to the appearance and AABB widgets:
 
     1. ``visual_id`` accepts a ``UUID`` or a sequence of them;

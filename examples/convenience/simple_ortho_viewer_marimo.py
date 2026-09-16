@@ -48,11 +48,11 @@ def _():
     )
     from cellier.convenience.gui import build_ortho_grid_widget
     from cellier.data.image._image_memory_store import ImageMemoryStore
-    from cellier.visuals import InMemoryImageAppearance
+    from cellier.visuals import InMemoryImageSingleAppearance
 
     return (
         ImageMemoryStore,
-        InMemoryImageAppearance,
+        InMemoryImageSingleAppearance,
         Layout,
         OrthoViewer,
         axis_values_from_ortho,
@@ -70,7 +70,7 @@ def _(binary_blobs, np):
 
 
 @app.cell
-def _(ImageMemoryStore, InMemoryImageAppearance, OrthoViewer, blobs_3d):
+def _(ImageMemoryStore, InMemoryImageSingleAppearance, OrthoViewer, blobs_3d):
     from cellier.scene.dims import spatial_axes
 
     viewer = OrthoViewer(spatial_axes("z", "y", "x"), gui="anywidget")
@@ -80,7 +80,7 @@ def _(ImageMemoryStore, InMemoryImageAppearance, OrthoViewer, blobs_3d):
 
     viewer.add_image(
         store,
-        appearance=InMemoryImageAppearance(
+        single=InMemoryImageSingleAppearance(
             color_map="viridis",
             clim=(0.0, 1.0),
             render_mode="iso",

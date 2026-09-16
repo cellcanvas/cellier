@@ -13,6 +13,7 @@ from psygnal import Signal
 from cellier.events import (
     DimsChangedEvent,
     DimsUpdateEvent,
+    SliderAxesChangedEvent,
     SubscriptionSpec,
 )
 from cellier.gui._axis_values import (
@@ -70,8 +71,12 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
     """
 
     displayed_axes = traitlets.List().tag(sync=True)
-    stacked_axes = traitlets.List().tag(sync=True)
-    non_displayed = traitlets.List().tag(sync=True)
+    slider_axes = traitlets.List(allow_none=True, default_value=None).tag(sync=True)
+    """World axes that get a slider when not displayed; ``None`` means all.
+
+    Read from ``scene.slider_axes`` and kept current by
+    ``SliderAxesChangedEvent``.
+    """
 
     throttle_ms = traitlets.Int(DIMS_SLIDER_THROTTLE_MS).tag(sync=True)
     """How often a slider drag reaches the bus, in ms.
@@ -94,8 +99,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         axis_labels: dict,
         slice_indices: dict,
         displayed_axes: list | tuple = (),
-        stacked_axes: list | tuple = (),
-        non_displayed: list | tuple = (),
+        slider_axes: list | tuple | None = None,
         axes_2d: tuple[int, ...] | None = None,
         axes_3d: tuple[int, ...] | None = None,
         **kwargs,
@@ -112,8 +116,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
             },
             discrete_index=_discrete_positions(coerced, slices),
             displayed_axes=[int(a) for a in displayed_axes],
-            stacked_axes=[int(a) for a in stacked_axes],
-            non_displayed=[int(a) for a in non_displayed],
+            slider_axes=None if slider_axes is None else [int(a) for a in slider_axes],
             has_toggle=has_toggle,
             label=("Switch to 2D" if is_3d else "Switch to 3D") if has_toggle else "",
             **kwargs,
@@ -124,6 +127,9 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         self._applying = False
         self._axes_2d = axes_2d
         self._axes_3d = axes_3d
+        # The displayed axes the model last reported while a toggle's emit was
+        # in flight, or ``None`` if it reported none; see ``_on_toggle_click``.
+        self._model_displayed_during_toggle: tuple[int, ...] | None = None
 
         self.observe(self._on_slice_indices, names="slice_indices")
         self.observe(self._on_toggle_click, names="_clicks")
@@ -133,8 +139,6 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         cls,
         scene: Scene,
         axis_values: Mapping[int, AxisValues],
-        *,
-        non_displayed: tuple[int, ...] = (),
     ) -> AnywidgetDimsPanel:
         """Build a dims panel from a live scene.
 
@@ -170,8 +174,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
             axis_labels=axis_labels,
             slice_indices=initial_slice_indices(selection, axis_values),
             displayed_axes=getattr(selection, "displayed_axes", ()),
-            stacked_axes=getattr(selection, "stacked_axes", ()),
-            non_displayed=non_displayed,
+            slider_axes=scene.slider_axes,
             axes_2d=axes_2d,
             axes_3d=axes_3d,
         )
@@ -186,7 +189,12 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
                 event_type=DimsChangedEvent,
                 handler=self._on_dims_changed,
                 entity_id=self._scene_id,
-            )
+            ),
+            SubscriptionSpec(
+                event_type=SliderAxesChangedEvent,
+                handler=self._on_slider_axes_changed,
+                entity_id=self._scene_id,
+            ),
         ]
 
     def close(self) -> None:
@@ -207,26 +215,29 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
     # ------------------------------------------------------------------
 
     def _on_dims_changed(self, event: DimsChangedEvent) -> None:
-        if event.source_id == self._id:
-            return
         selection = event.dims_state.selection
-        # The positions ride on the event rather than on ``dims_state``: the
-        # render layer takes the region instead and stopped reading them in
-        # Phase 8 (D5), but a slider that something else moved still has to
-        # resync.
-        new_slices = dict(self.slice_indices)
-        for axis, value in event.slice_indices.items():
-            new_slices[str(axis)] = float(value)
-        self._set_field("slice_indices", new_slices)
-        self._set_field("displayed_axes", [int(a) for a in selection.displayed_axes])
-        stacked = getattr(selection, "stacked_axes", ())
-        self._set_field("stacked_axes", [int(a) for a in stacked])
+        self._model_displayed_during_toggle = tuple(selection.displayed_axes)
+        # Slider values are skipped on our own echo: a drag has moved on
+        # since it sent them.  The positions ride on the event rather than on
+        # ``dims_state``: the render layer takes the region instead (D5), but
+        # a slider that something else moved still has to resync.
+        if event.source_id != self._id:
+            new_slices = dict(self.slice_indices)
+            for axis, value in event.slice_indices.items():
+                new_slices[str(axis)] = float(value)
+            self._set_field("slice_indices", new_slices)
+        # The displayed axes are applied even from our own echo: the event is
+        # the model's state, and applying it twice is harmless.
+        self._apply_displayed(tuple(selection.displayed_axes))
 
-        # Relabel the toggle purely from the event -- this is what lets it
-        # stay correct even when displayed_axes changed via some other
-        # caller, not just this widget's own button.
+    def _on_slider_axes_changed(self, event: SliderAxesChangedEvent) -> None:
+        self._set_field("slider_axes", [int(a) for a in event.slider_axes])
+
+    def _apply_displayed(self, displayed_axes: tuple[int, ...]) -> None:
+        """Hide *displayed_axes*' sliders and label the toggle for the other mode."""
+        self._set_field("displayed_axes", [int(a) for a in displayed_axes])
         if self.has_toggle:
-            is_3d = len(selection.displayed_axes) == 3
+            is_3d = len(displayed_axes) == 3
             self.label = "Switch to 2D" if is_3d else "Switch to 3D"
 
     def _set_field(self, name: str, value) -> None:
@@ -246,17 +257,15 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         self.discrete_index = _discrete_positions(self._axis_values, self.slice_indices)
         if self._applying:
             return
-        self._emit_dims()
-
-    def _emit_dims(self) -> None:
-        hidden = (
-            set(self.displayed_axes) | set(self.stacked_axes) | set(self.non_displayed)
-        )
+        old = change.get("old") or {}
+        # Only the axes that moved: ``update_slice_indices`` merges.
         updates = {
             int(axis): float(value)
-            for axis, value in self.slice_indices.items()
-            if int(axis) not in hidden
+            for axis, value in (change.get("new") or {}).items()
+            if axis not in old or float(old[axis]) != float(value)
         }
+        if not updates:
+            return
         self.changed.emit(
             DimsUpdateEvent(
                 source_id=self._id,
@@ -267,41 +276,34 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         )
 
     def _on_toggle_click(self, change) -> None:
-        is_3d = len(self.displayed_axes) == 3
-        target_displayed = self._axes_2d if is_3d else self._axes_3d
-        target_set = set(target_displayed)
+        if self._axes_2d is None or self._axes_3d is None:
+            return
+        previous = tuple(int(a) for a in self.displayed_axes)
+        target_displayed = self._axes_2d if len(previous) == 3 else self._axes_3d
 
-        # self.slice_indices already holds a live, correct value for every
-        # axis (including hidden ones) -- no separate "saved position"
-        # bookkeeping needed.
-        # A discrete axis hands over the value its slider shows, not a
-        # between-values position something else set -- the same value the
-        # Qt control's current_index() reports.
-        new_slices = {
-            int(axis): self._shown_value(int(axis), float(value))
-            for axis, value in self.slice_indices.items()
-            if int(axis) not in target_set and int(axis) not in set(self.stacked_axes)
-        }
-        # Applied *before* the emit, not after.  The controller echoes this
-        # change back stamped with our own source_id, so _on_dims_changed's
-        # filter ignores it -- the widget has to move itself either way.
-        # Doing it first is what keeps the button honest when something
-        # downstream of the emit fails: afterwards, one raising handler left
-        # the scene in 2D while this panel still showed 3D, with no slider
-        # for the axis it had just hidden (``plans/gui_backend_seam.md`` D17).
-        # slice_indices already holds a value for every axis regardless of
-        # display state (see ``initial_slice_indices``), so it needs no update.
-        self._set_field("displayed_axes", [int(a) for a in target_displayed])
-        self.label = "Switch to 2D" if not is_3d else "Switch to 3D"
-
-        self.changed.emit(
-            DimsUpdateEvent(
-                source_id=self._id,
-                scene_id=self._scene_id,
-                slice_indices=new_slices,
-                displayed_axes=target_displayed,
+        # Only ``displayed_axes`` is sent: every axis keeps its slice position
+        # in the model whatever is displayed (D36).  The panel moves itself
+        # *before* the emit: the controller echoes the change stamped with our
+        # own source_id, and a handler downstream of the change can fail
+        # (``plans/gui_backend_seam.md`` D17).
+        self._apply_displayed(tuple(target_displayed))
+        self._model_displayed_during_toggle = None
+        try:
+            self.changed.emit(
+                DimsUpdateEvent(
+                    source_id=self._id,
+                    scene_id=self._scene_id,
+                    slice_indices=None,
+                    displayed_axes=tuple(target_displayed),
+                )
             )
-        )
+        except Exception:
+            # Refused before the model changed (a composited axis cannot be
+            # displayed, design 3.4): go back.  Changed and then a later
+            # handler raised: keep what the model reported.
+            reported = self._model_displayed_during_toggle
+            self._apply_displayed(previous if reported is None else reported)
+            raise
 
     def _shown_value(self, axis: int, value: float) -> float:
         """The world value the slider for *axis* shows for position *value*."""

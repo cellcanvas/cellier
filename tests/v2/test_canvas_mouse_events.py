@@ -17,18 +17,23 @@ from cellier.events._events import (
     CanvasMousePress2DEvent,
     CanvasMouseRelease2DEvent,
     CanvasPickInfo,
+    ImagePickEvent,
     ImagePickInfo,
     LinesPickInfo,
     MeshPickInfo,
+    PointsPickEvent,
     PointsPickInfo,
-    ViewRay,
     _CanvasRawPointerEvent,
 )
 from cellier.render.render_manager import RenderManager, _ImageDisplayedDataCoord
 from cellier.render.visuals._slicing import round_world_to_voxel
 from cellier.scene.dims import spatial_axes, world_coordinate_system
 from cellier.transform import AffineTransform, Axis
-from cellier.visuals import LinesMemoryAppearance, MeshFlatAppearance
+from cellier.visuals import (
+    InMemoryImageSingleAppearance,
+    LinesMemoryAppearance,
+    MeshFlatAppearance,
+)
 from cellier.visuals._image_memory import InMemoryImageAppearance
 from cellier.visuals._points_memory import PointsMarkerAppearance
 from tests._v2 import data_system
@@ -308,13 +313,17 @@ def test_extract_mesh_missing_index_returns_none():
     assert rm._extract_pick_details(scene_id, node, {}) is None
 
 
-def test_raw_event_details_forwarded_to_public_event():
+def test_a_hit_emits_the_pick_event_after_the_mouse_event():
+    """Mouse events say that something was hit; pick events say what (3.7)."""
     controller, scene_id = _make_2d_controller()
     received: list = []
     canvas_id = uuid4()
     visual_id = uuid4()
-    controller.on_mouse_press_2d(canvas_id, received.append, owner_id=uuid4())
+    owner = uuid4()
+    controller.on_mouse_press_2d(canvas_id, received.append, owner_id=owner)
+    controller.on_pick(canvas_id, PointsPickEvent, received.append, owner_id=owner)
 
+    gesture_id = uuid4()
     raw = _CanvasRawPointerEvent(
         canvas_id=canvas_id,
         scene_id=scene_id,
@@ -324,27 +333,38 @@ def test_raw_event_details_forwarded_to_public_event():
         ray=None,
         hit_visual_id=visual_id,
         button=1,
-        modifiers=(),
+        modifiers=("Shift",),
         buttons=(1,),
-        gesture_id=uuid4(),
+        gesture_id=gesture_id,
         pick_details=PointsPickInfo(point_index=3),
     )
     controller._on_raw_pointer_event(raw)
 
-    assert received[0].pick_info.hit_visual_id == visual_id
-    assert received[0].pick_info.details == PointsPickInfo(point_index=3)
+    mouse, pick = received
+    assert isinstance(mouse, CanvasMousePress2DEvent)
+    assert mouse.pick_info == CanvasPickInfo(hit_visual_id=visual_id)
+    assert isinstance(pick, PointsPickEvent)
+    assert pick.pick_info == PointsPickInfo(point_index=3)
+    assert pick.visual_id == visual_id
+    assert (pick.action, pick.camera_type) == ("press", "2d")
+    assert (pick.button, pick.buttons, pick.modifiers) == (1, (1,), ("Shift",))
+    assert pick.gesture_id == gesture_id
+    np.testing.assert_array_equal(pick.world_coordinate, mouse.world_coordinate)
+    assert pick.ray is None
 
 
-def test_raw_event_miss_has_none_details():
+def test_a_miss_emits_no_pick_event():
     controller, scene_id = _make_2d_controller()
     received: list = []
     canvas_id = uuid4()
-    controller.on_mouse_press_2d(canvas_id, received.append, owner_id=uuid4())
+    owner = uuid4()
+    controller.on_mouse_press_2d(canvas_id, received.append, owner_id=owner)
+    controller.on_pick(canvas_id, PointsPickEvent, received.append, owner_id=owner)
 
     controller._on_raw_pointer_event(_raw_2d(canvas_id, scene_id, "press"))
 
-    assert received[0].pick_info.hit_visual_id is None
-    assert received[0].pick_info.details is None
+    (mouse,) = received
+    assert mouse.pick_info.hit_visual_id is None
 
 
 # ---------------------------------------------------------------------------
@@ -390,18 +410,41 @@ def test_gate_on_extracts_details():
     assert bus.events[0].pick_details == PointsPickInfo(point_index=1)
 
 
-def test_on_mouse_subscription_enables_gate_and_unsubscribe_disables():
+def test_on_pick_subscription_enables_gate_and_unsubscribe_disables():
     controller, _scene_id, _ = _controller_with_points()
     rm = controller._render_manager
     canvas_id = uuid4()
 
     assert rm._pick_details_enabled.get(canvas_id, False) is False
 
-    handle = controller.on_mouse_press_2d(canvas_id, lambda e: None, owner_id=uuid4())
+    handle = controller.on_pick(
+        canvas_id, PointsPickEvent, lambda e: None, owner_id=uuid4()
+    )
     assert rm._pick_details_enabled.get(canvas_id) is True
 
-    controller.unsubscribe_mouse(handle)
+    controller.unsubscribe_pick(handle)
     assert rm._pick_details_enabled.get(canvas_id) is False
+
+
+def test_mouse_subscriptions_do_not_enable_the_gate():
+    """Detail extraction runs only for pick subscribers (design 3.7)."""
+    controller, _scene_id, _ = _controller_with_points()
+    rm = controller._render_manager
+    canvas_id = uuid4()
+
+    handle = controller.on_mouse_press_2d(canvas_id, lambda e: None, owner_id=uuid4())
+    assert rm._pick_details_enabled.get(canvas_id, False) is False
+    controller.unsubscribe_mouse(handle)
+
+
+def test_on_pick_refuses_a_mouse_event_type():
+    import pytest
+
+    controller, _scene_id, _ = _controller_with_points()
+    with pytest.raises(TypeError, match="pick event type"):
+        controller.on_pick(
+            uuid4(), CanvasMousePress2DEvent, lambda e: None, owner_id=uuid4()
+        )
 
 
 def test_gate_stays_enabled_until_last_subscriber_removed():
@@ -410,14 +453,14 @@ def test_gate_stays_enabled_until_last_subscriber_removed():
     canvas_id = uuid4()
     owner = uuid4()
 
-    h1 = controller.on_mouse_press_2d(canvas_id, lambda e: None, owner_id=owner)
-    h2 = controller.on_mouse_move_2d(canvas_id, lambda e: None, owner_id=owner)
+    h1 = controller.on_pick(canvas_id, PointsPickEvent, lambda e: None, owner_id=owner)
+    h2 = controller.on_pick(canvas_id, ImagePickEvent, lambda e: None, owner_id=owner)
     assert rm._pick_details_enabled.get(canvas_id) is True
 
-    controller.unsubscribe_mouse(h1)
+    controller.unsubscribe_pick(h1)
     assert rm._pick_details_enabled.get(canvas_id) is True
 
-    controller.unsubscribe_mouse(h2)
+    controller.unsubscribe_pick(h2)
     assert rm._pick_details_enabled.get(canvas_id) is False
 
 
@@ -446,80 +489,37 @@ def test_image_pick_coord_2d_promoted_in_data_axis_order():
 
     The render layer decodes the displayed coordinate in pygfx ``(x, y)`` order
     (column, row).  For a 2-D view of a (z, y, x) volume with z sliced, the
-    promoted ``data_coordinate`` must be ``(z_slice, y=row, x=col)`` — i.e. the
-    pygfx order is reversed onto the ascending displayed axes.
+    promoted ``data_coordinate`` must be ``(z_slice, y=row, x=col)`` -- i.e. the
+    pygfx order is reversed onto the ascending displayed axes.  The hit is
+    synthetic (no visual), so the promotion is called directly: a pick event
+    needs a real store to read the value from.
     """
     controller = CellierController()
-    cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="s")
-    scene.dims.selection.slice_indices = {0: 5}
-    scene.dims.selection.displayed_axes = (1, 2)
-
-    canvas_id = uuid4()
-    received: list = []
-    controller.on_mouse_press_2d(canvas_id, received.append, owner_id=uuid4())
-
-    # pygfx-order displayed coord: x (col) = 10.5, y (row) = 3.5.
-    raw = _CanvasRawPointerEvent(
-        canvas_id=canvas_id,
-        scene_id=scene.id,
-        action="press",
-        camera_type="2d",
-        position_2d=np.array([10.5, 3.5], dtype=np.float64),
-        ray=None,
+    coordinate = controller._promote_pick_coordinate(
+        (10.5, 3.5),
+        displayed_axes=(1, 2),
+        slice_indices={0: 5},
+        world_ndim=3,
         hit_visual_id=uuid4(),
-        button=1,
-        modifiers=(),
-        buttons=(1,),
-        gesture_id=None,
-        pick_details=_ImageDisplayedDataCoord(displayed_data_coord=(10.5, 3.5)),
+        collapsed_data_indices=None,
     )
-    controller._on_raw_pointer_event(raw)
-
-    assert len(received) == 1
-    details = received[0].pick_info.details
-    assert isinstance(details, ImagePickInfo)
     # axis 0 (z) = slice index, axis 1 (y) = row, axis 2 (x) = column.
-    assert tuple(details.data_coordinate) == (5.0, 3.5, 10.5)
+    assert coordinate == (5.0, 3.5, 10.5)
 
 
 def test_image_pick_coord_3d_promoted_in_data_axis_order():
     """3-D pick: pygfx ``(x, y, z)`` is reversed onto displayed axes (z, y, x)."""
     controller = CellierController()
-    cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="s")
-    scene.dims.selection.displayed_axes = (0, 1, 2)
-
-    canvas_id = uuid4()
-    received: list = []
-    controller.on_mouse_press_3d(canvas_id, received.append, owner_id=uuid4())
-
-    ray = ViewRay(
-        origin=np.zeros(3, dtype=np.float64),
-        direction=np.array([0.0, 0.0, 1.0]),
-    )
-    # pygfx-order displayed coord: x = 20.5, y = 4.5, z = 1.5.
-    raw = _CanvasRawPointerEvent(
-        canvas_id=canvas_id,
-        scene_id=scene.id,
-        action="press",
-        camera_type="3d",
-        position_2d=None,
-        ray=ray,
+    coordinate = controller._promote_pick_coordinate(
+        (20.5, 4.5, 1.5),
+        displayed_axes=(0, 1, 2),
+        slice_indices={},
+        world_ndim=3,
         hit_visual_id=uuid4(),
-        button=1,
-        modifiers=(),
-        buttons=(1,),
-        gesture_id=None,
-        pick_details=_ImageDisplayedDataCoord(displayed_data_coord=(20.5, 4.5, 1.5)),
+        collapsed_data_indices=None,
     )
-    controller._on_raw_pointer_event(raw)
-
-    assert len(received) == 1
-    details = received[0].pick_info.details
-    assert isinstance(details, ImagePickInfo)
-    # (z, y, x) — z and x swap relative to the pygfx (x, y, z) order.
-    assert tuple(details.data_coordinate) == (1.5, 4.5, 20.5)
+    # (z, y, x) -- z and x swap relative to the pygfx (x, y, z) order.
+    assert coordinate == (1.5, 4.5, 20.5)
 
 
 def _image_visual_with_transform(
@@ -564,9 +564,10 @@ def _image_visual_with_transform(
     visual = controller.add_image(
         data=store,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="gray"),
+        appearance=InMemoryImageAppearance(),
         name="img",
         transform=transform,
+        single=InMemoryImageSingleAppearance(color_map="gray"),
     )
     return controller, scene, visual
 
@@ -575,7 +576,7 @@ def _press_image_pick(controller, scene, visual, displayed_data_coord):
     """Drive one 2-D press whose pick decoded *displayed_data_coord*."""
     canvas_id = uuid4()
     received: list = []
-    controller.on_mouse_press_2d(canvas_id, received.append, owner_id=uuid4())
+    controller.on_pick(canvas_id, ImagePickEvent, received.append, owner_id=uuid4())
     controller._on_raw_pointer_event(
         _CanvasRawPointerEvent(
             canvas_id=canvas_id,
@@ -595,7 +596,7 @@ def _press_image_pick(controller, scene, visual, displayed_data_coord):
         )
     )
     assert len(received) == 1
-    return received[0].pick_info.details
+    return received[0].pick_info
 
 
 def test_the_slice_position_is_pulled_back_through_the_transform():
@@ -679,31 +680,16 @@ def test_an_unresolvable_hit_keeps_the_world_positions_it_was_given():
 
     A removed visual or a synthetic id leaves the promotion with only the dims
     state, and inventing a transform for it would be worse than saying what it
-    was told.
+    was told.  Such a hit emits no pick event -- there is no store to read --
+    so the promotion is called directly.
     """
     controller = CellierController()
-    cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="s")
-    scene.dims.selection.displayed_axes = (1, 2)
-    scene.dims.selection.slice_indices = {0: 30.0}
-
-    canvas_id = uuid4()
-    received: list = []
-    controller.on_mouse_press_2d(canvas_id, received.append, owner_id=uuid4())
-    controller._on_raw_pointer_event(
-        _CanvasRawPointerEvent(
-            canvas_id=canvas_id,
-            scene_id=scene.id,
-            action="press",
-            camera_type="2d",
-            position_2d=np.array([10.5, 3.5], dtype=np.float64),
-            ray=None,
-            hit_visual_id=uuid4(),
-            button=1,
-            modifiers=(),
-            buttons=(1,),
-            gesture_id=None,
-            pick_details=_ImageDisplayedDataCoord(displayed_data_coord=(10.5, 3.5)),
-        )
+    coordinate = controller._promote_pick_coordinate(
+        (10.5, 3.5),
+        displayed_axes=(1, 2),
+        slice_indices={0: 30.0},
+        world_ndim=3,
+        hit_visual_id=uuid4(),
+        collapsed_data_indices=None,
     )
-    assert tuple(received[0].pick_info.details.data_coordinate) == (30.0, 3.5, 10.5)
+    assert coordinate == (30.0, 3.5, 10.5)

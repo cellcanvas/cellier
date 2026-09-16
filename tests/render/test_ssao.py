@@ -46,6 +46,10 @@ from cellier.render.shaders._image_volume import (
     ImageVolumeIsoMaterial,
     ImageVolumeMipMaterial,
 )
+from cellier.visuals import (
+    InMemoryImageSingleAppearance,
+    MultiscaleImageSingleAppearance,
+)
 
 PICK_ID_MAX = 2**20 - 1
 SIZE = 96
@@ -834,7 +838,8 @@ def ssao_controller(qtbot, offscreen_renderer):
     visual = controller.add_image(
         data=ImageMemoryStore(data=data, name="volume"),
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(
             color_map="viridis", clim=(0.0, 1.0), render_mode="mip"
         ),
     )
@@ -936,7 +941,7 @@ def test_a_mip_volume_is_excluded_by_default_and_iso_is_not(ssao_controller):
     assert all(decode_entry(v)[3] for v in entries.values())
     assert canvas._ssao_pass._has_exclusions is True
 
-    visual.appearance.render_mode = "iso"
+    visual.single.render_mode = "iso"
     manager._sync_visual_lut()
     assert lut.entries == {}
     assert canvas._ssao_pass._has_exclusions is False
@@ -957,7 +962,7 @@ def test_an_explicit_choice_survives_a_render_mode_change(ssao_controller):
     assert controller.get_visual_ambient_occlusion(visual.id) is True
 
     # Still opted in after the render mode changes.
-    visual.appearance.render_mode = "iso"
+    visual.single.render_mode = "iso"
     manager._sync_visual_lut()
     assert lut.entries == {}
     assert controller.get_visual_ambient_occlusion(visual.id) is True
@@ -1018,7 +1023,7 @@ def test_nothing_excluded_compiles_the_lookup_away(ssao_controller):
     manager = controller._render_manager
     canvas = next(iter(manager._canvases.values()))
 
-    visual.appearance.render_mode = "iso"
+    visual.single.render_mode = "iso"
     manager._sync_visual_lut()
     assert canvas._ssao_pass._has_exclusions is False
     assert canvas._ssao_pass._compute_pass._template_vars["has_exclusions"] is False
@@ -1153,11 +1158,9 @@ async def test_in_memory_volume_writes_the_normal_target(
     controller.add_image(
         data=image_volume,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(
-            color_map="viridis",
-            clim=(0.0, 1.0),
-            render_mode="iso",
-            iso_threshold=0.5,
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(
+            color_map="viridis", clim=(0.0, 1.0), render_mode="iso", iso_threshold=0.5
         ),
     )
     controller.add_canvas(scene_id=scene.id)
@@ -1206,14 +1209,11 @@ async def test_multiscale_volume_writes_the_normal_target(
     controller.add_image_multiscale(
         data=multiscale_image_store,
         scene_id=scene.id,
-        appearance=MultiscaleImageAppearance(
-            color_map="viridis",
-            clim=(0.0, 1.0),
-            render_mode="iso",
-            iso_threshold=0.5,
-            force_level=1,
-        ),
+        appearance=MultiscaleImageAppearance(force_level=1),
         render_config=MultiscaleImageRenderConfig(block_size=8),
+        single=MultiscaleImageSingleAppearance(
+            color_map="viridis", clim=(0.0, 1.0), render_mode="iso", iso_threshold=0.5
+        ),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)

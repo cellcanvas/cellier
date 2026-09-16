@@ -49,10 +49,6 @@ class GuiBackend(Protocol):
         """Build one of the single-field appearance controls."""
         ...
 
-    def channel_list(self, visual_ids: list, channels: dict, **kwargs) -> WidgetView:
-        """Build the per-channel controls for a multichannel visual."""
-        ...
-
     def render_panel(self, section: str, config: Any, **kwargs) -> WidgetView:
         """Build the panel for one render-config section."""
         ...
@@ -65,6 +61,19 @@ class GuiBackend(Protocol):
         Not a ``WidgetView``: it is local UI state with nothing on the bus.  It
         exposes ``widget``, a psygnal ``selected(int)``, ``set_choices(labels,
         index)``, ``select(index)`` and ``close()``.
+        """
+        ...
+
+    def collapsible_section(
+        self, title: str, widgets: list, *, expanded: bool = False
+    ) -> object:
+        """Build a titled section that shows or hides *widgets* when clicked.
+
+        What a controls dock wraps each visual's controls in when presented as
+        collapsible sections.  Not a ``WidgetView``: like the selector it is
+        local UI state with nothing on the bus.  It exposes ``widget``,
+        ``title``, ``expanded``, ``set_title(str)``, ``set_expanded(bool)`` and
+        ``close()``.  *widgets* are backend widgets, stacked top to bottom.
         """
         ...
 
@@ -104,17 +113,22 @@ class _QtBackend:
             kwargs["choices"] = spec.values["choices"]
         return widget_class(visual_ids, parent=None, **kwargs)
 
-    def channel_list(self, visual_ids: list, channels: dict, **kwargs) -> WidgetView:
-        from cellier.gui.qt.visuals import QtChannelList
-
-        return QtChannelList(visual_ids, channels, **kwargs)
-
     def target_selector(
         self, labels: list[str], index: int = 0, *, title: str = "Visual"
     ) -> object:
         from cellier.gui.qt._target_selector import QtTargetSelector
 
         return QtTargetSelector(labels, index, title=title)
+
+    def collapsible_section(
+        self, title: str, widgets: list, *, expanded: bool = False
+    ) -> object:
+        from cellier.convenience.layout._shared import APPEARANCE_DOCK_GAP_PX
+        from cellier.gui.qt._collapsible_section import QtCollapsibleSection
+
+        return QtCollapsibleSection(
+            title, widgets, expanded=expanded, gap=APPEARANCE_DOCK_GAP_PX
+        )
 
     def render_panel(self, section: str, config: Any, **kwargs) -> WidgetView:
         from cellier.gui.qt.render import (
@@ -133,9 +147,8 @@ class _QtBackend:
     def canvas_view(self, scene, canvas_view, axis_values: dict, **kwargs) -> object:
         """Wrap the canvas in a ``QtCanvasWidget``.
 
-        ``canvas_size`` and ``non_displayed`` are accepted and ignored: Qt
-        sizes the canvas through its layout, and its dims control reads the
-        hidden axes off the scene itself.
+        ``canvas_size`` is accepted and ignored: Qt sizes the canvas through
+        its layout.
         """
         from cellier.gui.qt import QtCanvasWidget
 
@@ -162,17 +175,24 @@ class _AnywidgetBackend:
             kwargs["choices"] = spec.values["choices"]
         return widget_class(visual_ids, **kwargs)
 
-    def channel_list(self, visual_ids: list, channels: dict, **kwargs) -> WidgetView:
-        from cellier.gui.anywidget.visuals import AnywidgetChannelList
-
-        return AnywidgetChannelList(visual_ids, channels, **kwargs)
-
     def target_selector(
         self, labels: list[str], index: int = 0, *, title: str = "Visual"
     ) -> object:
         from cellier.gui.anywidget._target_selector import AnywidgetTargetSelector
 
         return AnywidgetTargetSelector(labels, index, title=title)
+
+    def collapsible_section(
+        self, title: str, widgets: list, *, expanded: bool = False
+    ) -> object:
+        from cellier.convenience.layout._shared import APPEARANCE_DOCK_GAP_PX
+        from cellier.gui.anywidget._collapsible_section import (
+            AnywidgetCollapsibleSection,
+        )
+
+        return AnywidgetCollapsibleSection(
+            title, widgets, expanded=expanded, gap=APPEARANCE_DOCK_GAP_PX
+        )
 
     def render_panel(self, section: str, config: Any, **kwargs) -> WidgetView:
         from cellier.gui.anywidget.render import (
@@ -193,9 +213,7 @@ class _AnywidgetBackend:
         from cellier.convenience.gui._canvas import AnywidgetCanvasView
         from cellier.gui.anywidget._dims_panel import AnywidgetDimsPanel
 
-        dims = AnywidgetDimsPanel.from_scene(
-            scene, axis_values, non_displayed=kwargs.get("non_displayed", ())
-        )
+        dims = AnywidgetDimsPanel.from_scene(scene, axis_values)
         return AnywidgetCanvasView(
             canvas=canvas_view.widget,
             dims=dims,

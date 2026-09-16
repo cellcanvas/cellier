@@ -34,7 +34,7 @@ from cellier.convenience.layout._shared import (
 )
 from cellier.convenience.layout._walk import build_appearance_widgets, render_dock
 from cellier.scene.dims import spatial_axes
-from cellier.visuals import MultiscaleImageAppearance
+from cellier.visuals import MultiscaleImageAppearance, MultiscaleImageSingleAppearance
 from cellier.visuals._mesh_memory import MeshFlatAppearance, MeshPhongAppearance
 
 _PANELS = ("xy", "xz", "yz", "vol")
@@ -234,15 +234,16 @@ def test_dataset_info_reaches_both_docks(qtbot, multiscale_image_store):
     )
 
     rows = [("Scale levels", "2"), ("Data type", "float32")]
-    expected = ["Colormap", "Bounding box", "Dataset info"]
+    expected = ["Image", "Bounding box", "Dataset info"]
 
     qt_viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
     qt_viewer.add_image_multiscale(
         multiscale_image_store,
-        appearance=MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=MultiscaleImageAppearance(),
         controls=MultiscaleImageControlsConfig(
             appearance=["color_map"], dataset_info=rows
         ),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     container = render_dock(AppearanceControls(), qt_viewer, QtLayoutHost(), [])
     assert control_labels(container) == expected
@@ -251,10 +252,11 @@ def test_dataset_info_reaches_both_docks(qtbot, multiscale_image_store):
     any_viewer = Viewer(spatial_axes("z", "y", "x"), gui="anywidget")
     any_viewer.add_image_multiscale(
         multiscale_image_store,
-        appearance=MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=MultiscaleImageAppearance(),
         controls=MultiscaleImageControlsConfig(
             appearance=["color_map"], dataset_info=rows
         ),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     (target,) = appearance_targets(any_viewer)
     built = build_appearance_widgets(
@@ -500,10 +502,9 @@ def test_composite_default_titles_match_the_shared_vocabulary():
     )
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
-        AnywidgetClimRangeSlider,
-        AnywidgetColormapCombo,
+        AnywidgetImageControls,
         AnywidgetLodBiasSlider,
-        AnywidgetVolumeRenderControls,
+        AnywidgetTrailControls,
     )
     from cellier.gui.qt import QtDatasetInfo
     from cellier.gui.qt.render import (
@@ -514,18 +515,16 @@ def test_composite_default_titles_match_the_shared_vocabulary():
     )
     from cellier.gui.qt.visuals import (
         QtAABBWidget,
-        QtClimRangeSlider,
-        QtColormapCombo,
+        QtImageControls,
         QtLodBiasSlider,
-        QtVolumeRenderControls,
+        QtTrailControls,
     )
 
     composites = {
-        "color_map": (QtColormapCombo, AnywidgetColormapCombo),
-        "clim": (QtClimRangeSlider, AnywidgetClimRangeSlider),
-        "render": (QtVolumeRenderControls, AnywidgetVolumeRenderControls),
+        "image": (QtImageControls, AnywidgetImageControls),
         "lod_bias": (QtLodBiasSlider, AnywidgetLodBiasSlider),
         "aabb": (QtAABBWidget, AnywidgetAABBWidget),
+        "trail": (QtTrailControls, AnywidgetTrailControls),
         "visual_outline": (QtVisualOutlineControls, AnywidgetVisualOutlineControls),
         "labels_outline": (QtLabelsOutlineControls, AnywidgetLabelsOutlineControls),
         "visual_occlusion": (
@@ -554,7 +553,7 @@ def test_every_valid_field_name_has_a_widget():
     from cellier.convenience.gui import _controls_config
     from cellier.gui._appearance_fields import APPEARANCE_FIELD_WIDGETS
 
-    bespoke = {"color_map", "clim", "render", "lod_bias"}
+    bespoke = {"image", "lod_bias"}
     config_classes = [
         value
         for value in vars(_controls_config).values()

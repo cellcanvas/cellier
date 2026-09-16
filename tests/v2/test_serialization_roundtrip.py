@@ -23,7 +23,9 @@ def _make_minimal_model() -> ViewerModel:
     world = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
     dims = DimsManager(
         world_coordinate_system=world,
-        selection=AxisAlignedSelection(displayed_axes=(1, 2), slice_indices={0: 0}),
+        selection=AxisAlignedSelection(
+            displayed_axes=(1, 2), slice_indices={0: 0, 1: 0, 2: 0}
+        ),
     )
     positions = np.zeros((4, 3), dtype=np.float32)
     colors = np.ones((4, 4), dtype=np.float32)

@@ -43,6 +43,7 @@ from cellier.transform import (
     VisualCoordinateSystem,
     WorldCoordinateSystem,
 )
+from cellier.visuals import InMemoryImageSingleAppearance
 from tests._v2 import level_transforms
 
 # ---------------------------------------------------------------------------
@@ -493,7 +494,8 @@ def _make_image_memory_visual(store, transform):
     model = ImageVisual(
         name="baseline",
         data_store_id=str(store.id),
-        appearance=InMemoryImageAppearance(color_map="viridis"),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis"),
     )
     return GFXImageMemoryVisual(
         visual_model=model,
@@ -524,17 +526,25 @@ def _make_label_memory_visual(store, transform):
 
 
 def _make_multichannel_image_memory_visual(store, transform):
-    from cellier.render.visuals import GFXMultichannelImageMemoryVisual
-    from cellier.visuals._channel_appearance import ChannelAppearance
-    from cellier.visuals._image_memory import MultichannelImageVisual
+    """A composite in-memory image with one channel on data axis 0.
 
-    model = MultichannelImageVisual(
+    Kept under its pre-unification family name so the golden baseline pins
+    that composite mode plans exactly what the multichannel visual did.
+    """
+    from cellier.render.visuals import GFXImageMemoryVisual
+    from cellier.visuals._image_memory import (
+        ImageVisual,
+        InMemoryImageChannelAppearance,
+    )
+
+    model = ImageVisual(
         name="baseline",
         data_store_id=str(store.id),
         channel_axis=0,
-        channels={0: ChannelAppearance(color_map="red", clim=(0.0, 1.0), visible=True)},
+        composite=True,
+        channels={0: InMemoryImageChannelAppearance(color_map="red")},
     )
-    return GFXMultichannelImageMemoryVisual(
+    return GFXImageMemoryVisual(
         visual_model=model,
         data_store=store,
         render_modes={"2d", "3d"},
@@ -764,8 +774,8 @@ def _make_multiscale_image_visual(pyramid: PyramidSpec, transform, displayed_axe
     from uuid import uuid4 as _uuid4
 
     from cellier.render.visuals._image import (
-        GFXMultiscaleImageVisual,
         MultiscaleBrickLayout3D,
+        _MultiscaleImageSlot,
     )
 
     full_shapes = [tuple(s) for s in pyramid.level_shapes]
@@ -777,7 +787,7 @@ def _make_multiscale_image_visual(pyramid: PyramidSpec, transform, displayed_axe
         block_size=8,
         fetch_axes=tuple(displayed_axes),
     )
-    return GFXMultiscaleImageVisual(
+    return _MultiscaleImageSlot(
         visual_model_id=_uuid4(),
         volume_geometry=layout,
         image_geometry_2d=None,
@@ -817,25 +827,32 @@ def _make_multiscale_label_visual(pyramid: PyramidSpec, transform, displayed_axe
 def _make_multichannel_multiscale_image_visual(
     pyramid: PyramidSpec, transform, displayed_axes
 ):
-    from cellier.render.visuals import GFXMultichannelMultiscaleImageVisual
-    from cellier.visuals._channel_appearance import ChannelAppearance
-    from cellier.visuals._image import MultichannelMultiscaleImageVisual
+    """A composite multiscale image with one channel on data axis 0.
+
+    Kept under its pre-unification family name; see
+    ``_make_multichannel_image_memory_visual``.
+    """
+    from cellier.render.visuals import GFXMultiscaleImageVisual
+    from cellier.visuals._image import (
+        MultiscaleImageChannelAppearance,
+        MultiscaleImageVisual,
+    )
 
     full_shapes = [tuple(s) for s in pyramid.level_shapes]  # (c, z, y, x)
-    full_tf = pyramid.level_transforms()
-    model = MultichannelMultiscaleImageVisual(
+    model = MultiscaleImageVisual(
         name="baseline",
         data_store_id=str(uuid4()),
         channel_axis=0,
-        channels={0: ChannelAppearance(color_map="red", clim=(0.0, 1.0), visible=True)},
-        level_transforms=full_tf,
+        composite=True,
+        channels={0: MultiscaleImageChannelAppearance(color_map="red")},
+        level_transforms=pyramid.level_transforms(),
+        transform=transform,
     )
-    return GFXMultichannelMultiscaleImageVisual(
+    return GFXMultiscaleImageVisual(
         visual_model=model,
         level_shapes=full_shapes,
         render_modes={"3d"},
         displayed_axes=displayed_axes,
-        transform=transform,
     )
 
 

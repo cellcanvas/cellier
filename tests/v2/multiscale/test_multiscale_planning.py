@@ -16,6 +16,7 @@ from cellier.controller import CellierController
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
 from cellier.render.visuals._slicing import round_world_to_voxel
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import MultiscaleImageSingleAppearance
 from cellier.visuals._image import MultiscaleImageAppearance
 from tests._v2 import pyramid_levels
 
@@ -73,7 +74,8 @@ def _viewer(path, world=None):
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,
-        appearance=MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     return controller, scene, visual
 

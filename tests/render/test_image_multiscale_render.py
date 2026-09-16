@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import numpy as np
+import pytest
 
 from cellier.events._events import (
     AppearanceChangedEvent,
@@ -25,6 +26,7 @@ from cellier.transform import (
     ByDimensionTransform,
     NonUniformAxisTransform,
 )
+from cellier.visuals import MultiscaleImageSingleAppearance
 from cellier.visuals._image import (
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
@@ -38,12 +40,13 @@ def _gfx_visual(controller, scene_id, visual_id) -> GFXMultiscaleImageVisual:
     return controller._render_manager._scenes[scene_id].get_visual(visual_id)
 
 
-def _add(controller, scene_id, store, appearance, block_size=8):
+def _add(controller, scene_id, store, appearance, block_size=8, **kwargs):
     return controller.add_image_multiscale(
         data=store,
         scene_id=scene_id,
         appearance=appearance,
         render_config=MultiscaleImageRenderConfig(block_size=block_size),
+        **kwargs,
     )
 
 
@@ -59,7 +62,8 @@ def test_construction_2d_builds_2d_material(controller, multiscale_image_store):
         controller,
         scene.id,
         multiscale_image_store,
-        MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -77,7 +81,8 @@ def test_construction_3d_builds_3d_material(controller, multiscale_image_store):
         controller,
         scene.id,
         multiscale_image_store,
-        MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -101,7 +106,8 @@ async def test_render_2d_commits_tiles_and_draws(
         controller,
         scene.id,
         multiscale_image_store,
-        MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -123,11 +129,9 @@ async def test_render_3d_mip_commits_bricks_and_draws(
         controller,
         scene.id,
         multiscale_image_store,
-        MultiscaleImageAppearance(
-            color_map="viridis",
-            clim=(0.0, 1.0),
-            render_mode="mip",
-            force_level=1,
+        MultiscaleImageAppearance(force_level=1),
+        single=MultiscaleImageSingleAppearance(
+            color_map="viridis", clim=(0.0, 1.0), render_mode="mip"
         ),
     )
     controller.add_canvas(scene_id=scene.id)
@@ -192,9 +196,10 @@ async def test_reslice_2d_with_a_nonuniform_axis_transform(
     visual = controller.add_image_multiscale(
         data=multiscale_image_store,
         scene_id=scene.id,
-        appearance=MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=MultiscaleImageAppearance(),
         render_config=MultiscaleImageRenderConfig(block_size=8),
         transform=transform,
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -294,11 +299,12 @@ async def test_reslice_3d_with_a_nonuniform_axis_transform(
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,
-        appearance=MultiscaleImageAppearance(
-            color_map="viridis", clim=(0.0, 1.0), render_mode="mip", force_level=1
-        ),
+        appearance=MultiscaleImageAppearance(force_level=1),
         render_config=MultiscaleImageRenderConfig(block_size=8),
         transform=transform,
+        single=MultiscaleImageSingleAppearance(
+            color_map="viridis", clim=(0.0, 1.0), render_mode="mip"
+        ),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -330,23 +336,24 @@ async def test_slider_positions_on_the_same_frame_share_brick_keys(
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,
-        appearance=MultiscaleImageAppearance(
-            color_map="viridis", clim=(0.0, 1.0), render_mode="mip", force_level=1
-        ),
+        appearance=MultiscaleImageAppearance(force_level=1),
         render_config=MultiscaleImageRenderConfig(block_size=8),
         transform=transform,
+        single=MultiscaleImageSingleAppearance(
+            color_map="viridis", clim=(0.0, 1.0), render_mode="mip"
+        ),
     )
     controller.add_canvas(scene_id=scene.id)
     gfx = _gfx_visual(controller, scene.id, visual.id)
 
     controller.update_slice_indices(scene.id, {0: 1.2})
     await reslice(controller, scene.id)
-    assert gfx._current_slice_coord_3d == ((0, 1),)
+    assert gfx.slots[0]._current_slice_coord_3d == ((0, 1),)
     assert gfx._last_plan_stats["total_required"] > 0
 
     controller.update_slice_indices(scene.id, {0: 0.8})
     await reslice(controller, scene.id)
-    assert gfx._current_slice_coord_3d == ((0, 1),)
+    assert gfx.slots[0]._current_slice_coord_3d == ((0, 1),)
     stats = gfx._last_plan_stats
     assert stats["misses"] == 0
     assert stats["hits"] == stats["total_required"]
@@ -370,26 +377,31 @@ def _appearance_event(visual_id, field, value):
 async def test_colormap_and_clim_updates_apply_to_materials(
     controller, reslice, multiscale_image_store
 ):
-    """``color_map`` and ``clim`` changes push onto the 2D material."""
+    """``color_map``, ``clim`` and ``opacity`` changes push onto the 2D material.
+
+    Driven through the controller: the render visual re-reads the model, so
+    the change has to land there first.
+    """
     scene = controller.add_scene(dim="2d", name="scene")
     visual = _add(
         controller,
         scene.id,
         multiscale_image_store,
-        MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
 
     gfx = _gfx_visual(controller, scene.id, visual.id)
 
-    gfx.on_appearance_changed(_appearance_event(visual.id, "color_map", "magma"))
+    controller.update_single_appearance_field(visual.id, "color_map", "magma")
     assert gfx.material_2d.map is not None
 
-    gfx.on_appearance_changed(_appearance_event(visual.id, "clim", (10.0, 200.0)))
+    controller.update_single_appearance_field(visual.id, "clim", (10.0, 200.0))
     assert tuple(gfx.material_2d.clim) == (10.0, 200.0)
 
-    gfx.on_appearance_changed(_appearance_event(visual.id, "opacity", 0.5))
+    controller.update_single_appearance_field(visual.id, "opacity", 0.5)
     assert gfx.material_2d.opacity == 0.5
 
 
@@ -402,12 +414,9 @@ async def test_render_mode_and_iso_threshold_update_3d_material(
         controller,
         scene.id,
         multiscale_image_store,
-        MultiscaleImageAppearance(
-            color_map="viridis",
-            clim=(0.0, 1.0),
-            render_mode="iso",
-            iso_threshold=0.2,
-            force_level=1,
+        MultiscaleImageAppearance(force_level=1),
+        single=MultiscaleImageSingleAppearance(
+            color_map="viridis", clim=(0.0, 1.0), render_mode="iso", iso_threshold=0.2
         ),
     )
     controller.add_canvas(scene_id=scene.id)
@@ -415,10 +424,10 @@ async def test_render_mode_and_iso_threshold_update_3d_material(
 
     gfx = _gfx_visual(controller, scene.id, visual.id)
 
-    gfx.on_appearance_changed(_appearance_event(visual.id, "iso_threshold", 0.7))
-    assert gfx.material_3d.threshold == 0.7
+    controller.update_single_appearance_field(visual.id, "iso_threshold", 0.7)
+    assert gfx.material_3d.threshold == pytest.approx(0.7)
 
-    gfx.on_appearance_changed(_appearance_event(visual.id, "render_mode", "mip"))
+    controller.update_single_appearance_field(visual.id, "render_mode", "mip")
     assert gfx.material_3d.render_mode == "mip"
 
 
@@ -436,19 +445,16 @@ async def test_attenuation_update_3d_material(
         controller,
         scene.id,
         multiscale_image_store,
-        MultiscaleImageAppearance(
-            color_map="viridis",
-            clim=(0.0, 1.0),
-            render_mode="attenuated_mip",
-            attenuation=1.0,
-            force_level=1,
+        MultiscaleImageAppearance(attenuation=1.0, force_level=1),
+        single=MultiscaleImageSingleAppearance(
+            color_map="viridis", clim=(0.0, 1.0), render_mode="attenuated_mip"
         ),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
 
     gfx = _gfx_visual(controller, scene.id, visual.id)
-    gfx.on_appearance_changed(_appearance_event(visual.id, "attenuation", 2.5))
+    controller.update_appearance_field(visual.id, "attenuation", 2.5)
     assert gfx.material_3d.attenuation == 2.5
 
 
@@ -460,7 +466,8 @@ async def test_visibility_toggle_hides_multiscale_image(
         controller,
         scene.id,
         multiscale_image_store,
-        MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -492,7 +499,8 @@ def test_volume_material_is_brick_material(controller, multiscale_image_store):
         controller,
         scene.id,
         multiscale_image_store,
-        MultiscaleImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 

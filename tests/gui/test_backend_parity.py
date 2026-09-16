@@ -23,6 +23,7 @@ from cellier.convenience.layout._walk import render_dock
 from cellier.data._dataset_info import DatasetInfo, MatrixSection, RowSection
 from cellier.gui._axis_values import ContinuousAxisValues
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import InMemoryImageSingleAppearance
 
 _MESH_POSITIONS = np.array(
     [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float32
@@ -409,7 +410,8 @@ def _ortho_viewer(gui: str):
     viewer = OrthoViewer(spatial_axes("z", "y", "x"), gui=gui)
     viewer.add_image(
         ImageMemoryStore(data=np.random.rand(8, 8, 8).astype(np.float32)),
-        appearance=InMemoryImageAppearance(color_map=cmap.Colormap("gray")),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map=cmap.Colormap("gray")),
     )
     return viewer
 
@@ -478,7 +480,8 @@ def _toggle_viewer(gui: str):
     viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui=gui)
     viewer.add_image(
         ImageMemoryStore(data=np.random.rand(8, 8, 8).astype(np.float32)),
-        appearance=InMemoryImageAppearance(color_map=cmap.Colormap("gray")),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map=cmap.Colormap("gray")),
     )
     return viewer
 
@@ -518,13 +521,12 @@ def _toggled_to_2d(gui: str):
 
 @pytest.mark.parametrize("gui", ["qt", "anywidget"])
 async def test_the_toggle_hands_the_slicer_a_centred_index(qtbot, gui):
-    """Switching a 3D scene to 2D must name a slice for the axis it hides.
+    """Switching a 3D scene to 2D slices the hidden axis at its centre.
 
-    A scene showing all three axes carries no ``slice_indices`` at all, so the
-    toggle had nothing to carry forward.  Qt read its sliders and got their
-    unset minimum (the volume's edge); anywidget read the model and got
-    nothing, so the slicer raised ``KeyError``.  Both now seed every axis from
-    :func:`cellier.gui._dims.initial_slice_indices`.
+    Every axis keeps a position while displayed (D36), and the toggle sends
+    only ``displayed_axes``.  The position it slices at is the one the canvas
+    builder moved the displayed axes to when it made the canvas: the centre,
+    not the volume's edge.
     """
     pytest.importorskip("qtpy")
     if gui == "anywidget":
@@ -535,7 +537,7 @@ async def test_the_toggle_hands_the_slicer_a_centred_index(qtbot, gui):
     assert tuple(selection.displayed_axes) == (1, 2)
     # The centre of the hidden axis, not its edge -- derived from the axis
     # range rather than restated, so the volume's size stays a detail.
-    assert dict(selection.slice_indices) == {0: centre}
+    assert selection.slice_indices[0] == centre
 
 
 @pytest.mark.parametrize("gui", ["qt", "anywidget"])

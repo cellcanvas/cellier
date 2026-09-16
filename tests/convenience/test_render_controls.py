@@ -20,6 +20,7 @@ from cellier.convenience.layout._shared import (
 )
 from cellier.convenience.layout._walk import render_dock
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import InMemoryImageSingleAppearance
 
 # ---------------------------------------------------------------------------
 # The dock spec
@@ -322,8 +323,9 @@ def _call_add(viewer, method: str, **render_kwargs):
     if method == "add_image":
         return viewer.add_image(
             ImageMemoryStore(data=np.zeros((8, 8, 8), dtype=np.float32), name="i"),
-            InMemoryImageAppearance(color_map="gray", clim=(0.0, 1.0)),
+            InMemoryImageAppearance(),
             **render_kwargs,
+            single=InMemoryImageSingleAppearance(color_map="gray", clim=(0.0, 1.0)),
         )
     if method == "add_labels":
         return viewer.add_labels(

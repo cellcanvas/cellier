@@ -24,12 +24,6 @@ if TYPE_CHECKING:
     from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
     from cellier.render.visuals._image import GFXMultiscaleImageVisual
     from cellier.render.visuals._image_memory import GFXImageMemoryVisual
-    from cellier.render.visuals._image_memory_multichannel import (
-        GFXMultichannelImageMemoryVisual,
-    )
-    from cellier.render.visuals._image_multiscale_multichannel import (
-        GFXMultichannelMultiscaleImageVisual,
-    )
     from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
     from cellier.render.visuals._mesh_memory import GFXMeshMemoryVisual
     from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
@@ -37,8 +31,6 @@ if TYPE_CHECKING:
     _GFXVisual = (
         GFXMultiscaleImageVisual
         | GFXImageMemoryVisual
-        | GFXMultichannelImageMemoryVisual
-        | GFXMultichannelMultiscaleImageVisual
         | GFXPointsMemoryVisual
         | GFXLinesMemoryVisual
         | GFXMeshMemoryVisual
@@ -236,7 +228,12 @@ class SceneManager:
         active_node = self._active_nodes.pop(visual_id, None)
         if active_node is not None:
             self._scene.remove(active_node)
-        self._visuals.pop(visual_id)
+        visual = self._visuals.pop(visual_id)
+        # Explicit release for visuals that hold slots, caches or model
+        # connections (unified image design 3.8), rather than trusting GC.
+        close = getattr(visual, "close", None)
+        if close is not None:
+            close()
 
     def get_visual_id_for_node(self, node: gfx.WorldObject) -> UUID | None:
         """Return the visual_id whose active scene-graph node is *node*.
@@ -316,11 +313,18 @@ class SceneManager:
         is the union of its visuals' extents, so a single-visual scene never
         leaves its own.  A visual whose extents or spaces are unknown is
         never skipped.
+
+        A visual that sets ``decides_empty_slices`` is never skipped either.
+        The image visuals apply their own slicing rule (design 3.2) and must
+        see the request to hide their data node when the slice misses the
+        data; skipped, they would keep drawing the last plane they loaded.
         """
+        visual = self._visuals[visual_id]
+        if getattr(visual, "decides_empty_slices", False):
+            return True
         extents = self._axis_extents.get(visual_id)
         if extents is None:
             return True
-        visual = self._visuals[visual_id]
         transform = getattr(visual, "_transform", None)
         spaces = getattr(visual, "_spaces", None)
         selection = getattr(request, "selection", None)

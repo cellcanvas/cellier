@@ -55,7 +55,3 @@ class GFXVisual(Protocol):
     def get_node(self, mode: str) -> gfx.WorldObject | None:
         """Return the already-built node for *mode*, or None if not built."""
         ...
-
-    def on_stacked_axes_changed(self, stacked_axes: tuple[int, ...]) -> None:
-        """Notify the visual that stacked_axes changed on the scene dims."""
-        ...

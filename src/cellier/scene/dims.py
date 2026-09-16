@@ -138,27 +138,24 @@ class AxisAlignedSelection(EventedModel):
         Indices into the coordinate system that are rendered.
         Length 2 -> 2D; length 3 -> 3D.
     slice_indices : dict[int, float]
-        Mapping of axis index -> **world-space slice position** for
-        non-displayed, non-stacked axes.  A world position, not a voxel
-        index: an integer-valued slider on a 0.5 world-unit-per-voxel axis
-        cannot address the odd-numbered planes (D3).
+        Mapping of axis index -> **world-space slice position**, for **every**
+        world axis, displayed or not (unified image design D36).  A displayed
+        axis keeps the position it slices at once it stops being displayed,
+        so a 3D -> 2D switch needs no bookkeeping.  A world position, not a
+        voxel index: an integer-valued slider on a 0.5 world-unit-per-voxel
+        axis cannot address the odd-numbered planes (D3).
     thickness : dict[int, float]
         Mapping of axis index -> **half**-thickness in world units.  An axis
         absent from the mapping uses :data:`DEFAULT_HALF_THICKNESS`.  Per axis
         rather than scalar because one number means three frames on a
         0.5 s/frame time axis and a quarter of a voxel on a 2 um/voxel spatial
         one (D4).
-    stacked_axes : tuple[int, ...]
-        Axes whose full extent is composited by the render layer (e.g.
-        channel). These axes are neither displayed nor sliced to a single
-        index.
     """
 
     selector_type: Literal["axis_aligned"] = "axis_aligned"
     displayed_axes: tuple[int, ...]
     slice_indices: dict[int, float] = Field(default_factory=dict)
     thickness: dict[int, float] = Field(default_factory=dict)
-    stacked_axes: tuple[int, ...] = ()
 
     @model_validator(mode="after")
     def _validate_displayed_rank(self) -> AxisAlignedSelection:
@@ -202,7 +199,6 @@ class AxisAlignedSelection(EventedModel):
         """Return an immutable snapshot of this selection."""
         return AxisAlignedSelectionState(
             displayed_axes=self.displayed_axes,
-            stacked_axes=self.stacked_axes,
             thickness=dict(self.thickness),
         )
 
@@ -246,6 +242,12 @@ class DimsManager(EventedModel):
         replacement (D7), which is why there is no event relay onto it.
     selection : SelectionType
         The current axis selection (axis-aligned or plane).
+    slider_overrides : dict[int, bool]
+        Per world axis, whether to force its slider shown (``True``) or
+        hidden (``False``).  An axis absent from the mapping is automatic:
+        it gets a slider when a visual slices it.  Only the overrides are
+        stored; the effective set is ``Scene.slider_axes``, which is derived
+        from the visuals and never serialized (D23).
     """
 
     id: UUID4 | Annotated[str, AfterValidator(lambda x: uuid.UUID(x, version=4))] = (
@@ -253,6 +255,7 @@ class DimsManager(EventedModel):
     )
     world_coordinate_system: WorldCoordinateSystem
     selection: SelectionType
+    slider_overrides: dict[int, bool] = Field(default_factory=dict)
 
     @property
     def axis_labels(self) -> tuple[str, ...]:
@@ -266,21 +269,33 @@ class DimsManager(EventedModel):
 
     @model_validator(mode="after")
     def _validate_axis_coverage(self) -> DimsManager:
-        """Verify displayed + sliced + stacked axes cover all coordinate axes."""
+        """Every world axis has a slice position, and nothing else does (D36).
+
+        A displayed axis keeps its entry, so ``slice_indices`` alone covers
+        the world.  Overrides must name world axes too.
+        """
+        ndim = self.world_coordinate_system.ndim
+        expected = set(range(ndim))
         if isinstance(self.selection, AxisAlignedSelection):
-            ndim = self.world_coordinate_system.ndim
-            covered = (
-                set(self.selection.displayed_axes)
-                | set(self.selection.slice_indices.keys())
-                | set(self.selection.stacked_axes)
-            )
-            expected = set(range(ndim))
+            covered = set(self.selection.slice_indices.keys())
             if covered != expected:
                 raise ValueError(
-                    f"Axis coverage mismatch: "
-                    f"displayed_axes | slice_indices.keys() | stacked_axes "
-                    f"= {covered}, expected {expected} for ndim={ndim}"
+                    f"Axis coverage mismatch: slice_indices.keys() = "
+                    f"{sorted(covered)}, expected every world axis "
+                    f"{sorted(expected)} for ndim={ndim}.  A displayed axis "
+                    f"keeps a slice position too."
                 )
+            if not set(self.selection.displayed_axes) <= expected:
+                raise ValueError(
+                    f"displayed_axes {self.selection.displayed_axes} names an "
+                    f"axis outside the world (ndim={ndim})."
+                )
+        unknown = set(self.slider_overrides) - expected
+        if unknown:
+            raise ValueError(
+                f"slider_overrides names axes {sorted(unknown)} outside the "
+                f"world (ndim={ndim})."
+            )
         return self
 
     def model_post_init(self, __context: Any) -> None:
@@ -326,8 +341,9 @@ class DimsManager(EventedModel):
         fetching more than it can show.  So the region says exactly what the
         user asked for, and nothing when they asked for nothing.
 
-        Displayed axes are left unbounded.  Bounding one is the viewport-crop
-        follow-up; the region type already expresses it (R3).
+        Displayed axes are left unbounded, although they keep a stored
+        position (D36).  Bounding one is the viewport-crop follow-up; the
+        region type already expresses it (R3).
 
         Parameters
         ----------
@@ -359,6 +375,7 @@ class DimsManager(EventedModel):
                 float(self.selection.thickness.get(axis, 0.0)),
             )
             for axis, position in self.selection.slice_indices.items()
+            if axis not in self.selection.displayed_axes
         }
         return RegionSelection(
             transform=rendered_to_world,

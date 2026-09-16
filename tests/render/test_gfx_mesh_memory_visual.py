@@ -287,7 +287,6 @@ def test_protocol_node_accessors():
     assert v.get_node("3d") is v.node
     assert v.build_node("3d", None, (0, 1, 2), None, None) is v.node
     assert v.rebuild_node_geometry("3d", (0, 1, 2), None, None) is v.node
-    v.on_stacked_axes_changed((0,))
 
 
 def test_build_slice_request_updates_matrix_on_axis_change():

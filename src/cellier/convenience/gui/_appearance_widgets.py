@@ -19,41 +19,10 @@ if TYPE_CHECKING:
     from cellier.convenience.layout._shared import ControlSpec
 
 
-def _any_color_map(spec: ControlSpec, visual_ids, controller=None):
-    from cellier.gui.anywidget.visuals import AnywidgetColormapCombo
+def _any_image(spec: ControlSpec, visual_ids, controller=None):
+    from cellier.gui.anywidget.visuals import AnywidgetImageControls
 
-    return AnywidgetColormapCombo(
-        visual_ids,
-        initial_colormap=spec.values["initial_colormap"],
-        colormap_names=spec.values["colormap_names"],
-        title=spec.title,
-    )
-
-
-def _any_clim(spec: ControlSpec, visual_ids, controller=None):
-    from cellier.gui.anywidget.visuals import AnywidgetClimRangeSlider
-
-    return AnywidgetClimRangeSlider(
-        visual_ids,
-        clim_range=spec.values["clim_range"],
-        initial_clim=spec.values["initial_clim"],
-        title=spec.title,
-    )
-
-
-def _any_render(spec: ControlSpec, visual_ids, controller=None):
-    from cellier.gui.anywidget.visuals import AnywidgetVolumeRenderControls
-
-    # No ``dtype_max`` here: the anywidget control derives its own slider
-    # bounds.  Its Qt counterpart takes one, which is why ``clim_range`` is on
-    # the shared spec and the keyword is not.
-    return AnywidgetVolumeRenderControls(
-        visual_ids,
-        initial_render_mode=spec.values["initial_render_mode"],
-        initial_threshold=spec.values["initial_threshold"],
-        initial_attenuation=spec.values["initial_attenuation"],
-        title=spec.title,
-    )
+    return AnywidgetImageControls(visual_ids, spec.values, title=spec.title)
 
 
 def _any_lod_bias(spec: ControlSpec, visual_ids, controller=None):
@@ -135,11 +104,18 @@ def _any_visual_picking(spec: ControlSpec, visual_ids, controller=None):
     return AnywidgetVisualPickingControls(visual_ids, spec.values)
 
 
+def _any_trail(spec: ControlSpec, visual_ids, controller=None):
+    from cellier.gui.anywidget.visuals import AnywidgetTrailControls
+
+    return AnywidgetTrailControls(
+        visual_ids, spec.values["axes"], spec.values["trail"], title=spec.title
+    )
+
+
 ANYWIDGET_BUILDERS = {
-    "color_map": _any_color_map,
-    "clim": _any_clim,
-    "render": _any_render,
+    "image": _any_image,
     "lod_bias": _any_lod_bias,
+    "trail": _any_trail,
     "aabb": _any_aabb,
     "visual_outline": _any_visual_outline,
     "labels_outline": _any_labels_outline,

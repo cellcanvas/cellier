@@ -5,12 +5,6 @@ from cellier.render.visuals._image import (
     MultiscaleBrickLayout3D,
 )
 from cellier.render.visuals._image_memory import GFXImageMemoryVisual
-from cellier.render.visuals._image_memory_multichannel import (
-    GFXMultichannelImageMemoryVisual,
-)
-from cellier.render.visuals._image_multiscale_multichannel import (
-    GFXMultichannelMultiscaleImageVisual,
-)
 from cellier.render.visuals._label_memory import GFXLabelMemoryVisual
 from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
 from cellier.render.visuals._protocol import GFXVisual
@@ -18,8 +12,6 @@ from cellier.render.visuals._protocol import GFXVisual
 __all__ = [
     "GFXImageMemoryVisual",
     "GFXLabelMemoryVisual",
-    "GFXMultichannelImageMemoryVisual",
-    "GFXMultichannelMultiscaleImageVisual",
     "GFXMultiscaleImageVisual",
     "GFXMultiscaleLabelVisual",
     "GFXVisual",

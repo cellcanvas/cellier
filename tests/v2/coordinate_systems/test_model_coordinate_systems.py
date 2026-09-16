@@ -46,6 +46,7 @@ from cellier.transform import (
     WorldCoordinateSystem,
 )
 from cellier.viewer_model import DataManager, ViewerModel
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import ImageVisual, InMemoryImageAppearance
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 from tests._v2 import data_system, systems
@@ -84,7 +85,9 @@ def test_an_existing_world_passes_through_with_its_ids_intact():
 def test_axis_labels_is_derived_and_unchanged_for_the_gui():
     dims = DimsManager(
         world_coordinate_system=world_coordinate_system(spatial_axes("z", "y", "x")),
-        selection=AxisAlignedSelection(displayed_axes=(0, 1, 2)),
+        selection=AxisAlignedSelection(
+            displayed_axes=(0, 1, 2), slice_indices={0: 0.0, 1: 0.0, 2: 0.0}
+        ),
     )
     assert dims.axis_labels == ("z", "y", "x")
     assert dims.to_state().axis_labels == ("z", "y", "x")
@@ -241,7 +244,8 @@ def test_a_store_added_to_a_scene_takes_the_worlds_trailing_axes():
     controller.add_image(
         data=store,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="gray", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="gray", clim=(0.0, 1.0)),
     )
     system = store.data_coordinate_system
     assert system.axis_names() == ("z", "y", "x")
@@ -264,7 +268,8 @@ def test_a_store_that_already_knows_its_axes_is_left_alone():
     controller.add_image(
         data=store,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="gray", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="gray", clim=(0.0, 1.0)),
     )
     assert store.data_coordinate_system.id == before
     assert store.data_coordinate_system.axis_names() == ("depth", "row", "col")
@@ -294,7 +299,9 @@ def _viewer_model_with_every_memory_store() -> ViewerModel:
     dims = DimsManager(
         world_coordinate_system=world_coordinate_system(spatial_axes("z", "y", "x")),
         selection=AxisAlignedSelection(
-            displayed_axes=(1, 2), slice_indices={0: 2.5}, thickness={0: 1.25}
+            displayed_axes=(1, 2),
+            slice_indices={0: 2.5, 1: 0.0, 2: 0.0},
+            thickness={0: 1.25},
         ),
     )
     from cellier.scene.scene import Scene
@@ -324,7 +331,8 @@ def _viewer_model_with_every_memory_store() -> ViewerModel:
     image_visual = ImageVisual(
         name="image",
         data_store_id=str(stores[0].id),
-        appearance=InMemoryImageAppearance(color_map="gray", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="gray", clim=(0.0, 1.0)),
     )
     points_visual = PointsVisual(
         name="points",
@@ -370,7 +378,7 @@ def test_slice_positions_and_thicknesses_survive_a_round_trip():
     restored = ViewerModel.model_validate_json(original.model_dump_json())
     (scene_id,) = original.scenes
     selection = restored.scenes[scene_id].dims.selection
-    assert selection.slice_indices == {0: 2.5}
+    assert selection.slice_indices == {0: 2.5, 1: 0.0, 2: 0.0}
     assert selection.thickness == {0: 1.25}
 
 

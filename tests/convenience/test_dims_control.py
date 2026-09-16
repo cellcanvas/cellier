@@ -1,7 +1,8 @@
 """Tests for ``cellier.convenience.Viewer.set_displayed_dimensions``.
 
-Covers the two validation guards and the 2D <-> 3D roundtrip that saves and
-restores a slice position when an axis cycles from displayed back to sliced.
+Covers the two validation guards and the 2D <-> 3D roundtrip.  Every axis
+keeps its slice position whether or not it is displayed (D36), so an axis
+cycling from displayed back to sliced needs no saving or restoring.
 """
 
 from __future__ import annotations
@@ -35,8 +36,8 @@ def test_switch_2d_to_3d_sets_displayed_axes():
 
     viewer.set_displayed_dimensions(("z", "y", "x"))
     assert tuple(scene.dims.selection.displayed_axes) == (1, 2, 3)
-    # z (axis 1) is now displayed, so it drops out of slice_indices.
-    assert 1 not in scene.dims.selection.slice_indices
+    # z (axis 1) is now displayed and keeps its position.
+    assert scene.dims.selection.slice_indices[1] == 0
 
 
 def test_roundtrip_restores_saved_slice_position():
@@ -46,16 +47,14 @@ def test_roundtrip_restores_saved_slice_position():
     scene = viewer.scene
 
     # Seed a non-default slice position on z (axis 1) while it is sliced.
-    slices = dict(scene.dims.selection.slice_indices)
-    slices[1] = 5
-    viewer.controller.update_slice_indices(scene.id, slices)
+    viewer.controller.update_slice_indices(scene.id, {1: 5})
     assert scene.dims.selection.slice_indices[1] == 5
 
-    # Expand to 3D: z becomes displayed and its position is saved.
+    # Expand to 3D: z becomes displayed and keeps its position.
     viewer.set_displayed_dimensions(("z", "y", "x"))
-    assert 1 not in scene.dims.selection.slice_indices
+    assert scene.dims.selection.slice_indices[1] == 5
 
-    # Contract back to 2D: z is sliced again and restored to its saved value.
+    # Contract back to 2D: z is sliced again at the same position.
     viewer.set_displayed_dimensions(("y", "x"))
     assert tuple(scene.dims.selection.displayed_axes) == (2, 3)
     assert scene.dims.selection.slice_indices[1] == pytest.approx(5)

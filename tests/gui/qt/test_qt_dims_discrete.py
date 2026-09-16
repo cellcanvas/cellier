@@ -97,8 +97,8 @@ def test_inbound_positions_show_the_nearest_value_without_writing_back(
     assert emitted == []
 
 
-def test_toggle_hands_over_the_shown_value(qtbot):
-    """Leaving 3D slices the discrete axis at the value its slider shows."""
+def test_toggle_sends_only_the_displayed_axes(qtbot):
+    """The model keeps every position (D36), so the toggle hands over none."""
     control = _make_control(qtbot, with_toggle=True, displayed=(0, 1, 2))
     control._on_dims_changed(
         _event(control._scene_id, slices={0: 3.0}, displayed=(0, 1, 2))
@@ -108,7 +108,8 @@ def test_toggle_hands_over_the_shown_value(qtbot):
 
     control._on_toggle_click()
 
-    assert emitted[-1].slice_indices[0] == 2.5
+    assert emitted[-1].slice_indices is None
+    assert emitted[-1].displayed_axes == (1, 2)
 
 
 def test_bare_pairs_are_rejected(qtbot):

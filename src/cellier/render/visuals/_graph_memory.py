@@ -390,9 +390,6 @@ class GFXGraphMemoryVisual:
     ):
         return self.get_node_for_dims(displayed_axes)
 
-    def on_stacked_axes_changed(self, stacked_axes: tuple[int, ...]) -> None:
-        pass
-
     # ------------------------------------------------------------------
     # Node matrix
     # ------------------------------------------------------------------

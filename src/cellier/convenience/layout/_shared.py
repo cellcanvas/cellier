@@ -4,44 +4,10 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 from uuid import UUID
 
-from cellier.convenience.gui._controls_config import ChannelControlsConfig
 from cellier.gui._render_controls import VISUAL_RENDER_TITLES
-
-if TYPE_CHECKING:
-    from cellier.visuals._channel_appearance import ChannelAppearance
-
-
-def channel_widget_kwargs(
-    config: ChannelControlsConfig,
-    channels: dict[int, ChannelAppearance],
-) -> dict:
-    """Build the toolkit-neutral kwargs shared by both channel widgets.
-
-    ``QtChannelList`` and ``AnywidgetChannelList`` accept the same construction
-    keywords (``clim_range``, ``colormap_names``, ``fields``,
-    ``channel_labels``); this derives them from *config*, inferring
-    ``clim_range`` from the channels' current clim when it is not configured.
-    """
-    kwargs: dict = {}
-    if config.fields is not None:
-        kwargs["fields"] = config.fields
-    if config.colormap_names is not None:
-        kwargs["colormap_names"] = config.colormap_names
-    if config.channel_labels is not None:
-        kwargs["channel_labels"] = config.channel_labels
-
-    if config.clim_range is not None:
-        kwargs["clim_range"] = config.clim_range
-    elif channels:
-        los = [float(ch.clim[0]) for ch in channels.values()]
-        his = [float(ch.clim[1]) for ch in channels.values()]
-        kwargs["clim_range"] = (min([*los, 0.0]), max([*his, 1.0]))
-
-    return kwargs
-
 
 # ── Appearance controls: the toolkit-neutral decision layer ──────────────────
 #
@@ -102,11 +68,10 @@ class AppearanceSpecs(NamedTuple):
 
 
 _CONTROL_TITLES = {
-    "color_map": "Colormap",
-    "clim": "Contrast limits",
-    "render": "Render mode",
+    "image": "Image",
     "lod_bias": "LOD bias",
     "aabb": "Bounding box",
+    "trail": "Trail",
     # Read rather than restated: the per-visual groups name themselves in
     # the shared control spec, beside the controls they hold.
     **VISUAL_RENDER_TITLES,
@@ -224,12 +189,10 @@ def appearance_specs(
     -------
     AppearanceSpecs
     """
-    from cellier.convenience.gui._controls_config import InMemoryImageControlsConfig
     from cellier.gui._appearance_fields import (
         APPEARANCE_FIELD_WIDGETS,
         literal_choices,
     )
-    from cellier.gui._colormap_util import colormap_to_str
 
     appearance = getattr(config, "appearance", False)
     if appearance is True:
@@ -252,8 +215,14 @@ def appearance_specs(
     # visual's model actually carries it.  Both halves matter: a config can be
     # paired with a visual whose model is narrower (a multiscale config on an
     # in-memory image has no ``lod_bias`` to drive).
+    # An image's mode-dependent fields live on ``single`` (unified image
+    # design 3.1), not on the shared appearance.
+    single = getattr(visual, "single", None)
     honoured = {
-        field for field in requested if field in controls_map and hasattr(app, field)
+        field
+        for field in requested
+        if field in controls_map
+        and (hasattr(app, field) or (single is not None and hasattr(single, field)))
     }
     # A default list is "everything this config *can* drive", and the visual's
     # model is often narrower on purpose -- a flat mesh has no ``shininess``.
@@ -261,32 +230,25 @@ def appearance_specs(
     # fields the caller named are reported as dropped.
     skipped = sorted(requested - honoured) if explicit else []
 
-    raw_clim = tuple(getattr(app, "clim", (0.0, 1.0)))
-    if (
-        isinstance(config, InMemoryImageControlsConfig)
-        and config.clim_range is not None
-    ):
-        clim_range: tuple[float, float] = config.clim_range
-    else:
-        clim_range = (min(0.0, float(raw_clim[0])), max(1.0, float(raw_clim[1])))
+    image_fields = [
+        field
+        for field in controls_map
+        if field in honoured and controls_map[field] == "image"
+    ]
+
+    def _image_values():
+        from cellier.gui._image_controls import image_control_values
+
+        return image_control_values(
+            visual,
+            fields=image_fields,
+            colormap_names=getattr(config, "colormap_names", None),
+            clim_range=getattr(config, "clim_range", None),
+            channel_labels=getattr(config, "channel_labels", None),
+        )
 
     values_for = {
-        "color_map": lambda: {
-            "initial_colormap": colormap_to_str(getattr(app, "color_map", "grays")),
-            "colormap_names": config.colormap_names
-            if isinstance(config, InMemoryImageControlsConfig)
-            else None,
-        },
-        "clim": lambda: {
-            "clim_range": clim_range,
-            "initial_clim": raw_clim,
-        },
-        "render": lambda: {
-            "clim_range": clim_range,
-            "initial_render_mode": getattr(app, "render_mode", "mip"),
-            "initial_threshold": getattr(app, "iso_threshold", 0.2),
-            "initial_attenuation": getattr(app, "attenuation", 1.0),
-        },
+        "image": _image_values,
         "lod_bias": lambda: {"initial_lod_bias": float(getattr(app, "lod_bias", 1.0))},
     }
 
@@ -316,6 +278,10 @@ def appearance_specs(
             title = stem_title[1] if stem_title else _default_title(field)
         specs.append(ControlSpec(kind, title, values))
 
+    trail_spec = _trail_spec(visual, config, store)
+    if trail_spec is not None:
+        specs.append(trail_spec)
+
     # The bounding box is not a field of the appearance model and is not
     # requested by name: ``aabb`` is on ``BaseVisual`` with a default factory,
     # so every visual has one and every configured panel gets the control.
@@ -344,6 +310,75 @@ def appearance_specs(
         specs.append(dataset_info_spec)
 
     return AppearanceSpecs(specs, skipped)
+
+
+def _trail_spec(visual: object, config: object, store: object) -> ControlSpec | None:
+    """The trail-window control *config* asks for, or ``None``.
+
+    Only a graph visual has a trail, and only ``GraphControlsConfig`` can ask
+    for its control.  The axes are resolved here, against the store's own
+    data axes, because the config is built before it is paired with a store.
+    """
+    requested = getattr(config, "trail_controls", False)
+    trail = getattr(visual, "trail", None)
+    if not requested or trail is None:
+        return None
+
+    systems = getattr(store, "data_coordinate_systems", None) or []
+    system = systems[0] if systems else None
+    names = system.axis_names() if system is not None else ()
+
+    if requested is True:
+        axes = sorted(trail)
+        if not axes and system is not None:
+            axes = [
+                index
+                for index, axis in enumerate(system.axes)
+                if axis.axis_type == "time"
+            ]
+    else:
+        axes = [_resolve_trail_axis(ref, names) for ref in requested]
+    if not axes:
+        warnings.warn(
+            f"trail_controls=True on {getattr(visual, 'name', 'a graph')!r} found "
+            "no axis to offer: the graph has no trail window and no time axis. "
+            "Name the axes instead, e.g. trail_controls=[0].",
+            UserWarning,
+            stacklevel=3,
+        )
+        return None
+
+    return ControlSpec(
+        "trail",
+        _CONTROL_TITLES["trail"],
+        {
+            "axes": [
+                (axis, names[axis] if axis < len(names) else f"axis {axis}")
+                for axis in dict.fromkeys(axes)
+            ],
+            # Copies: the widget keeps what it was seeded with, and must never
+            # hold the objects the controller is wired to.
+            "trail": {axis: window.model_copy() for axis, window in trail.items()},
+        },
+    )
+
+
+def _resolve_trail_axis(ref: int | str, names: tuple[str, ...]) -> int:
+    """Resolve one ``trail_controls`` entry to a data-axis index."""
+    if isinstance(ref, str):
+        matches = [index for index, name in enumerate(names) if name == ref]
+        if len(matches) != 1:
+            problem = "is not one of" if not matches else "is ambiguous among"
+            raise ValueError(
+                f"trail_controls axis {ref!r} {problem} the graph's data axes "
+                f"{list(names)}."
+            )
+        return matches[0]
+    if not 0 <= ref < len(names):
+        raise ValueError(
+            f"trail_controls axis {ref} is out of range for a {len(names)}-axis graph."
+        )
+    return int(ref)
 
 
 def _visual_render_specs(
@@ -512,22 +547,16 @@ class ControlTarget(NamedTuple):
 def appearance_targets(viewer: object) -> list[ControlTarget]:
     """Every visual an ``AppearanceControls()`` dock can drive, in add order.
 
-    Channel configs are left to :func:`channel_targets`, and a config whose
-    ``appearance`` is falsy (``False``, ``None``, ``[]``) is skipped: it asks
-    for no panel, and :func:`appearance_specs` would build none, so offering it
-    in the selector would only lead to an empty dock.  Multi-scene aware:
-    an ``OrthoViewer`` records one config per fanned-out add, keyed by the
-    first panel's visual, and ``_visual_groups`` expands it to all four.
+    A config whose ``appearance`` is falsy (``False``, ``None``, ``[]``) is skipped: it
+    asks for no panel, and :func:`appearance_specs` would build none, so offering it in
+    the selector would only lead to an empty dock.  Multi-scene aware: an
+    ``OrthoViewer`` records one config per fanned-out add, keyed by the first panel's
+    visual, and ``_visual_groups`` expands it to all four.
     """
-    return _control_targets(viewer, channels=False)
+    return _control_targets(viewer)
 
 
-def channel_targets(viewer: object) -> list[ControlTarget]:
-    """Every visual a ``ChannelControls()`` dock can drive, in add order."""
-    return _control_targets(viewer, channels=True)
-
-
-def _control_targets(viewer: object, *, channels: bool) -> list[ControlTarget]:
+def _control_targets(viewer: object) -> list[ControlTarget]:
     """Resolve the recorded configs of one kind into labelled targets.
 
     Registration order, not scene order: it is the order the user added
@@ -544,9 +573,7 @@ def _control_targets(viewer: object, *, channels: bool) -> list[ControlTarget]:
 
     resolved = []
     for rep_id, config in controls_configs.items():
-        if isinstance(config, ChannelControlsConfig) is not channels:
-            continue
-        if not channels and not getattr(config, "appearance", False):
+        if not getattr(config, "appearance", False):
             continue
         try:
             visual = controller.get_visual_model(rep_id)
@@ -697,7 +724,7 @@ def unsupported_dock_node(spec: object) -> TypeError:
     """
     return TypeError(
         f"Cannot render {type(spec).__name__!r} in a dock. Docks accept "
-        "AppearanceControls, ChannelControls, RenderControls, or an HStack / "
+        "AppearanceControls, RenderControls, or an HStack / "
         "VStack of those. Grid is a center-only node."
     )
 

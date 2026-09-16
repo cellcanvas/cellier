@@ -26,6 +26,10 @@ from cellier.convenience.layout._shared import appearance_targets
 from cellier.convenience.layout._walk import build_appearance_widgets, render_dock
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import (
+    InMemoryImageSingleAppearance,
+    MultiscaleImageSingleAppearance,
+)
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 _PANELS = ("xy", "xz", "yz", "vol")
@@ -37,7 +41,11 @@ def _store() -> ImageMemoryStore:
 
 
 def _appearance() -> InMemoryImageAppearance:
-    return InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0))
+    return InMemoryImageAppearance()
+
+
+def _single() -> InMemoryImageSingleAppearance:
+    return InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0))
 
 
 def _ortho_with_controls(**config_kwargs):
@@ -48,6 +56,7 @@ def _ortho_with_controls(**config_kwargs):
         controls=InMemoryImageControlsConfig(
             appearance=config_kwargs.pop("appearance", ["clim"]), **config_kwargs
         ),
+        single=_single(),
     )
     return ortho, visuals
 
@@ -72,8 +81,9 @@ def test_add_image_multiscale_records_the_config_and_the_group(multiscale_image_
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
     visuals = ortho.add_image_multiscale(
         multiscale_image_store,
-        appearance=MultiscaleImageAppearance(color_map="viridis"),
+        appearance=MultiscaleImageAppearance(),
         controls=MultiscaleImageControlsConfig(appearance=["lod_bias"]),
+        single=MultiscaleImageSingleAppearance(color_map="viridis"),
     )
 
     panel_ids = [visuals[key].id for key in _PANELS]
@@ -130,6 +140,20 @@ def test_no_targets_on_an_unconfigured_ortho():
 # ---------------------------------------------------------------------------
 
 
+def _qt_image_control(ortho):
+    from cellier.gui._image_controls import image_control_values
+    from cellier.gui.qt.visuals import QtImageControls
+
+    (target,) = appearance_targets(ortho)
+    widget = QtImageControls(
+        target.visual_ids, image_control_values(target.visual, fields=["clim"])
+    )
+    ortho.controller.connect_widget(
+        widget, subscription_specs=widget.subscription_specs()
+    )
+    return widget
+
+
 def test_qt_edit_reaches_all_four_panels(qtbot):
     """The regression test for section 4.1, driven through a real controller.
 
@@ -137,22 +161,13 @@ def test_qt_edit_reaches_all_four_panels(qtbot):
     poisons ``==`` on the appearance class for the rest of the process
     (section 6.2.2), which would break unrelated round-trip tests.
     """
-    from cellier.gui.qt.visuals import QtClimRangeSlider
-
     ortho, visuals = _ortho_with_controls()
-    (target,) = appearance_targets(ortho)
+    widget = _qt_image_control(ortho)
 
-    widget = QtClimRangeSlider(
-        target.visual_ids, clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0)
-    )
-    ortho.controller.connect_widget(
-        widget, subscription_specs=widget.subscription_specs()
-    )
-
-    widget._slider.setValue((0.25, 0.75))
+    widget._controls[("single", None, "clim")].setValue((0.25, 0.75))
 
     for key in _PANELS:
-        assert visuals[key].appearance.clim == pytest.approx((0.25, 0.75))
+        assert visuals[key].single.clim == pytest.approx((0.25, 0.75))
 
 
 def test_aabb_edit_reaches_all_four_panels(qtbot):
@@ -179,54 +194,73 @@ def test_a_foreign_write_to_one_panel_reaches_the_widget(qtbot):
     """Subscribe-to-all, not subscribe-to-first (section 8.1 part 2).
 
     A sibling written by something other than the widget -- here panel 2,
-    never the representative -- must still update the control.  Subscribing
-    only to the first id would make "panel 0 represents the group" a
-    load-bearing invariant with no way to self-heal.
+    never the representative -- must still update the control.
     """
-    from cellier.gui.qt.visuals import QtClimRangeSlider
-
     ortho, visuals = _ortho_with_controls()
-    (target,) = appearance_targets(ortho)
+    widget = _qt_image_control(ortho)
 
-    widget = QtClimRangeSlider(
-        target.visual_ids, clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0)
-    )
-    ortho.controller.connect_widget(
-        widget, subscription_specs=widget.subscription_specs()
+    ortho.controller.update_single_appearance_field(
+        visuals["yz"].id, "clim", (0.1, 0.6)
     )
 
-    ortho.controller.update_appearance_field(visuals["yz"].id, "clim", (0.1, 0.6))
-
-    assert tuple(widget._slider.value()) == pytest.approx((0.1, 0.6))
+    value = widget._controls[("single", None, "clim")].value()
+    assert tuple(value) == pytest.approx((0.1, 0.6))
 
 
 def test_the_widgets_own_echoes_are_all_dropped(qtbot):
-    """A group edit produces N echoes, not one; every one must be filtered.
-
-    Section 8.6 flags this as the subtle part of the fan-out.  If an echo got
-    through, the widget would re-apply its own value -- harmless here because
-    the applies are idempotent, but it would mean the filter is not doing its
-    job and a lossy control type would oscillate.
-    """
-    from cellier.gui.qt.visuals import QtClimRangeSlider
-
+    """A group edit produces N echoes, not one; every one must be filtered."""
     ortho, _visuals = _ortho_with_controls()
-    (target,) = appearance_targets(ortho)
-
-    widget = QtClimRangeSlider(
-        target.visual_ids, clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0)
-    )
-    ortho.controller.connect_widget(
-        widget, subscription_specs=widget.subscription_specs()
-    )
+    widget = _qt_image_control(ortho)
 
     applied: list = []
-    original = widget._set_value
-    widget._set_value = lambda value: (applied.append(value), original(value))
+    original = widget._appliers[("single", None, "clim")]
+    widget._appliers[("single", None, "clim")] = lambda value: (
+        applied.append(value),
+        original(value),
+    )
 
-    widget._slider.setValue((0.25, 0.75))
+    widget._controls[("single", None, "clim")].setValue((0.25, 0.75))
 
     assert applied == []
+
+
+def test_ortho_composite_and_channel_edits_mirror_to_all_four_panels():
+    """Mode and settings are mirrored through the group methods (D3)."""
+    from cellier.visuals import InMemoryImageChannelAppearance
+
+    ortho = OrthoViewer([("c", "channel"), *spatial_axes("z", "y", "x")])
+    data = np.random.default_rng(0).random((2, 8, 16, 16)).astype(np.float32)
+    visuals = ortho.add_image(
+        ImageMemoryStore(data=data),
+        channel_axis=0,
+        channels={
+            0: InMemoryImageChannelAppearance(color_map="green"),
+            1: InMemoryImageChannelAppearance(color_map="magenta"),
+        },
+    )
+
+    ortho.set_image_composite(visuals["xz"], True)
+    assert all(v.composite for v in visuals.values())
+
+    ortho.update_image_single_field(visuals["yz"].id, "clim", (0.2, 0.4))
+    assert all(v.single.clim == (0.2, 0.4) for v in visuals.values())
+
+    ortho.update_image_channel_field(visuals, 1, "opacity", 0.5)
+    assert all(v.channels[1].opacity == 0.5 for v in visuals.values())
+
+    ortho.set_image_composite(visuals, False)
+    assert not any(v.composite for v in visuals.values())
+
+
+def test_ortho_cannot_composite_a_spatial_axis():
+    """Some panel always displays a spatial axis (design 3.4)."""
+    ortho = OrthoViewer(spatial_axes("z", "y", "x"))
+    data = np.zeros((8, 16, 16), dtype=np.float32)
+    visuals = ortho.add_image(ImageMemoryStore(data=data), channel_axis=0)
+
+    with pytest.raises(ValueError, match="displayed"):
+        ortho.set_image_composite(visuals, True)
+    assert not any(v.composite for v in visuals.values())
 
 
 # ---------------------------------------------------------------------------
@@ -243,11 +277,7 @@ def test_appearance_dock_renders_on_an_ortho_viewer_qt(qtbot):
     container = render_dock(AppearanceControls(), ortho, QtLayoutHost(), [])
 
     assert container is not None
-    assert control_labels(container) == [
-        "Colormap",
-        "Contrast limits",
-        "Bounding box",
-    ]
+    assert control_labels(container) == ["Image", "Bounding box"]
     assert_panel_renders(container)
 
 
@@ -266,7 +296,7 @@ def test_the_rendered_ortho_dock_drives_every_panel(qtbot):
     slider.setValue((0.3, 0.7))
 
     for key in _PANELS:
-        assert visuals[key].appearance.clim == pytest.approx((0.3, 0.7))
+        assert visuals[key].single.clim == pytest.approx((0.3, 0.7))
 
 
 def test_appearance_dock_renders_on_an_ortho_viewer_anywidget():
@@ -278,6 +308,7 @@ def test_appearance_dock_renders_on_an_ortho_viewer_anywidget():
         _store(),
         appearance=_appearance(),
         controls=InMemoryImageControlsConfig(appearance=["clim"]),
+        single=_single(),
     )
     (target,) = appearance_targets(ortho)
 
@@ -289,7 +320,7 @@ def test_appearance_dock_renders_on_an_ortho_viewer_anywidget():
         backend=ANYWIDGET_BACKEND,
     )
 
-    assert control_labels_anywidget(built) == ["Contrast limits", "Bounding box"]
+    assert control_labels_anywidget(built) == ["Image", "Bounding box"]
     for widget in built:
         assert widget.visual_ids == tuple(visuals[key].id for key in _PANELS)
 
@@ -309,10 +340,10 @@ def test_update_appearance_group_field_writes_every_visual():
     received: list = []
     ortho.controller._outgoing_events.subscribe(AppearanceChangedEvent, received.append)
 
-    ortho.controller.update_appearance_group_field(panel_ids, "clim", (0.2, 0.9))
+    ortho.controller.update_appearance_group_field(panel_ids, "interpolation", "linear")
 
     for key in _PANELS:
-        assert visuals[key].appearance.clim == pytest.approx((0.2, 0.9))
+        assert visuals[key].appearance.interpolation == "linear"
     assert len(received) == len(panel_ids)
 
 
@@ -347,7 +378,7 @@ def test_the_group_helpers_stamp_the_given_source_id():
     ortho.controller._outgoing_events.subscribe(AppearanceChangedEvent, received.append)
 
     ortho.controller.update_appearance_group_field(
-        panel_ids, "clim", (0.4, 0.6), source_id=source_id
+        panel_ids, "interpolation", "linear", source_id=source_id
     )
 
     assert {event.source_id for event in received} == {source_id}

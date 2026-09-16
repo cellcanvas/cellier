@@ -30,7 +30,6 @@ class AxisAlignedSelectionState(NamedTuple):
     """
 
     displayed_axes: tuple[int, ...]
-    stacked_axes: tuple[int, ...] = ()
     thickness: Mapping[int, float] = NO_THICKNESS
 
 

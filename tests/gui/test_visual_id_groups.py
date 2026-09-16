@@ -33,48 +33,40 @@ def _ids(n: int = 4) -> list:
 # ---------------------------------------------------------------------------
 
 
+def _image_values():
+    from cellier.gui._image_controls import image_control_values
+    from cellier.visuals import ImageVisual
+
+    return image_control_values(
+        ImageVisual(name="image", data_store_id="store"), fields=["clim"]
+    )
+
+
 def _qt_widgets(visual_id):
     """One instance of every Qt widget stage 2 widened, with its edit driver.
 
     Returns ``(name, widget, edit, expected_field)`` where ``edit()`` performs
     a single user-level change.
     """
-    from cmap import Colormap
+    from cellier.gui.qt.visuals import QtAABBWidget, QtImageControls, QtLodBiasSlider
 
-    from cellier.gui.qt.visuals import (
-        QtAABBWidget,
-        QtClimRangeSlider,
-        QtColormapCombo,
-        QtLodBiasSlider,
-        QtVolumeRenderControls,
-    )
-
-    colormap = QtColormapCombo(visual_id, initial_colormap="grays")
-    clim = QtClimRangeSlider(visual_id, clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0))
+    image = QtImageControls(visual_id, _image_values())
     lod = QtLodBiasSlider(visual_id, initial_lod_bias=1.0)
-    render = QtVolumeRenderControls(
-        visual_id,
-        dtype_max=1.0,
-        initial_render_mode="iso",
-        initial_threshold=0.2,
-    )
     aabb = QtAABBWidget(visual_id)
 
     return [
         (
-            "colormap",
-            colormap,
-            lambda: colormap._on_combo_changed(Colormap("viridis")),
-            "color_map",
+            "image",
+            image,
+            lambda: image._controls[("single", None, "clim")].setValue((0.2, 0.8)),
+            "clim",
         ),
-        ("clim", clim, lambda: clim._slider.setValue((0.2, 0.8)), "clim"),
         (
             "lod_bias",
             lod,
             lambda: (lod._slider.setValue(2.5), lod._on_slider_released()),
             "lod_bias",
         ),
-        ("render", render, lambda: render._on_combo_changed("mip"), "render_mode"),
         ("aabb", aabb, lambda: aabb._enabled_check.setChecked(True), "enabled"),
     ]
 
@@ -102,7 +94,12 @@ def test_qt_widgets_subscribe_to_every_visual(qtbot, n_ids):
     visual_ids = _ids(n_ids)
 
     for name, widget, _edit, _field in _qt_widgets(visual_ids):
-        specs = widget.subscription_specs()
+        # One subscription per visual for each event type the widget hears.
+        specs = [
+            s
+            for s in widget.subscription_specs()
+            if s.event_type is widget.subscription_specs()[0].event_type
+        ]
         assert len(specs) == n_ids, name
         assert [s.entity_id for s in specs] == visual_ids, name
         # Subscribe-to-all, not subscribe-to-first: a sibling written by
@@ -112,10 +109,10 @@ def test_qt_widgets_subscribe_to_every_visual(qtbot, n_ids):
 
 def test_qt_a_single_uuid_still_works_unchanged(qtbot):
     """The compatible signature: one id in, one event out, one subscription."""
-    from cellier.gui.qt.visuals import QtColormapCombo
+    from cellier.gui.qt.visuals import QtLodBiasSlider
 
     visual_id = uuid4()
-    widget = QtColormapCombo(visual_id, initial_colormap="grays")
+    widget = QtLodBiasSlider(visual_id, initial_lod_bias=1.0)
 
     assert widget.visual_ids == (visual_id,)
     assert widget._visual_id == visual_id
@@ -148,31 +145,25 @@ def test_qt_aabb_emits_per_visual_for_every_field(qtbot):
 def _anywidget_widgets(visual_id):
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
-        AnywidgetClimRangeSlider,
-        AnywidgetColormapCombo,
+        AnywidgetImageControls,
         AnywidgetLodBiasSlider,
-        AnywidgetVolumeRenderControls,
     )
 
-    colormap = AnywidgetColormapCombo(visual_id, initial_colormap="grays")
-    clim = AnywidgetClimRangeSlider(
-        visual_id, clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0)
-    )
+    image = AnywidgetImageControls(visual_id, _image_values())
     lod = AnywidgetLodBiasSlider(visual_id, initial_lod_bias=1.0)
-    render = AnywidgetVolumeRenderControls(visual_id)
     aabb = AnywidgetAABBWidget(visual_id)
 
     def _set(widget, name, value):
         return lambda: setattr(widget, name, value)
 
     return [
-        ("colormap", colormap, _set(colormap, "color_map", "viridis"), "color_map"),
-        ("clim", clim, _set(clim, "clim", [0.2, 0.8]), "clim"),
+        (
+            "image",
+            image,
+            _set(image, "single", {**image.single, "clim": [0.2, 0.8]}),
+            "clim",
+        ),
         ("lod_bias", lod, _set(lod, "lod_bias", 2.5), "lod_bias"),
-        # Not "mip": that is the trait's initial value, and a no-op write
-        # fires no change and would read as a pass (the section 6.4.1 harness
-        # lesson, which applies to trait-driven tests too).
-        ("render", render, _set(render, "render_mode", "iso"), "render_mode"),
         ("aabb", aabb, _set(aabb, "enabled", True), "enabled"),
     ]
 
@@ -198,7 +189,11 @@ def test_anywidget_widgets_subscribe_to_every_visual(n_ids):
     visual_ids = _ids(n_ids)
 
     for name, widget, _edit, _field in _anywidget_widgets(visual_ids):
-        specs = widget.subscription_specs()
+        specs = [
+            s
+            for s in widget.subscription_specs()
+            if s.event_type is widget.subscription_specs()[0].event_type
+        ]
         assert len(specs) == n_ids, name
         assert [s.entity_id for s in specs] == visual_ids, name
 
@@ -231,19 +226,17 @@ def test_the_event_type_is_unchanged_by_the_group_form():
     """Fanning out changes how many events, never which kind."""
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
-        AnywidgetClimRangeSlider,
+        AnywidgetLodBiasSlider,
     )
 
-    clim = AnywidgetClimRangeSlider(
-        _ids(3), clim_range=(0.0, 1.0), initial_clim=(0.0, 1.0)
-    )
+    clim = AnywidgetLodBiasSlider(_ids(3), initial_lod_bias=1.0)
     aabb = AnywidgetAABBWidget(_ids(3))
     clim_events: list = []
     aabb_events: list = []
     clim.changed.connect(clim_events.append)
     aabb.changed.connect(aabb_events.append)
 
-    clim.clim = [0.1, 0.9]
+    clim.lod_bias = 2.0
     aabb.enabled = True
 
     assert all(isinstance(e, AppearanceUpdateEvent) for e in clim_events)

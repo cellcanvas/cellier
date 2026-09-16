@@ -23,6 +23,7 @@ from cellier.events import (
 )
 from cellier.gui.qt.visuals import QtToggle, QtVisibleToggle
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
@@ -62,7 +63,8 @@ def _two_image_viewer():
     visuals = [
         viewer.add_image(
             ImageMemoryStore(data=np.zeros((8, 16, 24), dtype=np.float32)),
-            appearance=InMemoryImageAppearance(color_map="grays", clim=(0.0, 1.0)),
+            appearance=InMemoryImageAppearance(),
+            single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
         )
         for _ in range(2)
     ]

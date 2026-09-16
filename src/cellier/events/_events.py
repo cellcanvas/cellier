@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 #: The empty slice-position mapping, shared because it is immutable.
 NO_SLICE_POSITIONS: Mapping[int, float] = MappingProxyType({})
@@ -28,6 +28,11 @@ class DimsChangedEvent(NamedTuple):
     never reads a raw position (D5, landed in Phase 8); the dims *editor*
     widgets do need the positions, to resync their sliders when something
     else moves them, and this is the channel they arrive on.
+
+    ``region_changed`` is ``False`` when the change moved only positions or
+    thicknesses of **displayed** axes.  Every axis keeps a position while
+    displayed (D36), but a displayed axis is not sliced, so what the scene
+    shows is unchanged and nothing needs reslicing.
     """
 
     source_id: UUID
@@ -35,6 +40,20 @@ class DimsChangedEvent(NamedTuple):
     dims_state: DimsState
     displayed_axes_changed: bool
     slice_indices: Mapping[int, float] = NO_SLICE_POSITIONS
+    region_changed: bool = True
+
+
+class SliderAxesChangedEvent(NamedTuple):
+    """The set of world axes that get a slider changed on a scene.
+
+    ``Scene.slider_axes`` is a derived property with no signal of its own;
+    the controller recomputes it after every model change that can move it
+    and emits this only when the value differs (design 3.5).
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    slider_axes: tuple[int, ...]
 
 
 class CameraChangedEvent(NamedTuple):
@@ -76,6 +95,27 @@ class ChannelAppearanceChangedEvent(NamedTuple):
     channel_index: int
     field_name: str
     new_value: Any
+
+
+class SingleAppearanceChangedEvent(NamedTuple):
+    """A field on an image visual's single-mode appearance changed.
+
+    ``field_name`` is ``None`` when the whole ``single`` model was replaced;
+    ``new_value`` is then the new model, and a consumer re-reads every field.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    field_name: str | None
+    new_value: Any
+
+
+class ImageCompositeChangedEvent(NamedTuple):
+    """An image visual switched between single and composite mode."""
+
+    source_id: UUID
+    visual_id: UUID
+    composite: bool
 
 
 class PickWriteChangedEvent(NamedTuple):
@@ -424,9 +464,20 @@ class ImagePickInfo(NamedTuple):
         agreeing with the screen while a reslice is in flight.  A visual with
         nothing planned yet falls back to the dims state, rounded the way the
         selection assembler rounds it.
+
+        The channel component names the channel the value was read from: the
+        drawn plane in single mode, and the pick-buffer winner in composite
+        mode.
+    channel_values : dict[int, float]
+        Index along ``channel_axis`` -> the value at the picked voxel.  A
+        visual with ``channel_axis=None`` reports ``{0: value}``.  Single mode
+        reports its drawn channel.  Composite mode reports every drawn
+        (visible) channel on a 2D canvas and only the pick-buffer winner on a
+        3D canvas.  Empty when the voxel lies outside the data.
     """
 
     data_coordinate: tuple[float, ...]
+    channel_values: dict[int, float]
 
 
 class MeshPickInfo(NamedTuple):
@@ -444,9 +495,13 @@ class LabelsPickInfo(NamedTuple):
         Same convention as ``ImagePickInfo.data_coordinate``.  ``floor`` of
         every component indexes the label array to recover the label id under
         the cursor.
+    value : int
+        The label id at ``floor(data_coordinate)``; in 3D, the label at the
+        hit voxel.  ``0`` when the voxel lies outside the data.
     """
 
     data_coordinate: tuple[float, ...]
+    value: int
 
 
 class GraphNodePickInfo(NamedTuple):
@@ -502,22 +557,18 @@ VisualPickDetails = (
 class CanvasPickInfo(NamedTuple):
     """Model-layer pick result attached to canvas mouse events.
 
-    No ``gfx.*`` types appear here.  The render layer translates the
-    hit world object to a model-layer UUID and the pygfx pick payload to a
-    typed ``VisualPickDetails`` before emission.
+    Mouse events report *that* something was hit; the typed pick events
+    (``ImagePickEvent`` and friends, subscribed with
+    ``CellierController.on_pick``) report *what* was hit.
 
     Attributes
     ----------
     hit_visual_id : UUID or None
         Model-layer ID of the visual whose active scene-graph node was
         hit, or None if the pointer landed on the background.
-    details : VisualPickDetails or None
-        Element-level identity within the hit visual, typed per visual kind.
-        None on a background miss.
     """
 
     hit_visual_id: UUID | None
-    details: VisualPickDetails | None = None
 
 
 class ViewRay(NamedTuple):
@@ -615,6 +666,323 @@ class CanvasMouseRelease3DEvent(NamedTuple):
     gesture_id: UUID | None = None
 
 
+class ImagePickEvent(NamedTuple):
+    """An image visual was hit on a canvas (design 3.7).
+
+    Emitted only for a hit, after the mouse event for the same pointer event:
+    at once for an in-memory image, and when the level-0 value read completes
+    for a multiscale image.  A newer pointer event on the canvas cancels an
+    in-flight ``move`` read; ``press`` and ``release`` reads always complete,
+    so match events by ``gesture_id`` and ``action``, not arrival order.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.
+    scene_id : UUID
+        The canvas's scene.
+    visual_id : UUID
+        The picked visual.
+    action : str
+        ``"press"``, ``"move"`` or ``"release"``.
+    camera_type : str
+        ``"2d"`` or ``"3d"``.
+    world_coordinate : np.ndarray or None
+        The pointer's world position on a 2D canvas, as on the mouse event.
+    ray : ViewRay or None
+        The view ray on a 3D canvas, as on the mouse event.
+    button : int
+        As on the mouse event.
+    buttons : tuple
+        As on the mouse event.
+    modifiers : tuple
+        As on the mouse event.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    pick_info : ImagePickInfo
+        What was hit.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    action: Literal["press", "move", "release"]
+    camera_type: Literal["2d", "3d"]
+    world_coordinate: np.ndarray | None
+    ray: ViewRay | None
+    button: int
+    buttons: tuple
+    modifiers: tuple
+    gesture_id: UUID | None
+    pick_info: ImagePickInfo
+
+
+class LabelsPickEvent(NamedTuple):
+    """A labels visual was hit on a canvas (design 3.7).
+
+    Timing as for ``ImagePickEvent``: synchronous for in-memory labels,
+    asynchronous for multiscale labels.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.
+    scene_id : UUID
+        The canvas's scene.
+    visual_id : UUID
+        The picked visual.
+    action : str
+        ``"press"``, ``"move"`` or ``"release"``.
+    camera_type : str
+        ``"2d"`` or ``"3d"``.
+    world_coordinate : np.ndarray or None
+        The pointer's world position on a 2D canvas, as on the mouse event.
+    ray : ViewRay or None
+        The view ray on a 3D canvas, as on the mouse event.
+    button : int
+        As on the mouse event.
+    buttons : tuple
+        As on the mouse event.
+    modifiers : tuple
+        As on the mouse event.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    pick_info : LabelsPickInfo
+        What was hit.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    action: Literal["press", "move", "release"]
+    camera_type: Literal["2d", "3d"]
+    world_coordinate: np.ndarray | None
+    ray: ViewRay | None
+    button: int
+    buttons: tuple
+    modifiers: tuple
+    gesture_id: UUID | None
+    pick_info: LabelsPickInfo
+
+
+class PointsPickEvent(NamedTuple):
+    """A points visual was hit on a canvas (design 3.7).
+
+    Emitted synchronously,
+    right after the mouse event for the same pointer event, and only for a hit.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.
+    scene_id : UUID
+        The canvas's scene.
+    visual_id : UUID
+        The picked visual.
+    action : str
+        ``"press"``, ``"move"`` or ``"release"``.
+    camera_type : str
+        ``"2d"`` or ``"3d"``.
+    world_coordinate : np.ndarray or None
+        The pointer's world position on a 2D canvas, as on the mouse event.
+    ray : ViewRay or None
+        The view ray on a 3D canvas, as on the mouse event.
+    button : int
+        As on the mouse event.
+    buttons : tuple
+        As on the mouse event.
+    modifiers : tuple
+        As on the mouse event.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    pick_info : PointsPickInfo
+        What was hit.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    action: Literal["press", "move", "release"]
+    camera_type: Literal["2d", "3d"]
+    world_coordinate: np.ndarray | None
+    ray: ViewRay | None
+    button: int
+    buttons: tuple
+    modifiers: tuple
+    gesture_id: UUID | None
+    pick_info: PointsPickInfo
+
+
+class LinesPickEvent(NamedTuple):
+    """A lines visual was hit on a canvas (design 3.7).
+
+    Emitted synchronously,
+    right after the mouse event for the same pointer event, and only for a hit.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.
+    scene_id : UUID
+        The canvas's scene.
+    visual_id : UUID
+        The picked visual.
+    action : str
+        ``"press"``, ``"move"`` or ``"release"``.
+    camera_type : str
+        ``"2d"`` or ``"3d"``.
+    world_coordinate : np.ndarray or None
+        The pointer's world position on a 2D canvas, as on the mouse event.
+    ray : ViewRay or None
+        The view ray on a 3D canvas, as on the mouse event.
+    button : int
+        As on the mouse event.
+    buttons : tuple
+        As on the mouse event.
+    modifiers : tuple
+        As on the mouse event.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    pick_info : LinesPickInfo
+        What was hit.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    action: Literal["press", "move", "release"]
+    camera_type: Literal["2d", "3d"]
+    world_coordinate: np.ndarray | None
+    ray: ViewRay | None
+    button: int
+    buttons: tuple
+    modifiers: tuple
+    gesture_id: UUID | None
+    pick_info: LinesPickInfo
+
+
+class MeshPickEvent(NamedTuple):
+    """A mesh visual was hit on a canvas (design 3.7).
+
+    Emitted synchronously,
+    right after the mouse event for the same pointer event, and only for a hit.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.
+    scene_id : UUID
+        The canvas's scene.
+    visual_id : UUID
+        The picked visual.
+    action : str
+        ``"press"``, ``"move"`` or ``"release"``.
+    camera_type : str
+        ``"2d"`` or ``"3d"``.
+    world_coordinate : np.ndarray or None
+        The pointer's world position on a 2D canvas, as on the mouse event.
+    ray : ViewRay or None
+        The view ray on a 3D canvas, as on the mouse event.
+    button : int
+        As on the mouse event.
+    buttons : tuple
+        As on the mouse event.
+    modifiers : tuple
+        As on the mouse event.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    pick_info : MeshPickInfo
+        What was hit.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    action: Literal["press", "move", "release"]
+    camera_type: Literal["2d", "3d"]
+    world_coordinate: np.ndarray | None
+    ray: ViewRay | None
+    button: int
+    buttons: tuple
+    modifiers: tuple
+    gesture_id: UUID | None
+    pick_info: MeshPickInfo
+
+
+class GraphPickEvent(NamedTuple):
+    """A graph visual was hit on a canvas (design 3.7).
+
+    Emitted synchronously,
+    right after the mouse event for the same pointer event, and only for a hit.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.
+    scene_id : UUID
+        The canvas's scene.
+    visual_id : UUID
+        The picked visual.
+    action : str
+        ``"press"``, ``"move"`` or ``"release"``.
+    camera_type : str
+        ``"2d"`` or ``"3d"``.
+    world_coordinate : np.ndarray or None
+        The pointer's world position on a 2D canvas, as on the mouse event.
+    ray : ViewRay or None
+        The view ray on a 3D canvas, as on the mouse event.
+    button : int
+        As on the mouse event.
+    buttons : tuple
+        As on the mouse event.
+    modifiers : tuple
+        As on the mouse event.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    pick_info : GraphNodePickInfo or GraphEdgePickInfo
+        What was hit.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    action: Literal["press", "move", "release"]
+    camera_type: Literal["2d", "3d"]
+    world_coordinate: np.ndarray | None
+    ray: ViewRay | None
+    button: int
+    buttons: tuple
+    modifiers: tuple
+    gesture_id: UUID | None
+    pick_info: GraphNodePickInfo | GraphEdgePickInfo
+
+
+#: Every typed pick event, for ``CellierController.on_pick``.
+PICK_EVENT_TYPES: tuple[type, ...] = (
+    ImagePickEvent,
+    LabelsPickEvent,
+    PointsPickEvent,
+    LinesPickEvent,
+    MeshPickEvent,
+    GraphPickEvent,
+)
+
+PickEvent = (
+    ImagePickEvent
+    | LabelsPickEvent
+    | PointsPickEvent
+    | LinesPickEvent
+    | MeshPickEvent
+    | GraphPickEvent
+)
+
+
 class _CanvasRawPointerEvent(NamedTuple):
     """Internal event emitted by RenderManager after render-layer translation.
 
@@ -680,10 +1048,13 @@ class _CanvasRawPointerEvent(NamedTuple):
 
 CellierEventTypes = (
     DimsChangedEvent
+    | SliderAxesChangedEvent
     | CameraChangedEvent
     | CanvasSizeChangedEvent
     | AppearanceChangedEvent
     | ChannelAppearanceChangedEvent
+    | SingleAppearanceChangedEvent
+    | ImageCompositeChangedEvent
     | PickWriteChangedEvent
     | AABBChangedEvent
     | VisualVisibilityChangedEvent

@@ -58,7 +58,7 @@ class QtAppearanceField:
     ``visual_id`` accepts a single ``UUID`` or a sequence of them.  With a
     sequence the widget drives the whole group in lock-step: it returns one
     subscription per id and emits one update event per id, which is the
-    pattern ``QtChannelList`` established for the ``OrthoViewer``'s four
+    pattern the per-channel list established for the ``OrthoViewer``'s four
     sibling visuals.
 
     Wire to the controller after construction::

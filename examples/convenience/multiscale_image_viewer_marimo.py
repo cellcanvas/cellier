@@ -65,13 +65,17 @@ def _():
         build_canvas_widget,
     )
     from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
-    from cellier.visuals import MultiscaleImageAppearance
+    from cellier.visuals import (
+        MultiscaleImageAppearance,
+        MultiscaleImageSingleAppearance,
+    )
 
     return (
         AppearanceControls,
         Layout,
         MultiscaleImageAppearance,
         MultiscaleImageControlsConfig,
+        MultiscaleImageSingleAppearance,
         MultiscaleZarrDataStore,
         Path,
         Viewer,
@@ -159,6 +163,7 @@ def _(Path, block_average, concentric_shells, tempfile, write_zarr3):
 def _(
     MultiscaleImageAppearance,
     MultiscaleImageControlsConfig,
+    MultiscaleImageSingleAppearance,
     MultiscaleZarrDataStore,
     Viewer,
     tmpdir,
@@ -177,12 +182,14 @@ def _(
     viewer.add_image_multiscale(
         store,
         appearance=MultiscaleImageAppearance(
+            lod_bias=1.0,
+            attenuation=1.0,
+        ),
+        single=MultiscaleImageSingleAppearance(
             color_map="viridis",
             clim=(0.0, 1.0),
             render_mode="iso",
             iso_threshold=0.45,
-            lod_bias=1.0,
-            attenuation=1.0,
         ),
         controls=MultiscaleImageControlsConfig(
             appearance=[

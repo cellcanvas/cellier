@@ -15,7 +15,7 @@ Two things distinguish these panels from the appearance widgets in
   meaningful as a group -- a radius means nothing without the strength and
   the sample count beside it -- so each panel is a single composite
   ``WidgetView`` with one ``changed`` / ``closed`` pair, structurally like
-  ``QtChannelList`` rather than like ``QtLodBiasSlider``.
+  the former per-channel list rather than like ``QtLodBiasSlider``.
 """
 
 from __future__ import annotations

@@ -15,11 +15,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from cellier._rounding import round_half_up_clamped
+from cellier.transform import ConvexRegion, RegionSelection
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Collection, Mapping
 
-    from cellier.transform import AxisAlignedBoundingBox
+    from cellier.render._spaces import RenderSpaces
+    from cellier.transform import AxisAlignedBoundingBox, BaseTransform
 
 
 def round_world_to_voxel(raw: float, size: int) -> int:
@@ -142,3 +144,194 @@ def axis_selections_from_box(
             stop = min(int(size), int(np.floor(high + 0.5)) + 1)
             result.append((start, max(start, stop)))
     return tuple(result)
+
+
+def select_plane_within_slab(
+    position: float,
+    half_thickness: float,
+    size: int,
+    index_to_world: Callable[[np.ndarray], np.ndarray],
+    world_to_index: Callable[[np.ndarray], np.ndarray],
+) -> int | None:
+    """Choose the one sample an image draws on a sliced axis (design 3.2).
+
+    Sample ``i`` spans ``[i - 0.5, i + 0.5)`` in data units.  It is a
+    candidate when that extent, mapped to world, overlaps the band
+    ``[position - half_thickness, position + half_thickness]``.  Among the
+    candidates the one whose centre maps closest to ``position`` wins.  A tie
+    goes to the higher data index, whatever the sign of the world scale, which
+    is how :func:`round_world_to_voxel` breaks it (D40).  No candidate means
+    the image draws nothing.
+
+    Overlap and distance are measured in world units, so an axis whose samples
+    are unevenly spaced in world picks the nearest *world* position, not the
+    nearest index.
+
+    The nearest sample to ``position`` is found by pulling the position (held
+    inside the data's world extent) back to a data index and rounding it half
+    up.  Every candidate lies on the same side of that sample as the band, so
+    if the nearest sample does not overlap the band, nothing does.  Its two
+    neighbours are checked too, so that a rounding error of one unit in the last
+    place at a tie cannot turn a hit into a miss.
+
+    Parameters
+    ----------
+    position : float
+        The slice position, in world units.
+    half_thickness : float
+        Half the band's width, in world units.  ``0`` is a plane.
+    size : int
+        The number of samples on the data axis.
+    index_to_world : Callable[[np.ndarray], np.ndarray]
+        Maps a 1-D array of (possibly fractional) data indices to world
+        positions on this axis.  Must be monotonic over
+        ``[-0.5, size - 0.5]``.
+    world_to_index : Callable[[np.ndarray], np.ndarray]
+        The inverse of ``index_to_world`` over that range.
+
+    Returns
+    -------
+    int or None
+        The chosen data index, or ``None`` when no sample overlaps the band.
+    """
+    if size <= 0:
+        return None
+    band_low = position - half_thickness
+    band_high = position + half_thickness
+
+    edges = np.asarray(index_to_world(np.array([-0.5, size - 0.5])), dtype=float)
+    increasing = bool(edges[1] >= edges[0])
+    held = min(max(position, float(edges.min())), float(edges.max()))
+    raw = float(np.asarray(world_to_index(np.array([held])), dtype=float)[0])
+    if not np.isfinite(raw):
+        return None
+    nearest = round_half_up_clamped(raw, size)
+
+    # Descending index order, so a strict ``<`` below keeps the higher index
+    # on a tie.
+    candidates = np.array(
+        [i for i in (nearest + 1, nearest, nearest - 1) if 0 <= i < size],
+        dtype=float,
+    )
+    lower = np.asarray(index_to_world(candidates - 0.5), dtype=float)
+    upper = np.asarray(index_to_world(candidates + 0.5), dtype=float)
+    centres = np.asarray(index_to_world(candidates), dtype=float)
+
+    chosen: int | None = None
+    best_distance = np.inf
+    for index, low_edge, high_edge, centre in zip(
+        candidates, lower, upper, centres, strict=True
+    ):
+        # ``[i - 0.5, i + 0.5)`` is half open in data units.  A negative world
+        # scale flips it, so the open end lands on the lower world edge.
+        if increasing:
+            overlaps = band_low < high_edge and band_high >= low_edge
+        else:
+            overlaps = band_low <= low_edge and band_high > high_edge
+        if not overlaps:
+            continue
+        distance = abs(float(centre) - position)
+        if distance < best_distance:
+            chosen = int(index)
+            best_distance = distance
+    return chosen
+
+
+def image_plane_selection(
+    selection: RegionSelection,
+    transform: BaseTransform,
+    spaces: RenderSpaces,
+    shape: tuple[int, ...],
+    exempt_data_axes: Collection[int] = (),
+) -> RegionSelection | None:
+    """Apply the image slicing rule to a selection (design 3.2).
+
+    Image visuals draw one plane per sliced axis and draw nothing when the
+    slice misses the data; labels keep the clamping assembler.  For every world
+    axis the region bounds and this visual's data maps to, the band's sample is
+    chosen with :func:`select_plane_within_slab`.  If any axis has no sample,
+    the visual draws nothing and ``None`` is returned.
+
+    Otherwise the returned selection replaces each of those slabs with a plane
+    at the slice position.  :func:`axis_selections_from_box` then rounds that
+    position to exactly the sample chosen here -- the nearest sample is the one
+    that contains the position, or the end sample when the position lies
+    past the data but within the band -- and a multiscale visual's coarser
+    levels keep their own rounding of the same position.
+
+    Parameters
+    ----------
+    selection : RegionSelection
+        The canvas's selection, in world coordinates.
+    transform : BaseTransform
+        The visual's level-0 ``data -> world`` transform.  Must be block
+        diagonal: each sliced world axis is fed by one data axis alone.
+    spaces : RenderSpaces
+        Supplies the world system and the data -> world axis correspondence.
+    shape : tuple[int, ...]
+        The level-0 data shape.
+    exempt_data_axes : Collection[int]
+        Data axes the rule skips, whose slabs pass through unchanged.  The
+        multichannel visuals exempt their channel axis, which each request
+        overwrites.
+
+    Returns
+    -------
+    RegionSelection or None
+        The selection to plan from, or ``None`` when the visual draws nothing.
+    """
+    world = spaces.world
+    box = selection.region.bounding_box()
+    world_to_data = {int(w): int(d) for d, w in spaces.data_to_world_axes.items()}
+    data_ndim = len(shape)
+    base_world = np.asarray(
+        transform.map_coordinates(np.zeros((1, data_ndim))), dtype=float
+    )
+
+    slabs: dict = {}
+    changed = False
+    for world_axis in range(world.ndim):
+        low = float(box.min_coordinate[world_axis])
+        high = float(box.max_coordinate[world_axis])
+        low_unbounded, high_unbounded = np.isneginf(low), np.isposinf(high)
+        if low_unbounded and high_unbounded:
+            continue
+        if low_unbounded or high_unbounded:
+            # A shear; the assembler rejects it with the explanation.
+            return selection
+        position = (low + high) / 2.0
+        half_thickness = (high - low) / 2.0
+        axis_id = world.axes[world_axis].id
+        data_axis = world_to_data.get(world_axis)
+        if data_axis is None or data_axis in exempt_data_axes:
+            slabs[axis_id] = (position, half_thickness)
+            continue
+
+        def index_to_world(indices, d=data_axis, w=world_axis):
+            points = np.zeros((indices.size, data_ndim))
+            points[:, d] = indices
+            return np.asarray(transform.map_coordinates(points))[:, w]
+
+        def world_to_index(values, d=data_axis, w=world_axis):
+            points = np.repeat(base_world, values.size, axis=0)
+            points[:, w] = values
+            return np.asarray(transform.imap_coordinates(points))[:, d]
+
+        index = select_plane_within_slab(
+            position,
+            half_thickness,
+            int(shape[data_axis]),
+            index_to_world,
+            world_to_index,
+        )
+        if index is None:
+            return None
+        slabs[axis_id] = (position, 0.0)
+        changed = changed or half_thickness != 0.0
+
+    if not changed:
+        return selection
+    return RegionSelection(
+        transform=selection.transform,
+        region=ConvexRegion.from_axis_slabs(world, slabs),
+    )

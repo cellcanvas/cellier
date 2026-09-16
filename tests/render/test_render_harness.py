@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
@@ -19,7 +20,8 @@ async def test_render_scene_returns_rgba_frame(
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -42,7 +44,8 @@ async def test_render_scene_reflects_gradient_orientation(
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -79,7 +82,8 @@ async def test_render_scene_background_is_transparent(
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -108,7 +112,8 @@ async def test_render_scene_draws_the_default_background_when_asked(
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -138,7 +143,8 @@ async def test_background_change_reaches_the_frame(
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
 

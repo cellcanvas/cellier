@@ -3,7 +3,7 @@
 Stage 3 of ``plans/convenience_cleanup.md`` (section 9).  Two closed
 vocabularies were unvalidated and failed the same silent way: an unknown
 ``appearance`` name matched no predicate so no control appeared, and an
-unknown ``ChannelControlsConfig.fields`` name fell through every branch of the
+unknown channel field name fell through every branch of the
 channel widget's ``if/elif`` chain.  Neither errored, and the appearance case
 was worse than nothing -- a dock still appeared, holding only the bounding
 box, so a user concluded the control was unsupported.
@@ -24,7 +24,6 @@ import pytest
 
 from cellier.convenience.gui._controls_config import (
     BaseControlsConfig,
-    ChannelControlsConfig,
     InMemoryImageControlsConfig,
     MultiscaleImageControlsConfig,
 )
@@ -194,48 +193,6 @@ def test_a_new_config_class_gets_validation_from_its_control_map_alone():
 
 
 # ---------------------------------------------------------------------------
-# Channel fields -- the second vocabulary
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("field", ["visible", "color_map", "clim", "opacity"])
-def test_channel_fields_accept_the_vocabulary(field):
-    assert ChannelControlsConfig(fields=[field]).fields == [field]
-
-
-def test_an_unknown_channel_field_is_rejected():
-    """It used to fall through the widget's if/elif chain and vanish.
-
-    The misspelling is built rather than written out: the repo's ``typos``
-    pre-commit hook rewrites recognised misspellings in place, so a literal
-    one here would be silently corrected into a *valid* name and the test
-    would stop testing anything.
-    """
-    typo = "vis" + "able"
-    with pytest.raises(ValueError, match="Did you mean 'visible'"):
-        ChannelControlsConfig(fields=[typo])
-
-
-def test_the_channel_error_says_channel_not_appearance():
-    with pytest.raises(ValueError, match="valid channel field"):
-        ChannelControlsConfig(fields=["nonsense"])
-
-
-def test_fields_none_means_the_default_list_and_is_not_validated():
-    assert ChannelControlsConfig().fields is None
-
-
-def test_a_channel_config_validates_both_of_its_vocabularies():
-    """``ChannelControlsConfig`` inherits only the universal appearance fields.
-
-    Per-channel ``color_map`` belongs in ``fields``, not ``appearance``; the
-    error says so by listing what ``appearance`` does accept.
-    """
-    with pytest.raises(ValueError, match="not a valid appearance field"):
-        ChannelControlsConfig(appearance=["color_map"])
-
-
-# ---------------------------------------------------------------------------
 # The residual: valid for the class, absent from the model
 # ---------------------------------------------------------------------------
 
@@ -249,17 +206,13 @@ def test_a_field_valid_for_the_config_but_absent_from_the_model_is_reported():
     step 4).
     """
     from cellier.convenience.layout._shared import appearance_specs
-    from cellier.visuals._base_visual import AABBParams
-    from cellier.visuals._image_memory import InMemoryImageAppearance
+    from cellier.visuals import ImageVisual
 
-    class _Visual:
-        appearance = InMemoryImageAppearance(color_map="grays")
-        aabb = AABBParams()
-        id = "v0"
+    visual = ImageVisual(name="v0", data_store_id="store")
 
     specs, skipped = appearance_specs(
-        _Visual(), MultiscaleImageControlsConfig(appearance=["clim", "lod_bias"])
+        visual, MultiscaleImageControlsConfig(appearance=["clim", "lod_bias"])
     )
 
-    assert [spec.kind for spec in specs] == ["clim", "aabb"]
+    assert [spec.kind for spec in specs] == ["image", "aabb"]
     assert skipped == ["lod_bias"]

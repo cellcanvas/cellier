@@ -87,10 +87,9 @@ def render_dock(
 ) -> object | None:
     """Render one dock spec, or ``None`` when it builds nothing.
 
-    ``AppearanceControls`` and ``ChannelControls`` always build something:
-    they follow the viewer, so they render a placeholder until a configured
-    visual exists.  Only a ``RenderControls`` with no sections, or a stack of
-    nothing but those, builds nothing.
+    ``AppearanceControls`` always builds something: it follows the viewer, so they
+    render a placeholder until a configured visual exists.  Only a ``RenderControls``
+    with no sections, or a stack of nothing but those, builds nothing.
 
     Which controls a dock contains is decided in ``_shared.py`` and is the same
     on every toolkit; *which widget class* serves each one comes from
@@ -100,7 +99,6 @@ def render_dock(
     from cellier.convenience.layout._shared import unsupported_dock_node
     from cellier.convenience.layout._spec import (
         AppearanceControls,
-        ChannelControls,
         HStack,
         RenderControls,
         VStack,
@@ -109,9 +107,7 @@ def render_dock(
     if spec is None:
         return None
     if isinstance(spec, AppearanceControls):
-        return _render_appearance_dock(viewer, host, closeables)
-    if isinstance(spec, ChannelControls):
-        return _render_channel_dock(viewer, host, closeables)
+        return _render_appearance_dock(spec, viewer, host, closeables)
     if isinstance(spec, RenderControls):
         return _render_render_dock(spec, viewer, host, closeables)
     if isinstance(spec, (HStack, VStack)):
@@ -180,12 +176,14 @@ def build_appearance_widgets(
 
 
 def _render_appearance_dock(
-    viewer: object, host: LayoutHost, closeables: list
+    spec: object, viewer: object, host: LayoutHost, closeables: list
 ) -> object:
-    """Appearance controls for one configured visual at a time.
+    """Appearance controls for the configured visuals.
 
-    A selector chooses among the configured visuals, and the dock follows the
-    viewer as visuals are added and removed (see ``_controls_dock.py``).
+    ``spec.presentation`` decides whether a selector chooses one visual at a
+    time or every visual gets a collapsible section.  Either way the dock
+    follows the viewer as visuals are added and removed (see
+    ``_controls_dock.py``).
     """
     from cellier.convenience.layout._controls_dock import (
         APPEARANCE_PLACEHOLDER,
@@ -210,46 +208,7 @@ def _render_appearance_dock(
         resolve=appearance_targets,
         build=build,
         placeholder=APPEARANCE_PLACEHOLDER,
-    )
-    closeables.append(dock)
-    return dock.root
-
-
-def _render_channel_dock(viewer: object, host: LayoutHost, closeables: list) -> object:
-    """Per-channel controls for one configured multichannel visual at a time.
-
-    Multi-scene aware: on an ``OrthoViewer`` the one widget drives every
-    panel's sibling visual through the fan-out ``visual_ids``.
-    """
-    from cellier.convenience.layout._controls_dock import (
-        CHANNEL_PLACEHOLDER,
-        ControlsDock,
-    )
-    from cellier.convenience.layout._shared import (
-        channel_targets,
-        channel_widget_kwargs,
-    )
-
-    controller = viewer.controller
-
-    def build(target) -> list:
-        channels = target.visual.channels
-        widget = host.backend.channel_list(
-            target.visual_ids,
-            channels,
-            **channel_widget_kwargs(target.config, channels),
-        )
-        controller.connect_widget(
-            widget, subscription_specs=widget.subscription_specs()
-        )
-        return [widget]
-
-    dock = ControlsDock(
-        viewer,
-        host,
-        resolve=channel_targets,
-        build=build,
-        placeholder=CHANNEL_PLACEHOLDER,
+        presentation=spec.presentation,
     )
     closeables.append(dock)
     return dock.root

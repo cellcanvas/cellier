@@ -54,7 +54,12 @@ from qtpy.QtWidgets import (
 )
 from superqt import QLabeledDoubleSlider
 
-from cellier.events import DimsChangedEvent, DimsUpdateEvent, SubscriptionSpec
+from cellier.events import (
+    DimsChangedEvent,
+    DimsUpdateEvent,
+    SliderAxesChangedEvent,
+    SubscriptionSpec,
+)
 from cellier.gui._axis_values import (
     DiscreteAxisValues,
     coerce_axis_values,
@@ -124,8 +129,8 @@ class QtDimsControl:
     Composes a ``QWidget`` container (with a ``QFormLayout``) holding one
     slider per axis, plus (when *axes_2d*/*axes_3d* are given) a
     toggle button that switches the scene between its 2D and 3D axis sets.
-    Sliders for displayed axes are hidden; only sliced (non-displayed) axes
-    are shown.
+    An axis shows a slider when it is one of the scene's ``slider_axes`` and
+    is not displayed.
 
     Follows the v2 widget pattern:
 
@@ -162,6 +167,10 @@ class QtDimsControl:
         Starting slider values; typically ``scene.dims.selection.slice_indices``.
     initial_displayed_axes :
         Axes to hide initially; typically ``scene.dims.selection.displayed_axes``.
+    slider_axes :
+        The world axes that get a slider when not displayed; typically
+        ``scene.slider_axes``.  ``None`` (the default) gives every axis in
+        *axis_values* one.  Kept current by ``SliderAxesChangedEvent``.
     axes_2d :
         Axis indices to display when toggling to 2D, or ``None`` to omit the
         toggle button entirely (e.g. a scene with fewer than 3 axes).
@@ -183,8 +192,7 @@ class QtDimsControl:
         *,
         initial_slice_indices: dict[int, float] | None = None,
         initial_displayed_axes: tuple[int, ...] = (),
-        initial_stacked_axes: tuple[int, ...] = (),
-        non_displayed_sliders: set[int] | None = None,
+        slider_axes: tuple[int, ...] | None = None,
         debounce_ms: int | None = None,
         axes_2d: tuple[int, ...] | None = None,
         axes_3d: tuple[int, ...] | None = None,
@@ -193,8 +201,16 @@ class QtDimsControl:
         # ── Cellier layer ────────────────────────────────────────────────────
         self._id = uuid4()
         self._scene_id = scene_id
-        self._non_displayed_sliders: set[int] = non_displayed_sliders or set()
-        self._stacked_axes: tuple[int, ...] = initial_stacked_axes
+        self._slider_axes: tuple[int, ...] | None = (
+            None if slider_axes is None else tuple(slider_axes)
+        )
+        # Axes moved since the last submit; only these are sent, because
+        # ``update_slice_indices`` merges.
+        self._dirty_axes: set[int] = set()
+        # The displayed axes the model last reported while a toggle's emit was
+        # in flight, or ``None`` if it reported none.  Decides whether a
+        # raising toggle rolls the control back.
+        self._model_displayed_during_toggle: tuple[int, ...] | None = None
         self._axes_2d = axes_2d
         self._axes_3d = axes_3d
 
@@ -253,7 +269,7 @@ class QtDimsControl:
             self._toggle_button.clicked.connect(self._on_toggle_click)
             layout.addRow(self._toggle_button)
 
-        self._update_visibility(initial_displayed_axes, initial_stacked_axes)
+        self._update_visibility(initial_displayed_axes)
 
     # ── Public interface ─────────────────────────────────────────────────────
 
@@ -275,14 +291,12 @@ class QtDimsControl:
         return self._container
 
     @property
-    def non_displayed_sliders(self) -> set[int]:
-        """Axes excluded from slider display regardless of dims state (e.g. channel axis)."""
-        return self._non_displayed_sliders
+    def slider_axes(self) -> tuple[int, ...] | None:
+        """The world axes that get a slider when not displayed.
 
-    @non_displayed_sliders.setter
-    def non_displayed_sliders(self, axes: set[int]) -> None:
-        self._non_displayed_sliders = axes
-        self._update_visibility(self._displayed_axes)
+        ``None`` means every axis this control was built with.
+        """
+        return self._slider_axes
 
     def current_index(self) -> dict[int, float]:
         """Return the current world value of every slider regardless of visibility.
@@ -306,41 +320,43 @@ class QtDimsControl:
                 event_type=DimsChangedEvent,
                 handler=self._on_dims_changed,
                 entity_id=self._scene_id,
-            )
+            ),
+            SubscriptionSpec(
+                event_type=SliderAxesChangedEvent,
+                handler=self._on_slider_axes_changed,
+                entity_id=self._scene_id,
+            ),
         ]
 
     # ── Cellier layer: model → widget ────────────────────────────────────────
 
     def _on_dims_changed(self, event) -> None:
-        if event.source_id == self._id:
-            return  # echo from our own slider move or toggle click; ignore
-
         sel = event.dims_state.selection
+        self._model_displayed_during_toggle = tuple(sel.displayed_axes)
 
-        # Update slider values for sliced axes.  The positions ride on the
-        # event rather than on ``dims_state``: the render layer takes the
-        # region instead and stopped reading them in Phase 8 (D5), but a
-        # slider that something else moved still has to resync.
-        for axis in self._sliders:
-            value = event.slice_indices.get(axis)
-            if value is not None:
-                self._set_value(axis, value)
+        # Slider values are skipped on our own echo: a drag has moved on
+        # since it sent them.  The positions ride on the event rather than on
+        # ``dims_state``: the render layer takes the region instead (D5), but
+        # a slider that something else moved still has to resync.
+        if event.source_id != self._id:
+            for axis in self._sliders:
+                value = event.slice_indices.get(axis)
+                if value is not None:
+                    self._set_value(axis, value)
 
-        # Show/hide sliders based on which axes are now displayed or stacked.
-        stacked = getattr(sel, "stacked_axes", ())
-        self._update_visibility(sel.displayed_axes, stacked)
+        # The displayed axes are applied even from our own echo: the event is
+        # the model's state, and applying it twice is harmless.
+        self._apply_displayed(tuple(sel.displayed_axes))
 
-        # Relabel the toggle purely from the event -- this is what lets it
-        # stay correct even when displayed_axes changed via some other
-        # caller, not just this widget's own button.
-        if self._toggle_button is not None:
-            is_3d = len(sel.displayed_axes) == 3
-            self._toggle_button.setText("Switch to 2D" if is_3d else "Switch to 3D")
+    def _on_slider_axes_changed(self, event: SliderAxesChangedEvent) -> None:
+        self._slider_axes = tuple(event.slider_axes)
+        self._update_visibility(self._displayed_axes)
 
     # ── Cellier layer: widget → model ────────────────────────────────────────
 
     def _on_slider_changed(self, axis: int, value: float) -> None:
         self._slider_dirty = True
+        self._dirty_axes.add(axis)
         if not self._rate_limit_timer.isActive():
             self._submit_slider_values()
             self._rate_limit_timer.start()
@@ -351,15 +367,12 @@ class QtDimsControl:
             self._rate_limit_timer.start()
 
     def _submit_slider_values(self) -> None:
-        """Submit current slider values for all sliced (non-displayed) axes."""
+        """Submit the values of the sliders moved since the last submit."""
         self._slider_dirty = False
-        updates = {
-            axis: self._world_value(axis)
-            for axis in self._sliders
-            if axis not in self._displayed_axes
-            and axis not in self._non_displayed_sliders
-            and axis not in self._stacked_axes
-        }
+        updates = {axis: self._world_value(axis) for axis in sorted(self._dirty_axes)}
+        self._dirty_axes.clear()
+        if not updates:
+            return
         self.changed.emit(
             DimsUpdateEvent(
                 source_id=self._id,
@@ -370,37 +383,41 @@ class QtDimsControl:
         )
 
     def _on_toggle_click(self) -> None:
-        is_3d = len(self._displayed_axes) == 3
-        target_displayed = self._axes_2d if is_3d else self._axes_3d
-        target_set = set(target_displayed)
+        if self._axes_2d is None or self._axes_3d is None:
+            return
+        previous = tuple(self._displayed_axes)
+        target_displayed = self._axes_2d if len(previous) == 3 else self._axes_3d
 
-        # current_index() already holds a live, correct value for every
-        # axis (including hidden ones, since Qt widgets retain their value
-        # while hidden) -- no separate "saved position" bookkeeping needed.
-        new_slices = {
-            axis: value
-            for axis, value in self.current_index().items()
-            if axis not in target_set and axis not in self._stacked_axes
-        }
-        # Applied *before* the emit, not after.  The controller echoes this
-        # change back stamped with our own source_id, so _on_dims_changed's
-        # filter ignores it -- the widget has to move itself either way.
-        # Doing it first is what keeps the control honest when something
-        # downstream of the emit fails (``plans/gui_backend_seam.md`` D17).
-        for axis, value in new_slices.items():
-            self._set_value(axis, value)
-        self._update_visibility(target_displayed, self._stacked_axes)
-        self._displayed_axes = tuple(target_displayed)
-        self._toggle_button.setText("Switch to 2D" if not is_3d else "Switch to 3D")
-
-        self.changed.emit(
-            DimsUpdateEvent(
-                source_id=self._id,
-                scene_id=self._scene_id,
-                slice_indices=new_slices,
-                displayed_axes=target_displayed,
+        # Only ``displayed_axes`` is sent: every axis keeps its slice position
+        # in the model whatever is displayed (D36), so there is nothing to
+        # restore.  The control moves itself *before* the emit so it stays
+        # honest when a handler downstream of the change fails
+        # (``plans/gui_backend_seam.md`` D17).
+        self._apply_displayed(tuple(target_displayed))
+        self._model_displayed_during_toggle = None
+        try:
+            self.changed.emit(
+                DimsUpdateEvent(
+                    source_id=self._id,
+                    scene_id=self._scene_id,
+                    slice_indices=None,
+                    displayed_axes=tuple(target_displayed),
+                )
             )
-        )
+        except Exception:
+            # Refused before the model changed (a composited axis cannot be
+            # displayed, design 3.4): go back.  Changed and then a later
+            # handler raised: keep what the model reported.
+            reported = self._model_displayed_during_toggle
+            self._apply_displayed(previous if reported is None else reported)
+            raise
+
+    def _apply_displayed(self, displayed_axes: tuple[int, ...]) -> None:
+        """Hide *displayed_axes*' sliders and label the toggle for the other mode."""
+        self._update_visibility(displayed_axes)
+        if self._toggle_button is not None:
+            is_3d = len(displayed_axes) == 3
+            self._toggle_button.setText("Switch to 2D" if is_3d else "Switch to 3D")
 
     # ── Discrete axes ────────────────────────────────────────────────────────
 
@@ -470,19 +487,12 @@ class QtDimsControl:
 
     # ── Visibility helper ────────────────────────────────────────────────────
 
-    def _update_visibility(
-        self,
-        displayed_axes: tuple[int, ...],
-        stacked_axes: tuple[int, ...] = (),
-    ) -> None:
-        self._displayed_axes = displayed_axes
-        self._stacked_axes = stacked_axes
+    def _update_visibility(self, displayed_axes: tuple[int, ...]) -> None:
+        self._displayed_axes = tuple(displayed_axes)
         layout: QFormLayout = self._container.layout()
         for axis, row in self._rows.items():
-            visible = (
-                axis not in displayed_axes
-                and axis not in self._non_displayed_sliders
-                and axis not in stacked_axes
+            visible = axis not in displayed_axes and (
+                self._slider_axes is None or axis in self._slider_axes
             )
             layout.setRowVisible(row, visible)
 
@@ -573,7 +583,6 @@ class QtCanvasWidget:
         selection = scene.dims.selection
         initial_slice_indices = seed_slice_indices(selection, axis_values)
         initial_displayed_axes = getattr(selection, "displayed_axes", ())
-        initial_stacked_axes = getattr(selection, "stacked_axes", ())
 
         axes_2d: tuple[int, ...] | None = None
         axes_3d: tuple[int, ...] | None = None
@@ -596,7 +605,7 @@ class QtCanvasWidget:
             axis_labels=axis_labels,
             initial_slice_indices=initial_slice_indices,
             initial_displayed_axes=initial_displayed_axes,
-            initial_stacked_axes=initial_stacked_axes,
+            slider_axes=scene.slider_axes,
             axes_2d=axes_2d,
             axes_3d=axes_3d,
             parent=parent,

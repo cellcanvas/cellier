@@ -627,23 +627,8 @@
         ]
       ],
       "notes": [],
-      "scale_indices": [
-        0
-      ],
-      "selections": [
-        [
-          0,
-          0,
-          [
-            0,
-            6
-          ],
-          [
-            0,
-            7
-          ]
-        ]
-      ],
+      "scale_indices": [],
+      "selections": [],
       "status": "ok",
       "transform": "tzyx"
     },

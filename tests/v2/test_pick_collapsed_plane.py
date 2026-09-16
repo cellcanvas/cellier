@@ -17,10 +17,16 @@ import numpy as np
 
 from cellier.controller import CellierController
 from cellier.data.image._image_memory_store import ImageMemoryStore
-from cellier.events._events import ImagePickInfo, ViewRay, _CanvasRawPointerEvent
+from cellier.events._events import (
+    ImagePickEvent,
+    ImagePickInfo,
+    ViewRay,
+    _CanvasRawPointerEvent,
+)
 from cellier.render.render_manager import _ImageDisplayedDataCoord
 from cellier.scene.dims import spatial_axes, world_coordinate_system
 from cellier.transform import AffineTransform, Axis
+from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
 from tests._v2 import data_system
 
@@ -61,8 +67,9 @@ def _channel_viewer():
     visual = controller.add_image(
         data=store,
         scene_id=scene.id,
-        appearance=InMemoryImageAppearance(color_map="gray"),
+        appearance=InMemoryImageAppearance(),
         transform=transform,
+        single=InMemoryImageSingleAppearance(color_map="gray"),
     )
     return controller, scene, visual, array
 
@@ -71,7 +78,7 @@ def _press(controller, scene, visual, displayed, *, collapsed):
     """One 3-D press whose pick decoded *displayed*, reporting *collapsed*."""
     canvas_id = controller.get_canvas_ids(scene.id)[0]
     received: list = []
-    controller.on_mouse_press_3d(canvas_id, received.append, owner_id=uuid4())
+    controller.on_pick(canvas_id, ImagePickEvent, received.append, owner_id=uuid4())
     controller._on_raw_pointer_event(
         _CanvasRawPointerEvent(
             canvas_id=canvas_id,
@@ -92,7 +99,7 @@ def _press(controller, scene, visual, displayed, *, collapsed):
         )
     )
     assert len(received) == 1
-    return received[0].pick_info.details
+    return received[0].pick_info
 
 
 async def test_the_visual_names_the_plane_and_the_dims_state_does_not():
@@ -113,6 +120,8 @@ async def test_the_visual_names_the_plane_and_the_dims_state_does_not():
     index = tuple(int(np.floor(value)) for value in details.data_coordinate)
     assert index == (2, 3, 4, 5)
     assert array[index] == 3.0  # channel 2's marker, not channel 1's zero
+    # The value is read at that voxel; no channel_axis reports it as {0: ...}.
+    assert details.channel_values == {0: 3.0}
 
 
 async def test_the_plan_wins_over_a_slider_that_has_moved_since():

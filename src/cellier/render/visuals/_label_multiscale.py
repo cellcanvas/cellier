@@ -453,6 +453,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             aabb_color=model.aabb.color,
             aabb_line_width=model.aabb.line_width,
             render_order=app.render_order,
+            pick_write=model.pick_write,
             transform=model.transform,
             full_level_transforms=list(model.level_transforms),
             full_level_shapes=list(level_shapes),
@@ -522,9 +523,6 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
     ) -> gfx.Group | None:
         _old, new_node = self.rebuild_geometry(level_shapes, displayed_axes)
         return new_node
-
-    def on_stacked_axes_changed(self, stacked_axes: tuple[int, ...]) -> None:
-        pass
 
     # ── Geometry rebuild ─────────────────────────────────────────────────
 

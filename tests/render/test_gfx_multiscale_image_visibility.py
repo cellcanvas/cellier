@@ -1,9 +1,10 @@
 """Tests for GFXMultiscaleImageVisual lazy-init visibility behaviour.
 
-Regression tests for the bug where node_3d / node_2d created by
-_lazy_init_3d / _lazy_init_2d defaulted to visible=True even when
-on_visibility_changed(visible=False) had already been called while the
-node was still None.
+Regression tests for the bug where a node built lazily on first entry into a
+mode defaulted to visible=True even when on_visibility_changed(visible=False)
+had already been called before it existed.  The visual's per-mode groups
+exist from construction; its slots build their nodes lazily, and the group
+carries the visibility.
 """
 
 from __future__ import annotations
@@ -12,7 +13,11 @@ import uuid
 
 from cellier.events._events import VisualVisibilityChangedEvent
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
-from cellier.visuals import MultiscaleImageAppearance, MultiscaleImageVisual
+from cellier.visuals import (
+    MultiscaleImageAppearance,
+    MultiscaleImageSingleAppearance,
+    MultiscaleImageVisual,
+)
 from tests._v2 import level_transforms
 
 # ---------------------------------------------------------------------------
@@ -29,11 +34,8 @@ def _make_model(visible: bool = True) -> MultiscaleImageVisual:
             [[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]],
             [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
         ),
-        appearance=MultiscaleImageAppearance(
-            color_map="grays",
-            clim=(0.0, 255.0),
-            visible=visible,
-        ),
+        appearance=MultiscaleImageAppearance(visible=visible),
+        single=MultiscaleImageSingleAppearance(color_map="grays", clim=(0.0, 255.0)),
     )
 
 
@@ -83,7 +85,7 @@ def test_from_cellier_model_visible_false_2d_start():
 
     assert gfx.node_2d is not None, "node_2d should be built when starting in 2D"
     assert gfx.node_2d.visible is False
-    assert gfx.node_3d is None  # deferred — not yet built
+    assert gfx.slots[0].node_3d is None  # deferred -- not yet built
 
 
 def test_from_cellier_model_visible_false_3d_start():
@@ -93,7 +95,7 @@ def test_from_cellier_model_visible_false_3d_start():
 
     assert gfx.node_3d is not None, "node_3d should be built when starting in 3D"
     assert gfx.node_3d.visible is False
-    assert gfx.node_2d is None  # deferred — not yet built
+    assert gfx.slots[0].node_2d is None  # deferred -- not yet built
 
 
 def test_from_cellier_model_visible_true_is_default():
@@ -119,18 +121,18 @@ def test_lazy_init_3d_respects_hidden_state():
     model = _make_model(visible=True)
     gfx = _make_gfx_visual_starting_2d(model)
 
-    assert gfx.node_3d is None  # not built yet
+    assert gfx.slots[0].node_3d is None  # not built yet
 
     # Mark as hidden before 3D has been lazily initialized.
     gfx.on_visibility_changed(_visibility_event(visible=False))
     assert gfx._visible is False
-    assert gfx.node_3d is None  # still not built
+    assert gfx.slots[0].node_3d is None  # still not built
 
     # Trigger lazy 3D init via get_node_for_dims.
     node = gfx.get_node_for_dims((0, 1, 2))
 
     assert node is gfx.node_3d
-    assert node is not None
+    assert gfx.slots[0].node_3d is not None
     assert node.visible is False, (
         "node_3d must inherit _visible=False from lazy init, not default to True"
     )
@@ -141,16 +143,16 @@ def test_lazy_init_2d_respects_hidden_state():
     model = _make_model(visible=True)
     gfx = _make_gfx_visual_starting_3d(model)
 
-    assert gfx.node_2d is None  # not built yet
+    assert gfx.slots[0].node_2d is None  # not built yet
 
     gfx.on_visibility_changed(_visibility_event(visible=False))
     assert gfx._visible is False
-    assert gfx.node_2d is None
+    assert gfx.slots[0].node_2d is None
 
     node = gfx.get_node_for_dims((1, 2))
 
     assert node is gfx.node_2d
-    assert node is not None
+    assert gfx.slots[0].node_2d is not None
     assert node.visible is False
 
 

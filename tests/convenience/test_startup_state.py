@@ -15,6 +15,7 @@ import pytest
 
 from cellier.convenience._startup import StartupState, StartupTracker
 from cellier.scene.dims import spatial_axes
+from cellier.visuals import InMemoryImageSingleAppearance
 
 
 def _tracker(*keys: str) -> StartupTracker:
@@ -193,7 +194,8 @@ def test_an_unstarted_viewer_reports_idle_rather_than_raising():
     viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="qt")
     viewer.add_image(
         ImageMemoryStore(data=np.random.rand(4, 4, 4).astype(np.float32)),
-        appearance=InMemoryImageAppearance(color_map="viridis"),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis"),
     )
 
     assert viewer.startup_state is StartupState.IDLE
@@ -236,7 +238,8 @@ async def test_a_viewer_that_never_connects_reports_stalled(qtbot):
     viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="anywidget")
     viewer.add_image(
         ImageMemoryStore(data=np.random.rand(4, 4, 4).astype(np.float32)),
-        appearance=InMemoryImageAppearance(color_map="viridis"),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map="viridis"),
     )
     build_canvas_widget(viewer, axis_values_from_viewer(viewer))
 

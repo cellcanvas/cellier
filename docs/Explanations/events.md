@@ -209,17 +209,15 @@ class AxisAlignedSelectionState(NamedTuple):
         Indices of axes currently rendered, e.g. ``(0, 1, 2)`` for 3-D
         or ``(1, 2)`` for a 2-D XY slice.
     slice_indices :
-        Mapping of axis index to the current integer slice position for
-        each non-displayed axis.  Empty for a pure 3-D view.
-    stacked_axes :
-        Axes whose full extent is composited by the render layer rather
-        than sliced to a single index — e.g. a channel axis blended into
-        one image.  Empty by default.
+        Mapping of every world axis to its position.  A displayed axis
+        keeps a stored position, which the selection ignores; the scene's
+        derived ``slider_axes`` say which positions a slider shows.  An
+        image in composite mode draws all of its channels whatever the
+        position on its channel axis.
     """
 
     displayed_axes: tuple[int, ...]
-    slice_indices: dict[int, int]
-    stacked_axes: tuple[int, ...] = ()
+    slice_indices: dict[int, float]
 
     def to_index_selection(self, ndim: int) -> tuple[int | slice, ...]:
         """Return a per-axis numpy indexer in axis order.
@@ -420,13 +418,13 @@ class ChannelAppearanceChangedEvent(NamedTuple):
     """Fired when a field on one channel's appearance model changes.
 
     Emitted by the controller's per-channel psygnal bridge (one handler
-    per ``ChannelAppearance``, wired in ``_wire_channels``) for
-    multichannel image visuals.  Whole-dict replacement of
-    ``visual.channels`` is handled separately by a direct psygnal
-    connect inside the GFX visual and does not flow through this event.
+    per channel appearance, wired in ``_wire_channels``) for image
+    visuals.  Replacing ``visual.channels`` rewires those handlers, and
+    reslices when the channel indices change.
 
     Primary consumers:
-    - ``GFXMultichannel*Visual``: update the per-channel material
+    - ``GFXImageMemoryVisual`` / ``GFXMultiscaleImageVisual``: restyle the
+      channel's slot when composite mode draws it
 
     Parameters
     ----------
@@ -435,7 +433,7 @@ class ChannelAppearanceChangedEvent(NamedTuple):
         changes carry the widget's own ID; direct model mutations fall
         back to the controller's ID.
     visual_id :
-        The multichannel visual that owns the channel.
+        The image visual that owns the channel.
     channel_index :
         Index of the channel whose appearance changed.
     field_name :
@@ -725,27 +723,63 @@ cleared on release, so the phases of one click-drag share an id; a
 hover-move with no active press carries `None`. Phase stays encoded as the
 event type (press / move / release).
 
-#### Element-level pick details
+#### Pick events
 
-`CanvasPickInfo.details` carries the *element* within the hit visual,
-typed per visual kind (`PointsPickInfo.point_index`,
-`LinesPickInfo.edge_index`, …) under the `VisualPickDetails` union. The
-render layer extracts it from the pygfx pick payload: points report
-`vertex_index` directly; the `LineSegmentMaterial` lays out one explicit
-vertex pair per edge, so the line visual maps the picked vertex to
-`edge_index = vertex_index // 2`. `details` is `None` on a background miss
-and for visual kinds whose extraction is still stubbed (image / mesh /
-labels).
+Mouse events report *that* something was hit (`CanvasPickInfo.hit_visual_id`);
+typed pick events report *what* was hit.  There is one event per visual
+family, and all six share the mouse event's context fields -- `source_id`
+(the canvas), `scene_id`, `visual_id`, `action`, `camera_type`,
+`world_coordinate` (2D) or `ray` (3D), `button`, `buttons`, `modifiers` and
+`gesture_id` -- apart from `pick_info`:
 
-Detail extraction is **gated**: it runs only when a canvas has at least
-one `on_mouse_*` subscriber (`RenderManager.set_pick_details_enabled`,
-driven by the controller's per-canvas subscriber count). Consumers that
-subscribe directly on the bus (e.g. the paint controller) do not enable
-it, so they never pay for the per-type dispatch. `hit_visual_id` is always
-computed — it is needed for visual-level hits and misses and is already
-paid for upstream by pygfx. Note that the upstream GPU→CPU pick-buffer
-readback itself is performed by pygfx before our handler runs; this gate
-only suppresses our own cheap dispatch, not the readback.
+| Event | Visuals | `pick_info` |
+|---|---|---|
+| `ImagePickEvent` | `ImageVisual`, `MultiscaleImageVisual` | `ImagePickInfo` |
+| `LabelsPickEvent` | `LabelMemoryVisual`, `MultiscaleLabelVisual` | `LabelsPickInfo` |
+| `PointsPickEvent` | `PointsVisual` | `PointsPickInfo` |
+| `LinesPickEvent` | `LinesVisual` | `LinesPickInfo` |
+| `MeshPickEvent` | `MeshVisual` | `MeshPickInfo` |
+| `GraphPickEvent` | `GraphVisual` | `GraphNodePickInfo` or `GraphEdgePickInfo` |
+
+Subscribe with `controller.on_pick(canvas_id, event_type, callback, *,
+owner_id, weak=False)` (mirrored on `Viewer` and `OrthoViewer`) and remove
+with `unsubscribe_pick`.  A pick event is emitted only for a hit, after the
+mouse event for the same pointer event, and carries its `gesture_id`: a press,
+its drag moves and its release share one id, and a hover move has `None`.
+
+Timing:
+
+- Points, lines, mesh and graph events, and in-memory image and labels
+  events, are synchronous: they arrive straight after the mouse event.
+- Multiscale image and labels values are read at level 0 through the
+  cancellable async slicer, so their events arrive when the read completes.
+  A newer pointer event on the canvas cancels an in-flight `move` read;
+  `press` and `release` reads always complete, and removing the visual
+  cancels all of its reads.  Match events by `gesture_id` and `action`, not
+  by arrival order.
+
+The element identity is decoded in the render layer from the pygfx pick
+payload: points report `vertex_index` directly; the `LineSegmentMaterial`
+lays out one explicit vertex pair per edge, so the line visual maps the
+picked vertex to `edge_index = vertex_index // 2`; image and labels visuals
+decode a level-0 data coordinate, which the controller completes with the
+planes the visual last drew.
+
+`ImagePickInfo.channel_values` maps a channel index to the value at the
+picked voxel.  A visual without a channel axis reports `{0: value}`; single
+mode reports its drawn channel; composite mode reports every drawn (visible)
+channel on a 2D canvas and only the pick-buffer winner's channel on a 3D
+canvas.  `LabelsPickInfo.value` is the label id at the picked voxel.
+
+Detail extraction is **gated**: it runs only while a canvas has at least one
+`on_pick` subscriber (`RenderManager.set_pick_details_enabled`, driven by the
+controller's per-canvas subscriber count), and image and labels values are
+read only while that event type has a subscriber.  Mouse subscribers, and
+consumers that subscribe directly on the bus (e.g. the paint controller), do
+not enable it.  `hit_visual_id` is always computed -- it is needed for
+visual-level hits and misses and is already paid for upstream by pygfx.  The
+GPU->CPU pick-buffer readback itself is performed by pygfx before our handler
+runs; this gate only suppresses our own dispatch and reads.
 
 ```python
 class PointsPickInfo(NamedTuple):
@@ -756,12 +790,29 @@ class LinesPickInfo(NamedTuple):
     edge_index: int
 
 
-# ImagePickInfo / MeshPickInfo / LabelsPickInfo are stubbed pending a
-# consumer.
+class ImagePickInfo(NamedTuple):
+    data_coordinate: tuple[float, ...]
+    channel_values: dict[int, float]
 
-VisualPickDetails = (
-    PointsPickInfo | LinesPickInfo | ImagePickInfo | MeshPickInfo | LabelsPickInfo
-)
+
+class LabelsPickInfo(NamedTuple):
+    data_coordinate: tuple[float, ...]
+    value: int
+
+
+class ImagePickEvent(NamedTuple):
+    source_id: UUID  # the canvas
+    scene_id: UUID
+    visual_id: UUID
+    action: Literal["press", "move", "release"]
+    camera_type: Literal["2d", "3d"]
+    world_coordinate: np.ndarray | None
+    ray: ViewRay | None
+    button: int
+    buttons: tuple
+    modifiers: tuple
+    gesture_id: UUID | None
+    pick_info: ImagePickInfo
 
 
 class CanvasPickInfo(NamedTuple):
@@ -772,13 +823,9 @@ class CanvasPickInfo(NamedTuple):
     hit_visual_id :
         Model-layer ID of the visual whose active scene-graph node was
         hit, or ``None`` if the pointer landed on the background.
-    details :
-        Element-level identity within the hit visual, typed per visual
-        kind.  ``None`` on a background miss.
     """
 
     hit_visual_id: UUID | None
-    details: VisualPickDetails | None = None
 
 
 class ViewRay(NamedTuple):
@@ -1192,15 +1239,13 @@ class QtDimsControl:
             scene_id=self._scene_id,
             slice_indices=updates,
             displayed_axes=None,
-            # stacked_axes defaults to None — set it to request a change to
-            # which axes the render layer composites (e.g. a channel axis).
         ))
 ```
 
-`DimsUpdateEvent` carries `source_id`, `scene_id`, `slice_indices`,
-`displayed_axes`, and `stacked_axes`. Every field except `source_id` and
-`scene_id` is optional (`None` = leave unchanged), so a widget sets only the
-fields it owns.
+`DimsUpdateEvent` carries `source_id`, `scene_id`, `slice_indices` and
+`displayed_axes`. Every field except `source_id` and `scene_id` is optional
+(`None` = leave unchanged), so a widget sets only the fields it owns, and
+`slice_indices` merges: send only the axes that moved.
 
 Both guards are necessary and serve different roles:
 
@@ -1312,7 +1357,7 @@ self._wire_pick_write(visual_model)  # always
 | Wiring step | When | Emits |
 |---|---|---|
 | `_wire_appearance` | model has an `appearance` | `AppearanceChangedEvent` / `VisualVisibilityChangedEvent` |
-| `_wire_channels` | model has `channels` (multichannel visuals) | `ChannelAppearanceChangedEvent` (one handler per channel) |
+| `_wire_image` | image visuals | `SingleAppearanceChangedEvent`, `ImageCompositeChangedEvent`, and `ChannelAppearanceChangedEvent` (one handler per channel, via `_wire_channels`) |
 | `_wire_aabb` | always | `AABBChangedEvent` |
 | `_wire_transform` | always | `TransformChangedEvent` |
 | `_wire_pick_write` | always | `PickWriteChangedEvent` |
@@ -1396,12 +1441,17 @@ def _make_aabb_handler(self, visual_id: UUID) -> Callable:
 
 ### Channel wiring
 
-Multichannel visuals expose a `channels` mapping of per-channel
-`ChannelAppearance` models. `_wire_channels` connects one handler per channel,
-each emitting a `ChannelAppearanceChangedEvent` tagged with that channel's index.
-Whole-dict replacement (`visual.channels = new_dict`) is a structural
-pool-management operation handled by a direct psygnal connect inside the GFX
-visual, and does **not** flow through this per-field bridge.
+Image visuals carry `single` (single mode's appearance) and a `channels`
+mapping of per-channel appearances (composite mode). `_wire_image` bridges
+all three: a field change on `single`, or replacing it, emits
+`SingleAppearanceChangedEvent`; a change of `composite` emits
+`ImageCompositeChangedEvent`, rechecks the scene's derived slider axes and
+reslices the visual (so a direct `visual.composite = True` behaves like
+`set_image_composite`, minus that method's composited-axis check); and
+`_wire_channels` connects one handler per channel, each emitting a
+`ChannelAppearanceChangedEvent` tagged with that channel's index. Replacing
+`visual.channels` rewires those handlers, and reslices when the channel
+indices change.
 
 ```python
 def _wire_channels(self, visual) -> None:
@@ -1581,7 +1631,8 @@ object registration time.
 | External callback | `AABBChangedEvent` | `visual_id` | Fire `on_aabb_changed` user callback |
 | External callback | `ResliceStartedEvent` | `scene_id` | Fire `on_reslice_started` user callback |
 | External callback | `ResliceCompletedEvent` | `visual_id` | Fire `on_reslice_completed` user callback |
-| External callback | `CanvasMouse{Press,Move,Release}{2D,3D}Event` | `canvas_id` | Fire `on_mouse_*` user callback; enables pick-detail extraction |
+| External callback | `CanvasMouse{Press,Move,Release}{2D,3D}Event` | `canvas_id` | Fire `on_mouse_*` user callback |
+| External callback | `{Image,Labels,Points,Lines,Mesh,Graph}PickEvent` | `canvas_id` | Fire `on_pick` user callback; enables pick-detail extraction |
 | Paint controller | `CanvasMouse{Press,Move,Release}2DEvent` | `canvas_id` | Accumulate brush stroke (direct bus subscription; does not enable pick details) |
 
 `SliceCoordinator` and the controller subscribe without `entity_id` filters because
@@ -1751,11 +1802,17 @@ from cellier.events._events import (
     DataStoreMetadataChangedEvent,
     DimsChangedEvent,
     FrameRenderedEvent,
+    GraphPickEvent,
+    ImagePickEvent,
     ImagePickInfo,
+    LabelsPickEvent,
     LabelsPickInfo,
+    LinesPickEvent,
     LinesPickInfo,
+    MeshPickEvent,
     MeshPickInfo,
     PickWriteChangedEvent,
+    PointsPickEvent,
     PointsPickInfo,
     ResliceCancelledEvent,
     ResliceCompletedEvent,
@@ -1784,16 +1841,13 @@ from cellier.events._update_events import (
 
 - **Higher-level interaction events.** The low-level canvas pointer events
   (press / move / release, 2D and 3D — see §Canvas mouse events) are implemented,
-  including per-element pick details and synthesized `gesture_id`. A library
+  with synthesized `gesture_id` and typed pick events for element identity. A library
   gesture layer (compound `on_drag`, double-click via `event.clicks`) is
   deliberately deferred; apps assemble gestures from the phase events plus
   `gesture_id`, as the paint controller does. Higher-level semantic events for
   selection and annotation — e.g. a `SelectionChangedEvent` — are still to be
   designed once that interaction model is specified. They will follow the same
   NamedTuple / `source_id` pattern.
-- **Image / mesh / labels pick details.** `ImagePickInfo`, `MeshPickInfo`, and
-  `LabelsPickInfo` are defined but `_extract_pick_details` returns `None` for
-  these kinds; fill them in per kind when a consumer needs them.
 - **Upstream pick-readback suppression.** The true Decision-4 perf win — stopping
   pygfx from performing the GPU→CPU readback when no consumer needs it — is pending
   a pygfx pick-configuration investigation. The current gate only skips our own

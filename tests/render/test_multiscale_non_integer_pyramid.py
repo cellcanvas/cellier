@@ -23,6 +23,7 @@ import pytest
 import tensorstore as ts
 
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
+from cellier.visuals import MultiscaleImageSingleAppearance
 from cellier.visuals._image import (
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
@@ -159,10 +160,11 @@ async def _render_image(controller, render_scene, reslice, root, dim, level):
     visual = controller.add_image_multiscale(
         data=_store(root, f"ramp-{dim}-{level}"),
         scene_id=scene.id,
-        appearance=MultiscaleImageAppearance(
-            color_map="gray", clim=(0.0, 1.0), render_mode="mip", force_level=level
-        ),
+        appearance=MultiscaleImageAppearance(force_level=level),
         render_config=MultiscaleImageRenderConfig(block_size=BLOCK_SIZE),
+        single=MultiscaleImageSingleAppearance(
+            color_map="gray", clim=(0.0, 1.0), render_mode="mip"
+        ),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)

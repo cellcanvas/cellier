@@ -68,11 +68,8 @@ CATALOG = [
     ("EdgeColorPicker", "edge_color", "Edge color"),
     ("EdgeThicknessSpin", "edge_thickness", "Edge thickness"),
     ("EdgeThicknessSpaceCombo", "edge_thickness_space", "Edge thickness space"),
-    # Image controls, made public and turned into layer-3 field classes by D10
-    # (``plans/gui_backend_unification.md``).  The composite
-    # ``*VolumeRenderControls`` draws its own selector and does not use these.
-    ("RenderModeCombo", "render_mode", "Render mode"),
-    ("IsoThresholdSlider", "iso_threshold", "Iso threshold"),
+    # The image field controls are gone: the unified image control draws every
+    # image field (unified image design 3.10).
 ]
 
 

@@ -279,7 +279,7 @@ class SliceCoordinator:
         the scene has its committed tile cache cleared and its LUT
         indirection table rebuilt against the empty cache.
         """
-        if event.displayed_axes_changed:
+        if event.displayed_axes_changed or not event.region_changed:
             return
 
         scene = self._scenes.get(event.scene_id)
