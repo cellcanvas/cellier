@@ -19,6 +19,11 @@ from cellier.data._axes import build_axes, level_systems
 from cellier.data._axes import data_coordinate_system as build_data_coordinate_system
 from cellier.data._base_data_store import BaseDataStore, gridded_axis_extents
 from cellier.data._dataset_info import DatasetInfo, ome_zarr_dataset_info
+from cellier.data._tensorstore_cache import (
+    DEFAULT_CACHE_POOL_BYTES,
+    TensorStoreCacheMixin,
+    build_context,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -159,6 +164,7 @@ def _open_ome_ts_stores(
     zarr_path: str,
     scale_names: list[str],
     anonymous: bool = False,
+    cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES,
 ) -> list[ts.TensorStore]:
     """Open one TensorStore per scale level (synchronous, read-only).
 
@@ -173,7 +179,12 @@ def _open_ome_ts_stores(
     anonymous : bool
         When True, use anonymous credentials for S3/GCS access
         (for public buckets). Default False.
+    cache_pool_bytes : int
+        Chunk cache cap in bytes, shared by every level opened here --
+        one context serves them all, so a chunk read for one level is not
+        re-decompressed for the next.  ``0`` disables caching.
     """
+    context = build_context(cache_pool_bytes)
     stores: list[ts.TensorStore] = []
     scheme = urlparse(zarr_path).scheme
     for name in scale_names:
@@ -190,7 +201,7 @@ def _open_ome_ts_stores(
                 }
             else:
                 spec.setdefault("context", {})["gcs_user_project"] = ""
-        store = ts.open(spec).result()
+        store = ts.open(spec, context=context).result()
         stores.append(store)
     return stores
 
@@ -348,7 +359,7 @@ def _omero_channel_labels(metadata: Any) -> list[str] | None:
 # ---------------------------------------------------------------------------
 
 
-class OMEZarrImageDataStore(BaseDataStore):
+class OMEZarrImageDataStore(TensorStoreCacheMixin, BaseDataStore):
     """Data store for an OME-Zarr v0.5 image read via tensorstore.
 
     Use the :meth:`from_path` class method to construct from an OME-Zarr URI.
@@ -417,11 +428,23 @@ class OMEZarrImageDataStore(BaseDataStore):
     def model_post_init(self, __context: Any) -> None:
         """Open all TensorStore handles (synchronous, before QtAsyncio)."""
         self._ts_stores = _open_ome_ts_stores(
-            self.zarr_path, self.scale_names, anonymous=self.anonymous
+            self.zarr_path,
+            self.scale_names,
+            anonymous=self.anonymous,
+            cache_pool_bytes=self.cache_pool_bytes,
         )
         # After the handles: the base checks the systems against the level
         # count and rank, which are read off them.
         super().model_post_init(__context)
+
+    def _reopen_ts_stores(self) -> None:
+        """Reopen every level against the store's current cache budget."""
+        self._ts_stores = _open_ome_ts_stores(
+            self.zarr_path,
+            self.scale_names,
+            anonymous=self.anonymous,
+            cache_pool_bytes=self.cache_pool_bytes,
+        )
 
     # ── Convenience constructor ─────────────────────────────────────────
 
@@ -433,6 +456,7 @@ class OMEZarrImageDataStore(BaseDataStore):
         multiscale_index: int = 0,
         series_index: int = 0,
         anonymous: bool = False,
+        cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES,
         data_coordinate_system: DataCoordinateSystem | None = None,
         name: str = "ome zarr image data store",
     ) -> OMEZarrImageDataStore:
@@ -456,6 +480,9 @@ class OMEZarrImageDataStore(BaseDataStore):
         anonymous : bool
             When True, use anonymous credentials for S3/GCS access
             (for public buckets). Default False.
+        cache_pool_bytes : int
+            Chunk cache cap for this store, in bytes, shared by all of its
+            resolution levels.  ``0`` disables caching.
         data_coordinate_system : DataCoordinateSystem or None
             The level-0 coordinate system, one axis per array dimension.
             ``None`` builds it from the NGFF axis metadata.  A passed system
@@ -545,6 +572,7 @@ class OMEZarrImageDataStore(BaseDataStore):
             physical_scale=physical_scale,
             physical_translation=physical_translation,
             anonymous=anonymous,
+            cache_pool_bytes=cache_pool_bytes,
             name=name,
         )
 

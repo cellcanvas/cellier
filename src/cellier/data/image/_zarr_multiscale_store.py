@@ -33,6 +33,11 @@ from cellier.data._dataset_info import (
     format_shape,
     source_label,
 )
+from cellier.data._tensorstore_cache import (
+    DEFAULT_CACHE_POOL_BYTES,
+    TensorStoreCacheMixin,
+    build_context,
+)
 
 if TYPE_CHECKING:
     from cellier.data.image._image_requests import ChunkRequest
@@ -68,6 +73,7 @@ def _detect_zarr_driver(level_path: pathlib.Path) -> str:
 def _open_ts_stores(
     zarr_path: pathlib.Path,
     scale_names: list[str],
+    cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES,
 ) -> list[ts.TensorStore]:
     """Open one tensorstore per scale level (read-only, synchronous).
 
@@ -81,6 +87,10 @@ def _open_ts_stores(
     scale_names :
         Subdirectory names in order finest → coarsest, e.g.
         ``["s0", "s1", "s2"]``.
+    cache_pool_bytes :
+        Chunk cache cap in bytes, shared by every level opened here --
+        one context serves them all, so a chunk read for one level is not
+        re-decompressed for the next.  ``0`` disables caching.
 
     Returns
     -------
@@ -88,6 +98,7 @@ def _open_ts_stores(
         One open ``ts.TensorStore`` per scale level.  Chunk data is
         not loaded until ``await store[...].read()`` is called.
     """
+    context = build_context(cache_pool_bytes)
     stores: list[ts.TensorStore] = []
     for name in scale_names:
         level_path = pathlib.Path(zarr_path) / name
@@ -99,7 +110,7 @@ def _open_ts_stores(
                 "path": str(level_path),
             },
         }
-        store = ts.open(spec).result()
+        store = ts.open(spec, context=context).result()
         stores.append(store)
     return stores
 
@@ -109,7 +120,7 @@ def _open_ts_stores(
 # ---------------------------------------------------------------------------
 
 
-class MultiscaleZarrDataStore(BaseDataStore):
+class MultiscaleZarrDataStore(TensorStoreCacheMixin, BaseDataStore):
     """Data store for a multiscale zarr volume read via tensorstore.
 
     Public fields are validated and serialisable (pydantic).
@@ -201,10 +212,19 @@ class MultiscaleZarrDataStore(BaseDataStore):
         self._ts_stores = _open_ts_stores(
             pathlib.Path(self.zarr_path),
             self.scale_names,
+            self.cache_pool_bytes,
         )
         # After the handles: the base checks the systems against the level
         # count and rank, which are read off them.
         super().model_post_init(__context)
+
+    def _reopen_ts_stores(self) -> None:
+        """Reopen every level against the store's current cache budget."""
+        self._ts_stores = _open_ts_stores(
+            pathlib.Path(self.zarr_path),
+            self.scale_names,
+            self.cache_pool_bytes,
+        )
 
     # ── Convenience constructor ─────────────────────────────────────────
 

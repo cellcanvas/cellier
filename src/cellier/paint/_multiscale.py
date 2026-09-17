@@ -130,6 +130,10 @@ class MultiscalePaintController(AbstractPaintController):
         self._write_buffer: TensorStoreWriteBuffer = TensorStoreWriteBuffer(
             data_store._ts_stores[0]
         )
+        # Let the store refuse a cache-pool change while this buffer holds a
+        # handle: reopening would bind the store's levels to a new pool while
+        # the buffer kept writing through the discarded one.
+        data_store.register_paint_writer(self._write_buffer)
         self._write_layer = WriteLayer(
             data_store_id=data_store.id, block_size=int(visual_block_size)
         )
@@ -249,6 +253,8 @@ class MultiscalePaintController(AbstractPaintController):
         if self._autosave_timer is not None:
             self._autosave_timer.stop()
             self._autosave_timer = None
+        # Release the store's cache-pool interlock (see __init__).
+        self._data_store.unregister_paint_writer()
         super()._teardown()
 
     # ------------------------------------------------------------------
@@ -274,6 +280,7 @@ class MultiscalePaintController(AbstractPaintController):
 
         # 3. Create a fresh transaction for continued staging.
         self._write_buffer = TensorStoreWriteBuffer(self._data_store._ts_stores[0])
+        self._data_store.register_paint_writer(self._write_buffer)
 
         # 4. Drop GPU paint textures — frees the entire slot pool.
         self._controller._clear_painted_tiles_2d(self._visual_id)

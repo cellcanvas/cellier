@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
 from cellier.data._base_data_store import BaseDataStore, gridded_axis_extents
 from cellier.data._dataset_info import DatasetInfo, ome_zarr_dataset_info
+from cellier.data._tensorstore_cache import (
+    DEFAULT_CACHE_POOL_BYTES,
+    TensorStoreCacheMixin,
+)
 from cellier.data.image._ome_zarr_image_store import (
     _level_geometry,
     _ngff_coordinate_systems,
@@ -27,7 +31,7 @@ from cellier.data.image._ome_zarr_image_store import (
 _ACCEPTED_LABEL_DTYPES = {np.int8, np.int16, np.int32}
 
 
-class OMEZarrLabelDataStore(BaseDataStore):
+class OMEZarrLabelDataStore(TensorStoreCacheMixin, BaseDataStore):
     """Multiscale OME-Zarr label store returning int32 bricks.
 
     Use the :meth:`from_path` class method to construct from a URI that
@@ -93,11 +97,25 @@ class OMEZarrLabelDataStore(BaseDataStore):
         from cellier.data.image._ome_zarr_image_store import _open_ome_ts_stores
 
         self._ts_stores = _open_ome_ts_stores(
-            self.zarr_path, self.scale_names, anonymous=self.anonymous
+            self.zarr_path,
+            self.scale_names,
+            anonymous=self.anonymous,
+            cache_pool_bytes=self.cache_pool_bytes,
         )
         # After the handles: the base checks the systems against the level
         # count and rank, which are read off them.
         super().model_post_init(__context)
+
+    def _reopen_ts_stores(self) -> None:
+        """Reopen every level against the store's current cache budget."""
+        from cellier.data.image._ome_zarr_image_store import _open_ome_ts_stores
+
+        self._ts_stores = _open_ome_ts_stores(
+            self.zarr_path,
+            self.scale_names,
+            anonymous=self.anonymous,
+            cache_pool_bytes=self.cache_pool_bytes,
+        )
 
     # ── Convenience constructors ────────────────────────────────────────
 
@@ -108,6 +126,7 @@ class OMEZarrLabelDataStore(BaseDataStore):
         *,
         multiscale_index: int = 0,
         anonymous: bool = False,
+        cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES,
         data_coordinate_system: DataCoordinateSystem | None = None,
         name: str = "ome zarr label data store",
     ) -> OMEZarrLabelDataStore:
@@ -126,6 +145,9 @@ class OMEZarrLabelDataStore(BaseDataStore):
             Which ``multiscales[]`` entry to use. Defaults to 0.
         anonymous : bool
             When True, use anonymous credentials for S3/GCS access.
+        cache_pool_bytes : int
+            Chunk cache cap for this store, in bytes, shared by all of its
+            resolution levels.  ``0`` disables caching.
         data_coordinate_system : DataCoordinateSystem or None
             The level-0 coordinate system, one axis per array dimension.
             ``None`` builds it from the NGFF axis metadata, and an axis with
@@ -198,6 +220,7 @@ class OMEZarrLabelDataStore(BaseDataStore):
             physical_scale=physical_scale,
             physical_translation=physical_translation,
             anonymous=anonymous,
+            cache_pool_bytes=cache_pool_bytes,
             name=name,
         )
 
