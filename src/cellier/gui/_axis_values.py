@@ -11,6 +11,10 @@ decide from the data's axis sampling: a channel or time axis that every
 store samples discretely gets a :class:`DiscreteAxisValues`, and everything
 else a :class:`ContinuousAxisValues`.  A caller can replace any entry.
 
+A discrete axis draws no tick marks unless its ``draw_ticks`` is set.  Drawing
+one mark per value is only affordable on a short axis -- see
+:data:`TICK_WARNING_LIMIT`.
+
 Toolkit-free on purpose: both the Qt and the anywidget dims panels import it.
 """
 
@@ -18,18 +22,33 @@ from __future__ import annotations
 
 import bisect
 import math
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 __all__ = [
+    "TICK_WARNING_LIMIT",
     "AxisValues",
     "ContinuousAxisValues",
     "DiscreteAxisValues",
     "coerce_axis_values",
     "nearest_value_index",
 ]
+
+TICK_WARNING_LIMIT: int = 50
+"""How many tick marks a discrete slider may draw before it is warned about.
+
+Drawing ticks costs per mark, on every repaint, and a slider repaints on every
+value change -- so once per mouse move while it is dragged.  On the macOS Qt
+style the cost is about 0.09 ms per mark (the style hands the slider to AppKit,
+which rebuilds every tick rectangle each time the value is pushed in), so a
+667-value axis costs roughly 54 ms per repaint against 0.2 ms with ticks off.
+That is enough to stop the handle following the cursor.  Other styles are far
+cheaper -- Qt's Fusion draws the same 667 marks in 0.06 ms -- so this is a
+warning rather than a refusal.
+"""
 
 
 class ContinuousAxisValues(BaseModel):
@@ -79,6 +98,12 @@ class DiscreteAxisValues(BaseModel):
     labels : tuple[str, ...] or None
         Readout text for each value, e.g. channel names.  ``None`` shows the
         value itself.
+    draw_ticks : bool
+        Whether the slider marks each value with a tick.  Default ``False``:
+        one mark per value is only affordable on a short axis, and nothing
+        turns it on by itself.  Set it on an axis that has few enough values
+        to be worth marking, such as a channel axis.  Warns above
+        :data:`TICK_WARNING_LIMIT` marks.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -86,6 +111,7 @@ class DiscreteAxisValues(BaseModel):
     kind: Literal["discrete"] = "discrete"
     values: tuple[float, ...]
     labels: tuple[str, ...] | None = None
+    draw_ticks: bool = False
 
     @model_validator(mode="after")
     def _check_values(self) -> DiscreteAxisValues:
@@ -99,6 +125,26 @@ class DiscreteAxisValues(BaseModel):
             raise ValueError(
                 f"labels must have one entry per value; got {len(self.labels)} "
                 f"labels for {len(self.values)} values."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _warn_dense_ticks(self) -> DiscreteAxisValues:
+        """Warn when ticks were asked for on an axis too long to draw them.
+
+        Advisory rather than fatal: the cost is per repaint and per mark, and
+        how much it hurts depends on the toolkit style (see
+        :data:`TICK_WARNING_LIMIT`).  Only an explicit ``draw_ticks=True``
+        reaches here, since the default is off.
+        """
+        if self.draw_ticks and len(self.values) > TICK_WARNING_LIMIT:
+            warnings.warn(
+                f"draw_ticks=True on an axis with {len(self.values)} values: "
+                f"the slider redraws every mark on every value change, which "
+                f"makes dragging it unresponsive past roughly "
+                f"{TICK_WARNING_LIMIT} marks.  Set draw_ticks=False.",
+                UserWarning,
+                stacklevel=2,
             )
         return self
 

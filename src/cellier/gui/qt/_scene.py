@@ -431,8 +431,15 @@ class QtDimsControl:
         sld.setRange(0, len(spec.values) - 1)
         sld.setSingleStep(1)
         sld.setPageStep(1)
-        sld.setTickPosition(QSlider.TickPosition.TicksBelow)
-        sld.setTickInterval(1)
+        # Only when the axis asks for them.  A tick per value is redrawn on
+        # every value change -- once per mouse move while dragging -- and the
+        # macOS style rebuilds each mark through AppKit, so a long axis costs
+        # tens of milliseconds per move.  See TICK_WARNING_LIMIT.
+        if spec.draw_ticks:
+            sld.setTickPosition(QSlider.TickPosition.TicksBelow)
+            sld.setTickInterval(1)
+        else:
+            sld.setTickPosition(QSlider.TickPosition.NoTicks)
         readout = QLabel()
         readout.setMinimumWidth(40)
 

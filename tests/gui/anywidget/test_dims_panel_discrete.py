@@ -50,6 +50,7 @@ def test_discrete_axis_serialises_as_json_for_the_front_end():
         "kind": "discrete",
         "values": [0.0, 1.0],
         "labels": ["mem9", "H2B"],
+        "draw_ticks": False,
     }
     assert panel.axis_values["1"] == {"kind": "continuous", "min": 0.0, "max": 99.0}
 
@@ -108,3 +109,31 @@ def test_bare_pairs_are_rejected():
             axis_labels={0: "z"},
             slice_indices={0: 0.0},
         )
+
+
+# ---------------------------------------------------------------------------
+# draw_ticks
+#
+# The datalist itself is built in dims_panel.js and is not reachable from
+# pytest; what is testable here is that the flag reaches the front end.
+# ---------------------------------------------------------------------------
+
+
+def test_draw_ticks_reaches_the_front_end():
+    panel = _make_panel()
+
+    assert panel.axis_values["0"]["draw_ticks"] is False
+
+    ticked = AnywidgetDimsPanel(
+        scene_id=uuid4(),
+        axis_values={
+            0: DiscreteAxisValues(values=(0.0, 1.0), draw_ticks=True),
+            1: ContinuousAxisValues(min=0.0, max=99.0),
+            2: ContinuousAxisValues(min=0.0, max=99.0),
+        },
+        axis_labels={0: "c", 1: "y", 2: "x"},
+        slice_indices={0: 0.0, 1: 0.0, 2: 0.0},
+        displayed_axes=(1, 2),
+    )
+
+    assert ticked.axis_values["0"]["draw_ticks"] is True

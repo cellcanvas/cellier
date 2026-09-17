@@ -117,3 +117,36 @@ def test_bare_pairs_are_rejected(qtbot):
         QtDimsControl(
             scene_id=uuid4(), axis_values={0: (0.0, 1.0)}, axis_labels={0: "z"}
         )
+
+
+# ---------------------------------------------------------------------------
+# draw_ticks
+# ---------------------------------------------------------------------------
+
+
+def test_a_discrete_slider_draws_no_ticks_by_default(qtbot):
+    control = _make_control(qtbot)
+
+    slider = control._sliders[0]
+
+    assert slider.tickPosition() == QSlider.TickPosition.NoTicks
+
+
+def test_draw_ticks_marks_every_value(qtbot):
+    control = QtDimsControl(
+        scene_id=uuid4(),
+        axis_values={
+            0: DiscreteAxisValues(values=(0.0, 2.5, 10.0), draw_ticks=True),
+            1: ContinuousAxisValues(min=0.0, max=99.0),
+            2: ContinuousAxisValues(min=0.0, max=99.0),
+        },
+        axis_labels={0: "c", 1: "y", 2: "x"},
+        initial_slice_indices={0: 0.0, 1: 0.0, 2: 0.0},
+        initial_displayed_axes=(1, 2),
+    )
+    qtbot.addWidget(control.widget)
+
+    slider = control._sliders[0]
+
+    assert slider.tickPosition() == QSlider.TickPosition.TicksBelow
+    assert slider.tickInterval() == 1

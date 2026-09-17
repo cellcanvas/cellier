@@ -118,15 +118,20 @@ function render({ model, el }) {
         input.min = 0;
         input.max = spec.values.length - 1;
         input.step = 1;
-        const ticks = document.createElement("datalist");
-        ticks.id = `cellier-dim-ticks-${panelKey}-${axis}`;
-        for (let position = 0; position < spec.values.length; position++) {
-          const option = document.createElement("option");
-          option.value = position;
-          ticks.appendChild(option);
+        // Only when the axis asks for them: one <option> per value is a DOM
+        // node per sample, and the browser redraws every mark as the slider
+        // moves.  See TICK_WARNING_LIMIT in cellier.gui._axis_values.
+        if (spec.draw_ticks) {
+          const ticks = document.createElement("datalist");
+          ticks.id = `cellier-dim-ticks-${panelKey}-${axis}`;
+          for (let position = 0; position < spec.values.length; position++) {
+            const option = document.createElement("option");
+            option.value = position;
+            ticks.appendChild(option);
+          }
+          row.appendChild(ticks);
+          input.setAttribute("list", ticks.id);
         }
-        row.appendChild(ticks);
-        input.setAttribute("list", ticks.id);
         input.value = 0;
         readout.textContent = discreteReadout(spec, 0);
 

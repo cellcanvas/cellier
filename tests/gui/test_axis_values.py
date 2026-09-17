@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from types import SimpleNamespace
 
 import numpy as np
@@ -10,6 +11,7 @@ from pydantic import ValidationError
 
 from cellier._rounding import round_half_up_clamped
 from cellier.gui._axis_values import (
+    TICK_WARNING_LIMIT,
     ContinuousAxisValues,
     DiscreteAxisValues,
     coerce_axis_values,
@@ -131,3 +133,51 @@ def test_initial_slice_indices_moves_a_discrete_scene_value_to_a_listed_one(
     selection = SimpleNamespace(slice_indices={0: known})
 
     assert initial_slice_indices(selection, axis_values) == {0: expected}
+
+
+# ---------------------------------------------------------------------------
+# draw_ticks
+# ---------------------------------------------------------------------------
+
+
+def test_draw_ticks_is_off_by_default():
+    assert DiscreteAxisValues(values=(0.0, 1.0)).draw_ticks is False
+
+
+def test_draw_ticks_survives_a_serialisation_round_trip():
+    spec = DiscreteAxisValues(values=(0.0, 1.0), draw_ticks=True)
+
+    coerced = coerce_axis_values({0: spec.model_dump(mode="json")})
+
+    assert coerced[0].draw_ticks is True
+
+
+@pytest.mark.parametrize("n_values", [TICK_WARNING_LIMIT, TICK_WARNING_LIMIT - 1])
+def test_draw_ticks_is_quiet_up_to_the_limit(n_values):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        spec = DiscreteAxisValues(
+            values=tuple(float(i) for i in range(n_values)), draw_ticks=True
+        )
+
+    assert spec.draw_ticks is True
+
+
+def test_draw_ticks_warns_past_the_limit():
+    n_values = TICK_WARNING_LIMIT + 1
+
+    with pytest.warns(UserWarning, match=f"{n_values} values"):
+        DiscreteAxisValues(
+            values=tuple(float(i) for i in range(n_values)), draw_ticks=True
+        )
+
+
+def test_a_long_axis_without_ticks_is_quiet():
+    # The default is what every derived axis gets, however long it is.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        spec = DiscreteAxisValues(
+            values=tuple(float(i) for i in range(10 * TICK_WARNING_LIMIT))
+        )
+
+    assert spec.draw_ticks is False
