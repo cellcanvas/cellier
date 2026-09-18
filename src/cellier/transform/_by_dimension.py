@@ -555,6 +555,21 @@ class ByDimensionTransform(BaseTransform):
                 domain[block.input_axes[local_axis]] = bounds
         return domain
 
+    def broadcast_output_axes(self) -> frozenset[uuid.UUID]:
+        """Union of every block's broadcast output axes.
+
+        Blocks keep the container's axis ids on their own sub-systems, so a
+        block's answer needs no translation.
+
+        Returns
+        -------
+        frozenset[uuid.UUID]
+            Output axis ids.
+        """
+        return frozenset().union(
+            *(block.transform.broadcast_output_axes() for block in self.blocks)
+        )
+
     def axis_correspondence(self) -> dict[int, int]:
         """Read the correspondence off the block declarations, structurally.
 

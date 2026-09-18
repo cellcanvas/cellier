@@ -46,8 +46,13 @@ from cellier.visuals._mesh_memory import (
     MeshPhongAppearance,
     MeshVisual,
 )
-from cellier.visuals._overlay_types import CanvasOverlayType
+from cellier.visuals._overlay_types import CanvasOverlayType, SceneOverlayType
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
+from cellier.visuals._scene_overlay import (
+    SceneBoundingBox,
+    SceneBoundingBoxAppearance,
+    SceneOverlay,
+)
 from cellier.visuals._types import VisualType
 
 __all__ = [
@@ -85,6 +90,10 @@ __all__ = [
     "OutlineMode",
     "PointsMarkerAppearance",
     "PointsVisual",
+    "SceneBoundingBox",
+    "SceneBoundingBoxAppearance",
+    "SceneOverlay",
+    "SceneOverlayType",
     "TrailConfig",
     "VisualOutline",
     "VisualType",

@@ -96,3 +96,34 @@ def test_a_scene_with_nothing_to_measure_raises():
 
     with pytest.raises(ValueError, match="No visuals with extents"):
         axis_values_from_viewer(viewer)
+
+
+def test_an_axis_only_broadcast_visuals_reach_falls_back_to_the_origin():
+    """A broadcast axis has no extent, so a slider range needs a fallback.
+
+    Ranges come from ``cellier.scene._bounds``, which skips broadcast axes
+    rather than reading the zero row's translation off them.  With nothing
+    else reaching ``c`` the range falls back to the origin -- where the zero
+    row put it before -- and the other axes are unaffected.
+    """
+    from uuid import UUID
+
+    from cellier.transform import AffineTransform
+
+    viewer = Viewer([("c", "channel"), *spatial_axes("z", "y", "x")])
+    _add_image(viewer, np.zeros((4, 6, 8), dtype=np.float32))
+    (visual,) = viewer.scene.visuals
+    store = viewer.controller.get_data_store(UUID(visual.data_store_id))
+    data = store.data_coordinate_system
+    world = viewer.scene.dims.world_coordinate_system
+    visual.transform = AffineTransform.from_axis_map(
+        data,
+        world,
+        axis_map={data.axes[i].id: world.axes[i + 1].id for i in range(3)},
+        broadcast_output_axes=(world.axes[0].id,),
+    )
+
+    ranges = axis_values_from_viewer(viewer)
+
+    assert ranges[0] == ContinuousAxisValues(min=0.0, max=0.0)
+    assert ranges[1] == ContinuousAxisValues(min=-0.5, max=3.5)

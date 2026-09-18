@@ -73,6 +73,37 @@ class AppearanceControls:
 
 
 @dataclass
+class OverlayControls:
+    """Dock spec: appearance controls for the viewer's overlays.
+
+    One target per overlay -- scene overlays and canvas overlays alike, in
+    the order :attr:`Viewer.overlays` lists them -- each titled with the
+    overlay's name.  The dock follows the viewer as overlays are added and
+    removed through ``add_scene_overlay`` / ``add_canvas_overlay`` /
+    ``remove_overlay``.
+
+    Parameters
+    ----------
+    presentation : "selector" or "collapsible_sections"
+        How the dock presents several overlays; see
+        :class:`AppearanceControls`.  Defaults to ``"collapsible_sections"``:
+        overlays have few controls each, so showing them all at once costs
+        little.
+    """
+
+    presentation: AppearancePresentation = "collapsible_sections"
+
+    def __post_init__(self) -> None:
+        """Reject an unknown presentation here rather than at render time."""
+        valid = get_args(AppearancePresentation)
+        if self.presentation not in valid:
+            raise ValueError(
+                f"{self.presentation!r} is not a valid OverlayControls "
+                f"presentation. Valid presentations: {list(valid)}."
+            )
+
+
+@dataclass
 class RenderControls:
     """Dock spec: one panel per renderer post-processing feature.
 
@@ -110,7 +141,8 @@ class Layout:
         view, so it does not need a dock of its own.
     left_dock, right_dock, top_dock, bottom_dock :
         Content for each dock region.  Accepts :class:`AppearanceControls`,
-        :class:`RenderControls`, or a stack of those.  ``None`` hides the dock.
+        :class:`OverlayControls`, :class:`RenderControls`, or a stack of
+        those.  ``None`` hides the dock.
     """
 
     center: object

@@ -597,6 +597,64 @@ def _control_targets(viewer: object) -> list[ControlTarget]:
     ]
 
 
+OVERLAY_PLACEHOLDER = "No overlays"
+"""What an overlay dock says while the viewer has no overlays."""
+
+
+def overlay_targets(viewer: object) -> list[ControlTarget]:
+    """Every overlay an ``OverlayControls()`` dock can drive.
+
+    In :attr:`Viewer.overlays` order.  Overlays of a type with no controls
+    table entry are skipped rather than offered with an empty panel.  The
+    target's ``visual`` slot holds the overlay model and ``config`` is
+    ``None``: an overlay has no ``controls=`` config, and its controls are
+    fixed by its type.
+    """
+    from cellier.gui._overlay_fields import OVERLAY_CONTROLS
+
+    overlays = [
+        overlay
+        for overlay in getattr(viewer, "overlays", ()) or ()
+        if getattr(overlay, "overlay_type", None) in OVERLAY_CONTROLS
+    ]
+    labels = unique_labels([str(overlay.name) for overlay in overlays])
+    return [
+        ControlTarget(overlay.id, label, overlay, None, [overlay.id])
+        for overlay, label in zip(overlays, labels)
+    ]
+
+
+def overlay_control_specs(overlay: object) -> list[ControlSpec]:
+    """The controls for one overlay, in display order.
+
+    Each spec's ``kind`` is the dotted field path the control writes, which
+    is also the key of ``OVERLAY_FIELD_WIDGETS``.  ``values`` carries the
+    initial value read off the model and, for a ``Literal`` field, the
+    choices it admits.
+    """
+    from cellier.gui._appearance_fields import literal_choices
+    from cellier.gui._overlay_fields import (
+        OVERLAY_CONTROLS,
+        OVERLAY_FIELD_WIDGETS,
+        overlay_field_value,
+    )
+
+    specs = []
+    for field in OVERLAY_CONTROLS.get(getattr(overlay, "overlay_type", ""), ()):
+        values: dict[str, object] = {
+            "initial_value": overlay_field_value(overlay, field)
+        }
+        parent_path, _, attribute = field.rpartition(".")
+        if parent_path:
+            choices = literal_choices(
+                overlay_field_value(overlay, parent_path), attribute
+            )
+            if choices:
+                values["choices"] = choices
+        specs.append(ControlSpec(field, OVERLAY_FIELD_WIDGETS[field][1], values))
+    return specs
+
+
 def _group_name(controller: object, visual: object, visual_ids: list) -> str:
     """The name a visual group goes by.
 
@@ -724,7 +782,7 @@ def unsupported_dock_node(spec: object) -> TypeError:
     """
     return TypeError(
         f"Cannot render {type(spec).__name__!r} in a dock. Docks accept "
-        "AppearanceControls, RenderControls, or an HStack / "
+        "AppearanceControls, OverlayControls, RenderControls, or an HStack / "
         "VStack of those. Grid is a center-only node."
     )
 

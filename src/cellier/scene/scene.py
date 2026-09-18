@@ -12,6 +12,7 @@ from pydantic import UUID4, AfterValidator, Field, PrivateAttr, field_serializer
 from cellier.scene._background import BackgroundAppearance
 from cellier.scene.canvas import Canvas
 from cellier.scene.dims import DimsManager
+from cellier.visuals._overlay_types import SceneOverlayType
 from cellier.visuals._types import VisualType
 
 
@@ -77,6 +78,13 @@ class Scene(EventedModel):
     background : BackgroundAppearance
         Appearance of the background drawn behind this scene's visuals.
         Mutating its fields updates the render layer at runtime.
+    overlays : list[SceneOverlayType]
+        World-space overlays attached to this scene, such as a
+        :class:`~cellier.visuals.SceneBoundingBox`.  Drawn by the scene
+        camera in the main pass.  Add and remove them through the controller
+        (``add_scene_overlay`` / ``remove_overlay``) so the render layer
+        follows; appending here directly only takes effect when the scene is
+        registered.
     """
 
     id: UUID4 | Annotated[str, AfterValidator(lambda x: uuid.UUID(x, version=4))] = (
@@ -92,6 +100,7 @@ class Scene(EventedModel):
     render_modes: set[Literal["2d", "3d"]] = Field(default_factory=lambda: {"2d", "3d"})
     lighting: Literal["none", "default"] = "none"
     background: BackgroundAppearance = Field(default_factory=BackgroundAppearance)
+    overlays: list[SceneOverlayType] = Field(default_factory=list)
 
     # The background model the relay below is currently attached to.  Needed
     # to tell a nested field change (which re-emits events.background) apart

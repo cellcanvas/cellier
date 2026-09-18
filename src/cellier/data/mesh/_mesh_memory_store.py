@@ -101,6 +101,12 @@ class MeshMemoryStore(BaseDataStore):
     """
 
     store_type: Literal["mesh_memory"] = "mesh_memory"
+    # Reassigning these announces a change on ``data_changed``
+    # (plans/store_change_events.md): positions move the extent.
+    _EXTENT_FIELDS: ClassVar[frozenset[str]] = frozenset({"positions"})
+    _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"indices", "colors", "colors_layout"}
+    )
     DATASET_INFO_LABEL: ClassVar[str] = "in-memory mesh"
     name: str = "mesh_memory_store"
     positions: np.ndarray
@@ -214,7 +220,7 @@ class MeshMemoryStore(BaseDataStore):
         store is empty.  See
         :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
         """
-        return geometry_axis_extents(self.positions)
+        return self._cached_axis_extents(lambda: geometry_axis_extents(self.positions))
 
     @property
     def n_faces(self) -> int:

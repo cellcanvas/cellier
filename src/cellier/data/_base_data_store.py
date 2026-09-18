@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar
 from uuid import uuid4
 
 import numpy as np
-from psygnal import EventedModel
-from pydantic import UUID4, AfterValidator, Field, model_validator
+from psygnal import EventedModel, Signal
+from pydantic import UUID4, AfterValidator, Field, PrivateAttr, model_validator
 
 from cellier.data._axes import identity_transform, install_level_transforms
+from cellier.data._changes import STORE_CHANGE_KINDS, StoreChange
 from cellier.data._dataset_info import DatasetInfo, RowSection
 from cellier.transform import (  # noqa: TC001
     AffineTransform,
@@ -18,7 +19,9 @@ from cellier.transform import (  # noqa: TC001
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
+
+    from cellier.data._changes import DataRegion, StoreChangeKind
 
 #: The extents of an axis that carries no data at all.
 #:
@@ -148,7 +151,26 @@ class BaseDataStore(EventedModel):
     ----------
     id : str
         The unique identifier for the data store.
+    data_changed : Signal
+        Emits a :class:`~cellier.data._changes.StoreChange` whenever the
+        store's data changes: automatically when a data field is reassigned,
+        and on :meth:`notify_changed` after an in-place write.  A controller
+        that registers the store relays it to the event bus and reslices the
+        visuals reading the store (``plans/store_change_events.md``).
+        Changes must happen on the main thread.
     """
+
+    data_changed: ClassVar[Signal] = Signal(object)
+
+    #: Data fields whose reassignment can move the store's extent.
+    _EXTENT_FIELDS: ClassVar[frozenset[str]] = frozenset()
+    #: Data fields whose reassignment changes values but not the extent.
+    _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset()
+
+    # ``(axis_extents,)`` once computed, ``None`` when stale.  A 1-tuple
+    # rather than a sentinel because ``NO_EXTENT`` is itself ``None`` and a
+    # sentinel object would not survive a deep copy's identity check.
+    _axis_extents_cache: tuple | None = PrivateAttr(default=None)
 
     # store a UUID to identify this specific scene.
     id: UUID4 | Annotated[str, AfterValidator(lambda x: uuid.UUID(x, version=4))] = (
@@ -197,6 +219,103 @@ class BaseDataStore(EventedModel):
                     f"id, or omit id= and the store adopts it."
                 )
         return self
+
+    # -- change announcements -------------------------------------------
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Assign a field, announcing the change when it is a data field.
+
+        A class-level hook rather than a connection to ``self.events`` made
+        in ``model_post_init``: ``model_copy(deep=True)`` -- which
+        ``to_model`` and ``from_model`` use -- runs no ``model_post_init``, so
+        a connection would silently go missing on every copy.  Construction
+        assigns through ``__dict__`` and announces nothing.
+        """
+        tracked = name in self._EXTENT_FIELDS or name in self._CONTENTS_FIELDS
+        old = self.__dict__.get(name) if tracked else None
+        super().__setattr__(name, value)
+        if tracked:
+            kind = self._change_kind(name, old, getattr(self, name))
+            if kind is not None:
+                self.notify_changed(kind)
+
+    def _change_kind(self, name: str, old: Any, new: Any) -> StoreChangeKind | None:
+        """Which kind of change reassigning data field *name* is.
+
+        The default reads the class tables.  A store whose answer depends on
+        the values -- an image whose ``data`` may or may not change shape --
+        overrides this.  ``None`` announces nothing.
+        """
+        if name in self._EXTENT_FIELDS:
+            return "extent"
+        if name in self._CONTENTS_FIELDS:
+            return "contents"
+        return None
+
+    def notify_changed(
+        self,
+        kind: StoreChangeKind = "contents",
+        regions: Sequence[DataRegion] | None = None,
+    ) -> None:
+        """Announce that the store's data changed.
+
+        Reassigning a data field announces itself; call this after an
+        **in-place** write, which nothing can see -- ``store.data[...] = v``
+        or ``store.positions[:] = p``.
+
+        Parameters
+        ----------
+        kind : "extent" or "contents"
+            ``"extent"`` when the data may now occupy a different region of
+            data space (vertices moved, the shape changed, the store grew);
+            ``"contents"`` when only values changed within the same region.
+            When unsure, pass ``"extent"``.
+        regions : Sequence[DataRegion] or None
+            Where the data changed, as per-axis ``(start, stop)`` in level-0
+            data coordinates.  ``None`` (the default) means anywhere.
+
+        Raises
+        ------
+        ValueError
+            If *kind* is not one of the two kinds.
+        """
+        if kind not in STORE_CHANGE_KINDS:
+            raise ValueError(
+                f"Unknown store change kind {kind!r}; expected one of "
+                f"{list(STORE_CHANGE_KINDS)}."
+            )
+        normalized = (
+            None
+            if regions is None
+            else tuple(
+                tuple((float(start), float(stop)) for start, stop in region)
+                for region in regions
+            )
+        )
+        self._invalidate_caches(kind)
+        self.data_changed.emit(StoreChange(kind, normalized))
+
+    def _invalidate_caches(self, kind: StoreChangeKind) -> None:
+        """Drop state derived from the data before the change is announced.
+
+        Runs before ``data_changed`` fires, so a listener that reads the store
+        in response sees fresh values.  Subclasses with caches of their own
+        extend this.
+        """
+        if kind == "extent":
+            self._axis_extents_cache = None
+
+    def _cached_axis_extents(
+        self, compute: Callable[[], tuple[tuple[float, float], ...] | None]
+    ) -> tuple[tuple[float, float], ...] | None:
+        """Return the cached extent, computing it with *compute* when stale.
+
+        For stores whose extent costs a pass over the data (the geometry
+        stores' min/max).  Cleared by an ``"extent"`` change.
+        """
+        if self._axis_extents_cache is None:
+            self._axis_extents_cache = (compute(),)
+        return self._axis_extents_cache[0]
 
     def model_post_init(self, __context: Any) -> None:
         """Check the systems passed at construction and install their transforms.
@@ -346,10 +465,11 @@ class BaseDataStore(EventedModel):
         Geometry stores use :func:`geometry_axis_extents` -- the bounding
         box of their vertices, with no padding, because a vertex is a point.
 
-        **Staleness is not defended against.**  A geometry store whose
-        ``positions`` are reassigned may report an extent computed from the
-        previous array.  This is a knowing limitation of this pass, not an
-        oversight; nothing subscribes to the field to invalidate a cache.
+        **Cached by geometry stores.**  Their extent is a pass over every
+        vertex, so they compute it once and keep it until an ``"extent"``
+        change (``notify_changed``, or reassigning ``positions``).  An
+        in-place write to ``positions`` without ``notify_changed("extent")``
+        leaves the cached extent stale, by contract.
 
         Returns
         -------

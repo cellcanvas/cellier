@@ -109,6 +109,31 @@ class AABBUpdateEvent(NamedTuple):
     value: Any
 
 
+class OverlayUpdateEvent(NamedTuple):
+    """Request to set one field on an overlay model.
+
+    Serves both overlay categories: the controller finds the overlay by id,
+    whichever canvas or scene holds it.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``OverlayChangedEvent``.
+    overlay_id :
+        Target overlay.
+    field :
+        Dotted path on the overlay model, e.g. ``"visible"`` or
+        ``"appearance.color"``.
+    value :
+        New value for the field.
+    """
+
+    source_id: UUID
+    overlay_id: UUID
+    field: str
+    value: Any
+
+
 class ChannelAppearanceUpdateEvent(NamedTuple):
     """Request to set one appearance field on one channel of an image visual.
 
@@ -275,6 +300,7 @@ CellierUpdateEventTypes = (
     | DimsUpdateEvent
     | SliderOverrideUpdateEvent
     | AABBUpdateEvent
+    | OverlayUpdateEvent
     | ChannelAppearanceUpdateEvent
     | SingleAppearanceUpdateEvent
     | ImageCompositeUpdateEvent

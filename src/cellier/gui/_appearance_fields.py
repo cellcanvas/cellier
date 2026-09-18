@@ -20,7 +20,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, get_args
 
-from cellier.events import AppearanceChangedEvent, VisualVisibilityChangedEvent
+from cellier.events import (
+    AppearanceChangedEvent,
+    AppearanceUpdateEvent,
+    VisualVisibilityChangedEvent,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -65,6 +69,26 @@ class AppearanceFieldSpec:
         if getattr(event, "field_name", None) != self.name:
             return NO_MATCH
         return event.new_value
+
+    def outbound_event(self, source_id: UUID, target_id: UUID, value: Any) -> Any:
+        """Build the update event that asks the controller for *value*.
+
+        The spec builds it, not the widget base, so a control type can drive
+        something other than a visual appearance -- an overlay field, say --
+        by swapping the spec alone (``cellier.gui._overlay_fields``).
+
+        Parameters
+        ----------
+        source_id : UUID
+            The widget's id, stamped for echo filtering.
+        target_id : UUID
+            The visual the change is for.
+        value : Any
+            The new value.
+        """
+        return AppearanceUpdateEvent(
+            source_id=source_id, visual_id=target_id, field=self.name, value=value
+        )
 
 
 @dataclass(frozen=True)

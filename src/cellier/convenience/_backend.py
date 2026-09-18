@@ -49,6 +49,10 @@ class GuiBackend(Protocol):
         """Build one of the single-field appearance controls."""
         ...
 
+    def overlay_field_widget(self, spec: ControlSpec, overlay_ids: list) -> WidgetView:
+        """Build one overlay control; ``spec.kind`` is the field path."""
+        ...
+
     def render_panel(self, section: str, config: Any, **kwargs) -> WidgetView:
         """Build the panel for one render-config section."""
         ...
@@ -130,6 +134,16 @@ class _QtBackend:
             title, widgets, expanded=expanded, gap=APPEARANCE_DOCK_GAP_PX
         )
 
+    def overlay_field_widget(self, spec: ControlSpec, overlay_ids: list) -> WidgetView:
+        """Build one overlay control from ``OVERLAY_FIELD_WIDGETS``."""
+        from cellier.gui._overlay_fields import overlay_field_widget_class
+
+        widget_class = overlay_field_widget_class(spec.kind, "qt")
+        kwargs: dict[str, Any] = {"initial_value": spec.values["initial_value"]}
+        if "choices" in spec.values:
+            kwargs["choices"] = spec.values["choices"]
+        return widget_class(overlay_ids, parent=None, **kwargs)
+
     def render_panel(self, section: str, config: Any, **kwargs) -> WidgetView:
         from cellier.gui.qt.render import (
             QtAmbientOcclusionControls,
@@ -193,6 +207,16 @@ class _AnywidgetBackend:
         return AnywidgetCollapsibleSection(
             title, widgets, expanded=expanded, gap=APPEARANCE_DOCK_GAP_PX
         )
+
+    def overlay_field_widget(self, spec: ControlSpec, overlay_ids: list) -> WidgetView:
+        """Build one overlay control from ``OVERLAY_FIELD_WIDGETS``."""
+        from cellier.gui._overlay_fields import overlay_field_widget_class
+
+        widget_class = overlay_field_widget_class(spec.kind, "anywidget")
+        kwargs: dict[str, Any] = {"initial_value": spec.values["initial_value"]}
+        if "choices" in spec.values:
+            kwargs["choices"] = spec.values["choices"]
+        return widget_class(overlay_ids, **kwargs)
 
     def render_panel(self, section: str, config: Any, **kwargs) -> WidgetView:
         from cellier.gui.anywidget.render import (

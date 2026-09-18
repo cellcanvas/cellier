@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
     from cellier.render.visuals._mesh_memory import GFXMeshMemoryVisual
     from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
+    from cellier.render.visuals._scene_overlay import GFXSceneOverlay
 
     _GFXVisual = (
         GFXMultiscaleImageVisual
@@ -75,6 +76,10 @@ class SceneManager:
         )
         self._visuals: dict[UUID, _GFXVisual] = {}
         self._active_nodes: dict[UUID, gfx.WorldObject | None] = {}
+        # Scene overlays, keyed by overlay model id.  Their nodes live in the
+        # same gfx.Scene as the visuals but are not visuals: they are never
+        # sliced and never picked.
+        self._overlays: dict[UUID, GFXSceneOverlay] = {}
         # Per-visual store extents, for the out-of-domain check in
         # build_slice_requests.  Absent means "not known", which never skips.
         self._axis_extents: dict[UUID, Sequence[tuple[float, float]] | None] = {}
@@ -168,6 +173,23 @@ class SceneManager:
         self._visuals[visual.visual_model_id] = visual
         self._active_nodes[visual.visual_model_id] = node
 
+    def set_axis_extents(
+        self,
+        visual_id: UUID,
+        axis_extents: Sequence[tuple[float, float]] | None,
+    ) -> None:
+        """Replace a visual's store extents after its store's extent changed.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            ID of a registered visual.  An unknown id is ignored.
+        axis_extents : Sequence[tuple[float, float]] or None
+            The store's new level-0 extents, or ``None`` for "not known".
+        """
+        if visual_id in self._visuals:
+            self._axis_extents[visual_id] = axis_extents
+
     def get_active_node(self, visual_id: UUID) -> gfx.WorldObject | None:
         """Return the node currently active in the scene for *visual_id*.
 
@@ -209,6 +231,35 @@ class SceneManager:
             self._scene.add(new_node)
 
         self._active_nodes[visual_id] = new_node
+
+    def add_overlay(self, overlay_id: UUID, overlay: GFXSceneOverlay) -> None:
+        """Register a scene overlay and add its node to the scene graph.
+
+        Parameters
+        ----------
+        overlay_id : UUID
+            ID of the overlay's model.
+        overlay : GFXSceneOverlay
+            The render-layer overlay.
+        """
+        self._overlays[overlay_id] = overlay
+        self._scene.add(overlay.node)
+
+    def remove_overlay(self, overlay_id: UUID) -> None:
+        """Unregister a scene overlay and remove its node from the scene graph.
+
+        Parameters
+        ----------
+        overlay_id : UUID
+            ID of the overlay's model.  An unknown id is ignored.
+        """
+        overlay = self._overlays.pop(overlay_id, None)
+        if overlay is not None:
+            self._scene.remove(overlay.node)
+
+    def get_overlay(self, overlay_id: UUID) -> GFXSceneOverlay | None:
+        """Return the render-layer scene overlay for *overlay_id*, if any."""
+        return self._overlays.get(overlay_id)
 
     def remove_visual(self, visual_id: UUID) -> None:
         """Unregister a visual and remove its node from the scene graph.

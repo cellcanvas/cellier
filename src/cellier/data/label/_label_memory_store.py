@@ -14,6 +14,7 @@ from cellier.data._dataset_info import (
 )
 
 if TYPE_CHECKING:
+    from cellier.data._changes import StoreChangeKind
     from cellier.data.image._image_requests import ChunkRequest
 
 _ACCEPTED_DTYPE_TYPES = {np.int8, np.int16, np.int32}
@@ -55,6 +56,10 @@ class LabelMemoryStore(BaseDataStore):
     """
 
     store_type: Literal["label_memory"] = "label_memory"
+    # ``data`` announces a change on ``data_changed`` when reassigned:
+    # ``extent`` if its shape changed, ``contents`` otherwise
+    # (plans/store_change_events.md).
+    _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset({"data"})
     DATASET_INFO_LABEL: ClassVar[str] = "in-memory labels"
     name: str = "label_memory_store"
     data: np.ndarray
@@ -121,6 +126,12 @@ class LabelMemoryStore(BaseDataStore):
         original width rather than widening every label array to int64.
         """
         return {"dtype": array.dtype.name, "values": array.tolist()}
+
+    def _change_kind(self, name: str, old: Any, new: Any) -> StoreChangeKind | None:
+        """``data`` of a new shape moves the extent; the same shape does not."""
+        if name == "data" and np.shape(old) != np.shape(new):
+            return "extent"
+        return super()._change_kind(name, old, new)
 
     @property
     def ndim(self) -> int:

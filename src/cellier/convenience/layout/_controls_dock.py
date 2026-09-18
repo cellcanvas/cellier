@@ -40,6 +40,9 @@ if TYPE_CHECKING:
 SELECTOR_TITLE = "Visual"
 """The selector row's label."""
 
+OVERLAY_SELECTOR_TITLE = "Overlay"
+"""The selector row's label in an overlay dock."""
+
 APPEARANCE_PLACEHOLDER = "No visuals with appearance controls"
 """What an appearance dock says while no visual has an appearance config."""
 
@@ -86,6 +89,8 @@ class ControlsDock:
         What the dock says while it has no targets.
     presentation :
         :data:`SELECTOR` (default) or :data:`COLLAPSIBLE_SECTIONS`.
+    selector_title :
+        The selector row's label.  Defaults to :data:`SELECTOR_TITLE`.
     """
 
     def __init__(
@@ -97,8 +102,10 @@ class ControlsDock:
         build: Callable[[ControlTarget], list],
         placeholder: str,
         presentation: str = SELECTOR,
+        selector_title: str = SELECTOR_TITLE,
     ) -> None:
         self._viewer = viewer
+        self._selector_title = selector_title
         self._host = host
         self._resolve = resolve
         self._build = build
@@ -327,7 +334,7 @@ class ControlsDock:
             )
             if self._selector is None:
                 self._selector = self._host.backend.target_selector(
-                    labels, index, title=SELECTOR_TITLE
+                    labels, index, title=self._selector_title
                 )
                 self._selector.selected.connect(self._on_selector)
             else:

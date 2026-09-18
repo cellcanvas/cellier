@@ -9,8 +9,11 @@ from cellier.controller import CellierController
 from cellier.convenience._controls_registry import ControlsRegistryMixin
 from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
+from cellier.events import CanvasAddedEvent
 from cellier.render._capture import write_png
 from cellier.scene.dims import WorldAxesLike, world_coordinate_system
+from cellier.visuals._canvas_overlay import CanvasOverlay
+from cellier.visuals._scene_overlay import SceneOverlay
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -136,6 +139,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         # Controls configs recorded by the add_* methods, read by the layout
         # docks; kept current as visuals are removed.
         self._init_controls_registry()
+        self._init_overlays()
 
     # ------------------------------------------------------------------
     # Public properties
@@ -172,6 +176,155 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     @background.setter
     def background(self, value: BackgroundAppearance) -> None:
         self._scene.background = value
+
+    # ------------------------------------------------------------------
+    # Overlays
+    # ------------------------------------------------------------------
+
+    def _init_overlays(self) -> None:
+        """Start holding canvas overlays requested before a canvas exists.
+
+        A convenience viewer builds its canvas late -- in ``add_canvas`` or
+        the layout builders -- so a canvas overlay added first is kept here
+        and attached to the first canvas when ``CanvasAddedEvent`` announces
+        it.  The subscription is weak so a dropped viewer is not kept alive
+        by a controller that outlives it.
+        """
+        self._pending_canvas_overlays: list[CanvasOverlay] = []
+        self._controller._outgoing_events.subscribe(
+            CanvasAddedEvent,
+            self._attach_pending_canvas_overlays,
+            entity_id=self._scene.id,
+            weak=True,
+        )
+
+    @property
+    def overlays(self) -> tuple[CanvasOverlay | SceneOverlay, ...]:
+        """Every overlay on this viewer, scene overlays first.
+
+        Scene overlays in add order, then the canvas overlays of each canvas
+        in creation order, then any canvas overlay still waiting for a canvas.
+        """
+        canvas_overlays = [
+            overlay
+            for canvas_id in self.canvases
+            for overlay in self._scene.canvases[canvas_id].overlays
+        ]
+        return (
+            *self._scene.overlays,
+            *canvas_overlays,
+            *self._pending_canvas_overlays,
+        )
+
+    def add_scene_overlay(self, overlay: SceneOverlay) -> SceneOverlay:
+        """Add a world-space overlay to this viewer's scene.
+
+        A scene overlay is drawn in the scene's world by the scene camera and
+        follows the scene's contents -- see
+        :meth:`~cellier.controller.CellierController.add_scene_overlay`.
+        Its fields are live afterwards::
+
+            box = viewer.add_scene_overlay(SceneBoundingBox(name="box"))
+            box.appearance.color = (1.0, 0.0, 0.0, 1.0)
+            box.visible = False
+
+        Parameters
+        ----------
+        overlay : SceneOverlay
+            The overlay model, e.g. a :class:`~cellier.visuals.SceneBoundingBox`.
+
+        Returns
+        -------
+        SceneOverlay
+            The same model.
+
+        Raises
+        ------
+        TypeError
+            If *overlay* is not a scene overlay.
+        """
+        if not isinstance(overlay, SceneOverlay):
+            raise TypeError(
+                f"add_scene_overlay takes a SceneOverlay, got "
+                f"{type(overlay).__name__}.  Canvas overlays go through "
+                "add_canvas_overlay."
+            )
+        self._controller.add_scene_overlay(self._scene.id, overlay)
+        self._controls_changed.emit()
+        return overlay
+
+    def add_canvas_overlay(self, overlay: CanvasOverlay) -> CanvasOverlay:
+        """Add a screen-space overlay to this viewer's canvas.
+
+        Attached to the viewer's first canvas.  Before any canvas exists --
+        the usual case, since ``launch`` / ``show`` / ``display`` build it --
+        the overlay is held and attached as soon as the canvas is created.
+        Its fields are live once attached.
+
+        Parameters
+        ----------
+        overlay : CanvasOverlay
+            The overlay model, e.g. a :class:`~cellier.visuals.CenteredAxes2D`.
+
+        Returns
+        -------
+        CanvasOverlay
+            The same model.
+
+        Raises
+        ------
+        TypeError
+            If *overlay* is not a canvas overlay.
+        """
+        if not isinstance(overlay, CanvasOverlay):
+            raise TypeError(
+                f"add_canvas_overlay takes a CanvasOverlay, got "
+                f"{type(overlay).__name__}.  Scene overlays go through "
+                "add_scene_overlay."
+            )
+        canvases = self.canvases
+        if canvases:
+            self._controller.add_canvas_overlay(canvases[0], overlay)
+        else:
+            self._pending_canvas_overlays.append(overlay)
+        self._controls_changed.emit()
+        return overlay
+
+    def remove_overlay(self, overlay: CanvasOverlay | SceneOverlay | UUID) -> None:
+        """Remove an overlay of either category.
+
+        Parameters
+        ----------
+        overlay : CanvasOverlay, SceneOverlay or UUID
+            The overlay model, or its id.
+
+        Raises
+        ------
+        KeyError
+            If the overlay is not on this viewer.
+        """
+        overlay_id = overlay if isinstance(overlay, UUID) else overlay.id
+        pending = [o for o in self._pending_canvas_overlays if o.id == overlay_id]
+        if pending:
+            self._pending_canvas_overlays = [
+                o for o in self._pending_canvas_overlays if o.id != overlay_id
+            ]
+        else:
+            if not any(o.id == overlay_id for o in self.overlays):
+                raise KeyError(f"No overlay with id={overlay_id!r} on this viewer.")
+            self._controller.remove_overlay(overlay_id)
+        self._controls_changed.emit()
+
+    def _attach_pending_canvas_overlays(self, event: CanvasAddedEvent) -> None:
+        """Attach the held canvas overlays to the viewer's first canvas."""
+        if not self._pending_canvas_overlays:
+            return
+        pending, self._pending_canvas_overlays = self._pending_canvas_overlays, []
+        for overlay in pending:
+            self._controller.add_canvas_overlay(event.canvas_id, overlay)
+        # The overlays were already listed while pending, but a dock built
+        # against them before the canvas existed may want to rebuild.
+        self._controls_changed.emit()
 
     # ------------------------------------------------------------------
     # Readiness
@@ -520,6 +673,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         obj._scene = scene
         obj._ready_callbacks: list[Callable[[], None]] = []
         obj._init_controls_registry()
+        obj._init_overlays()
         return obj
 
     # ------------------------------------------------------------------

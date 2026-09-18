@@ -667,6 +667,18 @@ class CanvasView:
         """
         self._overlays.append(overlay)
 
+    def remove_overlay(self, overlay: GFXCanvasOverlay) -> None:
+        """Detach a screen-space overlay from this canvas.
+
+        Parameters
+        ----------
+        overlay : GFXCanvasOverlay
+            The render-layer overlay to detach.  An overlay that is not
+            attached is ignored.
+        """
+        if overlay in self._overlays:
+            self._overlays.remove(overlay)
+
     def invalidate_accumulation(self) -> None:
         """Discard the temporal accumulation history before the next frame.
 

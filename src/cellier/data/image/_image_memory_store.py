@@ -15,6 +15,7 @@ from cellier.data._dataset_info import (
 )
 
 if TYPE_CHECKING:
+    from cellier.data._changes import StoreChangeKind
     from cellier.data.image._image_requests import ChunkRequest
 
 
@@ -52,6 +53,10 @@ class ImageMemoryStore(BaseDataStore):
     """
 
     store_type: Literal["image_memory"] = "image_memory"
+    # ``data`` announces a change on ``data_changed`` when reassigned:
+    # ``extent`` if its shape changed, ``contents`` otherwise
+    # (plans/store_change_events.md).
+    _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset({"data"})
     DATASET_INFO_LABEL: ClassVar[str] = "in-memory image"
     name: str = "image_memory_store"
     data: np.ndarray
@@ -77,6 +82,12 @@ class ImageMemoryStore(BaseDataStore):
     # ------------------------------------------------------------------
     # Read-only properties (used by CellierController.add_image)
     # ------------------------------------------------------------------
+
+    def _change_kind(self, name: str, old: Any, new: Any) -> StoreChangeKind | None:
+        """``data`` of a new shape moves the extent; the same shape does not."""
+        if name == "data" and np.shape(old) != np.shape(new):
+            return "extent"
+        return super()._change_kind(name, old, new)
 
     @property
     def ndim(self) -> int:

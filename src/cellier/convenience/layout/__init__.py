@@ -22,6 +22,7 @@ from cellier.convenience.layout._spec import (
     Grid,
     HStack,
     Layout,
+    OverlayControls,
     RenderControls,
     VStack,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "Grid",
     "HStack",
     "Layout",
+    "OverlayControls",
     "RenderControls",
     "VStack",
 ]

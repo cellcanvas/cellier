@@ -20,8 +20,9 @@ class SyncPaintController(AbstractPaintController):
     """Paint controller for :class:`LabelMemoryStore`.
 
     Directly and synchronously mutates the backing numpy array on every
-    brush application, then calls
-    :meth:`CellierController.reslice_scene` so the display updates
+    brush application, then announces the write with
+    ``store.notify_changed("contents", regions=...)``; the controller
+    reslices every visual reading the store, so the display updates
     immediately.  Suitable for testing and in-memory annotation
     workflows.
 
@@ -92,10 +93,24 @@ class SyncPaintController(AbstractPaintController):
         return self._data_store.data[idx].copy()
 
     def _write_values(self, voxel_indices: np.ndarray, values: np.ndarray) -> None:
-        """Write directly to the backing numpy array and reslice."""
+        """Write directly to the backing numpy array and announce the write.
+
+        An in-place write is invisible to the store, so it is announced
+        explicitly: a ``contents`` change over the painted voxels' bounding
+        box.  The controller reslices every visual reading the store -- not
+        the whole scene, as this used to.
+        """
         idx = tuple(voxel_indices[:, i] for i in range(voxel_indices.shape[1]))
         self._data_store.data[idx] = values.astype(self._data_store.data.dtype)
-        self._controller.reslice_scene(self._scene_id)
+        if len(voxel_indices) == 0:
+            return
+        region = tuple(
+            (int(low), int(high) + 1)
+            for low, high in zip(
+                voxel_indices.min(axis=0), voxel_indices.max(axis=0), strict=True
+            )
+        )
+        self._data_store.notify_changed("contents", regions=[region])
 
     def _on_stroke_completed(self, command: PaintStrokeCommand) -> None:
         """No background work needed — the array is already up to date."""

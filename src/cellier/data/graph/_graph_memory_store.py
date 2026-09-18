@@ -26,6 +26,7 @@ from cellier.data._dataset_info import (
 from cellier.data.graph._graph_requests import GraphData, GraphSliceRequest
 
 if TYPE_CHECKING:
+    from cellier.data._changes import StoreChangeKind
     from cellier.transform import DataCoordinateSystem
 
 #: Placeholder vertex counts for an empty slice.  pygfx forbids empty
@@ -154,6 +155,22 @@ class GraphMemoryStore(BaseDataStore):
     """
 
     store_type: Literal["graph_memory"] = "graph_memory"
+    # Reassigning these announces a change on ``data_changed``
+    # (plans/store_change_events.md): positions move the extent.
+    _EXTENT_FIELDS: ClassVar[frozenset[str]] = frozenset({"positions"})
+    _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "edges",
+            "node_ids",
+            "node_colors",
+            "node_sizes",
+            "edge_colors",
+            "axis_scales",
+            "axis_offsets",
+            "directed",
+            "slice_strategy",
+        }
+    )
     DATASET_INFO_LABEL: ClassVar[str] = "in-memory graph"
     name: str = "graph_memory_store"
 
@@ -406,6 +423,20 @@ class GraphMemoryStore(BaseDataStore):
     _node_props: dict = PrivateAttr(default_factory=dict)
     _edge_props: dict = PrivateAttr(default_factory=dict)
 
+    def _invalidate_caches(self, kind: StoreChangeKind) -> None:
+        """Drop the spatial index and edge caches on any data change.
+
+        They are built lazily from ``positions`` and ``edges`` (and the index
+        also from ``node_ids`` and ``directed``), and were never invalidated
+        before stores announced their changes: reassigning ``positions`` left
+        slicing on the old geometry.  Rebuilding is lazy, so clearing on
+        every change costs nothing until the next query.
+        """
+        super()._invalidate_caches(kind)
+        self._graph = None
+        self._edge_span = None
+        self._edge_row_lookup = None
+
     @property
     def axes(self) -> list:
         """The geff ``Axis`` objects in file order; empty for raw arrays."""
@@ -439,7 +470,7 @@ class GraphMemoryStore(BaseDataStore):
         store is empty.  See
         :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
         """
-        return geometry_axis_extents(self.positions)
+        return self._cached_axis_extents(lambda: geometry_axis_extents(self.positions))
 
     @property
     def n_nodes(self) -> int:

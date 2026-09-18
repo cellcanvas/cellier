@@ -100,6 +100,7 @@ def render_dock(
     from cellier.convenience.layout._spec import (
         AppearanceControls,
         HStack,
+        OverlayControls,
         RenderControls,
         VStack,
     )
@@ -108,6 +109,8 @@ def render_dock(
         return None
     if isinstance(spec, AppearanceControls):
         return _render_appearance_dock(spec, viewer, host, closeables)
+    if isinstance(spec, OverlayControls):
+        return _render_overlay_dock(spec, viewer, host, closeables)
     if isinstance(spec, RenderControls):
         return _render_render_dock(spec, viewer, host, closeables)
     if isinstance(spec, (HStack, VStack)):
@@ -209,6 +212,63 @@ def _render_appearance_dock(
         build=build,
         placeholder=APPEARANCE_PLACEHOLDER,
         presentation=spec.presentation,
+    )
+    closeables.append(dock)
+    return dock.root
+
+
+def build_overlay_widgets(
+    overlay: object,
+    controller: object,
+    overlay_ids: list | None = None,
+    *,
+    backend: object,
+) -> list:
+    """Build and wire the controls for one overlay, on any backend.
+
+    Returns the widgets in display order, each ``connect_widget``-wired.
+    """
+    from cellier.convenience.layout._shared import overlay_control_specs
+
+    overlay_ids = [overlay.id] if overlay_ids is None else list(overlay_ids)
+    built: list = []
+    for spec in overlay_control_specs(overlay):
+        widget = backend.overlay_field_widget(spec, list(overlay_ids))
+        controller.connect_widget(
+            widget, subscription_specs=widget.subscription_specs()
+        )
+        built.append(widget)
+    return built
+
+
+def _render_overlay_dock(
+    spec: object, viewer: object, host: LayoutHost, closeables: list
+) -> object:
+    """Controls for every overlay on the viewer, following adds and removes."""
+    from cellier.convenience.layout._controls_dock import (
+        OVERLAY_SELECTOR_TITLE,
+        ControlsDock,
+    )
+    from cellier.convenience.layout._shared import (
+        OVERLAY_PLACEHOLDER,
+        overlay_targets,
+    )
+
+    controller = viewer.controller
+
+    def build(target) -> list:
+        return build_overlay_widgets(
+            target.visual, controller, target.visual_ids, backend=host.backend
+        )
+
+    dock = ControlsDock(
+        viewer,
+        host,
+        resolve=overlay_targets,
+        build=build,
+        placeholder=OVERLAY_PLACEHOLDER,
+        presentation=spec.presentation,
+        selector_title=OVERLAY_SELECTOR_TITLE,
     )
     closeables.append(dock)
     return dock.root

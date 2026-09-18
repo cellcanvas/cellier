@@ -24,9 +24,10 @@ from uuid import uuid4
 
 from psygnal import Signal
 
-from cellier.events import AppearanceUpdateEvent, SubscriptionSpec
+from cellier.events import SubscriptionSpec
 from cellier.gui._appearance_fields import (
     NO_MATCH,
+    AppearanceFieldSpec,
     appearance_field_spec,
     normalize_visual_ids,
 )
@@ -96,7 +97,7 @@ class QtAppearanceField:
     ) -> None:
         self._id = uuid4()
         self._visual_ids = normalize_visual_ids(visual_id)
-        self._spec = appearance_field_spec(self._field, self._label)
+        self._spec = self._make_spec()
 
         value = self._default_value if initial_value is _UNSET else initial_value
         self._control = self._build(value, parent)
@@ -188,18 +189,21 @@ class QtAppearanceField:
     # ── widget -> model ──────────────────────────────────────────────────────
 
     def _emit(self, value: Any) -> None:
-        """Emit one ``AppearanceUpdateEvent`` per driven visual."""
-        for visual_id in self._visual_ids:
-            self.changed.emit(
-                AppearanceUpdateEvent(
-                    source_id=self._id,
-                    visual_id=visual_id,
-                    field=self._spec.name,
-                    value=value,
-                )
-            )
+        """Emit one update event per driven target, built by the spec."""
+        for target_id in self._visual_ids:
+            self.changed.emit(self._spec.outbound_event(self._id, target_id, value))
 
     # ── Subclass seam ────────────────────────────────────────────────────────
+
+    @classmethod
+    def _make_spec(cls) -> AppearanceFieldSpec:
+        """Return the spec describing the field this class drives.
+
+        An appearance field by default.  Overridden by the overlay field
+        classes (``cellier.gui._overlay_fields.OverlayFieldMixin``), which
+        reuse every layer-2 control unchanged and swap only the spec.
+        """
+        return appearance_field_spec(cls._field, cls._label)
 
     def _build(self, initial_value: Any, parent) -> Any:
         """Construct the Qt control, seeded with *initial_value*.

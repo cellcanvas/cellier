@@ -75,6 +75,22 @@ class GFXCanvasOverlay(ABC):
         """
         ...
 
+    @abstractmethod
+    def apply(self, field_name: str, value: object) -> None:
+        """Apply one model change.
+
+        Parameters
+        ----------
+        field_name : str
+            Dotted path of the changed field: a top-level field such as
+            ``"visible"``, ``"appearance.<field>"``, or ``"appearance"`` when
+            the whole appearance model was replaced (*value* is then the new
+            model).
+        value : object
+            The new value.
+        """
+        ...
+
 
 def _compute_screen_dir(
     direction_world_xyz: tuple[float, float, float],
@@ -176,45 +192,13 @@ class GFXCenteredAxes2D(GFXCanvasOverlay):
         self._overlay_scene.add(self._line)
 
         # ── Optional text labels ──────────────────────────────────────────
+        self._label_a: gfx.Text | None = None
+        self._label_b: gfx.Text | None = None
         if appearance.show_labels:
-            # depth_write=False is required, not cosmetic.  Overlays are
-            # folded into the main frame with ``flush=False``, so they share
-            # the scene's colour *and depth* buffers, and the effect chain
-            # runs once at the end over both.  A label that wrote depth would
-            # leave values produced by ScreenCoordsCamera's projection in a
-            # buffer the ambient occlusion pass unprojects with the *scene*
-            # camera, giving a blob of arbitrary occlusion under the widget.
-            # ``gfx.TextMaterial`` leaves ``depth_write`` on auto, which
-            # resolves to True for its default alpha mode, so it has to be
-            # said explicitly.  The axis lines already do (see above).
-            label_material = gfx.TextMaterial(
-                color=appearance.label_color, depth_write=False
-            )
-            self._label_a: gfx.Text | None = gfx.Text(
-                text=model.axis_a_label,
-                screen_space=True,
-                font_size=appearance.font_size_px,
-                anchor="middleleft",
-                material=label_material,
-            )
-            self._label_b: gfx.Text | None = gfx.Text(
-                text=model.axis_b_label,
-                screen_space=True,
-                font_size=appearance.font_size_px,
-                anchor="topcenter",
-                material=label_material,
-            )
-            self._overlay_scene.add(self._label_a)
-            self._overlay_scene.add(self._label_b)
-        else:
-            self._label_a = None
-            self._label_b = None
+            self._build_labels()
 
-        self._line.visible = model.visible
-        if self._label_a is not None:
-            self._label_a.visible = model.visible
-        if self._label_b is not None:
-            self._label_b.visible = model.visible
+        self._visible = model.visible
+        self.set_visible(model.visible)
 
     # ------------------------------------------------------------------
     # GFXCanvasOverlay interface
@@ -262,11 +246,129 @@ class GFXCenteredAxes2D(GFXCanvasOverlay):
         visible : bool
             ``True`` to show, ``False`` to hide.
         """
-        self._line.visible = visible
+        self._visible = bool(visible)
+        self._line.visible = self._visible
         if self._label_a is not None:
-            self._label_a.visible = visible
+            self._label_a.visible = self._visible
         if self._label_b is not None:
-            self._label_b.visible = visible
+            self._label_b.visible = self._visible
+
+    def apply(self, field_name: str, value: object) -> None:
+        """Apply one model change to the lines and labels.
+
+        Colours, thickness and label styling are written straight to the
+        materials.  Anything that moves the geometry -- the anchor corner,
+        offset and length, or an axis direction -- invalidates the cached
+        canvas size so the next :meth:`on_frame` rebuilds it.
+
+        Parameters
+        ----------
+        field_name : str
+            Dotted path of the changed field.
+        value : object
+            The new value.
+        """
+        if field_name == "visible":
+            self.set_visible(bool(value))
+        elif field_name == "appearance":
+            for name in type(value).model_fields:
+                self.apply(f"appearance.{name}", getattr(value, name))
+        elif field_name in ("appearance.axis_a_color", "appearance.axis_b_color"):
+            self._apply_axis_colors()
+        elif field_name == "appearance.line_thickness_px":
+            self._line.material.thickness = float(value)
+        elif field_name == "appearance.show_labels":
+            if value and self._label_a is None:
+                self._build_labels()
+                self.set_visible(self._visible)
+                self._invalidate_geometry()
+            elif not value and self._label_a is not None:
+                self._remove_labels()
+        elif field_name == "appearance.label_color":
+            if self._label_a is not None:
+                self._label_a.material.color = value
+        elif field_name == "appearance.font_size_px":
+            for label in (self._label_a, self._label_b):
+                if label is not None:
+                    label.font_size = float(value)
+        elif field_name == "axis_a_label":
+            if self._label_a is not None:
+                self._label_a.set_text(str(value))
+        elif field_name == "axis_b_label":
+            if self._label_b is not None:
+                self._label_b.set_text(str(value))
+        elif field_name in (
+            "appearance.corner",
+            "appearance.corner_offset_px",
+            "appearance.length_px",
+            "axis_a_direction",
+            "axis_b_direction",
+        ):
+            self._invalidate_geometry()
+
+    # ------------------------------------------------------------------
+    # Live appearance helpers
+    # ------------------------------------------------------------------
+
+    def _build_labels(self) -> None:
+        """Create both text labels from the model and add them to the scene."""
+        appearance = self._model.appearance
+        # depth_write=False is required, not cosmetic.  Overlays are folded
+        # into the main frame with ``flush=False``, so they share the scene's
+        # colour *and depth* buffers, and the effect chain runs once at the
+        # end over both.  A label that wrote depth would leave values produced
+        # by ScreenCoordsCamera's projection in a buffer the ambient occlusion
+        # pass unprojects with the *scene* camera, giving a blob of arbitrary
+        # occlusion under the widget.  ``gfx.TextMaterial`` leaves
+        # ``depth_write`` on auto, which resolves to True for its default
+        # alpha mode, so it has to be said explicitly.  The axis lines already
+        # do (see above).
+        label_material = gfx.TextMaterial(
+            color=appearance.label_color, depth_write=False
+        )
+        self._label_a = gfx.Text(
+            text=self._model.axis_a_label,
+            screen_space=True,
+            font_size=appearance.font_size_px,
+            anchor="middleleft",
+            material=label_material,
+        )
+        self._label_b = gfx.Text(
+            text=self._model.axis_b_label,
+            screen_space=True,
+            font_size=appearance.font_size_px,
+            anchor="topcenter",
+            material=label_material,
+        )
+        self._overlay_scene.add(self._label_a)
+        self._overlay_scene.add(self._label_b)
+
+    def _remove_labels(self) -> None:
+        """Drop both text labels from the scene."""
+        for label in (self._label_a, self._label_b):
+            if label is not None:
+                self._overlay_scene.remove(label)
+        self._label_a = None
+        self._label_b = None
+
+    def _apply_axis_colors(self) -> None:
+        """Rewrite the per-vertex colours from the model."""
+        appearance = self._model.appearance
+        colors = np.array(
+            [
+                appearance.axis_a_color,
+                appearance.axis_a_color,
+                appearance.axis_b_color,
+                appearance.axis_b_color,
+            ],
+            dtype=np.float32,
+        )
+        self._line.geometry.colors.data[:] = colors
+        self._line.geometry.colors.update_full()
+
+    def _invalidate_geometry(self) -> None:
+        """Force the next :meth:`on_frame` to rebuild positions."""
+        self._last_size = (-1.0, -1.0)
 
     # ------------------------------------------------------------------
     # Geometry rebuild

@@ -297,6 +297,23 @@ class BaseTransform(BaseModel, ABC):
             rotation, which the axis-aligned slicing path cannot express.
         """
 
+    def broadcast_output_axes(self) -> frozenset[UUID4]:
+        """Return the ids of the output axes the input has no extent along.
+
+        A dataset broadcast over an axis occupies *all* of it, not the point
+        its zero matrix row maps to, so a caller measuring where the data is
+        -- a world bounding box, say -- must skip these axes rather than read
+        a mapped coordinate off them.  Structural, like
+        :meth:`axis_correspondence`: a block container answers from its
+        blocks, with no matrix involved.
+
+        Returns
+        -------
+        frozenset[UUID4]
+            Output axis ids.  Empty unless a subclass records broadcasts.
+        """
+        return frozenset()
+
     # -- restriction and affine-ness -----------------------------------
 
     @abstractmethod

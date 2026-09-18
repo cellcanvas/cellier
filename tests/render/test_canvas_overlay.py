@@ -187,3 +187,90 @@ def test_compute_screen_dir_zero_projection_falls_back():
     # projection, triggering the near-zero fallback.
     result = _compute_screen_dir((0.0, 0.0, 1.0), cam)
     np.testing.assert_array_equal(result, np.array([1.0, 0.0], dtype=np.float32))
+
+
+# ---------------------------------------------------------------------------
+# Live model changes (apply)
+# ---------------------------------------------------------------------------
+#
+# The controller's bridge calls ``apply`` after the model field has changed,
+# so these tests mutate the model first and then apply, as it does.
+
+
+def _changed(overlay: GFXCenteredAxes2D, path: str, value) -> None:
+    """Set *path* on the overlay's model, then apply it, like the bridge."""
+    *parents, name = path.split(".")
+    target = overlay._model
+    for parent in parents:
+        target = getattr(target, parent)
+    setattr(target, name, value)
+    overlay.apply(path, value)
+
+
+def test_apply_visible():
+    overlay = _overlay()
+    _changed(overlay, "visible", False)
+    assert overlay._line.visible is False
+    assert overlay._label_a.visible is False
+
+
+def test_apply_axis_colours_rewrites_vertex_colours():
+    overlay = _overlay()
+    _changed(overlay, "appearance.axis_b_color", (0.0, 0.0, 1.0, 1.0))
+    colors = overlay._line.geometry.colors.data
+    np.testing.assert_allclose(colors[2], (0.0, 0.0, 1.0, 1.0))
+    np.testing.assert_allclose(colors[3], (0.0, 0.0, 1.0, 1.0))
+
+
+def test_apply_thickness_and_label_styling():
+    overlay = _overlay()
+    _changed(overlay, "appearance.line_thickness_px", 5.0)
+    _changed(overlay, "appearance.font_size_px", 20.0)
+    _changed(overlay, "appearance.label_color", (1.0, 0.0, 0.0, 1.0))
+    _changed(overlay, "axis_a_label", "Y")
+
+    assert overlay._line.material.thickness == pytest.approx(5.0)
+    assert overlay._label_a.font_size == pytest.approx(20.0)
+    np.testing.assert_allclose(
+        tuple(overlay._label_a.material.color), (1.0, 0.0, 0.0, 1.0)
+    )
+
+
+def test_apply_show_labels_removes_and_rebuilds_them():
+    overlay = _overlay()
+    _changed(overlay, "appearance.show_labels", False)
+    assert overlay._label_a is None
+    assert overlay._label_b is None
+    assert len(overlay.overlay_scene.children) == 1
+
+    _changed(overlay, "appearance.show_labels", True)
+    assert overlay._label_a in overlay.overlay_scene.children
+    assert overlay._label_b in overlay.overlay_scene.children
+
+
+def test_apply_show_labels_respects_visibility():
+    overlay = _overlay(appearance=CenteredAxes2DAppearance(show_labels=False))
+    _changed(overlay, "visible", False)
+    _changed(overlay, "appearance.show_labels", True)
+    assert overlay._label_a.visible is False
+
+
+def test_apply_anchor_fields_rebuild_on_the_next_frame():
+    overlay = _overlay(appearance=CenteredAxes2DAppearance(corner="center"))
+    overlay.on_frame(200.0, 100.0)
+    assert _anchor(overlay) == (100.0, 50.0)
+
+    _changed(overlay, "appearance.corner", "top_left")
+    overlay.on_frame(200.0, 100.0)
+
+    assert _anchor(overlay) == (20.0, 20.0)
+
+
+def test_apply_takes_a_whole_appearance():
+    overlay = _overlay()
+    appearance = CenteredAxes2DAppearance(line_thickness_px=7.0, show_labels=False)
+    overlay._model.appearance = appearance
+    overlay.apply("appearance", appearance)
+
+    assert overlay._line.material.thickness == pytest.approx(7.0)
+    assert overlay._label_a is None

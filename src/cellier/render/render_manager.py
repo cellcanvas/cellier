@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Callable, NamedTuple
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 from uuid import uuid4
 
 import numpy as np
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
     from cellier.render.visuals._mesh_memory import GFXMeshMemoryVisual
     from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
+    from cellier.render.visuals._scene_overlay import GFXSceneOverlay
     from cellier.scene._background import BackgroundAppearance
     from cellier.transform import RegionSelection
 
@@ -143,6 +144,15 @@ class VisualFlags(NamedTuple):
 _RawPickDetails = (
     "_ImageDisplayedDataCoord | _LabelsDisplayedDataCoord | VisualPickDetails | None"
 )
+
+
+def _slice_check_extents(data_store: Any) -> Any:
+    """The extents the out-of-domain slice check uses for *data_store*.
+
+    Gridded stores only: a geometry store's vertices are filtered by the
+    slab itself, so it reports ``None`` ("not known") and is never skipped.
+    """
+    return data_store.axis_extents if hasattr(data_store, "level_shapes") else None
 
 
 class RenderManager:
@@ -962,12 +972,26 @@ class RenderManager:
         self._scenes[scene_id].add_visual(
             visual,
             displayed_axes,
-            axis_extents=(
-                data_store.axis_extents if hasattr(data_store, "level_shapes") else None
-            ),
+            axis_extents=_slice_check_extents(data_store),
         )
         self._visual_to_scene[visual.visual_model_id] = scene_id
         self._data_stores[visual.visual_model_id] = data_store
+
+    def refresh_visual_axis_extents(self, visual_id: UUID) -> None:
+        """Re-read a visual's store extent after the store's extent changed.
+
+        The scene manager keeps each visual's extent for the out-of-domain
+        check in slice planning, copied when the visual was added; an
+        ``"extent"`` store change makes that copy stale.  An unknown visual
+        is ignored.
+        """
+        scene_id = self._visual_to_scene.get(visual_id)
+        data_store = self._data_stores.get(visual_id)
+        if scene_id is None or data_store is None:
+            return
+        self._scenes[scene_id].set_axis_extents(
+            visual_id, _slice_check_extents(data_store)
+        )
 
     def add_canvas_overlay(
         self,
@@ -989,6 +1013,64 @@ class RenderManager:
             If *canvas_id* is not registered.
         """
         self._canvases[canvas_id].add_overlay(gfx_overlay)
+
+    def remove_canvas_overlay(
+        self,
+        canvas_id: UUID,
+        gfx_overlay: GFXCanvasOverlay,
+    ) -> None:
+        """Detach a GFX overlay from *canvas_id*.
+
+        Parameters
+        ----------
+        canvas_id : UUID
+            ID of the canvas the overlay is attached to.  An unknown canvas is
+            ignored -- it has already been torn down.
+        gfx_overlay : GFXCanvasOverlay
+            The render-layer overlay to detach.
+        """
+        canvas = self._canvases.get(canvas_id)
+        if canvas is not None:
+            canvas.remove_overlay(gfx_overlay)
+
+    def add_scene_overlay(
+        self,
+        scene_id: UUID,
+        overlay_id: UUID,
+        gfx_overlay: GFXSceneOverlay,
+    ) -> None:
+        """Attach a pre-built GFX scene overlay to *scene_id*.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            ID of the scene that should receive the overlay.
+        overlay_id : UUID
+            ID of the overlay's model.
+        gfx_overlay : GFXSceneOverlay
+            The fully-constructed render-layer overlay.
+
+        Raises
+        ------
+        KeyError
+            If *scene_id* is not registered.
+        """
+        self._scenes[scene_id].add_overlay(overlay_id, gfx_overlay)
+
+    def remove_scene_overlay(self, scene_id: UUID, overlay_id: UUID) -> None:
+        """Detach a scene overlay from *scene_id*.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            ID of the scene.  An unknown scene is ignored -- it has already
+            been torn down.
+        overlay_id : UUID
+            ID of the overlay's model.
+        """
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is not None:
+            scene_manager.remove_overlay(overlay_id)
 
     def _on_canvas_pointer_event(
         self, event: gfx.PointerEvent, canvas_id: UUID

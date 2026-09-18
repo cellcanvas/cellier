@@ -25,9 +25,10 @@ import anywidget
 import traitlets
 from psygnal import Signal
 
-from cellier.events import AppearanceUpdateEvent, SubscriptionSpec
+from cellier.events import SubscriptionSpec
 from cellier.gui._appearance_fields import (
     NO_MATCH,
+    AppearanceFieldSpec,
     appearance_field_spec,
     normalize_visual_ids,
 )
@@ -94,7 +95,7 @@ class AnywidgetAppearanceField(anywidget.AnyWidget):
 
         self._id = uuid4()
         self._visual_ids = normalize_visual_ids(visual_id)
-        self._spec = appearance_field_spec(self._field, self._label)
+        self._spec = self._make_spec()
         self._applying = False
         self.observe(self._on_trait_change, names="value")
 
@@ -177,18 +178,21 @@ class AnywidgetAppearanceField(anywidget.AnyWidget):
         self._emit(change["new"])
 
     def _emit(self, value: Any) -> None:
-        """Emit one ``AppearanceUpdateEvent`` per driven visual."""
-        for visual_id in self._visual_ids:
-            self.changed.emit(
-                AppearanceUpdateEvent(
-                    source_id=self._id,
-                    visual_id=visual_id,
-                    field=self._spec.name,
-                    value=value,
-                )
-            )
+        """Emit one update event per driven target, built by the spec."""
+        for target_id in self._visual_ids:
+            self.changed.emit(self._spec.outbound_event(self._id, target_id, value))
 
     # ── Subclass seam ────────────────────────────────────────────────────────
+
+    @classmethod
+    def _make_spec(cls) -> AppearanceFieldSpec:
+        """Return the spec describing the field this class drives.
+
+        An appearance field by default.  Overridden by the overlay field
+        classes (``cellier.gui._overlay_fields.OverlayFieldMixin``), which
+        reuse every layer-2 control unchanged and swap only the spec.
+        """
+        return appearance_field_spec(cls._field, cls._label)
 
     @staticmethod
     def _coerce(value: Any) -> Any:

@@ -550,16 +550,19 @@ class TransformChangedEvent(NamedTuple):
 
 ### Data store events
 
+A store announces its own changes on ``BaseDataStore.data_changed`` -- when a
+data field is reassigned, or when ``store.notify_changed(kind, regions)`` is
+called after an in-place write.  The controller relays each announcement to
+the bus as one of these two events, after it has refreshed extent-derived
+state and requested a reslice of every visual reading the store.  See
+``plans/store_change_events.md``.
+
 ```python
 class DataStoreMetadataChangedEvent(NamedTuple):
-    """Fired when a data store's shape or chunk layout changes.
+    """A store's data may now occupy a different region (``"extent"``).
 
-    Parameters
-    ----------
-    source_id :
-        Always the controller's own ID.
-    data_store_id :
-        The data store whose metadata changed.
+    New geometry positions, image data of a new shape, a store that grew.
+    Everything derived from the store's ``axis_extents`` is stale.
     """
 
     source_id: UUID
@@ -567,22 +570,16 @@ class DataStoreMetadataChangedEvent(NamedTuple):
 
 
 class DataStoreContentsChangedEvent(NamedTuple):
-    """Fired when voxel values change but shape and chunk layout are unchanged.
+    """A store's values changed within the same region (``"contents"``).
 
-    Parameters
-    ----------
-    source_id :
-        Always the controller's own ID.
-    data_store_id :
-        The data store whose contents changed.
-    dirty_keys :
-        The set of brick keys that are now stale.  ``None`` means the
-        entire store is dirty.
+    A paint stroke, new colours, a frame streamed into the existing extent.
+    ``regions`` is per-axis ``(start, stop)`` in level-0 data coordinates, or
+    ``None`` for anywhere.
     """
 
     source_id: UUID
     data_store_id: UUID
-    dirty_keys: Any
+    regions: tuple[tuple[tuple[float, float], ...], ...] | None = None
 ```
 
 ### Slicer lifecycle events

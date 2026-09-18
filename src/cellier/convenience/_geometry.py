@@ -9,6 +9,7 @@ from uuid import UUID
 import numpy as np
 
 from cellier.gui._axis_values import ContinuousAxisValues, DiscreteAxisValues
+from cellier.scene._bounds import scene_world_bounds
 
 if TYPE_CHECKING:
     from cellier.controller import CellierController
@@ -88,42 +89,31 @@ def _axis_values_from_scene(
     ndim = len(scene.dims.axis_labels)
     world = scene.dims.world_coordinate_system
 
-    world_mins = np.full(ndim, np.inf)
-    world_maxs = np.full(ndim, -np.inf)
+    # The continuous range is the scene's world bounding box -- the same rule
+    # the scene bounding-box overlay draws (cellier.scene._bounds).
+    bounds = scene_world_bounds(scene, controller.get_data_store)
+    if bounds is None:
+        raise ValueError(
+            "No visuals with extents found.  Every visual's data store "
+            "reported no data at all, or the scene has no visuals."
+        )
+    # An axis no visual reaches -- every contributor broadcasts over it --
+    # has no extent.  It still needs a slider range, and the origin is where
+    # a broadcast dataset's zero row put it before broadcasts were skipped.
+    world_mins, world_maxs = (np.nan_to_num(edge, nan=0.0) for edge in bounds)
+
     # world axis -> the sample positions discrete contributors put there, or
     # None once any contributor rules a discrete slider out.
     samples: dict[int, list[float] | None] = {}
     # world axis -> (position, channel name) from stores that name channels.
     named: dict[int, list[tuple[float, str]]] = {}
-    found = False
 
     for visual_model in scene.visuals:
         store = controller.get_data_store(UUID(str(visual_model.data_store_id)))
-
         extents = store.axis_extents
         if extents is None:
-            # An empty store occupies nothing, so it must not pull the
-            # union anywhere -- skip it rather than contributing zeros.
             continue
-
-        # The two opposite corners of the extent box.  Mapping only these
-        # is exact for the axis-aligned transforms the slicing path
-        # supports, and is what this function has always done.
-        lows = np.array([[low for low, _ in extents]], dtype=np.float64)
-        highs = np.array([[high for _, high in extents]], dtype=np.float64)
-        corners = np.vstack([lows, highs])
-        world_corners = visual_model.transform.map_coordinates(corners)
-
-        world_mins = np.minimum(world_mins, world_corners.min(axis=0))
-        world_maxs = np.maximum(world_maxs, world_corners.max(axis=0))
         _collect_samples(store, visual_model.transform, extents, world, samples, named)
-        found = True
-
-    if not found:
-        raise ValueError(
-            "No visuals with extents found.  Every visual's data store "
-            "reported no data at all, or the scene has no visuals."
-        )
 
     values: dict[int, ContinuousAxisValues | DiscreteAxisValues] = {
         i: ContinuousAxisValues(min=float(world_mins[i]), max=float(world_maxs[i]))

@@ -7,6 +7,7 @@ import contextvars
 import difflib
 import warnings
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple
 from uuid import UUID, uuid4
 
@@ -28,16 +29,21 @@ from cellier.events import (
     BackgroundChangedEvent,
     BackgroundUpdateEvent,
     CameraChangedEvent,
+    CanvasAddedEvent,
     CanvasConnectedEvent,
     CanvasSizeChangedEvent,
     ChannelAppearanceChangedEvent,
     ChannelAppearanceUpdateEvent,
+    DataStoreContentsChangedEvent,
+    DataStoreMetadataChangedEvent,
     DimsChangedEvent,
     DimsUpdateEvent,
     EventBus,
     FrameRenderedEvent,
     ImageCompositeChangedEvent,
     ImageCompositeUpdateEvent,
+    OverlayChangedEvent,
+    OverlayUpdateEvent,
     PickWriteChangedEvent,
     RenderConfigChangedEvent,
     RenderConfigUpdateEvent,
@@ -107,7 +113,9 @@ from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
 from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
 from cellier.render.visuals._mesh_memory import GFXMeshMemoryVisual
 from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
+from cellier.render.visuals._scene_overlay import GFXSceneBoundingBox
 from cellier.scene._background import BackgroundAppearance
+from cellier.scene._bounds import scene_world_bounds
 from cellier.scene.cameras import (
     CameraType,
     OrbitCameraController,
@@ -139,7 +147,7 @@ if TYPE_CHECKING:
 
     from cellier.visuals._base_visual import BaseVisual, VisualOutline
     from cellier.visuals._label_memory import OutlineMode
-from cellier.visuals._canvas_overlay import CenteredAxes2D
+from cellier.visuals._canvas_overlay import CanvasOverlay, CenteredAxes2D
 from cellier.visuals._graph_memory import (
     GraphAppearance,
     GraphVisual,
@@ -176,6 +184,7 @@ from cellier.visuals._mesh_memory import (
     MeshVisual,
 )
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
+from cellier.visuals._scene_overlay import SceneBoundingBox, SceneOverlay
 
 if TYPE_CHECKING:
     import pathlib
@@ -186,6 +195,7 @@ if TYPE_CHECKING:
 
     from cellier._state import CameraState, DimsState
     from cellier.data._base_data_store import BaseDataStore
+    from cellier.data._changes import StoreChange
     from cellier.data.graph._graph_memory_store import GraphMemoryStore
     from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.data.label._label_memory_store import LabelMemoryStore
@@ -195,7 +205,8 @@ if TYPE_CHECKING:
     from cellier.gui._protocol import WidgetView
     from cellier.render._config import RenderManagerConfig
     from cellier.render.canvas_view import CanvasView
-    from cellier.visuals._canvas_overlay import CanvasOverlay
+    from cellier.render.visuals._canvas_overlay import GFXCanvasOverlay
+    from cellier.render.visuals._scene_overlay import GFXSceneOverlay
     from cellier.visuals._types import VisualType
 
 
@@ -333,6 +344,54 @@ _aabb_source_id_override: contextvars.ContextVar[UUID | None] = contextvars.Cont
 _background_source_id_override: contextvars.ContextVar[UUID | None] = (
     contextvars.ContextVar("_background_source_id_override", default=None)
 )
+
+# Parallel context variable for update_overlay_field / the overlay bridges.
+# Overlays are neither visuals nor scenes, so they get their own variable.
+_overlay_source_id_override: contextvars.ContextVar[UUID | None] = (
+    contextvars.ContextVar("_overlay_source_id_override", default=None)
+)
+
+
+@dataclass
+class _OverlayEntry:
+    """The controller's record of one registered overlay.
+
+    Attributes
+    ----------
+    model : CanvasOverlay or SceneOverlay
+        The model-layer overlay, held in ``Canvas.overlays`` or
+        ``Scene.overlays``.
+    gfx : GFXCanvasOverlay or GFXSceneOverlay
+        Its render-layer counterpart.
+    kind : "canvas" or "scene"
+        Which category it belongs to.
+    owner_id : UUID
+        The canvas (``kind="canvas"``) or scene (``kind="scene"``) holding it.
+    scene_id : UUID
+        The scene it is drawn in -- the owner itself for a scene overlay,
+        the canvas's scene for a canvas overlay.  What a redraw is asked of.
+    handlers : list[tuple]
+        ``(signal, handler)`` psygnal connections, for teardown.
+    appearance : object or None
+        The appearance model the appearance bridge is attached to, so a
+        wholesale replacement can move it.
+    appearance_handler : Callable or None
+        That bridge's handler.
+    extent_key : tuple or None
+        Scene overlays only: the ``(displayed_axes, bounds)`` last pushed to
+        the render layer, so an unchanged scene rebuilds nothing.
+    """
+
+    model: Any
+    gfx: Any
+    kind: Literal["canvas", "scene"]
+    owner_id: UUID
+    scene_id: UUID
+    handlers: list[tuple] = field(default_factory=list)
+    appearance: Any = None
+    appearance_handler: Callable | None = None
+    extent_key: tuple | None = None
+
 
 # Parallel context variable for the per-visual render settings (outline slot
 # and placement, the occlusion tri-state, the labels selection).
@@ -727,6 +786,12 @@ class CellierController:
         # when the whole model is replaced (scene.background = ...), which
         # would otherwise leave the bridge listening to an orphaned object.
         self._scene_background_bridges: dict[UUID, tuple] = {}
+        # Every registered overlay, canvas and scene alike, keyed by the
+        # overlay model's id.
+        self._overlays: dict[UUID, _OverlayEntry] = {}
+        # Each registered store's ``data_changed`` connection, as
+        # ``(signal, handler)``, keyed by store id -- for teardown.
+        self._store_psygnal_handlers: dict[UUID, tuple] = {}
         # When True, transform-change handlers skip reslice_scene.  Managed
         # by the suppress_reslice context manager.  This is a flat boolean, so
         # nested suppress_reslice calls or concurrent async transform mutations
@@ -804,6 +869,11 @@ class CellierController:
         self._incoming_events.subscribe(
             BackgroundUpdateEvent,
             self._on_background_update,
+            owner_id=self._id,
+        )
+        self._incoming_events.subscribe(
+            OverlayUpdateEvent,
+            self._on_overlay_update,
             owner_id=self._id,
         )
         self._incoming_events.subscribe(
@@ -976,6 +1046,11 @@ class CellierController:
         self._scene_to_canvases[scene.id] = []
         self._wire_dims_model(scene)
         self._wire_scene_background(scene)
+        # A scene restored from a serialized model arrives with its overlays
+        # already in ``scene.overlays``; wire them without re-appending.
+        for overlay in scene.overlays:
+            self._check_new_overlay(overlay)
+            self._register_scene_overlay(scene.id, overlay)
         self._outgoing_events.emit(
             SceneAddedEvent(source_id=self._id, scene_id=scene.id)
         )
@@ -1072,7 +1147,65 @@ class CellierController:
         """
         self._model.data.stores[data_store.id] = data_store
         self._register_coordinate_systems(*data_store.data_coordinate_systems)
+        self._wire_data_store(data_store)
         return data_store
+
+    def _wire_data_store(self, data_store: BaseDataStore) -> None:
+        """Relay *data_store*'s change announcements (``_on_store_changed``).
+
+        Idempotent for the same store object; a different object registered
+        under the same id replaces the old connection.
+        """
+        existing = self._store_psygnal_handlers.get(data_store.id)
+        if existing is not None:
+            signal, handler = existing
+            if signal is data_store.data_changed:
+                return
+            signal.disconnect(handler)
+        store_id = data_store.id
+
+        def _on_data_changed(change: StoreChange) -> None:
+            self._on_store_changed(store_id, change)
+
+        data_store.data_changed.connect(_on_data_changed)
+        self._store_psygnal_handlers[store_id] = (
+            data_store.data_changed,
+            _on_data_changed,
+        )
+
+    def _on_store_changed(self, store_id: UUID, change: StoreChange) -> None:
+        """React to a store announcing that its data changed.
+
+        For an ``"extent"`` change, first refresh what is derived from the
+        store's extent: the render layer's per-visual extents (the
+        out-of-domain slice check) and the scene overlays of every scene
+        showing the store.  Then announce the change on the bus and reslice
+        every visual reading the store -- for both kinds, so a caller that
+        changes a store no longer has to reslice by hand
+        (``plans/store_change_events.md``).
+        """
+        readers = [
+            (scene_id, visual.id)
+            for scene_id, scene in self._model.scenes.items()
+            for visual in scene.visuals
+            if UUID(str(visual.data_store_id)) == store_id
+            and visual.id in self._visual_to_scene
+        ]
+        if change.kind == "extent":
+            for _scene_id, visual_id in readers:
+                self._render_manager.refresh_visual_axis_extents(visual_id)
+            for scene_id in dict.fromkeys(scene_id for scene_id, _ in readers):
+                self._refresh_scene_overlays(scene_id)
+            event: Any = DataStoreMetadataChangedEvent(
+                source_id=self._id, data_store_id=store_id
+            )
+        else:
+            event = DataStoreContentsChangedEvent(
+                source_id=self._id, data_store_id=store_id, regions=change.regions
+            )
+        self._outgoing_events.emit(event)
+        for _scene_id, visual_id in readers:
+            self.reslice_visual(visual_id)
 
     # ------------------------------------------------------------------
     # Visual management — public API
@@ -1120,6 +1253,7 @@ class CellierController:
         if data_store is not None:
             if data_store.id not in self._model.data.stores:
                 self._model.data.stores[data_store.id] = data_store
+                self._wire_data_store(data_store)
         else:
             data_store = self._model.data.stores[UUID(visual_model.data_store_id)]
 
@@ -1975,6 +2109,7 @@ class CellierController:
         # needing a post-hoc call.
         self._seed_visual_render(visual_model)
         self._check_slider_axes(scene_id)
+        self._refresh_scene_overlays(scene_id)
 
         # EventBus subscriptions — only subscribe when the GFX visual implements
         # the handler so new visual types get wired automatically.
@@ -2308,25 +2443,27 @@ class CellierController:
         return visual_model
 
     # ------------------------------------------------------------------
-    # Overlay construction
+    # Overlays
     # ------------------------------------------------------------------
+    #
+    # Two categories share one registry, one bridge and one event pair:
+    #
+    # * canvas overlays (``Canvas.overlays``) draw in screen space as a
+    #   post-pass on one canvas, with their own camera;
+    # * scene overlays (``Scene.overlays``) draw in the scene's world, in the
+    #   main pass, by the scene camera.  Their geometry depends on the scene's
+    #   contents, so ``_refresh_scene_overlays`` rebuilds it whenever those
+    #   change (see ``plans/scene_overlay_implementation.md``).
+    #
+    # The controller constructs the GFX objects; the render manager is a
+    # passive registrar, as for visuals.
 
-    def _build_gfx_overlay(
+    def _build_gfx_canvas_overlay(
         self,
         canvas_id: UUID,
         overlay_model: CanvasOverlay,
-    ):
-        """Construct the render-layer overlay for *overlay_model*.
-
-        Mirrors the ``_add_*_visual`` pattern: the controller is responsible
-        for constructing GFX objects; the render manager is a passive registrar.
-
-        Parameters
-        ----------
-        canvas_id : UUID
-            ID of the canvas that will own the overlay.
-        overlay_model : CanvasOverlay
-            Model-layer overlay description.
+    ) -> GFXCanvasOverlay:
+        """Construct the render-layer overlay for a canvas overlay model.
 
         Raises
         ------
@@ -2340,8 +2477,439 @@ class CellierController:
                 camera=canvas_view.camera,
             )
         raise TypeError(
-            f"Unrecognised overlay type {type(overlay_model)!r}. "
-            "Register a handler in _build_gfx_overlay."
+            f"Unrecognised canvas overlay type {type(overlay_model)!r}. "
+            "Register a handler in _build_gfx_canvas_overlay."
+        )
+
+    def _build_gfx_scene_overlay(self, overlay_model: SceneOverlay) -> GFXSceneOverlay:
+        """Construct the render-layer overlay for a scene overlay model.
+
+        Raises
+        ------
+        TypeError
+            If *overlay_model* has an unrecognised type.
+        """
+        if isinstance(overlay_model, SceneBoundingBox):
+            return GFXSceneBoundingBox(overlay_model)
+        raise TypeError(
+            f"Unrecognised scene overlay type {type(overlay_model)!r}. "
+            "Register a handler in _build_gfx_scene_overlay."
+        )
+
+    def add_canvas_overlay(
+        self,
+        canvas_id: UUID,
+        overlay: CanvasOverlay,
+    ) -> CanvasOverlay:
+        """Attach a screen-space overlay to a specific canvas.
+
+        The overlay is rendered as a post-pass on top of the main scene each
+        frame.  It does not participate in reslicing, has no world-space
+        transform, and is not added to ``scene.visuals``.  It is stored in the
+        ``Canvas.overlays`` list of *canvas_id*, making it part of the
+        serializable model, and its fields are live: assign to them directly
+        or through :meth:`update_overlay_field`.
+
+        Parameters
+        ----------
+        canvas_id : UUID
+            ID of the canvas that should display the overlay.  Use
+            :meth:`get_canvas_ids` to look up canvas IDs for a scene.
+        overlay : CanvasOverlay
+            Model-layer overlay description, e.g. a
+            :class:`~cellier.visuals.CenteredAxes2D`.
+
+        Returns
+        -------
+        CanvasOverlay
+            The same overlay object passed in (for ID access or chaining).
+
+        Raises
+        ------
+        KeyError
+            If *canvas_id* is not registered.
+        ValueError
+            If an overlay with the same id is already registered.
+        """
+        scene_id = self._canvas_to_scene[canvas_id]
+        self._check_new_overlay(overlay)
+        canvas_model = self._model.scenes[scene_id].canvases[canvas_id]
+        canvas_model.overlays.append(overlay)
+        self._register_canvas_overlay(canvas_id, overlay)
+        self._request_draw_for_scene(scene_id)
+        return overlay
+
+    def add_scene_overlay(
+        self,
+        scene_id: UUID,
+        overlay: SceneOverlay,
+    ) -> SceneOverlay:
+        """Attach a world-space overlay to a scene.
+
+        The overlay is drawn in the scene's world by the scene camera, in the
+        main pass, on every canvas showing the scene.  Its geometry follows
+        the scene: it is rebuilt when visuals are added or removed, a
+        transform is replaced, the displayed axes change, or a store changes
+        (signalled by :meth:`reslice_visual`).  It is stored in
+        ``Scene.overlays``, and its fields are live.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            ID of the scene that should hold the overlay.
+        overlay : SceneOverlay
+            Model-layer overlay description, e.g. a
+            :class:`~cellier.visuals.SceneBoundingBox`.
+
+        Returns
+        -------
+        SceneOverlay
+            The same overlay object passed in.
+
+        Raises
+        ------
+        KeyError
+            If *scene_id* is not registered.
+        ValueError
+            If an overlay with the same id is already registered.
+        NotImplementedError
+            If the scene's selection is not axis aligned.
+        """
+        scene = self._model.scenes[scene_id]
+        self._check_new_overlay(overlay)
+        scene.overlays.append(overlay)
+        self._register_scene_overlay(scene_id, overlay)
+        return overlay
+
+    def _check_new_overlay(self, overlay: CanvasOverlay | SceneOverlay) -> None:
+        """Reject an overlay that is already registered.
+
+        One model drives one render-layer object; registering it twice would
+        leave two bridges writing to two nodes and ``remove_overlay`` able to
+        find only one of them.
+        """
+        if overlay.id in self._overlays:
+            raise ValueError(
+                f"Overlay {overlay.name!r} (id={overlay.id}) is already "
+                "registered.  Create a new overlay model instead."
+            )
+
+    def _register_canvas_overlay(self, canvas_id: UUID, overlay: CanvasOverlay) -> None:
+        """Build, attach and bridge a canvas overlay already in its canvas model."""
+        gfx_overlay = self._build_gfx_canvas_overlay(canvas_id, overlay)
+        self._render_manager.add_canvas_overlay(canvas_id, gfx_overlay)
+        entry = _OverlayEntry(
+            model=overlay,
+            gfx=gfx_overlay,
+            kind="canvas",
+            owner_id=canvas_id,
+            scene_id=self._canvas_to_scene[canvas_id],
+        )
+        self._overlays[overlay.id] = entry
+        self._wire_overlay(entry)
+
+    def _register_scene_overlay(self, scene_id: UUID, overlay: SceneOverlay) -> None:
+        """Build, attach, bridge and size a scene overlay already in its scene."""
+        gfx_overlay = self._build_gfx_scene_overlay(overlay)
+        self._render_manager.add_scene_overlay(scene_id, overlay.id, gfx_overlay)
+        entry = _OverlayEntry(
+            model=overlay,
+            gfx=gfx_overlay,
+            kind="scene",
+            owner_id=scene_id,
+            scene_id=scene_id,
+        )
+        self._overlays[overlay.id] = entry
+        self._wire_overlay(entry)
+        self._refresh_scene_overlays(scene_id, overlay_ids={overlay.id})
+        self._request_draw_for_scene(scene_id)
+
+    def _wire_overlay(self, entry: _OverlayEntry) -> None:
+        """Bridge an overlay model's field changes to the render layer and bus.
+
+        Two connections, as for the scene background: ``overlay.events`` for
+        top-level fields (``visible``, an axis label, a wholesale
+        ``appearance`` replacement), and ``overlay.appearance.events`` for
+        appearance fields, since psygnal does not propagate a nested model's
+        changes to its parent.  The second is moved when the appearance model
+        is replaced.
+        """
+        handler = self._make_overlay_handler(entry.model.id)
+        entry.model.events.connect(handler)
+        entry.handlers.append((entry.model.events, handler))
+        appearance = getattr(entry.model, "appearance", None)
+        if appearance is not None:
+            self._connect_overlay_appearance(entry, appearance)
+
+    def _connect_overlay_appearance(
+        self, entry: _OverlayEntry, appearance: Any
+    ) -> None:
+        """Attach the appearance bridge to *appearance*, detaching the old one."""
+        if entry.appearance is not None and entry.appearance_handler is not None:
+            entry.appearance.events.disconnect(entry.appearance_handler)
+        handler = self._make_overlay_appearance_handler(entry.model.id)
+        appearance.events.connect(handler)
+        entry.appearance = appearance
+        entry.appearance_handler = handler
+
+    def _make_overlay_handler(self, overlay_id: UUID) -> Callable:
+        """Return a psygnal catch-all handler for an overlay's own fields."""
+
+        def _on_overlay_psygnal(info: EmissionInfo) -> None:
+            entry = self._overlays.get(overlay_id)
+            if entry is None:
+                return
+            name = info.signal.name
+            value = info.args[0]
+            if name == "appearance":
+                if value is entry.appearance:
+                    return
+                self._connect_overlay_appearance(entry, value)
+            self._push_overlay_change(entry, name, value)
+
+        return _on_overlay_psygnal
+
+    def _make_overlay_appearance_handler(self, overlay_id: UUID) -> Callable:
+        """Return a psygnal catch-all handler for an overlay's appearance."""
+
+        def _on_overlay_appearance_psygnal(info: EmissionInfo) -> None:
+            entry = self._overlays.get(overlay_id)
+            if entry is None:
+                return
+            self._push_overlay_change(
+                entry, f"appearance.{info.signal.name}", info.args[0]
+            )
+
+        return _on_overlay_appearance_psygnal
+
+    def _push_overlay_change(
+        self, entry: _OverlayEntry, field_name: str, value: Any
+    ) -> None:
+        """Apply one overlay field change to the render layer and announce it."""
+        entry.gfx.apply(field_name, value)
+        if entry.kind == "scene" and field_name == "visible" and value:
+            # A hidden scene overlay skips rebuilds; catch it up now.
+            self._refresh_scene_overlays(entry.owner_id, overlay_ids={entry.model.id})
+        resolved_source_id = _overlay_source_id_override.get() or self._id
+        _SOURCE_ID_LOGGER.debug(
+            "bridge  handler=_on_overlay_psygnal  overlay=%s  field=%s"
+            "  resolved_source=%s  override_active=%s",
+            entry.model.id,
+            field_name,
+            resolved_source_id,
+            _overlay_source_id_override.get() is not None,
+        )
+        self._outgoing_events.emit(
+            OverlayChangedEvent(
+                source_id=resolved_source_id,
+                overlay_id=entry.model.id,
+                field_name=field_name,
+                new_value=value,
+            )
+        )
+        # Overlays are not visuals and never reslice, so nothing else on this
+        # path asks for a frame.
+        self._request_draw_for_scene(entry.scene_id)
+
+    def _refresh_scene_overlays(
+        self, scene_id: UUID, *, overlay_ids: set[UUID] | None = None
+    ) -> None:
+        """Rebuild the scene overlays of *scene_id* for its current contents.
+
+        Computes the scene's world bounds once -- every visual, hidden ones
+        included -- and hands them with the displayed axes to each visible
+        scene overlay whose last input differs.  A hidden overlay is skipped
+        and caught up when it is shown.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            The scene whose overlays to rebuild.  An unregistered scene is
+            ignored.
+        overlay_ids : set[UUID] or None
+            Restrict the rebuild to these overlays.  ``None`` means all.
+
+        Raises
+        ------
+        NotImplementedError
+            If the scene's selection is not axis aligned: the world ->
+            rendered projection is then not a selection of axes.
+        """
+        scene = self._model.scenes.get(scene_id)
+        if scene is None:
+            return
+        entries = [
+            entry
+            for entry in self._overlays.values()
+            if entry.kind == "scene"
+            and entry.owner_id == scene_id
+            and entry.model.visible
+            and (overlay_ids is None or entry.model.id in overlay_ids)
+        ]
+        if not entries:
+            return
+        selection = scene.dims.selection
+        if not isinstance(selection, AxisAlignedSelection):
+            raise NotImplementedError(
+                f"Scene overlays need an axis-aligned selection; scene "
+                f"{scene.name!r} uses {type(selection).__name__}."
+            )
+        displayed_axes = tuple(selection.displayed_axes)
+        bounds = scene_world_bounds(scene, self.get_data_store)
+        key = (
+            displayed_axes,
+            None if bounds is None else (bounds[0].tobytes(), bounds[1].tobytes()),
+        )
+        changed = False
+        for entry in entries:
+            if entry.extent_key == key:
+                continue
+            entry.gfx.update_scene_extent(bounds, displayed_axes)
+            entry.extent_key = key
+            changed = True
+        if changed:
+            self._request_draw_for_scene(scene_id)
+
+    def get_overlay(self, overlay_id: UUID) -> CanvasOverlay | SceneOverlay:
+        """Return the overlay model registered under *overlay_id*.
+
+        Raises
+        ------
+        KeyError
+            If no overlay with that id is registered.
+        """
+        return self._overlay_entry(overlay_id).model
+
+    def _overlay_entry(self, overlay_id: UUID) -> _OverlayEntry:
+        entry = self._overlays.get(overlay_id)
+        if entry is None:
+            raise KeyError(
+                f"No overlay with id={overlay_id!r} found.  Add it with "
+                "add_canvas_overlay or add_scene_overlay first."
+            )
+        return entry
+
+    def remove_overlay(self, overlay_id: UUID) -> None:
+        """Remove an overlay of either category.
+
+        Disconnects its bridge, detaches it from the render layer, and removes
+        it from ``Canvas.overlays`` / ``Scene.overlays``.
+
+        Parameters
+        ----------
+        overlay_id : UUID
+            ID of the overlay to remove.
+
+        Raises
+        ------
+        KeyError
+            If no overlay with that id is registered.
+        """
+        entry = self._overlay_entry(overlay_id)
+        self._forget_overlay(overlay_id)
+        if entry.kind == "scene":
+            overlays = self._model.scenes[entry.owner_id].overlays
+        else:
+            overlays = (
+                self._model.scenes[entry.scene_id].canvases[entry.owner_id].overlays
+            )
+        # By identity: model equality is not safe to rely on (a field
+        # ``__eq__`` that raises degrades a model class to identity).
+        overlays[:] = [overlay for overlay in overlays if overlay is not entry.model]
+        self._request_draw_for_scene(entry.scene_id)
+
+    def _forget_overlay(self, overlay_id: UUID) -> None:
+        """Disconnect and detach one overlay, leaving its model list alone.
+
+        Used by :meth:`remove_overlay` and by scene and canvas teardown, where
+        the model list goes away with its owner.
+        """
+        entry = self._overlays.pop(overlay_id, None)
+        if entry is None:
+            return
+        for signal, handler in entry.handlers:
+            signal.disconnect(handler)
+        if entry.appearance is not None and entry.appearance_handler is not None:
+            entry.appearance.events.disconnect(entry.appearance_handler)
+        if entry.kind == "scene":
+            self._render_manager.remove_scene_overlay(entry.owner_id, overlay_id)
+        else:
+            self._render_manager.remove_canvas_overlay(entry.owner_id, entry.gfx)
+
+    def update_overlay_field(
+        self,
+        overlay_id: UUID,
+        field: str,
+        value: Any,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Set one field on an overlay model.
+
+        Tags the emitted ``OverlayChangedEvent`` with *source_id*.  GUI
+        widgets should pass ``source_id=self._id`` so their own subscription
+        can ignore the echo.
+
+        Parameters
+        ----------
+        overlay_id : UUID
+            Target overlay, of either category.
+        field : str
+            Dotted path on the overlay model: ``"visible"``, or
+            ``"appearance.color"`` for an appearance field.
+        value : Any
+            New value for the field.
+        source_id : UUID or None
+            UUID to stamp on the emitted event.  Defaults to the controller's
+            own ID.
+
+        Raises
+        ------
+        KeyError
+            If no overlay with that id is registered.
+        """
+        target = self._overlay_entry(overlay_id).model
+        *parents, name = field.split(".")
+        for parent in parents:
+            target = getattr(target, parent)
+        token = _overlay_source_id_override.set(source_id)
+        try:
+            setattr(target, name, value)
+        finally:
+            _overlay_source_id_override.reset(token)
+
+    def set_overlay_visible(
+        self,
+        overlay_id: UUID,
+        visible: bool,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Show or hide an overlay of either category.
+
+        Equivalent to ``update_overlay_field(overlay_id, "visible", visible)``.
+
+        Parameters
+        ----------
+        overlay_id : UUID
+            ID of the overlay.
+        visible : bool
+            ``True`` to show the overlay, ``False`` to hide it.
+        source_id : UUID or None
+            UUID to stamp on the emitted ``OverlayChangedEvent``.
+
+        Raises
+        ------
+        KeyError
+            If no overlay with ``overlay_id`` is registered.
+        """
+        self.update_overlay_field(
+            overlay_id, "visible", bool(visible), source_id=source_id
+        )
+
+    def _on_overlay_update(self, event: OverlayUpdateEvent) -> None:
+        self.update_overlay_field(
+            event.overlay_id, event.field, event.value, source_id=event.source_id
         )
 
     # ------------------------------------------------------------------
@@ -2541,19 +3109,19 @@ class CellierController:
                 ),
             )
 
+        self._canvas_to_scene[canvas_model.id] = scene_id
+        self._scene_to_canvases[scene_id].append(canvas_model.id)
+
         # Wire any overlays already stored on this canvas model to the render
         # layer.  For canvases created via add_canvas() this loop is a no-op
         # (overlays=[]).  For canvases restored from a serialized ViewerModel
         # the overlays list is already populated, so this call is sufficient —
         # from_model needs no additional overlay-restoration step.
-        # _build_gfx_overlay is called directly rather than add_canvas_overlay_model
-        # to avoid re-appending models that are already in canvas_model.overlays.
+        # _register_canvas_overlay is called directly rather than
+        # add_canvas_overlay to avoid re-appending models that are already in
+        # canvas_model.overlays.
         for overlay_model in canvas_model.overlays:
-            gfx_overlay = self._build_gfx_overlay(canvas_model.id, overlay_model)
-            self._render_manager.add_canvas_overlay(canvas_model.id, gfx_overlay)
-
-        self._canvas_to_scene[canvas_model.id] = scene_id
-        self._scene_to_canvases[scene_id].append(canvas_model.id)
+            self._register_canvas_overlay(canvas_model.id, overlay_model)
         # The rendered system is derived from (world, displayed_axes,
         # canvas_id) rather than stored on the Canvas: storing it would be a
         # second source of truth for displayed_axes (design 3.1, D9).
@@ -2563,6 +3131,11 @@ class CellierController:
         # The first canvas is what makes a rendered system exist, so visuals
         # added before it could not be placed.  They can be now.
         self._push_render_spaces(scene_id)
+        self._outgoing_events.emit(
+            CanvasAddedEvent(
+                source_id=self._id, scene_id=scene_id, canvas_id=canvas_model.id
+            )
+        )
 
         return canvas_view.widget
 
@@ -2624,86 +3197,6 @@ class CellierController:
         # moment to re-derive the ambient occlusion radius from the scene
         # bounding box.
         self._render_manager.update_ssao_radius(scene_id)
-
-    def add_canvas_overlay_model(
-        self,
-        canvas_id: UUID,
-        overlay: CanvasOverlay,
-    ) -> CanvasOverlay:
-        """Attach a screen-space overlay to a specific canvas.
-
-        The overlay is rendered as a post-pass on top of the main scene each
-        frame.  It does not participate in reslicing, has no world-space
-        transform, and is not added to ``scene.visuals``.
-
-        The overlay model is stored in the ``Canvas.overlays`` list of
-        *canvas_id*, making it part of the serializable model.
-
-        Parameters
-        ----------
-        canvas_id : UUID
-            ID of the canvas that should display the overlay.  Use
-            :meth:`get_canvas_ids` to look up canvas IDs for a scene.
-        overlay : CanvasOverlay
-            Model-layer overlay description.  Typically a
-            :class:`~cellier.visuals._canvas_overlay.CenteredAxes2D`.
-
-        Returns
-        -------
-        CanvasOverlay
-            The same overlay object passed in (for ID access or chaining).
-
-        Raises
-        ------
-        KeyError
-            If *canvas_id* is not registered.
-        """
-        scene_id = self._canvas_to_scene[canvas_id]
-        canvas_model = self._model.scenes[scene_id].canvases[canvas_id]
-        canvas_model.overlays.append(overlay)
-
-        gfx_overlay = self._build_gfx_overlay(canvas_id, overlay)
-        self._render_manager.add_canvas_overlay(canvas_id, gfx_overlay)
-
-        return overlay
-
-    def set_overlay_visible(self, overlay_id: UUID, visible: bool) -> None:
-        """Toggle the visibility of a canvas overlay.
-
-        Searches all canvases across all scenes for an overlay with
-        ``overlay_id``.  Updates both the model field and the render layer.
-
-        Parameters
-        ----------
-        overlay_id : UUID
-            ID of the :class:`~cellier.visuals._canvas_overlay.CanvasOverlay`
-            to toggle.
-        visible : bool
-            ``True`` to show the overlay, ``False`` to hide it.
-
-        Raises
-        ------
-        KeyError
-            If no overlay with ``overlay_id`` is found.
-        """
-        for scene in self._model.scenes.values():
-            for canvas_model in scene.canvases.values():
-                for overlay_model in canvas_model.overlays:
-                    if overlay_model.id == overlay_id:
-                        overlay_model.visible = visible
-                        canvas_view = self._render_manager._canvases.get(
-                            canvas_model.id
-                        )
-                        if canvas_view is not None:
-                            for gfx_overlay in canvas_view._overlays:
-                                model_ref = getattr(gfx_overlay, "_model", None)
-                                if model_ref is overlay_model:
-                                    gfx_overlay.set_visible(visible)
-                        return
-        raise KeyError(
-            f"No canvas overlay with id={overlay_id!r} found.  "
-            "Ensure add_canvas_overlay was called before set_overlay_visible."
-        )
 
     def get_scene_by_name(self, name: str) -> Scene:
         """Return the live Scene model for the given name.
@@ -3511,6 +4004,9 @@ class CellierController:
 
         def _on_slider_axes_input(*_args: Any) -> None:
             self._check_slider_axes(scene_id)
+            # The same signal carries a wholesale ``scene.visuals``
+            # reassignment, which changes the scene's extent.
+            self._refresh_scene_overlays(scene_id)
 
         return _on_slider_axes_input
 
@@ -3578,6 +4074,7 @@ class CellierController:
                 self._switch_canvas_cameras(
                     scene_id, new_state.selection.displayed_axes
                 )
+                self._refresh_scene_overlays(scene_id)
             elif prev_slice != new_slice:
                 self._rebuild_rendered_embedding(scene_id)
             region_changed = displayed_axes_changed or prev_slice != new_slice
@@ -3689,6 +4186,7 @@ class CellierController:
             # decides the world axes this visual wants sliders for.
             self._push_render_spaces(scene_id)
             self._check_slider_axes(scene_id)
+            self._refresh_scene_overlays(scene_id)
             self._outgoing_events.emit(
                 TransformChangedEvent(
                     source_id=self._id,
@@ -4471,7 +4969,12 @@ class CellierController:
         _maybe_fire()
 
     def reslice_visual(self, visual_id: UUID) -> None:
-        """Trigger a data load for one visual."""
+        """Trigger a data load for one visual.
+
+        Not needed after changing a store: stores announce their own changes
+        (reassigning a data field, or ``store.notify_changed``) and the
+        controller reslices every visual reading them.
+        """
         scene_id = self._visual_to_scene[visual_id]
         dims_state = self._dims_state_for_scene(scene_id)
         cfg = _visual_render_config(self.get_visual_model(visual_id))
@@ -5929,7 +6432,16 @@ class CellierController:
             if task is not None and not task.done():
                 task.cancel()
 
-        # 3. Bus cleanup for canvases and the scene itself.
+        # 3. Overlays drawn in this scene -- its own and its canvases' --
+        #    lose their bridges and render objects with it.
+        for overlay_id in [
+            overlay_id
+            for overlay_id, entry in self._overlays.items()
+            if entry.scene_id == scene_id
+        ]:
+            self._forget_overlay(overlay_id)
+
+        # 3b. Bus cleanup for canvases and the scene itself.
         for canvas_id in self._scene_to_canvases.pop(scene_id, []):
             self._outgoing_events.unsubscribe_all(canvas_id)
             self._canvas_to_scene.pop(canvas_id, None)
@@ -5994,7 +6506,13 @@ class CellierController:
             del self._pick_event_counts[key]
         self._cancel_move_pick_read(canvas_id)
 
-        # 3. Update controller lookup maps.
+        # 3. Update controller lookup maps, dropping the canvas's overlays.
+        for overlay_id in [
+            overlay_id
+            for overlay_id, entry in self._overlays.items()
+            if entry.kind == "canvas" and entry.owner_id == canvas_id
+        ]:
+            self._forget_overlay(overlay_id)
         self._canvas_to_scene.pop(canvas_id)
         self._scene_to_canvases[scene_id].remove(canvas_id)
         self._forget_rendered(canvas_id)
@@ -6054,6 +6572,7 @@ class CellierController:
         # 5. Render-layer teardown.
         self._render_manager.remove_visual(visual_id)
         self._check_slider_axes(scene_id)
+        self._refresh_scene_overlays(scene_id)
 
         # 6. Notify external observers.
         self._outgoing_events.emit(
@@ -6100,6 +6619,9 @@ class CellierController:
             )
         store = self._model.data.stores.pop(data_store_id)
         self._forget_coordinate_systems(*store.data_coordinate_systems)
+        connection = self._store_psygnal_handlers.pop(data_store_id, None)
+        if connection is not None:
+            connection[0].disconnect(connection[1])
 
     # ------------------------------------------------------------------
     # External event subscriptions
@@ -7481,6 +8003,13 @@ class CellierController:
                     with suppress(Exception):
                         signal.disconnect(handler)
             registry.clear()
+        for overlay_id in list(self._overlays):
+            with suppress(Exception):
+                self._forget_overlay(overlay_id)
+        for signal, handler in self._store_psygnal_handlers.values():
+            with suppress(Exception):
+                signal.disconnect(handler)
+        self._store_psygnal_handlers.clear()
 
         # The buses hold strong references to every handler subscribed to
         # them -- render visuals, widgets, and the controller's own methods --

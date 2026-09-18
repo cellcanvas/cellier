@@ -964,6 +964,16 @@ class AffineTransform(BaseTransform):
         """
         return {}
 
+    def broadcast_output_axes(self) -> frozenset[UUID4]:
+        """Return :attr:`broadcast_axes`, the recorded broadcast output axes.
+
+        Returns
+        -------
+        frozenset[UUID4]
+            Output axis ids.
+        """
+        return self.broadcast_axes
+
     def axis_correspondence(self) -> dict[int, int]:
         """Read ``{input axis: output axis}`` off the matrix.
 

@@ -429,3 +429,42 @@ def test_rounding_the_top_of_the_domain_stays_on_a_real_sample(transform):
             0
         ]
     )
+
+
+# -- broadcast axes and world bounds -------------------------------------------
+
+
+def test_broadcast_output_axes_come_from_the_blocks(transform, scene):
+    """Answered structurally, with no matrix: the time block has none."""
+    _labels, world = scene
+    assert transform.to_affine() is None
+    assert transform.broadcast_output_axes() == frozenset({world.axes[1].id})
+
+
+def test_a_leaf_and_a_plain_affine_report_no_broadcast(leaf, scene):
+    labels, _world = scene
+    assert leaf.broadcast_output_axes() == frozenset()
+    square = AffineTransform.from_axis_map(
+        labels,
+        CoordinateSystem(name="out", axes=labels.axes),
+        axis_map={axis.id: axis.id for axis in labels.axes},
+    )
+    assert square.broadcast_output_axes() == frozenset()
+
+
+def test_world_bounds_through_a_lookup_axis_and_a_broadcast(transform, scene):
+    """The light-sheet case: t through a table, c broadcast, zyx scaled."""
+    from cellier.scene._bounds import visual_world_bounds
+
+    _labels, world = scene
+    extents = ((-0.5, len(TIMES) - 0.5), (-0.5, 3.5), (-0.5, 5.5), (-0.5, 7.5))
+
+    low, high = visual_world_bounds(transform, extents, world)
+
+    # t: the table's outer edges, half a gap beyond the first and last frame.
+    assert low[0] == pytest.approx(TIMES[0] - (TIMES[1] - TIMES[0]) / 2)
+    assert high[0] == pytest.approx(TIMES[-1] + (TIMES[-1] - TIMES[-2]) / 2)
+    # c: broadcast, so no extent.
+    assert np.isnan(low[1]) and np.isnan(high[1])
+    np.testing.assert_allclose(low[2:], (-1.0, -0.5, -0.5))
+    np.testing.assert_allclose(high[2:], (7.0, 5.5, 7.5))

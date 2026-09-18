@@ -150,14 +150,53 @@ class VisualVisibilityChangedEvent(NamedTuple):
 
 
 class DataStoreMetadataChangedEvent(NamedTuple):
+    """Emitted when a store's data may now occupy a different region.
+
+    The bus form of a store's ``"extent"`` change
+    (``plans/store_change_events.md``): new geometry positions, image data of
+    a new shape, a store that grew.  Everything derived from the store's
+    ``axis_extents`` is stale.  Relayed by the controller from
+    ``BaseDataStore.data_changed``, after it has refreshed extent-derived
+    state and requested a reslice of every visual reading the store.
+
+    Attributes
+    ----------
+    source_id : UUID
+        ID of the emitter (the controller).
+    data_store_id : UUID
+        The store that changed.
+    """
+
     source_id: UUID
     data_store_id: UUID
 
 
 class DataStoreContentsChangedEvent(NamedTuple):
+    """Emitted when a store's values changed within the same region.
+
+    The bus form of a store's ``"contents"`` change: a paint stroke, new
+    colours, a frame streamed into the existing extent.  Only what was drawn
+    from the data is stale.  Relayed by the controller from
+    ``BaseDataStore.data_changed``, after it has requested a reslice of every
+    visual reading the store.
+
+    Attributes
+    ----------
+    source_id : UUID
+        ID of the emitter (the controller).
+    data_store_id : UUID
+        The store that changed.
+    regions : tuple[DataRegion, ...] or None
+        Where the values changed, as per-axis ``(start, stop)`` in level-0
+        data coordinates, or ``None`` for anywhere.  In the store's own
+        coordinates because the store does not know the render layer's brick
+        grid; converting to brick keys is the render layer's job
+        (``plans/streaming_acquisition_design.md`` 8b).
+    """
+
     source_id: UUID
     data_store_id: UUID
-    dirty_keys: Any
+    regions: tuple[tuple[tuple[float, float], ...], ...] | None = None
 
 
 class ResliceStartedEvent(NamedTuple):
@@ -256,6 +295,57 @@ class VisualRemovedEvent(NamedTuple):
 class SceneAddedEvent(NamedTuple):
     source_id: UUID
     scene_id: UUID
+
+
+class CanvasAddedEvent(NamedTuple):
+    """Emitted once a canvas has been registered on a scene.
+
+    Fired at the end of ``CellierController.add_canvas_model``, after the
+    canvas's stored overlays are wired and its rendered system exists.  A
+    convenience viewer uses it to attach canvas overlays requested before
+    any canvas existed.
+
+    Attributes
+    ----------
+    source_id : UUID
+        ID of the emitter (the controller).
+    scene_id : UUID
+        Model-layer ID of the scene the canvas renders.
+    canvas_id : UUID
+        Model-layer ID of the new canvas.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    canvas_id: UUID
+
+
+class OverlayChangedEvent(NamedTuple):
+    """Emitted when a field of an overlay model changes.
+
+    Covers both overlay categories -- canvas overlays and scene overlays --
+    keyed by the overlay's own id.  Routed from the controller's psygnal
+    bridges on ``overlay.events`` and ``overlay.appearance.events``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        ID of the emitter (the controller, or the widget that requested the
+        change).
+    overlay_id : UUID
+        Model-layer ID of the overlay.
+    field_name : str
+        Dotted path of the changed field: a top-level field such as
+        ``"visible"``, ``"appearance.<field>"`` for an appearance field, or
+        ``"appearance"`` when the whole appearance model was replaced.
+    new_value : Any
+        The new value (the new appearance model for ``"appearance"``).
+    """
+
+    source_id: UUID
+    overlay_id: UUID
+    field_name: str
+    new_value: Any
 
 
 class BackgroundChangedEvent(NamedTuple):
@@ -1069,6 +1159,8 @@ CellierEventTypes = (
     | TrailChangedEvent
     | TransformChangedEvent
     | SceneAddedEvent
+    | CanvasAddedEvent
+    | OverlayChangedEvent
     | BackgroundChangedEvent
     | RenderConfigChangedEvent
     | VisualRenderChangedEvent

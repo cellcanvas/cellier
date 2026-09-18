@@ -22,8 +22,9 @@ def paint_setup(qtbot):
     """Build a 2D scene/canvas/labels visual and a SyncPaintController.
 
     The tests are ``async`` so pytest-asyncio (mode=auto) installs an
-    event loop -- ``reslice_scene`` calls ``asyncio.ensure_future`` from
-    within ``_write_values``, and a running loop is required.
+    event loop -- ``_write_values`` announces a store change, the controller
+    reslices the visual, and reslicing calls ``asyncio.ensure_future``, which
+    needs a running loop.
     """
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("y", "x"), name="world")

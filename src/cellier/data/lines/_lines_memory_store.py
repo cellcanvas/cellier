@@ -74,6 +74,10 @@ class LinesMemoryStore(BaseDataStore):
     """
 
     store_type: Literal["lines_memory"] = "lines_memory"
+    # Reassigning these announces a change on ``data_changed``
+    # (plans/store_change_events.md): positions move the extent.
+    _EXTENT_FIELDS: ClassVar[frozenset[str]] = frozenset({"positions"})
+    _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset({"colors"})
     DATASET_INFO_LABEL: ClassVar[str] = "in-memory lines"
     name: str = "lines_memory_store"
     positions: np.ndarray
@@ -136,7 +140,7 @@ class LinesMemoryStore(BaseDataStore):
         store is empty.  See
         :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
         """
-        return geometry_axis_extents(self.positions)
+        return self._cached_axis_extents(lambda: geometry_axis_extents(self.positions))
 
     @property
     def n_segments(self) -> int:
