@@ -3375,7 +3375,7 @@ class CellierController:
         per canvas, from its camera, size and frustum, so ``reslice_all`` on a
         scene with no canvas requests nothing and this returns a correct
         picture of an empty scene.  Add a canvas (``add_canvas``) and let the
-        reslice complete before capturing; ``scripts/capture.py`` does exactly
+        reslice complete before capturing; ``cellier.convenience.capture`` does exactly
         that.  This method's own fit is for the case where a canvas exists but
         its viewpoint is not the one you want.
 

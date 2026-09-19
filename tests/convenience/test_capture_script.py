@@ -1,7 +1,6 @@
-"""Tests for ``scripts/capture.py``, the headless capture command.
+"""Tests for ``cellier.convenience.capture``, the headless capture command.
 
-The script is loaded by path (``scripts/`` is not a package).  What these
-cover is its load order.  Slice requests are planned per canvas from its
+What these cover is its load order.  Slice requests are planned per canvas from its
 camera, so a multiscale visual has to be resliced for the *fitted* camera;
 resliced before the fit, it loads only the tiles the unfitted camera happened
 to see.  In-memory images load a whole texture and cannot show the bug, so
@@ -11,19 +10,15 @@ the fixtures here are multiscale.
 from __future__ import annotations
 
 import asyncio
-import importlib.util
-from pathlib import Path
 
 import numpy as np
 import pytest
 import tensorstore as ts
 
-from cellier.convenience import Viewer
+from cellier.convenience import Viewer, capture
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import MultiscaleImageAppearance, MultiscaleImageSingleAppearance
-
-_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "capture.py"
 
 #: Canvas and capture size.  Large enough that the unfitted camera sees only
 #: part of the data (a small canvas happens to see all of it and hides the
@@ -32,18 +27,9 @@ _SIZE = (600, 600)
 
 
 @pytest.fixture
-def capture_module(monkeypatch):
-    """Import ``scripts/capture.py`` by path.
-
-    The script sets ``QT_QPA_PLATFORM`` at import.  Setting it through
-    ``monkeypatch`` first makes that a no-op and restores the variable after
-    the test, so later Qt tests see the environment they started with.
-    """
-    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
-    spec = importlib.util.spec_from_file_location("_capture_script", _SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def capture_module():
+    """The ``cellier.convenience.capture`` module."""
+    return capture
 
 
 @pytest.fixture

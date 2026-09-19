@@ -527,7 +527,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         scene, but it will have no data to show: slice requests are planned
         per canvas, so a viewer that never called :meth:`add_canvas` has never
         loaded anything.  Add a canvas and let the reslice finish first --
-        ``scripts/capture.py`` does this for you.
+        ``cellier.convenience.capture`` does this for you.
 
         Parameters
         ----------

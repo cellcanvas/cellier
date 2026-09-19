@@ -212,12 +212,12 @@ does under Qt.
 
 ## Headless, from the command line
 
-`scripts/capture.py` turns a viewer into a PNG with no display attached --
+`cellier.convenience.capture` turns a viewer into a PNG with no display attached --
 useful in CI, and the fastest way for an agent to actually look at a render
 change:
 
 ```bash
-.venv/bin/python scripts/capture.py my_demo.py --size 900x700 --frames converged --out /tmp/shot.png
+.venv/bin/python -m cellier.convenience.capture my_demo.py --size 900x700 --frames converged --out /tmp/shot.png
 ```
 
 The target is either a Python file exposing `build()` that returns a populated

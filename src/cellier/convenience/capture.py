@@ -1,4 +1,4 @@
-"""Render a cellier viewer to a PNG, headlessly.
+r"""Render a cellier viewer to a PNG, headlessly.
 
 The missing third leg of this repo's verification story.  ``_qt_acceptance``
 checks Qt panel structure, the marimo harness checks anywidget JS, and neither
@@ -8,7 +8,7 @@ turns "run it and look" into one command that writes a file.
 
 Usage::
 
-    .venv/bin/python scripts/capture.py <target> --out picture.png
+    .venv/bin/python -m cellier.convenience.capture <target> --out picture.png
 
 where ``<target>`` is either
 
@@ -18,15 +18,16 @@ where ``<target>`` is either
 
 Examples::
 
-    .venv/bin/python scripts/capture.py demos/volume.py \\
+    .venv/bin/python -m cellier.convenience.capture demos/volume.py \
         --size 900x700 --frames converged --out /tmp/volume.png
 
-    .venv/bin/python scripts/capture.py saved_viewer.json \\
+    .venv/bin/python -m cellier.convenience.capture saved_viewer.json \
         --panel xy --scale 2 --out /tmp/xy.png
 
 The capture is reproducible: run it twice, get identical bytes.  ``Qt`` is
-forced onto its offscreen platform plugin before anything is imported, so a
-target that builds a Qt viewer works with no display attached.
+forced onto its offscreen platform plugin by :func:`main` before the target is
+imported, so a target that builds a Qt viewer works with no display attached.
+Importing this module has no such side effect.
 """
 
 from __future__ import annotations
@@ -37,12 +38,6 @@ import importlib.util
 import os
 import sys
 from pathlib import Path
-
-# Before any Qt import: a target is allowed to build a gui="qt" viewer, and
-# without this it would try to open a display that a CI box or an agent
-# session does not have.  Capture itself never needs one -- it renders
-# offscreen whatever the viewer's gui is.
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def _parse_size(text: str) -> tuple[int, int]:
@@ -222,6 +217,12 @@ def main(argv: list[str] | None = None) -> int:
         help="orthoviewer only: xy, xz, yz or vol (default: all four, 2x2)",
     )
     args = parser.parse_args(argv)
+
+    # Before the target is imported: a target is allowed to build a gui="qt"
+    # viewer, and without this it would try to open a display that a CI box or
+    # an agent session does not have.  Capture itself never needs one -- it
+    # renders offscreen whatever the viewer's gui is.
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
     if not args.target.exists():
         parser.error(f"no such target: {args.target}")

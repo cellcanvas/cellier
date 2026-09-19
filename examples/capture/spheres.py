@@ -1,14 +1,16 @@
-"""A capture target: three spheres in a volume, ready for ``scripts/capture.py``.
+r"""A capture target: three spheres in a volume.
 
-Run it::
+Meant for ``cellier.convenience.capture``.
 
-    .venv/bin/python scripts/capture.py examples/capture/spheres.py \
+Run it from the repo root (no display needed)::
+
+    .venv/bin/python -m cellier.convenience.capture examples/capture/spheres.py \
         --size 800x600 --out spheres.png
 
 or, with ambient occlusion on (which is what ``--frames converged`` is for --
 a single-sample AO frame is visibly noisy)::
 
-    .venv/bin/python scripts/capture.py examples/capture/spheres.py \
+    .venv/bin/python -m cellier.convenience.capture examples/capture/spheres.py \
         --size 800x600 --frames converged --out spheres_ao.png
 
 The only contract a target has to meet is a module-level ``build()`` returning
@@ -64,7 +66,7 @@ def _make_volume() -> np.ndarray:
 
 
 def build() -> Viewer:
-    """Build the viewer ``scripts/capture.py`` will capture."""
+    """Build the viewer ``cellier.convenience.capture`` will capture."""
     viewer = Viewer(spatial_axes("z", "y", "x"), gui="offscreen")
     viewer.add_image(
         data=ImageMemoryStore(data=_make_volume(), name="spheres"),

@@ -464,7 +464,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         not reslice.  Capture from :meth:`on_ready` when a load may still be
         running.  A panel with **no canvas** renders empty, because slice
         requests are planned per canvas: give every panel a canvas (the grid
-        builder does, and so does ``scripts/capture.py``) and let the reslice
+        builder does, and so does ``cellier.convenience.capture``) and let the reslice
         finish before capturing.
 
         Parameters
