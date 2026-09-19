@@ -1,20 +1,11 @@
 """Test fixtures for Cellier."""
 
-import gc
 import sys
 import weakref
 
 import numpy as np
 import pytest
 import tensorstore as ts
-
-# Diagnostic bookkeeping for ``pytest_terminal_summary`` (see below).
-# Each entry is (nodeid of the previous test, live renderers when the next test
-# starts).  Counting at the next test's setup, not at teardown, lets the earlier
-# test's own fixtures release their references first.
-_LEAK_LOG: list[tuple[str, int]] = []
-_ALL_RENDERERS: list[weakref.ref] = []
-_LAST_NODEID: list[str] = []
 
 
 def _track_instances(monkeypatch, cls) -> list[weakref.ref]:
@@ -35,7 +26,7 @@ def _track_instances(monkeypatch, cls) -> list[weakref.ref]:
 
 
 @pytest.fixture(autouse=True)
-def _close_cellier_objects(monkeypatch, request):
+def _close_cellier_objects(monkeypatch):
     """Close every ``CellierController`` and ``CanvasView`` a test creates.
 
     Both own resources Python refcounting does not reclaim, and neither is
@@ -67,7 +58,6 @@ def _close_cellier_objects(monkeypatch, request):
     a cellier widget's ``close`` emits ``closed`` for the controller to act on.
     All three ``close`` methods are safe to call twice.
     """
-    import pygfx as gfx
     from ipywidgets import Widget
 
     from cellier.controller import CellierController
@@ -78,15 +68,6 @@ def _close_cellier_objects(monkeypatch, request):
     # Tracked on the ipywidgets base, so every anywidget control is covered
     # without naming them one by one.
     widgets = _track_instances(monkeypatch, Widget)
-
-    # Renderers have no close(); they are only counted, to see which tests
-    # leave GPU-owning objects alive after teardown.
-    renderers = _track_instances(monkeypatch, gfx.WgpuRenderer)
-
-    if _LAST_NODEID:
-        gc.collect()
-        _LEAK_LOG.append((_LAST_NODEID[0], _live_renderer_count()))
-    _LAST_NODEID[:] = [request.node.nodeid]
 
     yield
 
@@ -102,17 +83,9 @@ def _close_cellier_objects(monkeypatch, request):
                 # test that deliberately half-builds a controller is allowed.
                 pass
 
-    # Closing only breaks the reference chains.  Qt deletes closed widgets when
-    # the event loop next runs, and the cycles left behind (draw callbacks,
-    # event filters, pygfx objects) free their wgpu buffers and textures only
-    # when the cyclic collector runs.  Do both now, or the GPU resources of
-    # every earlier test stay allocated until some arbitrary later moment.
+    # Qt deletes a closed widget only when the event loop next runs, so drain
+    # it now rather than leave every earlier test's widgets pending.
     _drain_qt_events()
-    del controllers, canvas_views, widgets
-    gc.collect()
-    _drain_qt_events()
-
-    _ALL_RENDERERS.extend(renderers)
 
 
 def _drain_qt_events() -> None:
@@ -123,33 +96,6 @@ def _drain_qt_events() -> None:
     app = widgets_module.QApplication.instance()
     if app is not None:
         app.processEvents()
-
-
-def _live_renderer_count() -> int:
-    return sum(1 for ref in _ALL_RENDERERS if ref() is not None)
-
-
-def pytest_terminal_summary(terminalreporter) -> None:
-    """Report where live ``WgpuRenderer`` objects accumulate (diagnostic).
-
-    Temporary: used to find what exhausts the GPU device on Windows CI.  Lists
-    each test after which the live renderer count rose.
-    """
-    if not _LEAK_LOG:
-        return
-    terminalreporter.section("wgpu renderer survivors (diagnostic)")
-    terminalreporter.write_line(
-        f"live renderers: max {max(n for _, n in _LEAK_LOG)}, "
-        f"final {_live_renderer_count()}"
-    )
-    previous = 0
-    rises = []
-    for nodeid, live in _LEAK_LOG:
-        if live > previous:
-            rises.append((nodeid, live - previous, live))
-        previous = live
-    for nodeid, rise, live in rises[:40]:
-        terminalreporter.write_line(f"  +{rise} (live {live})  {nodeid}")
 
 
 @pytest.fixture(scope="session")
