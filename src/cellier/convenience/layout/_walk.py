@@ -38,7 +38,12 @@ def render_layout(layout: object, viewer: object, host: LayoutHost) -> RenderedV
         name: render_dock(getattr(layout, f"{name}_dock"), viewer, host, closeables)
         for name in ("left", "right", "top", "bottom")
     }
-    return RenderedView(host.assemble(center, docks, closeables), closeables)
+    return RenderedView(
+        host.assemble(
+            center, docks, closeables, dock_min_widths=layout.dock_min_widths()
+        ),
+        closeables,
+    )
 
 
 def render_center(node: object, host: LayoutHost, closeables: list) -> object:

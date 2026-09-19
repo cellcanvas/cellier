@@ -14,11 +14,14 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import numpy as np
+import pytest
 
 from cellier.convenience import (
     ContinuousAxisValues,
     DiscreteAxisValues,
+    OrthoViewer,
     Viewer,
+    axis_values_from_ortho,
     axis_values_from_viewer,
 )
 from cellier.convenience import _geometry as geometry
@@ -237,3 +240,107 @@ def test_an_in_memory_image_keeps_continuous_sliders():
 
     assert all(isinstance(entry, ContinuousAxisValues) for entry in values.values())
     assert _TYPES["t"] == "time"
+
+
+# ---------------------------------------------------------------------------
+# draw_ticks
+# ---------------------------------------------------------------------------
+
+
+def test_no_axis_draws_ticks_by_default(tmp_path):
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path))
+
+    values = axis_values_from_viewer(viewer)
+
+    assert values[0].draw_ticks is False
+    assert values[1].draw_ticks is False
+
+
+def test_draw_ticks_marks_only_the_named_axes(tmp_path):
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path, labels=("mem9", "H2B")))
+
+    values = axis_values_from_viewer(viewer, draw_ticks=["c"])
+
+    # The rest of the entry -- values and channel names -- is unchanged.
+    assert values[1] == DiscreteAxisValues(
+        values=(0.0, 1.0), labels=("mem9", "H2B"), draw_ticks=True
+    )
+    assert values[0].draw_ticks is False
+
+
+def test_draw_ticks_names_a_continuous_axis_raises(tmp_path):
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path))
+
+    with pytest.raises(ValueError, match=r"'z'.*continuous slider"):
+        axis_values_from_viewer(viewer, draw_ticks=["z"])
+
+
+def test_draw_ticks_raises_when_the_data_makes_the_axis_continuous(tmp_path):
+    """Discreteness is the data's call: one continuous store undoes it."""
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path))
+    viewer.add_points(
+        PointsMemoryStore(
+            positions=np.array([[0.0, 0.0, 1.0, 1.0, 1.0], [2.0, 1.0, 2.0, 2.0, 2.0]])
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"'c'.*continuous slider"):
+        axis_values_from_viewer(viewer, draw_ticks=["c"])
+
+
+def test_draw_ticks_rejects_an_unknown_axis_name(tmp_path):
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path))
+
+    with pytest.raises(ValueError, match=r"'q'.*not a world axis"):
+        axis_values_from_viewer(viewer, draw_ticks=["q"])
+
+
+def test_draw_ticks_checks_names_before_measuring():
+    """A bad name is reported even on a viewer with nothing to measure."""
+    with pytest.raises(ValueError, match="not a world axis"):
+        axis_values_from_viewer(Viewer(_WORLD), draw_ticks=["q"])
+
+
+@pytest.mark.parametrize(
+    ("draw_ticks", "match"),
+    [("c", r"draw_ticks=\['c'\]"), ([1], "axis names"), (True, "not iterable")],
+)
+def test_draw_ticks_takes_names_only(tmp_path, draw_ticks, match):
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path))
+
+    with pytest.raises(TypeError, match=match):
+        axis_values_from_viewer(viewer, draw_ticks=draw_ticks)
+
+
+def test_draw_ticks_on_a_long_axis_still_warns(tmp_path, monkeypatch):
+    from cellier.gui import _axis_values
+
+    monkeypatch.setattr(_axis_values, "TICK_WARNING_LIMIT", 2)
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path))  # three frames
+
+    with pytest.warns(UserWarning):
+        axis_values_from_viewer(viewer, draw_ticks=["t"])
+
+
+def test_ortho_draw_ticks(tmp_path):
+    ortho = OrthoViewer(_WORLD, gui="offscreen")
+    ortho.add_image_multiscale(
+        _ome_store(tmp_path),
+        appearance=MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="grays"),
+    )
+
+    values = axis_values_from_ortho(ortho, draw_ticks=["c"])
+
+    assert values[1].draw_ticks is True
+    assert values[0].draw_ticks is False
+    # A bad name is not mistaken for "no data on this panel, try the next".
+    with pytest.raises(ValueError, match="not a world axis"):
+        axis_values_from_ortho(ortho, draw_ticks=["q"])

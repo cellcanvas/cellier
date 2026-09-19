@@ -12,6 +12,8 @@ from cellier.gui._axis_values import ContinuousAxisValues, DiscreteAxisValues
 from cellier.scene._bounds import scene_world_bounds
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
     from cellier.controller import CellierController
     from cellier.convenience._ortho_viewer import OrthoViewer
     from cellier.convenience._viewer import Viewer
@@ -232,8 +234,67 @@ def _same_position(a: float, b: float) -> bool:
     return abs(a - b) <= _SAME_POSITION_TOLERANCE * max(1.0, abs(a), abs(b))
 
 
+def _resolve_tick_axes(
+    draw_ticks: Iterable[str], axis_labels: Sequence[str]
+) -> list[int]:
+    """Resolve the ``draw_ticks`` axis names to world axis indices.
+
+    Checked before any extent is measured, so a misspelt name fails on its
+    own rather than behind an unrelated error.  Names only: an axis is chosen
+    by what it is called, and the returned mapping's integer keys are an
+    artefact of the world's axis order.
+    """
+    if isinstance(draw_ticks, str):
+        raise TypeError(
+            f"draw_ticks takes a list of axis names, not a single string; "
+            f"write draw_ticks=[{draw_ticks!r}]."
+        )
+    names = list(draw_ticks)
+    for name in names:
+        if not isinstance(name, str):
+            raise TypeError(
+                f"draw_ticks takes world axis names; got {name!r} "
+                f"({type(name).__name__})."
+            )
+        if name not in axis_labels:
+            raise ValueError(
+                f"draw_ticks names {name!r}, which is not a world axis. "
+                f"World axes: {list(axis_labels)}."
+            )
+    return [axis_labels.index(name) for name in dict.fromkeys(names)]
+
+
+def _apply_ticks(
+    values: dict[int, ContinuousAxisValues | DiscreteAxisValues],
+    tick_axes: list[int],
+    axis_labels: Sequence[str],
+) -> dict[int, ContinuousAxisValues | DiscreteAxisValues]:
+    """Turn ticks on for *tick_axes*, which must all have come out discrete.
+
+    Whether an axis is discrete is decided by the data, not the caller, so a
+    requested axis can come out continuous; that raises rather than being
+    skipped, because a silent no-op would hide exactly the case where the
+    request cannot be met.
+    """
+    for axis in tick_axes:
+        entry = values[axis]
+        if not isinstance(entry, DiscreteAxisValues):
+            raise ValueError(
+                f"draw_ticks names {axis_labels[axis]!r}, but that axis has a "
+                f"continuous slider, which has no ticks.  An axis is discrete "
+                f"only when it is not a space axis, every visual reaching it "
+                f"samples it discretely (sampling='discrete' on the data axis), "
+                f"and it has at most {MAX_DISCRETE_VALUES} samples."
+            )
+        # The model is frozen; the copy also re-runs the dense-ticks warning.
+        values[axis] = DiscreteAxisValues(**{**entry.model_dump(), "draw_ticks": True})
+    return values
+
+
 def axis_values_from_viewer(
     viewer: Viewer,
+    *,
+    draw_ticks: Iterable[str] = (),
 ) -> dict[int, ContinuousAxisValues | DiscreteAxisValues]:
     """Compute every world axis's slider values from the viewer's visuals.
 
@@ -249,6 +310,12 @@ def axis_values_from_viewer(
     viewer : Viewer
         The viewer to inspect.  Must have at least one visual whose store
         holds data.
+    draw_ticks : Iterable[str]
+        Names of world axes whose sliders mark each value with a tick, e.g.
+        ``["c"]``.  Empty (default) draws none.  Each named axis must come out
+        discrete.  Ticks cost per mark on every repaint, so name short axes
+        such as a channel axis; see
+        :data:`~cellier.gui._axis_values.TICK_WARNING_LIMIT`.
 
     Returns
     -------
@@ -258,13 +325,22 @@ def axis_values_from_viewer(
     Raises
     ------
     ValueError
-        If no visual holds any data.
+        If no visual holds any data, if *draw_ticks* names an axis the world
+        does not have, or if a named axis comes out continuous.
+    TypeError
+        If *draw_ticks* is a single string or holds something other than
+        axis names.
     """
-    return _axis_values_from_scene(viewer.controller, viewer.scene)
+    axis_labels = viewer.scene.dims.axis_labels
+    tick_axes = _resolve_tick_axes(draw_ticks, axis_labels)
+    values = _axis_values_from_scene(viewer.controller, viewer.scene)
+    return _apply_ticks(values, tick_axes, axis_labels)
 
 
 def axis_values_from_ortho(
     ortho: OrthoViewer,
+    *,
+    draw_ticks: Iterable[str] = (),
 ) -> dict[int, ContinuousAxisValues | DiscreteAxisValues]:
     """Compute every world axis's slider values for an :class:`OrthoViewer`.
 
@@ -276,6 +352,9 @@ def axis_values_from_ortho(
     ortho : OrthoViewer
         The orthoviewer to inspect.  Must have at least one visual whose
         store holds data on some panel.
+    draw_ticks : Iterable[str]
+        Names of world axes whose sliders mark each value with a tick.  See
+        :func:`axis_values_from_viewer`.
 
     Returns
     -------
@@ -285,13 +364,24 @@ def axis_values_from_ortho(
     Raises
     ------
     ValueError
-        If no panel has a visual with data.
+        If no panel has a visual with data, if *draw_ticks* names an axis the
+        world does not have, or if a named axis comes out continuous.
+    TypeError
+        If *draw_ticks* is a single string or holds something other than
+        axis names.
     """
-    for scene in ortho.scenes.values():
+    scenes = list(ortho.scenes.values())
+    # The panels share one world, so any panel's labels resolve the names.
+    # Resolved outside the loop below, whose ValueError means "no data here,
+    # try the next panel" and would otherwise swallow a bad name.
+    axis_labels = scenes[0].dims.axis_labels if scenes else ()
+    tick_axes = _resolve_tick_axes(draw_ticks, axis_labels)
+    for scene in scenes:
         try:
-            return _axis_values_from_scene(ortho.controller, scene)
+            values = _axis_values_from_scene(ortho.controller, scene)
         except ValueError:
             continue
+        return _apply_ticks(values, tick_axes, axis_labels)
     raise ValueError(
         "No visuals with known shapes found on any orthoviewer panel. "
         "Add an image or label visual before computing axis ranges."

@@ -143,6 +143,13 @@ class Layout:
         Content for each dock region.  Accepts :class:`AppearanceControls`,
         :class:`OverlayControls`, :class:`RenderControls`, or a stack of
         those.  ``None`` hides the dock.
+    left_dock_min_width, right_dock_min_width : int or None
+        The narrowest the left / right dock may be, in logical pixels.  The
+        dock can still be dragged wider on Qt; on anywidget, which has no
+        splitter, it is the dock's floor.  ``None`` (default) keeps the host
+        default: 260 px on Qt, the content's own width on anywidget.  A width
+        needs a dock on its side.  Top and bottom docks span the window, so
+        they have no width setting.
     """
 
     center: object
@@ -150,6 +157,36 @@ class Layout:
     right_dock: object = None
     top_dock: object = None
     bottom_dock: object = None
+    left_dock_min_width: int | None = None
+    right_dock_min_width: int | None = None
+
+    def __post_init__(self) -> None:
+        """Reject a dock width that is not a positive int or has no dock."""
+        for side in ("left", "right"):
+            width = getattr(self, f"{side}_dock_min_width")
+            if width is None:
+                continue
+            if isinstance(width, bool) or not isinstance(width, int):
+                raise TypeError(
+                    f"{side}_dock_min_width must be an int number of pixels; "
+                    f"got {width!r}."
+                )
+            if width <= 0:
+                raise ValueError(
+                    f"{side}_dock_min_width must be positive; got {width}."
+                )
+            if getattr(self, f"{side}_dock") is None:
+                raise ValueError(
+                    f"{side}_dock_min_width is set but there is no {side}_dock "
+                    f"for it to size."
+                )
+
+    def dock_min_widths(self) -> dict[str, int | None]:
+        """The side docks' minimum widths, keyed ``"left"`` / ``"right"``."""
+        return {
+            "left": self.left_dock_min_width,
+            "right": self.right_dock_min_width,
+        }
 
     @classmethod
     def single(

@@ -425,6 +425,11 @@ def _visual_render_specs(
         }
         if is_labels:
             values["outline_selected_labels"] = dict(visual.outline_selected_labels)
+            # The mode decides which controls the panel draws (slot swatches
+            # or the per-label rows), and both front ends fall back to
+            # ``per_label`` without it -- which misdrew every visual in
+            # another mode.
+            values["outline_mode"] = visual.outline_mode
         specs.append(ControlSpec(kind, _CONTROL_TITLES[kind], values))
 
     if wants_occlusion:

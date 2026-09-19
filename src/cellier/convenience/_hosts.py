@@ -122,7 +122,14 @@ class LayoutHost(Protocol):
         """
         ...
 
-    def assemble(self, center: object, docks: dict, closeables: list) -> object:
+    def assemble(
+        self,
+        center: object,
+        docks: dict,
+        closeables: list,
+        *,
+        dock_min_widths: dict | None = None,
+    ) -> object:
         """Compose the center and the four docks into one root.
 
         The genuinely different half of a layout: Qt builds a ``QMainWindow``
@@ -133,7 +140,10 @@ class LayoutHost(Protocol):
         *docks* is keyed ``"left"``, ``"right"``, ``"top"``, ``"bottom"``,
         with ``None`` for a dock that built nothing.  *closeables* is handed
         over so a host whose root owns teardown -- Qt's window does -- can take
-        the list with it.
+        the list with it.  *dock_min_widths* maps ``"left"`` / ``"right"`` to
+        the narrowest that dock may be, in logical pixels; a missing or
+        ``None`` entry keeps the host default.  Sizing is placement, so it
+        happens here rather than in ``dock_panel``.
         """
         ...
 
@@ -259,15 +269,33 @@ class QtLayoutHost:
         container.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
         )
-        container.setMinimumWidth(260)
+        # No minimum width here: the floor belongs to the whole dock (see
+        # ``assemble``), where a caller's smaller ``*_dock_min_width`` can
+        # replace it.  A floor on this column would outvote that.
         return container
 
     def live_slot(self) -> _QtLiveSlot:
         """A ``QWidget`` whose content column ``set`` replaces."""
         return _QtLiveSlot(self)
 
-    def assemble(self, center: object, docks: dict, closeables: list) -> object:
-        """Build the ``QMainWindow``: center plus a ``QDockWidget`` per area."""
+    #: The narrowest a dock may be when the layout does not say.  What every
+    #: dock column was floored at before the width became configurable.
+    DEFAULT_DOCK_MIN_WIDTH = 260
+
+    def assemble(
+        self,
+        center: object,
+        docks: dict,
+        closeables: list,
+        *,
+        dock_min_widths: dict | None = None,
+    ) -> object:
+        """Build the ``QMainWindow``: center plus a ``QDockWidget`` per area.
+
+        Each dock's content is floored at its ``dock_min_widths`` entry, or
+        :attr:`DEFAULT_DOCK_MIN_WIDTH`.  A minimum rather than a fixed width:
+        the dock separator can still drag it wider, never narrower.
+        """
         from qtpy.QtCore import Qt
         from qtpy.QtWidgets import QApplication, QDockWidget, QMainWindow
 
@@ -293,7 +321,11 @@ class QtLayoutHost:
             if widget is None:
                 continue
             dock = QDockWidget(name.capitalize(), window)
-            dock.setWidget(_wrap_dock_widget(widget, name))
+            content = _wrap_dock_widget(widget, name)
+            content.setMinimumWidth(
+                (dock_min_widths or {}).get(name) or self.DEFAULT_DOCK_MIN_WIDTH
+            )
+            dock.setWidget(content)
             dock.setFeatures(
                 QDockWidget.DockWidgetFeature.DockWidgetMovable
                 | QDockWidget.DockWidgetFeature.DockWidgetFloatable
@@ -393,13 +425,26 @@ class _AnywidgetDockPanel:
     gap, and a single widget needs no container at all.
     """
 
-    def assemble(self, center: object, docks: dict, closeables: list) -> object:
+    def assemble(
+        self,
+        center: object,
+        docks: dict,
+        closeables: list,
+        *,
+        dock_min_widths: dict | None = None,
+    ) -> object:
         """Hand-assemble ``[left | center | right]`` inside the outer column.
 
         anywidget has no dock concept, so the arrangement is built from
         stacks.  *closeables* is unused here: on this toolkit the caller's
-        ``_RenderView`` owns teardown, not the root.
+        ``_RenderView`` owns teardown, not the root.  A side dock with a
+        ``dock_min_widths`` entry is floored at it; there is no splitter to
+        drag it wider, so it is otherwise as wide as its content.
         """
+        docks = dict(docks)
+        for side, width in (dock_min_widths or {}).items():
+            if width and docks.get(side) is not None:
+                docks[side] = self._min_width(docks[side], width)
         middle_items = [
             item
             for item in (docks.get("left"), center, docks.get("right"))
@@ -490,6 +535,10 @@ class MarimoHost(_AnywidgetDockPanel):
         # marimo's own primitives.
         return self._mo.vstack([self._mo.md(f"**{title}**"), stacked])
 
+    def _min_width(self, item: object, width: int) -> object:
+        """Floor *item* at *width* pixels with a styled marimo wrapper."""
+        return self._mo.style(item, {"min-width": f"{width}px"})
+
     def grid(self, rows: Sequence[Sequence[object]]) -> object:
         """Arrange rows with nested ``vstack`` / ``hstack``.
 
@@ -551,6 +600,12 @@ class JupyterHost(_AnywidgetDockPanel):
             title=title or "",
             **kwargs,
         )
+
+    def _min_width(self, item: object, width: int) -> object:
+        """Floor *item* at *width* pixels inside an ``AnywidgetBox``."""
+        from cellier.gui.anywidget import AnywidgetBox
+
+        return AnywidgetBox(children=[item], min_width=width)
 
     def grid(self, rows: Sequence[Sequence[object]]) -> object:
         """Compose rows of ``AnywidgetBox`` (horizontal) inside an outer one.
