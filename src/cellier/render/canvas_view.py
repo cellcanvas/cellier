@@ -40,6 +40,30 @@ if TYPE_CHECKING:
     from cellier.transform import RegionSelection
 
 
+def _no_draw() -> None:
+    """Draw callback installed on a closed canvas; holds no reference to a view."""
+
+
+def _detach_renderer_events(canvas: object, renderer: gfx.WgpuRenderer) -> None:
+    """Remove the renderer's ``convert_event`` handlers from *canvas*.
+
+    ``WgpuRenderer.disable_events`` cannot do this: rendercanvas removes a
+    handler by identity (``cb is not callback``), and ``self.convert_event``
+    builds a fresh bound-method object on every access, so it never matches
+    the one ``enable_events`` registered.  Instead find the registered objects
+    and hand *those* back to ``remove_event_handler``.
+    """
+    # A QRenderWidget forwards its events to an inner widget.
+    emitter = getattr(getattr(canvas, "_subwidget", canvas), "_events", None)
+    handlers = getattr(emitter, "_event_handlers", None)
+    if handlers is None:
+        return
+    for event_type, entries in list(handlers.items()):
+        for _order, callback in list(entries):
+            if getattr(callback, "__self__", None) is renderer:
+                canvas.remove_event_handler(callback, event_type)
+
+
 class CanvasView:
     """Owns one rendered canvas: widget, renderer, camera, and controller.
 
@@ -465,6 +489,15 @@ class CanvasView:
             return
         self._closed = True
         self._overlays.clear()
+
+        # Break the canvas -> view/renderer references before closing it.  The
+        # canvas holds this view's draw callback and, through its event
+        # emitter, the renderer's ``convert_event`` handler.  Closing a Qt
+        # canvas leaves its Python wrapper behind, and cycles through a shiboken
+        # wrapper are invisible to the garbage collector, so without this the
+        # whole renderer (and its GPU resources) is never freed.
+        _detach_renderer_events(self._canvas, self._renderer)
+        self._canvas.request_draw(_no_draw)
 
         try:
             if self._resize_filter is not None:
