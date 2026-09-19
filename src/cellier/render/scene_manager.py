@@ -286,6 +286,19 @@ class SceneManager:
         if close is not None:
             close()
 
+    def close(self) -> None:
+        """Remove every visual and overlay, releasing their GPU resources.
+
+        Something may still reference this scene manager after its scene is
+        gone -- a closed controller kept alive, a pending slice task -- so the
+        visuals are released here rather than left for when the manager dies.
+        Safe to call more than once.
+        """
+        for visual_id in list(self._visuals):
+            self.remove_visual(visual_id)
+        for overlay_id in list(self._overlays):
+            self.remove_overlay(overlay_id)
+
     def get_visual_id_for_node(self, node: gfx.WorldObject) -> UUID | None:
         """Return the visual_id whose active scene-graph node is *node*.
 

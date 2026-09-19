@@ -227,6 +227,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         self._aabb_enabled: bool = aabb_enabled
         self._aabb_color: str = aabb_color
         self._aabb_line_width: float = aabb_line_width
+        self._closed: bool = False
 
         # Label-specific state
         self._background_label: int = int(background_label)
@@ -984,6 +985,8 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         batch: list[tuple[ChunkRequest, np.ndarray]],
     ) -> None:
         """Commit an arriving batch of 3D label bricks to the GPU cache."""
+        if self._closed:
+            return
         non_bg_bricks = 0
         for req, data in batch:
             entry = self._pending_slot_map.get(req.chunk_request_id)
@@ -1241,6 +1244,8 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         batch: list[tuple[ChunkRequest, np.ndarray]],
     ) -> None:
         """Commit an arriving batch of 2D label tiles to the GPU cache."""
+        if self._closed:
+            return
         for req, data in batch:
             entry = self._pending_slot_map_2d.get(req.chunk_request_id)
             if entry is None:
@@ -1283,6 +1288,30 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         if self._block_cache_2d is None or self._lut_manager_2d is None:
             return
         self.cancel_pending_2d()
+
+    def close(self) -> None:
+        """Release the caches, textures and nodes.  Unusable afterwards.
+
+        A slice task still in flight holds ``on_data_ready`` -- and so this
+        visual -- until the event loop runs its cancellation, so the brick
+        caches (up to ``gpu_budget_bytes`` each) are dropped here rather than
+        whenever the visual dies.
+        """
+        self.cancel_pending()
+        self.cancel_pending_2d()
+        self._closed = True
+        for group in (self.node_3d, self.node_2d):
+            if group is not None:
+                group.clear()
+        self.node_3d = self._inner_node_3d = self._aabb_line_3d = None
+        self.node_2d = self._inner_node_2d = self._aabb_line_2d = None
+        self.material_3d = self.material_2d = None
+        self._proxy_tex_3d = self._proxy_tex_2d = None
+        self._block_cache_3d = self._lut_manager_3d = None
+        self._block_cache_2d = self._lut_manager_2d = None
+        self._label_keys_texture = self._label_colors_texture = None
+        self._paint_slot_manager = None
+        self._t_paint_cache = self._t_paint_lut = None
 
     # ── EventBus handler methods ──────────────────────────────────────────
 

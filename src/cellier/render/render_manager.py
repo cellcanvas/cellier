@@ -1397,9 +1397,9 @@ class RenderManager:
     def remove_scene(self, scene_id: UUID) -> None:
         """Remove a scene and all its visuals and canvases.
 
-        Visuals are released by dropping references (pygfx has no explicit
-        destroy API), but each canvas is closed explicitly -- see
-        :meth:`CanvasView.close`, which GC alone cannot substitute for.
+        Each visual and each canvas is closed explicitly: see
+        :meth:`SceneManager.close` and :meth:`CanvasView.close`, which dropping
+        references cannot substitute for.
 
         Parameters
         ----------
@@ -1411,7 +1411,7 @@ class RenderManager:
             self._visual_to_scene.pop(vid, None)
             self._data_stores.pop(vid, None)
             self._visual_flags.pop(vid, None)
-        # scene_manager goes out of scope here; GC drops gfx.Scene + all nodes.
+        scene_manager.close()
 
         canvas_ids = [
             cid for cid, sid in self._canvas_to_scene.items() if sid == scene_id
@@ -1441,7 +1441,13 @@ class RenderManager:
         self._pick_details_enabled.pop(canvas_id, None)
 
     def close(self) -> None:
-        """Close every registered canvas and drop the render references.
+        """Close every canvas and scene, and drop the render references.
+
+        The scenes are closed rather than merely forgotten: a closed controller
+        can stay referenced (a reference cycle, a pending task, a traceback),
+        and a multiscale visual's brick cache alone can be a gigabyte.  Closing
+        each visual releases its textures now, by refcount, instead of whenever
+        the cyclic garbage collector next gets to the controller.
 
         Safe to call more than once.
         """
@@ -1451,6 +1457,14 @@ class RenderManager:
         self._canvas_to_scene.clear()
         self._active_gestures.clear()
         self._pick_details_enabled.clear()
+
+        # Cleared in place: the slice coordinator holds these same dicts.
+        for scene_manager in list(self._scenes.values()):
+            scene_manager.close()
+        self._scenes.clear()
+        self._visual_to_scene.clear()
+        self._data_stores.clear()
+        self._visual_flags.clear()
 
     def reset_frame_counters(self, scene_id: UUID) -> None:
         """Rewind every per-frame counter that feeds *scene_id*'s pixels.

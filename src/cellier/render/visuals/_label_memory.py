@@ -212,6 +212,21 @@ class GFXLabelMemoryVisual:
     def cancel_pending_2d(self) -> None:
         pass
 
+    def close(self) -> None:
+        """Release the nodes and textures.  The visual is unusable afterwards.
+
+        A slice task still in flight holds ``on_data_ready`` -- and so this
+        visual -- until the event loop runs its cancellation, so the GPU
+        resources are dropped here rather than whenever the visual dies.
+        ``on_data_ready`` already ignores a batch once the nodes are gone.
+        """
+        for group in (self.node_2d, self.node_3d):
+            if group is not None:
+                group.clear()
+        self.node_2d = self._inner_node_2d = self._aabb_line_2d = None
+        self.node_3d = self._inner_node_3d = self._aabb_line_3d = None
+        self._keys_tex = self._colors_tex = None
+
     # ------------------------------------------------------------------
     # Node matrix
     # ------------------------------------------------------------------
