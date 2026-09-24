@@ -1,6 +1,7 @@
 """Structured debug logging for the Cellier v2 rendering pipeline.
 
-Provides six named loggers (perf, gpu, cache, slicer, camera, source_id)
+Provides seven named loggers (perf, gpu, cache, slicer, scheduler, camera,
+source_id)
 and convenience functions to enable/disable them.  All log calls in
 instrumented modules are guarded so they have zero cost when disabled.
 
@@ -21,6 +22,10 @@ _PERF_LOGGER = logging.getLogger("cellier.render.perf")
 _GPU_LOGGER = logging.getLogger("cellier.render.gpu")
 _CACHE_LOGGER = logging.getLogger("cellier.render.cache")
 _SLICER_LOGGER = logging.getLogger("cellier.render.slicer")
+# The chunk scheduler that loads multiscale visuals: passes, commit rounds,
+# invalidation, failed reads, and the deferred reslices (dims settle,
+# rate-capped store changes).
+_SCHEDULER_LOGGER = logging.getLogger("cellier.render.scheduler")
 _CAMERA_LOGGER = logging.getLogger("cellier.render.camera")
 # Traces source_id injection through the ContextVar→psygnal→bus bridge.
 # Enable this logger to see who triggered each model mutation, which
@@ -33,6 +38,7 @@ _CATEGORY_MAP = {
     "gpu": _GPU_LOGGER,
     "cache": _CACHE_LOGGER,
     "slicer": _SLICER_LOGGER,
+    "scheduler": _SCHEDULER_LOGGER,
     "camera": _CAMERA_LOGGER,
     "source_id": _SOURCE_ID_LOGGER,
 }
@@ -53,7 +59,7 @@ def enable_debug_logging(
     Parameters
     ----------
     categories :
-        Which loggers to enable.  Defaults to all six.
+        Which loggers to enable.  Defaults to all seven.
     use_rich :
         If ``True`` (default), attempt to use ``rich.logging.RichHandler``
         for colored output.  Falls back to a plain ``StreamHandler`` if

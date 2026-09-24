@@ -31,6 +31,7 @@ from cellier.visuals._image import (
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
 )
+from tests._gpu_budget import SMALL_BUDGETS
 
 if TYPE_CHECKING:
     from cellier.render.visuals._image import GFXMultiscaleImageVisual
@@ -45,7 +46,9 @@ def _add(controller, scene_id, store, appearance, block_size=8, **kwargs):
         data=store,
         scene_id=scene_id,
         appearance=appearance,
-        render_config=MultiscaleImageRenderConfig(block_size=block_size),
+        render_config=MultiscaleImageRenderConfig(
+            **SMALL_BUDGETS, block_size=block_size
+        ),
         **kwargs,
     )
 
@@ -186,7 +189,7 @@ async def test_reslice_2d_with_a_nonuniform_axis_transform(
 ):
     """A 2D reslice does not need ``.linear`` on the ``data -> world`` transform.
 
-    Regression test: ``build_slice_request_2d``'s ``voxel_width`` computation
+    Regression test: the 2D planner's ``voxel_width`` computation
     (``_displayed_submatrix``) read ``transform.linear`` directly, which does
     not exist on a ``ByDimensionTransform`` -- the type every visual sharing
     the non-uniform time axis carries, whether or not it broadcasts.
@@ -197,7 +200,7 @@ async def test_reslice_2d_with_a_nonuniform_axis_transform(
         data=multiscale_image_store,
         scene_id=scene.id,
         appearance=MultiscaleImageAppearance(),
-        render_config=MultiscaleImageRenderConfig(block_size=8),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         transform=transform,
         single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
@@ -300,7 +303,7 @@ async def test_reslice_3d_with_a_nonuniform_axis_transform(
         data=store,
         scene_id=scene.id,
         appearance=MultiscaleImageAppearance(force_level=1),
-        render_config=MultiscaleImageRenderConfig(block_size=8),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         transform=transform,
         single=MultiscaleImageSingleAppearance(
             color_map="viridis", clim=(0.0, 1.0), render_mode="mip"
@@ -337,7 +340,7 @@ async def test_slider_positions_on_the_same_frame_share_brick_keys(
         data=store,
         scene_id=scene.id,
         appearance=MultiscaleImageAppearance(force_level=1),
-        render_config=MultiscaleImageRenderConfig(block_size=8),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         transform=transform,
         single=MultiscaleImageSingleAppearance(
             color_map="viridis", clim=(0.0, 1.0), render_mode="mip"
@@ -354,9 +357,13 @@ async def test_slider_positions_on_the_same_frame_share_brick_keys(
     controller.update_slice_indices(scene.id, {0: 0.8})
     await reslice(controller, scene.id)
     assert gfx.slots[0]._current_slice_coord_3d == ((0, 1),)
+    # The chunk scheduler's view of the pass: every wanted brick already had a
+    # record, so nothing new was queued.
+    scheduler = controller._render_manager.scheduler
+    desired, new = scheduler.core.pass_stats(gfx.slots[0].residency_3d().cache_id)
     stats = gfx._last_plan_stats
-    assert stats["misses"] == 0
-    assert stats["hits"] == stats["total_required"]
+    assert desired == stats["n_backstop"] + stats["n_target"]
+    assert new == 0
 
 
 # ---------------------------------------------------------------------------

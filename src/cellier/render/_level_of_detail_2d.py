@@ -14,7 +14,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from cellier.render.block_cache._tile_manager_2d import BlockKey2D
+from cellier.render._level_mapping import (
+    brick_box_data,
+    brick_centre_data,
+    implied_power_of_two,
+)
 
 if TYPE_CHECKING:
     from cellier.render.lut_indirection._layout_2d import BlockLayout2D
@@ -84,19 +88,13 @@ def build_tile_grids_2d(
         lvl_col = np.full(len(gy_c), level, dtype=np.int32)
         arr = np.stack([lvl_col, gy_c, gx_c], axis=1)  # (M_k, 3)
 
-        centres = np.empty((len(gy_c), 2), dtype=np.float64)
         if scale_vecs_shader is not None and translation_vecs_shader is not None:
-            sv = scale_vecs_shader[k]  # (sx, sy) = (W, H)
-            tv = translation_vecs_shader[k]  # (tx, ty)
-            bw_x = float(bs * sv[0])  # W axis
-            bw_y = float(bs * sv[1])  # H axis
-            centres[:, 0] = (gx_c + 0.5) * bw_x + tv[0]  # x = W
-            centres[:, 1] = (gy_c + 0.5) * bw_y + tv[1]  # y = H
+            sv = np.asarray(scale_vecs_shader[k], dtype=np.float64)[:2]  # (W, H)
+            tv = np.asarray(translation_vecs_shader[k], dtype=np.float64)[:2]
         else:
-            scale = 1 << k
-            bw = float(bs * scale)
-            centres[:, 0] = (gx_c + 0.5) * bw  # x = W axis
-            centres[:, 1] = (gy_c + 0.5) * bw  # y = H axis
+            sv, tv = implied_power_of_two(level)
+        # Centre convention (plan v2, D1), shader order (x=W, y=H).
+        centres = brick_centre_data(np.stack([gx_c, gy_c], axis=1), bs, sv, tv)
 
         grids.append({"arr": arr, "centres": centres})
 
@@ -174,6 +172,23 @@ def select_lod_2d(
     return level_grids[selected_level - 1]["arr"].copy()
 
 
+def _tile_transforms(
+    arr: np.ndarray,
+    level_scale_arr_shader: np.ndarray | None,
+    level_translation_arr_shader: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-row ``(M, 2)`` scale and translation, shader order ``(x=W, y=H)``."""
+    levels = arr[:, 0].astype(np.int64)
+    if level_scale_arr_shader is not None and level_translation_arr_shader is not None:
+        scale = np.asarray(level_scale_arr_shader, dtype=np.float64)[levels - 1, :2]
+        translation = np.asarray(level_translation_arr_shader, dtype=np.float64)[
+            levels - 1, :2
+        ]
+        return scale, translation
+    s, t = implied_power_of_two(levels)
+    return s[:, None], t[:, None]
+
+
 def sort_tiles_by_distance_2d(
     arr: np.ndarray,
     camera_pos: np.ndarray,
@@ -204,26 +219,13 @@ def sort_tiles_by_distance_2d(
     if len(arr) == 0:
         return arr
 
-    levels = arr[:, 0]
-    gy = arr[:, 1].astype(np.float64)
-    gx = arr[:, 2].astype(np.float64)
+    scale, translation = _tile_transforms(
+        arr, level_scale_arr_shader, level_translation_arr_shader
+    )
+    centres = brick_centre_data(arr[:, [2, 1]], block_size, scale, translation)
 
-    if level_scale_arr_shader is not None and level_translation_arr_shader is not None:
-        scale_x = level_scale_arr_shader[levels - 1, 0]  # W axis
-        scale_y = level_scale_arr_shader[levels - 1, 1]  # H axis
-        tv_x = level_translation_arr_shader[levels - 1, 0]
-        tv_y = level_translation_arr_shader[levels - 1, 1]
-        cx = (gx + 0.5) * (block_size * scale_x) + tv_x
-        cy = (gy + 0.5) * (block_size * scale_y) + tv_y
-    else:
-        scale = (2.0 ** (levels - 1)).astype(np.float64)
-        bw = block_size * scale
-        cx = (gx + 0.5) * bw
-        cy = (gy + 0.5) * bw
-
-    vx, vy = float(camera_pos[0]), float(camera_pos[1])
-    dx = cx - vx
-    dy = cy - vy
+    dx = centres[:, 0] - float(camera_pos[0])
+    dy = centres[:, 1] - float(camera_pos[1])
     dist_sq = dx * dx + dy * dy
 
     order = np.argsort(dist_sq)
@@ -231,25 +233,25 @@ def sort_tiles_by_distance_2d(
 
 
 def viewport_cull_2d(
-    required: dict[BlockKey2D, int],
+    arr: np.ndarray,
     block_size: int,
     view_min: np.ndarray,
     view_max: np.ndarray,
     level_scale_arr_shader: np.ndarray | None = None,
     level_translation_arr_shader: np.ndarray | None = None,
-) -> tuple[dict[BlockKey2D, int], int]:
+) -> tuple[np.ndarray, int]:
     """Remove tiles that lie entirely outside the viewport.
 
     Parameters
     ----------
-    required : dict[BlockKey2D, int]
-        Tile key -> level mapping (order-preserving).
+    arr : ndarray
+        ``(M, 3)`` rows ``(level, gy, gx)``, in load order.
     block_size : int
         Tile side length in data pixels at finest level.
     view_min : ndarray, shape (2,)
-        Viewport AABB minimum ``(x, y)`` in world space.
+        Viewport AABB minimum ``(x, y)`` in level-0 data space.
     view_max : ndarray, shape (2,)
-        Viewport AABB maximum ``(x, y)`` in world space.
+        Viewport AABB maximum ``(x, y)`` in level-0 data space.
     level_scale_arr_shader : ndarray, shape (n_levels, 2) or None
         Per-level scale in shader order ``(x=W, y=H)``.
     level_translation_arr_shader : ndarray, shape (n_levels, 2) or None
@@ -257,86 +259,23 @@ def viewport_cull_2d(
 
     Returns
     -------
-    culled : dict[BlockKey2D, int]
-        Subset of ``required`` that overlaps the viewport.
+    culled : ndarray
+        The rows of ``arr`` that overlap the viewport, order preserved.
     n_culled : int
         Number of tiles removed.
     """
-    if not required:
-        return required, 0
+    if len(arr) == 0:
+        return arr, 0
 
-    keys = list(required.keys())
-    n = len(keys)
-    bs = float(block_size)
-
-    levels = np.array([k.level for k in keys], dtype=np.int32)
-    gy = np.array([k.g0 for k in keys], dtype=np.float64)
-    gx = np.array([k.g1 for k in keys], dtype=np.float64)
-
-    if level_scale_arr_shader is not None and level_translation_arr_shader is not None:
-        bw_x = bs * level_scale_arr_shader[levels - 1, 0]  # (M,)
-        bw_y = bs * level_scale_arr_shader[levels - 1, 1]
-        tv_x = level_translation_arr_shader[levels - 1, 0]
-        tv_y = level_translation_arr_shader[levels - 1, 1]
-        tile_min_x = gx * bw_x + tv_x
-        tile_max_x = (gx + 1.0) * bw_x + tv_x
-        tile_min_y = gy * bw_y + tv_y
-        tile_max_y = (gy + 1.0) * bw_y + tv_y
-    else:
-        scale = (2.0 ** (levels - 1)).astype(np.float64)
-        bw = bs * scale
-        tile_min_x = gx * bw
-        tile_min_y = gy * bw
-        tile_max_x = (gx + 1.0) * bw
-        tile_max_y = (gy + 1.0) * bw
+    scale, translation = _tile_transforms(
+        arr, level_scale_arr_shader, level_translation_arr_shader
+    )
+    low, high = brick_box_data(arr[:, [2, 1]], block_size, scale, translation)
 
     visible = (
-        (tile_max_x > view_min[0])
-        & (tile_min_x < view_max[0])
-        & (tile_max_y > view_min[1])
-        & (tile_min_y < view_max[1])
+        (high[:, 0] > view_min[0])
+        & (low[:, 0] < view_max[0])
+        & (high[:, 1] > view_min[1])
+        & (low[:, 1] < view_max[1])
     )
-
-    n_culled = n - int(np.sum(visible))
-    if n_culled == 0:
-        return required, 0
-
-    culled = {}
-    for i, keep in enumerate(visible):
-        if keep:
-            k = keys[i]
-            culled[k] = required[k]
-
-    return culled, n_culled
-
-
-def arr_to_block_keys_2d(
-    arr: np.ndarray,
-    slice_coord: tuple[tuple[int, int], ...] = (),
-) -> dict[BlockKey2D, int]:
-    """Convert array rows to a BlockKey2D dict.
-
-    Parameters
-    ----------
-    arr : ndarray
-        Array of shape ``(M, 3)`` with columns ``(level, gy, gx)``.
-    slice_coord : tuple of (axis_index, world_value) pairs
-        Sorted slice-position encoding to embed in every key.  Pass the
-        value of ``_current_slice_coord`` from the visual.
-
-    Returns
-    -------
-    required : dict[BlockKey2D, int]
-        ``{BlockKey2D: level}`` preserving row order.
-    """
-    required: dict[BlockKey2D, int] = {}
-    for row in arr:
-        level = int(row[0])
-        key = BlockKey2D(
-            level=level,
-            g0=int(row[1]),
-            g1=int(row[2]),
-            slice_coord=slice_coord,
-        )
-        required[key] = level
-    return required
+    return arr[visible], len(arr) - int(np.sum(visible))

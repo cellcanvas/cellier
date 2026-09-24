@@ -216,3 +216,27 @@ def test_a_field_valid_for_the_config_but_absent_from_the_model_is_reported():
 
     assert [spec.kind for spec in specs] == ["image", "aabb"]
     assert skipped == ["lod_bias"]
+
+
+# ---------------------------------------------------------------------------
+# decimals
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "config_class", [InMemoryImageControlsConfig, MultiscaleImageControlsConfig]
+)
+def test_image_decimals_default_to_two(config_class):
+    assert config_class().decimals == 2
+
+
+@pytest.mark.parametrize("value", [-1, -5])
+def test_negative_image_decimals_are_rejected(value):
+    with pytest.raises(ValueError, match="decimals must be >= 0"):
+        MultiscaleImageControlsConfig(decimals=value)
+
+
+@pytest.mark.parametrize("value", [1.5, "2", True])
+def test_non_integer_image_decimals_are_rejected(value):
+    with pytest.raises(TypeError, match="decimals must be an int"):
+        InMemoryImageControlsConfig(decimals=value)

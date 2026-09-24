@@ -230,6 +230,11 @@ class InMemoryImageControlsConfig(BaseControlsConfig):
     channel_labels : dict[int, str] or None
         Per-channel names on the composite page.  ``"Channel {i}"`` when
         ``None``.
+    decimals : int
+        Decimal places shown for values in data units: the contrast limits
+        (the handle and range labels) and the iso threshold, on the single
+        page and on every channel.  Default 2.  Set it to suit the data,
+        e.g. 0 for integer images; fractions such as opacity always show 2.
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
@@ -244,6 +249,19 @@ class InMemoryImageControlsConfig(BaseControlsConfig):
     colormap_names: list[str] | None = None
     clim_range: tuple[float, float] | None = None
     channel_labels: dict[int, str] | None = None
+    decimals: int = 2
+
+    def __post_init__(self) -> None:
+        """Check ``decimals`` as well as ``appearance``."""
+        super().__post_init__()
+        if isinstance(self.decimals, bool) or not isinstance(self.decimals, int):
+            raise TypeError(
+                f"{type(self).__name__}.decimals must be an int, got {self.decimals!r}."
+            )
+        if self.decimals < 0:
+            raise ValueError(
+                f"{type(self).__name__}.decimals must be >= 0, got {self.decimals}."
+            )
 
 
 @dataclass
@@ -260,6 +278,17 @@ class MultiscaleImageControlsConfig(InMemoryImageControlsConfig):
         Names available in the colormap dropdown.
     clim_range : tuple[float, float] or None
         ``(min, max)`` bounds for the contrast-limits slider.
+    decimals : int
+        Decimal places for the contrast limits and the iso threshold; see
+        :class:`InMemoryImageControlsConfig`.  Default 2.
+    loading_indicator : bool
+        Show how far the visual's data has loaded: a bar and a status line
+        fed by ``ResliceProgressEvent``.  ``True`` (default); it appears
+        whenever the appearance panel does.
+    loading_controls : bool
+        Show a control for every ``ProgressiveLoadingConfig`` field (the
+        backstop and what a dims slider tick loads), applied while the
+        visual is shown.  ``False`` (default): these are advanced settings.
 
     Notes
     -----
@@ -273,6 +302,9 @@ class MultiscaleImageControlsConfig(InMemoryImageControlsConfig):
         "attenuation": "image",
         "lod_bias": "lod_bias",
     }
+
+    loading_indicator: bool = True
+    loading_controls: bool = False
 
 
 @dataclass
@@ -317,12 +349,21 @@ class MultiscaleLabelsControlsConfig(LabelsControlsConfig):
     ----------
     appearance : list[AppearanceField] or bool
         Appearance fields.  ``True`` shows every field this class drives.
+    loading_indicator : bool
+        Show how far the visual's data has loaded.  ``True`` (default); it
+        appears whenever the appearance panel does.
+    loading_controls : bool
+        Show a control for every ``ProgressiveLoadingConfig`` field.
+        ``False`` (default).
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
         **LabelsControlsConfig.APPEARANCE_CONTROLS,
         "lod_bias": "lod_bias",
     }
+
+    loading_indicator: bool = True
+    loading_controls: bool = False
 
 
 @dataclass

@@ -11,7 +11,9 @@ from cellier.convenience import OrthoViewer
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import (
     MultiscaleImageChannelAppearance,
+    MultiscaleImageRenderConfig,
     MultiscaleImageSingleAppearance,
+    MultiscaleLabelRenderConfig,
 )
 from cellier.visuals._image import MultiscaleImageAppearance
 from cellier.visuals._label_memory import InMemoryLabelsAppearance
@@ -19,6 +21,7 @@ from cellier.visuals._labels import MultiscaleLabelsAppearance
 from cellier.visuals._lines_memory import LinesMemoryAppearance
 from cellier.visuals._mesh_memory import MeshFlatAppearance
 from cellier.visuals._points_memory import PointsMarkerAppearance
+from tests._gpu_budget import SMALL_BUDGETS
 
 _PANELS = {"xy", "xz", "yz", "vol"}
 
@@ -68,6 +71,7 @@ def test_add_image_multiscale_fans_out(multiscale_image_store):
         appearance=MultiscaleImageAppearance(),
         name="ms",
         single=MultiscaleImageSingleAppearance(color_map="viridis", render_mode="mip"),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
     )
     _assert_fanned_out(ortho, visuals, "ms")
 
@@ -78,6 +82,7 @@ def test_add_labels_multiscale_fans_out(multiscale_labels_store):
         multiscale_labels_store,
         appearance=MultiscaleLabelsAppearance(),
         name="mslbl",
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
     _assert_fanned_out(ortho, visuals, "mslbl")
 
@@ -97,6 +102,7 @@ def test_add_image_multiscale_composite_fans_out(multichannel_multiscale_store):
         channel_axis=0,
         composite=True,
         channels=channels,
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
     )
     _assert_fanned_out(ortho, visuals, "mc")
     appearances = set()

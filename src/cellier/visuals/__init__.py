@@ -40,6 +40,7 @@ from cellier.visuals._labels import (
     MultiscaleLabelVisual,
 )
 from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
+from cellier.visuals._loading import ProgressiveLoadingConfig
 from cellier.visuals._mesh_memory import (
     MeshAppearance,
     MeshFlatAppearance,
@@ -90,6 +91,7 @@ __all__ = [
     "OutlineMode",
     "PointsMarkerAppearance",
     "PointsVisual",
+    "ProgressiveLoadingConfig",
     "SceneBoundingBox",
     "SceneBoundingBoxAppearance",
     "SceneOverlay",

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from cellier.render.block_cache import BlockKey3D
+from cellier.render._level_mapping import brick_centre_data, implied_power_of_two
 
 if TYPE_CHECKING:
     from cellier.render.lut_indirection import BlockLayout3D
@@ -118,17 +118,12 @@ def build_level_grids(
         lvl_col = np.full(len(gz_c), level, dtype=np.int32)
         arr = np.stack([lvl_col, gz_c, gy_c, gx_c], axis=1)  # (M_k, 4)
 
-        centres = np.empty((len(gz_c), 3), dtype=np.float64)
-        sv = scale_vecs_shader[k]  # (sx, sy, sz) = (W, H, D)
-        tv = translation_vecs_shader[k]  # (tx, ty, tz)
-        bw_x = float(bs * sv[0])  # W axis
-        bw_y = float(bs * sv[1])  # H axis
-        bw_z = float(bs * sv[2])  # D axis
-        centres[:, 0] = (gx_c + 0.5) * bw_x + tv[0]  # x = W
-        centres[:, 1] = (gy_c + 0.5) * bw_y + tv[1]  # y = H
-        centres[:, 2] = (gz_c + 0.5) * bw_z + tv[2]  # z = D
+        sv = np.asarray(scale_vecs_shader[k], dtype=np.float64)  # (W, H, D)
+        tv = np.asarray(translation_vecs_shader[k], dtype=np.float64)
+        # Centre convention (plan v2, D1): shader order (x=W, y=H, z=D).
+        centres = brick_centre_data(np.stack([gx_c, gy_c, gz_c], axis=1), bs, sv, tv)
 
-        half_extents = np.array([bw_x / 2.0, bw_y / 2.0, bw_z / 2.0], dtype=np.float64)
+        half_extents = (bs * sv / 2.0).astype(np.float64)
         grids.append({"arr": arr, "centres": centres, "half_extents": half_extents})
 
     return grids
@@ -311,13 +306,14 @@ def sort_arr_by_distance(
 ) -> np.ndarray:
     """Sort brick rows nearest-to-camera first.
 
-    Brick centres are computed in world XYZ (shader) space using the
-    per-level scale and translation vectors so that anisotropic datasets
-    sort correctly.  ``camera_pos`` must be in the same world XYZ space.
+    Brick centres are computed in level-0 data space, shader order ``(x, y,
+    z)``, from the per-level scale and translation vectors
+    (``cellier.render._level_mapping.brick_centre_data``), so anisotropic
+    datasets sort correctly.  ``camera_pos`` must be in the same space.
 
-    Falls back to the isotropic power-of-2 approximation when
-    ``scale_vecs_shader`` / ``translation_vecs_shader`` are not supplied,
-    but that path does not handle anisotropic voxel spacing correctly.
+    Without ``scale_vecs_shader`` / ``translation_vecs_shader`` it assumes an
+    isotropic power-of-two block-averaged pyramid (``implied_power_of_two``),
+    which does not handle anisotropic voxel spacing.
 
     Parameters
     ----------
@@ -342,38 +338,19 @@ def sort_arr_by_distance(
         return arr
 
     cam = np.asarray(camera_pos, dtype=np.float64)
-    levels = arr[:, 0]
-    gz_c = arr[:, 1]
-    gy_c = arr[:, 2]
-    gx_c = arr[:, 3]
-
-    cx = np.empty(len(arr), dtype=np.float64)
-    cy = np.empty(len(arr), dtype=np.float64)
-    cz = np.empty(len(arr), dtype=np.float64)
+    levels = arr[:, 0].astype(np.int64)
+    index = arr[:, [3, 2, 1]]  # (gx, gy, gz): shader order
 
     if scale_vecs_shader is not None and translation_vecs_shader is not None:
-        # World-space centres using actual per-level physical scale/translation.
-        # Mirrors the formula in build_level_grids so centres match exactly.
-        for level in np.unique(levels):
-            mask = levels == level
-            k = int(level) - 1
-            sv = np.asarray(scale_vecs_shader[k], dtype=np.float64)
-            tv = np.asarray(translation_vecs_shader[k], dtype=np.float64)
-            bw_x = block_size * sv[0]
-            bw_y = block_size * sv[1]
-            bw_z = block_size * sv[2]
-            cx[mask] = (gx_c[mask].astype(np.float64) + 0.5) * bw_x + tv[0]
-            cy[mask] = (gy_c[mask].astype(np.float64) + 0.5) * bw_y + tv[1]
-            cz[mask] = (gz_c[mask].astype(np.float64) + 0.5) * bw_z + tv[2]
+        # The same centres as build_level_grids.
+        scale = np.asarray(scale_vecs_shader, dtype=np.float64)[levels - 1]
+        translation = np.asarray(translation_vecs_shader, dtype=np.float64)[levels - 1]
     else:
-        # Fallback: isotropic power-of-2 approximation (ignores physical scale).
-        scales = np.left_shift(1, (levels - 1)).astype(np.float64)
-        bw = float(block_size) * scales
-        cx = (gx_c.astype(np.float64) + 0.5) * bw
-        cy = (gy_c.astype(np.float64) + 0.5) * bw
-        cz = (gz_c.astype(np.float64) + 0.5) * bw
+        s, t = implied_power_of_two(levels)
+        scale, translation = s[:, None], t[:, None]
+    centres = brick_centre_data(index, block_size, scale, translation)
 
-    distances = np.sqrt((cx - cam[0]) ** 2 + (cy - cam[1]) ** 2 + (cz - cam[2]) ** 2)
+    distances = np.sqrt(((centres - cam[:3]) ** 2).sum(axis=1))
     order = np.argsort(distances, kind="stable")
     return arr[order]
 
@@ -381,36 +358,3 @@ def sort_arr_by_distance(
 # ---------------------------------------------------------------------------
 # Convert to BrickKey dict
 # ---------------------------------------------------------------------------
-
-
-def arr_to_brick_keys(
-    arr: np.ndarray,
-    slice_coord: tuple[tuple[int, int], ...] = (),
-) -> dict[BlockKey3D, int]:
-    """Convert a brick array to ``dict[BlockKey3D, int]``.
-
-    Parameters
-    ----------
-    arr : ndarray, shape (M, 4), dtype int32
-        Columns: ``[level, gz_c, gy_c, gx_c]``.
-    slice_coord : tuple of (axis_index, world_value) pairs
-        Sorted slice-position encoding to embed in every key.  Pass the
-        value of ``_current_slice_coord_3d`` from the visual.
-
-    Returns
-    -------
-    required : dict[BlockKey3D, int]
-        ``{BlockKey3D: level}`` preserving row order.
-    """
-    required: dict[BlockKey3D, int] = {}
-    for row in arr:
-        level = int(row[0])
-        key = BlockKey3D(
-            level=level,
-            g0=int(row[1]),
-            g1=int(row[2]),
-            g2=int(row[3]),
-            slice_coord=slice_coord,
-        )
-        required[key] = level
-    return required

@@ -224,8 +224,8 @@ class MultiscalePaintController(AbstractPaintController):
         # 3. Drop GPU paint textures — paint is now on disk.
         self._controller._clear_painted_tiles_2d(self._visual_id)
 
-        # 4. Evict + reslice so base cache reflects the committed state.
-        self._evict_dirty_visible_tiles()
+        # 4. Invalidate + reslice so the atlases reflect the committed state.
+        self._invalidate_dirty_bricks()
         self._write_layer.clear()
         self._history._undo_stack.clear()
         self._history._redo_stack.clear()
@@ -285,8 +285,8 @@ class MultiscalePaintController(AbstractPaintController):
         # 4. Drop GPU paint textures — frees the entire slot pool.
         self._controller._clear_painted_tiles_2d(self._visual_id)
 
-        # 5. Evict base cache for dirty bricks; reslice repopulates from disk.
-        self._evict_dirty_visible_tiles()
+        # 5. Invalidate the atlases over dirty bricks; the reslice refetches.
+        self._invalidate_dirty_bricks()
         self._write_layer.clear()
         self._controller.reslice_visual(self._visual_id)
 
@@ -440,15 +440,31 @@ class MultiscalePaintController(AbstractPaintController):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _evict_dirty_visible_tiles(self) -> int:
-        """Drop visible cache tiles for every brick currently marked dirty."""
-        ax_y, ax_x = self._displayed_axes
+    def _invalidate_dirty_bricks(self) -> list[int]:
+        """Drop GPU data over every dirty brick, at every level (design 5.14).
+
+        Each dirty level-0 brick becomes a level-0 data region; the chunk
+        scheduler drops the resident bricks and tiles of every atlas reading
+        this store that overlap one, and fetches the wanted ones again
+        (through the open transaction, since rechecks are on while a paint
+        writer is registered).  Coarser levels are covered too: the pyramid
+        rebuild rewrote them.
+
+        Returns
+        -------
+        list[int]
+            The atlases touched.
+        """
         dirty_keys = self._write_layer.dirty_keys()
-        dirty_grid_coords_2d: set[tuple[int, int]] = {
-            (key.grid_coords[ax_y], key.grid_coords[ax_x]) for key in dirty_keys
-        }
-        return self._controller._invalidate_painted_tiles_2d(
-            self._visual_id, dirty_grid_coords_2d
+        if not dirty_keys:
+            return []
+        bs = self._write_layer.block_size
+        regions = tuple(
+            tuple((g * bs, (g + 1) * bs) for g in key.grid_coords)
+            for key in sorted(dirty_keys)
+        )
+        return self._controller._invalidate_painted_regions(
+            self._data_store.id, regions
         )
 
     def __repr__(self) -> str:

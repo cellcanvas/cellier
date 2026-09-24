@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from cellier.render._level_mapping import brick_box_data, implied_power_of_two
 from cellier.render._level_of_detail import CORNER_OFFSETS
 
 if TYPE_CHECKING:
@@ -112,30 +113,15 @@ def compute_brick_aabb_corners(
     """
     k = brick_key.level - 1
     if level_scale_arr_shader is not None and level_translation_arr_shader is not None:
-        sv = level_scale_arr_shader[k]  # (sx, sy, sz) = (W, H, D)
-        tv = level_translation_arr_shader[k]
-        block_world = block_size * sv  # (3,) per-axis
-        min_corner = np.array(
-            [
-                brick_key.g2 * block_world[0] + tv[0],  # x = W
-                brick_key.g1 * block_world[1] + tv[1],  # y = H
-                brick_key.g0 * block_world[2] + tv[2],  # z = D
-            ],
-            dtype=np.float64,
-        )
-        return min_corner + CORNER_OFFSETS * block_world  # (8, 3)
-
-    scale = 2**k
-    block_world = float(block_size * scale)
-    min_corner = np.array(
-        [
-            brick_key.g2 * block_world,
-            brick_key.g1 * block_world,
-            brick_key.g0 * block_world,
-        ],
-        dtype=np.float64,
+        sv = np.asarray(level_scale_arr_shader[k], dtype=np.float64)  # (W, H, D)
+        tv = np.asarray(level_translation_arr_shader[k], dtype=np.float64)
+    else:
+        sv, tv = implied_power_of_two(brick_key.level)
+    # Centre convention (plan v2, D1), shader order (x=W, y=H, z=D).
+    low, high = brick_box_data(
+        [brick_key.g2, brick_key.g1, brick_key.g0], block_size, sv, tv
     )
-    return min_corner + CORNER_OFFSETS * block_world  # (8, 3)
+    return low + CORNER_OFFSETS * (high - low)  # (8, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -182,49 +168,27 @@ def bricks_in_frustum_arr(
             "mask_ms": 0.0,
         }
 
-    levels = arr[:, 0]
-    gz_c = arr[:, 1]
-    gy_c = arr[:, 2]
-    gx_c = arr[:, 3]
+    levels = arr[:, 0].astype(np.int64)
 
     t0 = time.perf_counter()
 
     if level_scale_arr_shader is not None and level_translation_arr_shader is not None:
-        levels_idx = levels - 1  # 0-indexed
-        # (M, 3) per-axis brick widths in shader order (W, H, D).
-        bw = block_size * level_scale_arr_shader[levels_idx]
-        tv = level_translation_arr_shader[levels_idx]  # (M, 3)
-
-        brick_mins = np.stack(
-            [
-                gx_c.astype(np.float64) * bw[:, 0] + tv[:, 0],
-                gy_c.astype(np.float64) * bw[:, 1] + tv[:, 1],
-                gz_c.astype(np.float64) * bw[:, 2] + tv[:, 2],
-            ],
-            axis=1,
-        )  # (M, 3)
-
-        # (M, 8, 3) — per-axis brick widths broadcast over corners.
-        all_corners = (
-            brick_mins[:, np.newaxis, :]
-            + CORNER_OFFSETS[np.newaxis, :, :] * bw[:, np.newaxis, :]
-        )
+        scale = np.asarray(level_scale_arr_shader, dtype=np.float64)[levels - 1]
+        translation = np.asarray(level_translation_arr_shader, dtype=np.float64)[
+            levels - 1
+        ]
     else:
-        scales = np.left_shift(1, (levels - 1)).astype(np.float64)
-        bw = float(block_size) * scales
-        brick_mins = np.stack(
-            [
-                gx_c.astype(np.float64) * bw,
-                gy_c.astype(np.float64) * bw,
-                gz_c.astype(np.float64) * bw,
-            ],
-            axis=1,
-        )  # (M, 3)
-
-        all_corners = (
-            brick_mins[:, np.newaxis, :]
-            + CORNER_OFFSETS[np.newaxis, :, :] * bw[:, np.newaxis, np.newaxis]
-        )
+        s_, t_ = implied_power_of_two(levels)
+        scale, translation = s_[:, None], t_[:, None]
+    # Centre convention (plan v2, D1): (M, 3) boxes in shader order (W, H, D).
+    brick_mins, brick_maxs = brick_box_data(
+        arr[:, [3, 2, 1]], block_size, scale, translation
+    )
+    # (M, 8, 3) -- per-axis brick widths broadcast over corners.
+    all_corners = (
+        brick_mins[:, np.newaxis, :]
+        + CORNER_OFFSETS[np.newaxis, :, :] * (brick_maxs - brick_mins)[:, np.newaxis, :]
+    )
 
     build_corners_ms = (time.perf_counter() - t0) * 1000
 
@@ -279,26 +243,19 @@ def bricks_in_frustum(
         values = brick_keys
     else:
         keys_list = list(brick_keys)
-        values = {k: 0 for k in keys_list}
+        values = dict.fromkeys(keys_list, 0)
 
     n = len(keys_list)
     if n == 0:
         return {}, {"build_corners_ms": 0.0, "einsum_ms": 0.0, "mask_ms": 0.0}
 
     t0 = time.perf_counter()
-    brick_mins = np.empty((n, 3), dtype=np.float64)
-    block_worlds = np.empty(n, dtype=np.float64)
-    for i, key in enumerate(keys_list):
-        scale = 2 ** (key.level - 1)
-        bw = float(block_size * scale)
-        brick_mins[i, 0] = key.g2 * bw
-        brick_mins[i, 1] = key.g1 * bw
-        brick_mins[i, 2] = key.g0 * bw
-        block_worlds[i] = bw
-
+    index = np.array([[k.g2, k.g1, k.g0] for k in keys_list], dtype=np.float64)
+    s_, t_ = implied_power_of_two(np.array([k.level for k in keys_list]))
+    brick_mins, brick_maxs = brick_box_data(index, block_size, s_[:, None], t_[:, None])
     all_corners = (
         brick_mins[:, np.newaxis, :]
-        + CORNER_OFFSETS[np.newaxis, :, :] * block_worlds[:, np.newaxis, np.newaxis]
+        + CORNER_OFFSETS[np.newaxis, :, :] * (brick_maxs - brick_mins)[:, np.newaxis, :]
     )
     build_corners_ms = (time.perf_counter() - t0) * 1000
 

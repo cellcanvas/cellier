@@ -4,25 +4,23 @@ from __future__ import annotations
 
 import time
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
 
 import numpy as np
 import pygfx as gfx
 
-from cellier.data.image import ChunkRequest
-from cellier.logging import _GPU_LOGGER, _PERF_LOGGER
+from cellier.logging import _PERF_LOGGER
 from cellier.render._frustum import (
     bricks_in_frustum_arr,
     frustum_planes_from_corners,
 )
+from cellier.render._gpu_lifetime import destroy_textures
+from cellier.render._level_mapping import base_cell_range
 from cellier.render._level_of_detail import (
-    arr_to_brick_keys,
     select_levels_arr_forced,
     select_levels_from_cache,
     sort_arr_by_distance,
 )
 from cellier.render._level_of_detail_2d import (
-    arr_to_block_keys_2d,
     select_lod_2d,
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
@@ -35,12 +33,11 @@ from cellier.render._spaces import (
 )
 from cellier.render.block_cache import (
     BlockCache3D,
-    BlockKey3D,
-    TileSlot,
     compute_block_cache_parameters_3d,
 )
 from cellier.render.block_cache._block_cache_2d import BlockCache2D
 from cellier.render.block_cache._cache_parameters_2d import (
+    TILE_BORDER_2D,
     compute_block_cache_parameters_2d,
 )
 from cellier.render.lut_indirection import LutIndirectionManager3D
@@ -51,6 +48,7 @@ from cellier.render.lut_indirection._lut_buffers_2d import (
 from cellier.render.lut_indirection._lut_indirection_manager_2d import (
     LutIndirectionManager2D,
 )
+from cellier.render.scheduling import DesiredSet, PlanMode
 from cellier.render.shaders._label_colormap import (
     build_direct_lut_textures,
     build_label_params_buffer,
@@ -63,18 +61,25 @@ from cellier.render.shaders._multiscale_volume_brick import (
     build_brick_scales_buffer,
     build_vol_params_buffer,
 )
+from cellier.render.visuals._chunked import (
+    backstop_cap_for,
+    desired_bricks,
+    log_backstop_cap_once,
+    make_residency_2d,
+    make_residency_3d,
+    viewport_2d,
+)
 from cellier.render.visuals._image import (
     ImageGeometry3D,
     MultiscaleBrickLayout3D,
     MultiscaleRegionPlanner,
     NormSizedVolume,
-    _block_key_2d_to_padded_coords,
-    _brick_key_to_padded_coords,
     _check_transform_no_rotation,
     _displayed_submatrix,
     _fetch_order,
     _norm_size_from_transform,
     _norm_to_data_params_for,
+    _plan_stats,
     _world_axes_to_data_axes,
 )
 from cellier.render.visuals._image_memory import (
@@ -89,6 +94,8 @@ from cellier.render.visuals._pick import (
 )
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from pygfx.resources import Buffer
 
     from cellier._state import DimsState
@@ -101,17 +108,24 @@ if TYPE_CHECKING:
         TransformChangedEvent,
         VisualVisibilityChangedEvent,
     )
-    from cellier.render.block_cache._tile_manager_2d import (
-        BlockKey2D,
-    )
-    from cellier.render.block_cache._tile_manager_2d import (
-        TileSlot as TileSlot2D,
+    from cellier.render._requests import ReslicingRequest
+    from cellier.render._scene_config import VisualRenderConfig
+    from cellier.render.block_cache._image_residency import (
+        ImageResidency2D,
+        ImageResidency3D,
     )
     from cellier.transform import AffineTransform, BaseTransform, RegionSelection
     from cellier.visuals._labels import MultiscaleLabelVisual
 
 # Importing this module registers the shader classes with pygfx.
 import cellier.render.shaders._label_multiscale as _label_reg  # noqa: F401
+
+#: How far past a sample position each labels path reads, in level-k voxels,
+#: at the default ``ray_steps_per_voxel`` (plan v2, "Padding budgets"): the
+#: brick-rule padding warning subtracts it from the ghost border.  3D: one
+#: bisection step (1 at K = 1); 2D: nearest sampling reads nothing extra.
+_LABELS_SAMPLING_MARGIN_3D = 1.0
+_LABELS_SAMPLING_MARGIN_2D = 0.0
 
 
 class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
@@ -146,6 +160,8 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         Maximum GPU memory for the 2D tile cache.
     """
 
+    #: 3D loads go through the chunk scheduler (``plan`` / ``residencies``).
+    chunked: bool = True
     cancellable: bool = True
 
     def __init__(
@@ -160,6 +176,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         salt: int = 0,
         color_dict: dict | None = None,
         render_mode: str = "iso_categorical",
+        ray_steps_per_voxel: float = 1.0,
         gpu_budget_bytes_3d: int = 1 * 1024**3,
         gpu_budget_bytes_2d: int = 64 * 1024**2,
         transform: BaseTransform | None = None,
@@ -217,8 +234,11 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         self._last_displayed_axes: tuple[int, ...] | None = displayed_axes
         self._gpu_budget_bytes = gpu_budget_bytes_3d
         self._frame_number = 0
-        self._pending_slot_map: dict[UUID, tuple[BlockKey3D, TileSlot]] = {}
-        self._pending_slot_map_2d: dict[UUID, tuple[BlockKey2D, TileSlot2D]] = {}
+        # The chunk scheduler's view of the 3D atlas (see residency_3d).
+        self._residency_3d: ImageResidency3D | None = None
+        self._residency_axes: tuple[int, ...] | None = None
+        # The 2D atlas's adapter (see residency_2d).
+        self._residency_2d: ImageResidency2D | None = None
         self._last_plan_stats: dict = {}
 
         self._data_ready_3d: bool = False
@@ -234,6 +254,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         self._colormap_mode: str = colormap_mode
         self._salt: int = int(salt)
         self._render_mode: str = render_mode
+        self._ray_steps_per_voxel: float = float(ray_steps_per_voxel)
         self._paint_max_tiles: int = int(paint_max_tiles)
 
         # 2D paint resources (allocated in _allocate_paint_resources_2d)
@@ -272,6 +293,8 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
                 base_layout=volume_geometry.base_layout,
                 n_levels=volume_geometry.n_levels,
                 level_scale_vecs_data=volume_geometry._scale_vecs_data,
+                level_translation_vecs_data=volume_geometry._translation_vecs_data,
+                sampling_margin=_LABELS_SAMPLING_MARGIN_3D,
                 level_shapes=volume_geometry.level_shapes,
                 border=cache_parameters_3d.overlap,
             )
@@ -281,7 +304,6 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         self._lut_manager_2d: LutIndirectionManager2D | None = None
         self._lut_params_buffer_2d = None
         self._block_scales_buffer_2d = None
-        self._current_slice_coord: tuple[tuple[int, int], ...] | None = None
         # Viewport base-grid cell bounds (gy0, gx0, gy1, gx1) for clipping stale
         # background tiles out of the LUT.  None disables clipping.
         self._current_viewport_cells: tuple[int, int, int, int] | None = None
@@ -290,6 +312,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             cache_parameters_2d = compute_block_cache_parameters_2d(
                 gpu_budget_bytes=gpu_budget_bytes_2d,
                 block_size=image_geometry_2d.block_size,
+                overlap=TILE_BORDER_2D,
             )
             self._block_cache_2d = BlockCache2D(
                 cache_parameters=cache_parameters_2d, dtype=np.int32
@@ -298,6 +321,8 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
                 base_layout=image_geometry_2d.base_layout,
                 n_levels=image_geometry_2d.n_levels,
                 scale_vecs_data=image_geometry_2d._scale_vecs_data,
+                translation_vecs_data=image_geometry_2d._translation_vecs_data,
+                sampling_margin=_LABELS_SAMPLING_MARGIN_2D,
                 level_shapes=image_geometry_2d.level_shapes,
                 border=cache_parameters_2d.overlap,
             )
@@ -308,6 +333,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
                 level_scale_vecs_data=image_geometry_2d._scale_vecs_data,
                 level_shapes=image_geometry_2d.level_shapes,
                 block_size=image_geometry_2d.block_size,
+                level_translation_vecs_data=image_geometry_2d._translation_vecs_data,
             )
             self._allocate_paint_resources_2d()
 
@@ -343,6 +369,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
                 volume_geometry._scale_vecs_data,
                 level_shapes=volume_geometry.level_shapes,
                 block_size=volume_geometry.block_size,
+                level_translation_vecs_data=volume_geometry._translation_vecs_data,
             )
 
         # Which label values the selection layer outlines.  Held here so a
@@ -447,6 +474,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             salt=app.salt,
             color_dict=dict(app.color_dict),
             render_mode=app.render_mode,
+            ray_steps_per_voxel=app.ray_steps_per_voxel,
             gpu_budget_bytes_3d=gpu_budget_bytes,
             gpu_budget_bytes_2d=gpu_budget_bytes_2d,
             paint_max_tiles=paint_max_tiles,
@@ -569,11 +597,14 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
 
     def _rebuild_3d_resources(self) -> None:
         geo = self._volume_geometry
-        self._block_cache_3d.tile_manager.release_all_in_flight()
+        # A new LUT manager makes residency_3d() start a new atlas registry.
+        self._block_cache_3d.clear()
         self._lut_manager_3d = LutIndirectionManager3D(
             base_layout=geo.base_layout,
             n_levels=geo.n_levels,
             level_scale_vecs_data=geo._scale_vecs_data,
+            level_translation_vecs_data=geo._translation_vecs_data,
+            sampling_margin=_LABELS_SAMPLING_MARGIN_3D,
             level_shapes=geo.level_shapes,
             border=self._block_cache_3d.info.overlap,
         )
@@ -582,6 +613,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             geo._scale_vecs_data,
             level_shapes=geo.level_shapes,
             block_size=geo.block_size,
+            level_translation_vecs_data=geo._translation_vecs_data,
         )
         if self.node_3d is not None:
             inner, self.material_3d, self._proxy_tex_3d = self._build_3d_node()
@@ -593,7 +625,6 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             if self._last_displayed_axes is not None:
                 self._update_node_matrix(self._last_displayed_axes)
             self._apply_outline_selection()
-        self._pending_slot_map = {}
 
     def _lazy_init_3d(self, displayed_axes: tuple[int, ...], visual_model=None) -> None:
         """Build the 3D GPU resources and node on first entry into 3D.
@@ -613,6 +644,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             block_size = visual_model.render_config.block_size
             pick_write = visual_model.pick_write
             self._render_mode = app.render_mode
+            self._ray_steps_per_voxel = float(app.ray_steps_per_voxel)
             material_fields = {
                 "opacity": app.opacity,
                 "depth_test": app.depth_test,
@@ -665,6 +697,8 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             base_layout=geo.base_layout,
             n_levels=geo.n_levels,
             level_scale_vecs_data=geo._scale_vecs_data,
+            level_translation_vecs_data=geo._translation_vecs_data,
+            sampling_margin=_LABELS_SAMPLING_MARGIN_3D,
             level_shapes=geo.level_shapes,
             border=cache_parameters_3d.overlap,
         )
@@ -688,6 +722,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             geo._scale_vecs_data,
             level_shapes=geo.level_shapes,
             block_size=geo.block_size,
+            level_translation_vecs_data=geo._translation_vecs_data,
         )
 
         inner, self.material_3d, self._proxy_tex_3d = self._build_3d_node(
@@ -702,7 +737,6 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             setattr(self.material_3d, name, value)
         self.node_3d.visible = visible
         self.node_3d.render_order = render_order
-        self._pending_slot_map = {}
         self._data_ready_3d = False
 
         self._update_node_matrix(displayed_axes)
@@ -710,11 +744,14 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
 
     def _rebuild_2d_resources(self) -> None:
         geo2d = self._image_geometry_2d
-        self._block_cache_2d.tile_manager.release_all_in_flight()
+        # A new LUT means a new residency (and cache id) on the next plan.
+        self._block_cache_2d.clear()
         self._lut_manager_2d = LutIndirectionManager2D(
             base_layout=geo2d.base_layout,
             n_levels=geo2d.n_levels,
             scale_vecs_data=geo2d._scale_vecs_data,
+            translation_vecs_data=geo2d._translation_vecs_data,
+            sampling_margin=_LABELS_SAMPLING_MARGIN_2D,
             level_shapes=geo2d.level_shapes,
             border=self._block_cache_2d.info.overlap,
         )
@@ -725,6 +762,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             level_scale_vecs_data=geo2d._scale_vecs_data,
             level_shapes=geo2d.level_shapes,
             block_size=geo2d.block_size,
+            level_translation_vecs_data=geo2d._translation_vecs_data,
         )
         self._allocate_paint_resources_2d()
         if self.node_2d is not None:
@@ -737,7 +775,6 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             if self._last_displayed_axes is not None:
                 self._update_node_matrix(self._last_displayed_axes)
             self._apply_outline_selection()
-        self._pending_slot_map_2d = {}
 
     def set_render_spaces(self, spaces: RenderSpaces | None) -> None:
         """Receive the coordinate systems this visual is placed with."""
@@ -777,7 +814,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
 
     # ── 3D planning helpers ───────────────────────────────────────────────
 
-    def build_slice_request(
+    def _plan_bricks_3d(
         self,
         camera_pos_world: np.ndarray,
         frustum_corners_world: np.ndarray | None,
@@ -787,7 +824,12 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         dims_state: DimsState | None = None,
         force_level: int | None = None,
         selection: RegionSelection | None = None,
-    ) -> list[ChunkRequest]:
+    ) -> np.ndarray:
+        """LOD selection, distance sort and frustum cull.
+
+        Pure with respect to the GPU (design 5.3): adopts the region, then
+        returns the planned ``[level, g0, g1, g2]`` rows, nearest first.
+        """
         t_plan_start = time.perf_counter()
         self._frame_number += 1
         self._begin_region_planning(selection)
@@ -815,9 +857,12 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         ).flatten()
 
         if force_level is None and fov_y_rad > 0:
+            # Higher bias -> lower thresholds -> coarser levels, as in 2D and
+            # in the image planner.
+            safe_bias = max(lod_bias, 1e-6)
             focal_half_height_world = (screen_height_px / 2.0) / np.tan(fov_y_rad / 2.0)
             thresholds: list[float] | None = [
-                geo._level_scale_factors[k - 1] * focal_half_height_world * lod_bias
+                geo._level_scale_factors[k - 1] * focal_half_height_world / safe_bias
                 for k in range(1, geo.n_levels)
             ]
         else:
@@ -878,159 +923,237 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             frustum_cull_ms = (time.perf_counter() - t0) * 1000
             n_culled = n_total - len(brick_arr)
 
+        # Truncation to the atlas's budget happens in the planner tail,
+        # after the backstop has taken its share (design 5.3).
         n_needed = len(brick_arr)
-        n_budget = self._block_cache_3d.info.n_slots - 1
-        n_dropped = max(0, n_needed - n_budget)
-        if n_dropped:
-            brick_arr = brick_arr[:n_budget]
-
-        # When force_level is set every brick is at a single level; evict
-        # finer bricks proactively so their slots are immediately reusable.
-        if force_level is not None:
-            self._block_cache_3d.tile_manager.evict_finer_than(force_level)
-        t0 = time.perf_counter()
-        sorted_required = arr_to_brick_keys(
-            brick_arr, slice_coord=self._current_slice_coord_3d or ()
-        )
-        fill_plan = self._block_cache_3d.tile_manager.stage(
-            sorted_required, self._frame_number
-        )
-        stage_ms = (time.perf_counter() - t0) * 1000
-
-        # When all required bricks are cache hits, on_data_ready never fires
-        # so the LUT would remain stale (pointing to a different slice position).
-        # Rebuild immediately in that case — mirrors the 2D all-hits guard.
-        if not fill_plan:
-            self._lut_manager_3d.rebuild(
-                self._block_cache_3d.tile_manager,
-                current_slice_coord=self._current_slice_coord_3d,
-            )
-
-        slice_id = uuid4()
-        chunk_requests: list[ChunkRequest] = []
-        self._pending_slot_map = {}
-
-        for brick_key, slot in fill_plan:
-            chunk_id = uuid4()
-            z0, y0, x0, z1, y1, x1 = _brick_key_to_padded_coords(
-                brick_key, geo.block_size, self._block_cache_3d.info.overlap
-            )
-            level_index = brick_key.level - 1
-            display_coords = [(z0, z1), (y0, y1), (x0, x1)]
-            if dims_state is not None:
-                ndim = len(dims_state.axis_labels)
-                axis_selections = self._level_axis_selections(
-                    dims_state.selection,
-                    ndim,
-                    display_coords,
-                    level_index,
-                    self._full_level_shapes[level_index],
-                )
-            else:
-                axis_selections = tuple(display_coords)
-            req = ChunkRequest(
-                chunk_request_id=chunk_id,
-                slice_request_id=slice_id,
-                scale_index=brick_key.level - 1,
-                axis_selections=axis_selections,
-            )
-            chunk_requests.append(req)
-            self._pending_slot_map[chunk_id] = (brick_key, slot)
-
         plan_total_ms = (time.perf_counter() - t_plan_start) * 1000
-
-        self._last_plan_stats = stats = {
-            "hits": len(sorted_required) - len(fill_plan),
-            "misses": len(fill_plan),
-            "fills": len(fill_plan),
+        self._last_plan_stats = {
             "total_required": n_total,
             "n_culled": n_culled,
             "n_needed": n_needed,
-            "n_budget": n_budget,
-            "n_dropped": n_dropped,
             "cull_timings": cull_timings,
             "lod_select_ms": lod_select_ms,
             "distance_sort_ms": distance_sort_ms,
             "frustum_cull_ms": frustum_cull_ms,
-            "stage_ms": stage_ms,
             "plan_total_ms": plan_total_ms,
         }
-
-        if n_dropped > 0:
-            _PERF_LOGGER.warning(
-                "budget_exceeded  required=%d  budget=%d  dropped=%d",
-                n_needed,
-                n_budget,
-                n_dropped,
-            )
-
         _PERF_LOGGER.info(
-            "[frame %d]  lod_select=%.1fms  dist_sort=%.1fms  frustum_cull=%.1fms  "
-            "stage=%.1fms  |  required=%d  culled=%d  hits=%d  misses=%d",
+            "[frame %d]  lod_select=%.1fms  dist_sort=%.1fms  frustum_cull=%.1fms"
+            "  |  required=%d  culled=%d  planned=%d",
             self._frame_number,
-            stats["lod_select_ms"],
-            stats["distance_sort_ms"],
-            stats.get("frustum_cull_ms", 0.0),
-            stats.get("stage_ms", 0.0),
-            stats["total_required"],
-            stats.get("n_culled", 0),
-            stats["hits"],
-            stats["misses"],
+            lod_select_ms,
+            distance_sort_ms,
+            frustum_cull_ms,
+            n_total,
+            n_culled,
+            len(brick_arr),
         )
+        return brick_arr
 
-        return chunk_requests
+    def residency_3d(self) -> ImageResidency3D | None:
+        """The chunk scheduler's adapter for the 3D atlas.
 
-    def on_data_ready(
-        self,
-        batch: list[tuple[ChunkRequest, np.ndarray]],
-    ) -> None:
-        """Commit an arriving batch of 3D label bricks to the GPU cache."""
-        if self._closed:
-            return
-        non_bg_bricks = 0
-        for req, data in batch:
-            entry = self._pending_slot_map.get(req.chunk_request_id)
-            if entry is None:
-                continue
-            brick_key, slot = entry
-            # contains_label: 1.0 if any voxel != background, 0.0 if all background.
-            contains_label = np.any(data != self._background_label)
-            slot.brick_max = 1.0 if contains_label else 0.0
-            if contains_label:
-                non_bg_bricks += 1
-            self._block_cache_3d.write_brick(slot, data, key=brick_key)
-            self._block_cache_3d.tile_manager.commit(brick_key, slot)
+        ``None`` until the 3D resources exist; replaced (a new cache id) when
+        the atlas, its LUT or the displayed axes change.
+        """
+        if (
+            self._closed
+            or self._block_cache_3d is None
+            or self._lut_manager_3d is None
+            or self._volume_geometry is None
+        ):
+            return None
+        residency = self._residency_3d
+        if (
+            residency is None
+            or residency.block_cache is not self._block_cache_3d
+            or residency.lut_manager is not self._lut_manager_3d
+            or (
+                # Only a 3D layout change re-keys the atlas; 2D leaves it be.
+                len(self._last_displayed_axes or ()) == 3
+                and self._residency_axes != self._last_displayed_axes
+            )
+        ):
+            self._block_cache_3d.clear()
+            residency = make_residency_3d(
+                self._block_cache_3d,
+                self._lut_manager_3d,
+                self._volume_geometry.block_size,
+                list(self._level_transforms),
+                len(self._full_level_shapes[0]),
+                brick_max=self._brick_holds_label,
+                on_write=self._on_brick_written_3d,
+            )
+            self._residency_3d = residency
+            if len(self._last_displayed_axes or ()) == 3:
+                self._residency_axes = self._last_displayed_axes
+        return residency
 
-        _GPU_LOGGER.info(
-            "gpu_flush  bricks_in_batch=%d  resident=%d",
-            len(batch),
-            self._block_cache_3d.n_resident,
-        )
+    def _brick_holds_label(self, data: np.ndarray) -> float:
+        """1.0 if any voxel is not background: the shader's early-out value."""
+        return 1.0 if np.any(data != self._background_label) else 0.0
 
-        self._lut_manager_3d.rebuild(
-            self._block_cache_3d.tile_manager,
-            current_slice_coord=self._current_slice_coord_3d,
-        )
-
-        _GPU_LOGGER.info(
-            "lut_rebuilt  resident=%d  frame=%d",
-            self._block_cache_3d.n_resident,
-            self._frame_number,
-        )
-
+    def _on_brick_written_3d(self) -> None:
+        """Reveal the bounding box once the first brick is on the GPU."""
         if not self._data_ready_3d and self._aabb_line_3d is not None:
             self._data_ready_3d = True
             self._aabb_line_3d.visible = self._aabb_enabled
 
-    def cancel_pending(self) -> None:
-        if self._block_cache_3d is None:
-            return
-        self._block_cache_3d.tile_manager.release_all_in_flight()
-        self._pending_slot_map = {}
+    def plan(
+        self,
+        request: ReslicingRequest,
+        config: VisualRenderConfig,
+        mode: PlanMode = PlanMode.FULL,
+    ) -> list[DesiredSet]:
+        """The chunk scheduler's planner contract (design 5.3).
 
-    # ── 2D SliceCoordinator interface ─────────────────────────────────────
+        Returns
+        -------
+        list[DesiredSet]
+            The atlas's desired set (``store`` unset), or empty without
+            resources for the request's mode.
+        """
+        displayed = tuple(request.dims_state.selection.displayed_axes)
+        if len(displayed) == 2:
+            return self._plan_2d(request, config, mode)
+        if self._volume_geometry is None or self._block_cache_3d is None:
+            return []
+        brick_arr = None
+        if mode == PlanMode.FULL:
+            brick_arr = self._plan_bricks_3d(
+                request.camera_pos,
+                request.frustum_corners if config.frustum_cull else None,
+                request.fov_y_rad,
+                request.screen_size_px[1],
+                lod_bias=config.lod_bias,
+                dims_state=request.dims_state,
+                force_level=config.force_level,
+                selection=request.selection,
+            )
+        else:
+            self._adopt_request_3d(request)
+        backstop = self._plan_backstop_3d(
+            request.camera_pos, request.frustum_corners, config.loading
+        )
+        residency = self.residency_3d()
+        if residency is None:
+            return []
+        return self._finish_plan(residency, brick_arr, backstop, config.loading)
 
-    def build_slice_request_2d(
+    def _finish_plan(self, residency, arr, backstop, loading) -> list[DesiredSet]:
+        """The planner tail shared by both modes: one desired set, and stats."""
+        desired = desired_bricks(
+            self,
+            residency,
+            arr,
+            backstop_arr=backstop,
+            backstop_cap=backstop_cap_for(loading, residency),
+        )
+        stats = _plan_stats(0 if arr is None else len(arr), desired)
+        self._last_plan_stats = {**self._last_plan_stats, **stats}
+        log_backstop_cap_once(self, [desired])
+        return [desired]
+
+    def _adopt_request_3d(self, request: ReslicingRequest) -> None:
+        """Adopt a request's region and axes without planning the target."""
+        self._begin_region_planning(request.selection)
+        self._current_slice_coord_3d = self._block_key_slice_coord()
+        displayed = request.dims_state.selection.displayed_axes
+        if displayed != self._last_displayed_axes:
+            self._update_node_matrix(displayed)
+
+    def residencies(self) -> dict[int, ImageResidency3D | ImageResidency2D]:
+        """``cache_id -> adapter`` for the 3D and 2D atlases that exist."""
+        return {
+            residency.cache_id: residency
+            for residency in (self.residency_3d(), self.residency_2d())
+            if residency is not None
+        }
+
+    def residency_2d(self) -> ImageResidency2D | None:
+        """The chunk scheduler's adapter for the 2D atlas.
+
+        ``None`` until the 2D resources exist; replaced (a new cache id) when
+        the atlas or its LUT changes.
+        """
+        if self._closed or self._block_cache_2d is None or self._lut_manager_2d is None:
+            return None
+        residency = self._residency_2d
+        if (
+            residency is None
+            or residency.block_cache is not self._block_cache_2d
+            or residency.lut_manager is not self._lut_manager_2d
+        ):
+            self._block_cache_2d.clear()
+            residency = make_residency_2d(
+                self._block_cache_2d,
+                self._lut_manager_2d,
+                self._image_geometry_2d.block_size,
+                list(self._level_transforms),
+                len(self._full_level_shapes[0]),
+                on_write=self._on_tile_written_2d,
+            )
+            self._residency_2d = residency
+        return residency
+
+    def _on_tile_written_2d(self) -> None:
+        """Reveal the bounding box once the first tile is on the GPU."""
+        if not self._data_ready_2d and self._aabb_line_2d is not None:
+            self._data_ready_2d = True
+            self._aabb_line_2d.visible = self._aabb_enabled
+
+    # ── 2D planning ───────────────────────────────────────────────────────
+
+    def _plan_2d(
+        self,
+        request: ReslicingRequest,
+        config: VisualRenderConfig,
+        mode: PlanMode = PlanMode.FULL,
+    ) -> list[DesiredSet]:
+        """Plan the 2D atlas's tiles; the 2D half of :meth:`plan`."""
+        if self._image_geometry_2d is None or self._block_cache_2d is None:
+            return []
+        view_min_world, view_max_world = viewport_2d(request)
+        use_culling = config.frustum_cull
+        tile_arr = None
+        if mode == PlanMode.FULL:
+            tile_arr = self._plan_tiles_2d(
+                camera_pos_world=request.camera_pos,
+                viewport_width_px=request.screen_size_px[0],
+                world_width=request.world_extent[0],
+                view_min_world=view_min_world if use_culling else None,
+                view_max_world=view_max_world if use_culling else None,
+                dims_state=request.dims_state,
+                lod_bias=config.lod_bias,
+                force_level=config.force_level,
+                use_culling=use_culling,
+                selection=request.selection,
+            )
+        else:
+            self._begin_region_planning(request.selection)
+            displayed = request.dims_state.selection.displayed_axes
+            if displayed != self._last_displayed_axes:
+                self._update_node_matrix(displayed)
+            self._adopt_viewport_2d(
+                request.camera_pos,
+                request.world_extent[0],
+                view_min_world if use_culling else None,
+                view_max_world if use_culling else None,
+            )
+        backstop = self._plan_backstop_2d(
+            request.camera_pos,
+            request.world_extent[0],
+            view_min_world,
+            view_max_world,
+            config.loading,
+        )
+        residency = self.residency_2d()
+        if residency is None:
+            return []
+        residency.viewport_cells = self._current_viewport_cells
+        return self._finish_plan(residency, tile_arr, backstop, config.loading)
+
+    def _plan_tiles_2d(
         self,
         camera_pos_world: np.ndarray,
         viewport_width_px: float,
@@ -1042,12 +1165,20 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         force_level: int | None = None,
         use_culling: bool = True,
         selection: RegionSelection | None = None,
-    ) -> list[ChunkRequest]:
+    ) -> np.ndarray:
+        """Run 2D LOD selection, sort and viewport cull.
+
+        Pure with respect to the GPU.  Sets ``_current_viewport_cells`` (the
+        background clip).
+
+        Returns
+        -------
+        np.ndarray
+            ``(N, 3)`` rows ``[level, g0, g1]`` in load order.
+        """
         t_plan_start = time.perf_counter()
         self._frame_number += 1
         self._begin_region_planning(selection)
-
-        self._current_slice_coord = self._block_key_slice_coord()
 
         geo2d = self._image_geometry_2d
         block_size = geo2d.block_size
@@ -1057,51 +1188,26 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         if displayed != self._last_displayed_axes:
             self._update_node_matrix(displayed)
 
-        sub_2d = _displayed_submatrix(self._transform, displayed)
-
-        nd2 = sub_2d.shape[0] - 1
-        world_units_per_voxel_2d = np.abs(np.diag(sub_2d[:nd2, :nd2]))
-        world_to_voxel_scale_2d = float(
-            np.prod(1.0 / world_units_per_voxel_2d) ** (1.0 / nd2)
+        camera_pos, view_min, view_max, voxel_width = self._view_2d(
+            camera_pos_world, world_width, view_min_world, view_max_world
         )
-        voxel_width = world_width * world_to_voxel_scale_2d
-
-        camera_pos_2d = self._to_level0_displayed(
-            np.asarray(camera_pos_world)[:2].reshape(1, -1)
-        ).flatten()
-        camera_pos = np.array(
-            [camera_pos_2d[0], camera_pos_2d[1], 0.0], dtype=np.float32
-        )
-
-        if use_culling and view_min_world is not None and view_max_world is not None:
-            cx = float(camera_pos_world[0])
-            cy = float(camera_pos_world[1])
-            half_w = world_width / 2.0
-            half_h = (float(view_max_world[1]) - float(view_min_world[1])) / 2.0
-            corners_pygfx = np.array(
-                [
-                    [cx - half_w, cy - half_h],
-                    [cx + half_w, cy - half_h],
-                    [cx + half_w, cy + half_h],
-                    [cx - half_w, cy + half_h],
-                ],
-                dtype=np.float64,
-            )
-            corners_data_2d = self._to_level0_displayed(corners_pygfx)
-            view_min = corners_data_2d.min(axis=0)
-            view_max = corners_data_2d.max(axis=0)
+        if not use_culling:
+            view_min = view_max = None
+        if view_min is not None:
             # Base-grid cell bounds (gy0, gx0, gy1, gx1) for clipping stale
             # background tiles out of the LUT.  view_min/max are level-0 voxels
             # in (gx, gy) order; convert to half-open cell bounds and clamp.
             gh_grid, gw_grid = geo2d.base_layout.grid_dims
-            cx0 = max(0, int(np.floor(view_min[0] / block_size)))
-            cx1 = min(gw_grid, int(np.ceil(view_max[0] / block_size)))
-            cy0 = max(0, int(np.floor(view_min[1] / block_size)))
-            cy1 = min(gh_grid, int(np.ceil(view_max[1] / block_size)))
-            self._current_viewport_cells = (cy0, cx0, cy1, cx1)
+            (cx0, cy0), (cx1, cy1) = base_cell_range(
+                view_min[:2], view_max[:2], block_size
+            )
+            self._current_viewport_cells = (
+                max(0, int(cy0)),
+                max(0, int(cx0)),
+                min(gh_grid, int(cy1)),
+                min(gw_grid, int(cx1)),
+            )
         else:
-            view_min = None
-            view_max = None
             self._current_viewport_cells = None
 
         t0 = time.perf_counter()
@@ -1125,16 +1231,14 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             level_translation_arr_shader=geo2d._translation_arr_shader,
         )
         distance_sort_ms = (time.perf_counter() - t0) * 1000
-
-        required = arr_to_block_keys_2d(tile_arr, slice_coord=self._current_slice_coord)
-        n_total = len(required)
+        n_total = len(tile_arr)
 
         n_culled = 0
         cull_ms = 0.0
-        if use_culling and view_min is not None and view_max is not None:
+        if view_min is not None:
             t0 = time.perf_counter()
-            required, n_culled = viewport_cull_2d(
-                required,
+            tile_arr, n_culled = viewport_cull_2d(
+                tile_arr,
                 block_size,
                 view_min,
                 view_max,
@@ -1143,151 +1247,84 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             )
             cull_ms = (time.perf_counter() - t0) * 1000
 
-        n_needed = len(required)
-        n_budget = self._block_cache_2d.info.n_slots - 1
-        n_dropped = max(0, n_needed - n_budget)
-        if n_dropped:
-            keys_to_keep = list(required.keys())[:n_budget]
-            required = {k: required[k] for k in keys_to_keep}
-
-        target_level = int(tile_arr[0, 0]) if len(tile_arr) > 0 else 1
-        self._block_cache_2d.tile_manager.evict_finer_than(target_level)
-
-        t0 = time.perf_counter()
-        fill_plan = self._block_cache_2d.tile_manager.stage(
-            required, self._frame_number
-        )
-        stage_ms = (time.perf_counter() - t0) * 1000
-
-        if not fill_plan:
-            self._lut_manager_2d.rebuild(
-                self._block_cache_2d.tile_manager,
-                current_slice_coord=self._current_slice_coord,
-                viewport_cells=self._current_viewport_cells,
-            )
-
-        slice_id = uuid4()
-        chunk_requests: list[ChunkRequest] = []
-        self._pending_slot_map_2d = {}
-
-        overlap = self._block_cache_2d.info.overlap
-        ndim = len(dims_state.axis_labels)
-        sel = dims_state.selection
-
-        for tile_key, slot in fill_plan:
-            chunk_id = uuid4()
-            y0, x0, y1, x1 = _block_key_2d_to_padded_coords(
-                tile_key, block_size, overlap
-            )
-            level_index = tile_key.level - 1
-            display_coords = [(y0, y1), (x0, x1)]
-            axis_selections = self._level_axis_selections(
-                sel,
-                ndim,
-                display_coords,
-                level_index,
-                self._full_level_shapes[level_index],
-            )
-            req = ChunkRequest(
-                chunk_request_id=chunk_id,
-                slice_request_id=slice_id,
-                scale_index=tile_key.level - 1,
-                axis_selections=axis_selections,
-            )
-            chunk_requests.append(req)
-            self._pending_slot_map_2d[chunk_id] = (tile_key, slot)
-
-        plan_total_ms = (time.perf_counter() - t_plan_start) * 1000
-
+        # Truncation to the atlas's budget happens in the planner tail,
+        # after the backstop has taken its share (design 5.3).
+        n_needed = len(tile_arr)
         self._last_plan_stats = stats = {
-            "hits": len(required) - len(fill_plan),
-            "misses": len(fill_plan),
-            "fills": len(fill_plan),
             "total_required": n_total,
             "n_culled": n_culled,
             "n_needed": n_needed,
-            "n_budget": n_budget,
-            "n_dropped": n_dropped,
             "lod_select_ms": lod_select_ms,
             "distance_sort_ms": distance_sort_ms,
             "cull_ms": cull_ms,
-            "stage_ms": stage_ms,
-            "plan_total_ms": plan_total_ms,
+            "plan_total_ms": (time.perf_counter() - t_plan_start) * 1000,
         }
-
-        if n_dropped > 0:
-            _PERF_LOGGER.warning(
-                "budget_exceeded  required=%d  budget=%d  dropped=%d",
-                n_needed,
-                n_budget,
-                n_dropped,
-            )
-
         _PERF_LOGGER.info(
             "[frame %d]  lod_select=%.1fms  dist_sort=%.1fms  cull=%.1fms  "
-            "stage=%.1fms  |  required=%d  culled=%d  hits=%d  misses=%d",
+            "|  required=%d  culled=%d",
             self._frame_number,
             stats["lod_select_ms"],
             stats["distance_sort_ms"],
-            stats.get("cull_ms", 0.0),
-            stats.get("stage_ms", 0.0),
+            stats["cull_ms"],
             stats["total_required"],
-            stats.get("n_culled", 0),
-            stats["hits"],
-            stats["misses"],
+            stats["n_culled"],
         )
+        return tile_arr
 
-        return chunk_requests
-
-    def on_data_ready_2d(
+    def _view_2d(
         self,
-        batch: list[tuple[ChunkRequest, np.ndarray]],
-    ) -> None:
-        """Commit an arriving batch of 2D label tiles to the GPU cache."""
-        if self._closed:
-            return
-        for req, data in batch:
-            entry = self._pending_slot_map_2d.get(req.chunk_request_id)
-            if entry is None:
-                continue
-            tile_key, slot = entry
-            self._block_cache_2d.write_tile(slot, data, key=tile_key)
-            self._block_cache_2d.tile_manager.commit(tile_key, slot)
+        camera_pos_world: np.ndarray,
+        world_width: float,
+        view_min_world: np.ndarray | None,
+        view_max_world: np.ndarray | None,
+    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, float]:
+        """The 2D view in level-0 data space.
 
-        n_resident = len(self._block_cache_2d.tile_manager.tilemap)
-
-        _GPU_LOGGER.info(
-            "gpu_flush  tiles_in_batch=%d  resident=%d",
-            len(batch),
-            n_resident,
+        Returns
+        -------
+        camera_pos : np.ndarray
+            ``(x, y, 0)``, the canvas centre.
+        view_min, view_max : np.ndarray or None
+            The viewport's bounds ``(x, y)``; ``None`` without a viewport.
+        voxel_width : float
+            Visible width in level-0 voxels, for LOD selection.
+        """
+        sub_2d = _displayed_submatrix(self._transform, self._last_displayed_axes)
+        nd2 = sub_2d.shape[0] - 1
+        world_units_per_voxel_2d = np.abs(np.diag(sub_2d[:nd2, :nd2]))
+        world_to_voxel_scale_2d = float(
+            np.prod(1.0 / world_units_per_voxel_2d) ** (1.0 / nd2)
         )
+        voxel_width = world_width * world_to_voxel_scale_2d
 
-        self._lut_manager_2d.rebuild(
-            self._block_cache_2d.tile_manager,
-            current_slice_coord=self._current_slice_coord,
-            viewport_cells=self._current_viewport_cells,
+        camera_pos_2d = self._to_level0_displayed(
+            np.asarray(camera_pos_world)[:2].reshape(1, -1)
+        ).flatten()
+        camera_pos = np.array(
+            [camera_pos_2d[0], camera_pos_2d[1], 0.0], dtype=np.float32
         )
-
-        _GPU_LOGGER.info(
-            "lut_rebuilt  resident=%d  frame=%d",
-            n_resident,
-            self._frame_number,
+        if view_min_world is None or view_max_world is None:
+            return camera_pos, None, None, voxel_width
+        cx = float(camera_pos_world[0])
+        cy = float(camera_pos_world[1])
+        half_w = world_width / 2.0
+        half_h = (float(view_max_world[1]) - float(view_min_world[1])) / 2.0
+        corners_pygfx = np.array(
+            [
+                [cx - half_w, cy - half_h],
+                [cx + half_w, cy - half_h],
+                [cx + half_w, cy + half_h],
+                [cx - half_w, cy + half_h],
+            ],
+            dtype=np.float64,
         )
-
-        if not self._data_ready_2d and self._aabb_line_2d is not None:
-            self._data_ready_2d = True
-            self._aabb_line_2d.visible = self._aabb_enabled
-
-    def cancel_pending_2d(self) -> None:
-        if self._block_cache_2d is None:
-            return
-        self._block_cache_2d.tile_manager.release_all_in_flight()
-        self._pending_slot_map_2d = {}
-
-    def invalidate_2d_cache(self) -> None:
-        if self._block_cache_2d is None or self._lut_manager_2d is None:
-            return
-        self.cancel_pending_2d()
+        corners_data_2d = self._to_level0_displayed(corners_pygfx)
+        return (
+            camera_pos,
+            corners_data_2d.min(axis=0),
+            corners_data_2d.max(axis=0),
+            voxel_width,
+        )
 
     def close(self) -> None:
         """Release the caches, textures and nodes.  Unusable afterwards.
@@ -1295,11 +1332,31 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         A slice task still in flight holds ``on_data_ready`` -- and so this
         visual -- until the event loop runs its cancellation, so the brick
         caches (up to ``gpu_budget_bytes`` each) are dropped here rather than
-        whenever the visual dies.
+        whenever the visual dies.  The textures are destroyed rather than
+        dropped: pygfx's bind-group cache would otherwise keep their GPU memory
+        after the visual is gone.
         """
-        self.cancel_pending()
-        self.cancel_pending_2d()
         self._closed = True
+        textures = [
+            self._proxy_tex_3d,
+            self._proxy_tex_2d,
+            self._label_keys_texture,
+            self._label_colors_texture,
+            self._t_paint_cache,
+            self._t_paint_lut,
+        ]
+        for cache in (self._block_cache_3d, self._block_cache_2d):
+            if cache is not None:
+                textures.append(cache.cache_tex)
+        if self._lut_manager_3d is not None:
+            textures += [
+                self._lut_manager_3d.lut_tex,
+                self._lut_manager_3d.brick_max_tex,
+            ]
+        if self._lut_manager_2d is not None:
+            textures.append(self._lut_manager_2d.lut_tex)
+        destroy_textures(*textures)
+        self._residency_3d = self._residency_2d = None
         for group in (self.node_3d, self.node_2d):
             if group is not None:
                 group.clear()
@@ -1386,6 +1443,10 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             self._render_mode = val
             if self.material_3d is not None:
                 self.material_3d.render_mode = val
+        elif field == "ray_steps_per_voxel":
+            self._ray_steps_per_voxel = float(val)
+            if self.material_3d is not None:
+                self.material_3d.ray_steps_per_voxel = float(val)
         # LOD fields — these affect planning, not GPU state; nothing to push.
 
     def on_visibility_changed(self, event: VisualVisibilityChangedEvent) -> None:
@@ -1596,29 +1657,6 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         self._t_paint_lut.update_range((0, 0, 0), (lut_w, lut_h, 1))
         self._paint_slot_manager.clear()
 
-    def invalidate_painted_tiles_2d(
-        self, dirty_grid_coords: set[tuple[int, int]]
-    ) -> int:
-        """Evict level-0 tiles from the 2-D block cache for dirty grid coords.
-
-        Returns the number of tiles evicted.
-        """
-        if self._block_cache_2d is None:
-            return 0
-        tm = self._block_cache_2d.tile_manager
-        tm.release_all_in_flight()
-        self._pending_slot_map_2d = {}
-        evicted = 0
-        for key in list(tm.tilemap.keys()):
-            if key.level != 1:
-                continue
-            if (key.g0, key.g1) in dirty_grid_coords:
-                slot = tm.tilemap.pop(key)
-                tm.slot_index[slot.index] = None
-                tm.free_slots.append(slot.index)
-                evicted += 1
-        return evicted
-
     # ── Private helpers ───────────────────────────────────────────────────
 
     def _build_aabb_line_3d(self) -> gfx.Line:
@@ -1695,6 +1733,7 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             render_mode=self._render_mode,
             n_entries=self._n_entries,
             pick_write=pick_write,
+            ray_steps_per_voxel=self._ray_steps_per_voxel,
         )
 
         geometry = gfx.Geometry(grid=proxy_tex)

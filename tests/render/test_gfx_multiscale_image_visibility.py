@@ -15,9 +15,11 @@ from cellier.events._events import VisualVisibilityChangedEvent
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
 from cellier.visuals import (
     MultiscaleImageAppearance,
+    MultiscaleImageRenderConfig,
     MultiscaleImageSingleAppearance,
     MultiscaleImageVisual,
 )
+from tests._gpu_budget import SMALL_BUDGETS
 from tests._v2 import level_transforms
 
 # ---------------------------------------------------------------------------
@@ -36,6 +38,7 @@ def _make_model(visible: bool = True) -> MultiscaleImageVisual:
         ),
         appearance=MultiscaleImageAppearance(visible=visible),
         single=MultiscaleImageSingleAppearance(color_map="grays", clim=(0.0, 255.0)),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
     )
 
 

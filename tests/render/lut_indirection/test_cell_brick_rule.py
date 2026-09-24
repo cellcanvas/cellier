@@ -171,3 +171,86 @@ def test_lightsheet_2d_tiles_with_one_voxel_of_padding_are_reported():
 def test_no_issues_without_scales_or_shapes():
     assert brick_rule_issues(None, LIGHTSHEET_SHAPES, BLOCK_SIZE, 1) == []
     assert brick_rule_issues(LIGHTSHEET_SCALES, None, BLOCK_SIZE, 1) == []
+
+
+# -- Translation term (plan v2, Phase 4) ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("kind", "translation", "expected"),
+    [
+        # Block averaging sits exactly on the bricks: t = (s - 1) / 2.
+        ("block_average", lambda s: (s - 1) / 2, lambda s: 0.0),
+        # Plain striding is shifted by -(s - 1) / 2 level-0 voxels.
+        ("plain", lambda s: 0.0, lambda s: (s - 1) / (2 * s)),
+        # Offset striding (t = s // 2) is shifted by +0.5 level-0 voxel.
+        ("offset", lambda s: float(s // 2), lambda s: 0.5 / s),
+    ],
+)
+def test_translation_term_on_a_power_of_two_pyramid(kind, translation, expected):
+    """Out-of-brick distance = the shift from block averaging, in level-k voxels."""
+    shapes = [(256,), (128,), (64,), (32,)]
+    scales = [(1.0,), (2.0,), (4.0,), (8.0,)]
+    spans, counts, _grid = _rule_tables(shapes, scales, 1)
+    for level in range(1, 4):
+        s = scales[level][0]
+        out_of_brick, _ = max_out_of_brick(
+            s, spans[level][0], counts[level][0], 256, BLOCK_SIZE, translation(s)
+        )
+        assert out_of_brick == pytest.approx(expected(s), abs=1e-9), (kind, s)
+
+
+def test_no_translation_means_block_averaging():
+    spans, counts, _grid = _rule_tables(LIGHTSHEET_SHAPES, LIGHTSHEET_SCALES, 3)
+    for level in range(5):
+        for axis in range(3):
+            s = LIGHTSHEET_SCALES[level][axis]
+            args = (s, spans[level][axis], counts[level][axis])
+            rest = (LIGHTSHEET_SHAPES[0][axis], BLOCK_SIZE)
+            assert max_out_of_brick(*args, *rest) == max_out_of_brick(
+                *args, *rest, (s - 1) / 2
+            )
+
+
+def test_lightsheet_with_its_published_translations():
+    """Scale-only metadata (t = 0): the worst case drops from 1.07 to 0.63."""
+    zeros = [(0.0, 0.0, 0.0)] * len(LIGHTSHEET_SHAPES)
+    spans, counts, _grid = _rule_tables(LIGHTSHEET_SHAPES, LIGHTSHEET_SCALES, 3)
+    worst = max(
+        max_out_of_brick(
+            LIGHTSHEET_SCALES[level][axis],
+            spans[level][axis],
+            counts[level][axis],
+            LIGHTSHEET_SHAPES[0][axis],
+            BLOCK_SIZE,
+            zeros[level][axis],
+        )[0]
+        for level in range(5)
+        for axis in range(3)
+    )
+    assert worst == pytest.approx(0.63, abs=0.01)
+
+
+def test_issues_report_the_translation_and_honour_the_margin():
+    shapes_2d = [shape[1:] for shape in LIGHTSHEET_SHAPES]
+    scales_2d = [scale[1:] for scale in LIGHTSHEET_SCALES]
+    zeros = [(0.0, 0.0)] * len(shapes_2d)
+    # Border 1, nearest sampling (2D labels): 0.63 fits in 1.0.
+    assert (
+        brick_rule_issues(
+            scales_2d,
+            shapes_2d,
+            BLOCK_SIZE,
+            1,
+            sampling_margin=0.0,
+            translation_vecs_data=zeros,
+        )
+        == []
+    )
+    # Border 1, linear (2D image): allowance 0.5.
+    issues = brick_rule_issues(
+        scales_2d, shapes_2d, BLOCK_SIZE, 1, translation_vecs_data=zeros
+    )
+    assert issues
+    assert all(issue.translation == 0.0 for issue in issues)
+    assert "translation 0" in issues[0].describe()

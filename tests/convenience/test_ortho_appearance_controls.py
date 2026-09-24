@@ -4,8 +4,11 @@ Stage 2 of ``plans/convenience_cleanup.md`` (section 8).  Before it,
 ``AppearanceControls()`` in an ortho ``Layout`` was a **silent no-op**: both
 renderers read ``viewer.scene``, an ``OrthoViewer`` exposes only ``scenes``,
 and the dock came back ``None`` with no error (section 4.1).  The fix
-generalises the channel path's fan-out rather than making the no-op loud, so
-one widget drives all four panel visuals in lock-step.
+generalises the channel path's fan-out rather than making the no-op loud.
+
+Each fanned-out add records two controls groups: one widget drives the three
+2D panel visuals in lock-step, another the 3D panel's visual.  The dock's
+selector offers both, as ``"{name} (2D views)"`` and ``"{name} (3D view)"``.
 
 Mirrors ``test_channel_controls.py``, which is the template section 8.5 names.
 """
@@ -16,7 +19,7 @@ import numpy as np
 import pytest
 
 from cellier.convenience import AppearanceControls, OrthoViewer, Viewer
-from cellier.convenience._backend import ANYWIDGET_BACKEND
+from cellier.convenience._backend import ANYWIDGET_BACKEND, QT_BACKEND
 from cellier.convenience._hosts import QtLayoutHost
 from cellier.convenience.gui._controls_config import (
     InMemoryImageControlsConfig,
@@ -28,11 +31,15 @@ from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import (
     InMemoryImageSingleAppearance,
+    MultiscaleImageRenderConfig,
     MultiscaleImageSingleAppearance,
 )
 from cellier.visuals._image_memory import InMemoryImageAppearance
+from tests._gpu_budget import SMALL_BUDGETS
 
 _PANELS = ("xy", "xz", "yz", "vol")
+_2D = ("xy", "xz", "yz")
+_3D = ("vol",)
 
 
 def _store() -> ImageMemoryStore:
@@ -46,6 +53,12 @@ def _appearance() -> InMemoryImageAppearance:
 
 def _single() -> InMemoryImageSingleAppearance:
     return InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0))
+
+
+def _target(ortho, label):
+    """The dock target the selector calls *label*."""
+    (target,) = [t for t in appearance_targets(ortho) if t.label == label]
+    return target
 
 
 def _ortho_with_controls(**config_kwargs):
@@ -66,13 +79,19 @@ def _ortho_with_controls(**config_kwargs):
 # ---------------------------------------------------------------------------
 
 
-def test_add_image_records_the_config_and_the_group():
+def test_add_image_records_a_2d_group_and_a_3d_group():
     ortho, visuals = _ortho_with_controls()
 
-    panel_ids = [visuals[key].id for key in _PANELS]
-    rep_id = panel_ids[0]
-    assert list(ortho._controls_configs) == [rep_id]
-    assert ortho._visual_groups[rep_id] == panel_ids
+    ids_2d = [visuals[key].id for key in _2D]
+    vol_id = visuals["vol"].id
+    assert list(ortho._controls_configs) == [ids_2d[0], vol_id]
+    assert ortho._visual_groups == {ids_2d[0]: ids_2d, vol_id: [vol_id]}
+    # One config serves both.
+    assert ortho._controls_configs[ids_2d[0]] is ortho._controls_configs[vol_id]
+    assert ortho._controls_labels == {
+        ids_2d[0]: "image (2D views)",
+        vol_id: "image (3D view)",
+    }
 
 
 def test_add_image_multiscale_records_the_config_and_the_group(multiscale_image_store):
@@ -84,10 +103,12 @@ def test_add_image_multiscale_records_the_config_and_the_group(multiscale_image_
         appearance=MultiscaleImageAppearance(),
         controls=MultiscaleImageControlsConfig(appearance=["lod_bias"]),
         single=MultiscaleImageSingleAppearance(color_map="viridis"),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
     )
 
-    panel_ids = [visuals[key].id for key in _PANELS]
-    assert ortho._visual_groups[panel_ids[0]] == panel_ids
+    ids_2d = [visuals[key].id for key in _2D]
+    vol_id = visuals["vol"].id
+    assert ortho._visual_groups == {ids_2d[0]: ids_2d, vol_id: [vol_id]}
 
 
 def test_controls_none_records_nothing():
@@ -103,15 +124,32 @@ def test_controls_none_records_nothing():
 # ---------------------------------------------------------------------------
 
 
-def test_target_expands_to_all_four_panels():
+def test_targets_are_the_2d_views_then_the_3d_view():
     ortho, visuals = _ortho_with_controls()
 
-    (target,) = appearance_targets(ortho)
+    views_2d, view_3d = appearance_targets(ortho)
 
-    # The representative is the first panel; the controls are seeded from it
-    # and written to all four.
-    assert target.visual is visuals["xy"]
-    assert target.visual_ids == [visuals[key].id for key in _PANELS]
+    # Each group is seeded from its first visual and writes to its own.
+    assert views_2d.label == "image (2D views)"
+    assert views_2d.visual is visuals["xy"]
+    assert views_2d.visual_ids == [visuals[key].id for key in _2D]
+    assert view_3d.label == "image (3D view)"
+    assert view_3d.visual is visuals["vol"]
+    assert view_3d.visual_ids == [visuals["vol"].id]
+
+
+def test_the_labels_follow_the_name():
+    ortho = OrthoViewer(spatial_axes("z", "y", "x"))
+    ortho.add_image(
+        _store(),
+        name="nuclei",
+        controls=InMemoryImageControlsConfig(appearance=["clim"]),
+    )
+
+    assert [t.label for t in appearance_targets(ortho)] == [
+        "nuclei (2D views)",
+        "nuclei (3D view)",
+    ]
 
 
 def test_target_on_a_single_scene_viewer_is_one_id():
@@ -140,11 +178,11 @@ def test_no_targets_on_an_unconfigured_ortho():
 # ---------------------------------------------------------------------------
 
 
-def _qt_image_control(ortho):
+def _qt_image_control(ortho, label="image (2D views)"):
     from cellier.gui._image_controls import image_control_values
     from cellier.gui.qt.visuals import QtImageControls
 
-    (target,) = appearance_targets(ortho)
+    target = _target(ortho, label)
     widget = QtImageControls(
         target.visual_ids, image_control_values(target.visual, fields=["clim"])
     )
@@ -154,7 +192,7 @@ def _qt_image_control(ortho):
     return widget
 
 
-def test_qt_edit_reaches_all_four_panels(qtbot):
+def test_qt_2d_edit_reaches_the_2d_panels_only(qtbot):
     """The regression test for section 4.1, driven through a real controller.
 
     ``clim`` rather than ``color_map`` deliberately: writing ``color_map``
@@ -166,16 +204,28 @@ def test_qt_edit_reaches_all_four_panels(qtbot):
 
     widget._controls[("single", None, "clim")].setValue((0.25, 0.75))
 
-    for key in _PANELS:
+    for key in _2D:
         assert visuals[key].single.clim == pytest.approx((0.25, 0.75))
+    assert visuals["vol"].single.clim == pytest.approx((0.0, 1.0))
 
 
-def test_aabb_edit_reaches_all_four_panels(qtbot):
+def test_qt_3d_edit_reaches_the_3d_panel_only(qtbot):
+    ortho, visuals = _ortho_with_controls()
+    widget = _qt_image_control(ortho, "image (3D view)")
+
+    widget._controls[("single", None, "clim")].setValue((0.2, 0.9))
+
+    assert visuals["vol"].single.clim == pytest.approx((0.2, 0.9))
+    for key in _2D:
+        assert visuals[key].single.clim == pytest.approx((0.0, 1.0))
+
+
+def test_aabb_edit_reaches_the_2d_panels(qtbot):
     """AABB is not an appearance field, so it fans out on its own event."""
     from cellier.gui.qt.visuals import QtAABBWidget
 
     ortho, visuals = _ortho_with_controls()
-    (target,) = appearance_targets(ortho)
+    target = _target(ortho, "image (2D views)")
 
     widget = QtAABBWidget(target.visual_ids)
     ortho.controller.connect_widget(
@@ -185,16 +235,17 @@ def test_aabb_edit_reaches_all_four_panels(qtbot):
     widget._enabled_check.setChecked(True)
     widget._line_width_spin.setValue(4.5)
 
-    for key in _PANELS:
+    for key in _2D:
         assert visuals[key].aabb.enabled is True
         assert visuals[key].aabb.line_width == pytest.approx(4.5)
+    assert visuals["vol"].aabb.enabled is False
 
 
 def test_a_foreign_write_to_one_panel_reaches_the_widget(qtbot):
     """Subscribe-to-all, not subscribe-to-first (section 8.1 part 2).
 
-    A sibling written by something other than the widget -- here panel 2,
-    never the representative -- must still update the control.
+    A sibling written by something other than the widget -- here the yz
+    panel, never the representative -- must still update the control.
     """
     ortho, visuals = _ortho_with_controls()
     widget = _qt_image_control(ortho)
@@ -268,6 +319,30 @@ def test_ortho_cannot_composite_a_spatial_axis():
 # ---------------------------------------------------------------------------
 
 
+def test_the_2d_views_control_hides_the_3d_only_rows(qtbot):
+    """The dock seeds each control from its panels' scenes: 2 and 3."""
+    ortho, _visuals = _ortho_with_controls(
+        appearance=["clim", "render_mode", "iso_threshold"]
+    )
+    by_label = {}
+    for target in appearance_targets(ortho):
+        (image, *_rest) = build_appearance_widgets(
+            target.visual,
+            target.config,
+            ortho.controller,
+            target.visual_ids,
+            backend=QT_BACKEND,
+        )
+        by_label[target.label] = image
+
+    views_2d = by_label["image (2D views)"]
+    view_3d = by_label["image (3D view)"]
+    assert views_2d.n_displayed_dimensions == 2
+    assert view_3d.n_displayed_dimensions == 3
+    assert views_2d._controls[("single", None, "render_mode")].isHidden()
+    assert not view_3d._controls[("single", None, "render_mode")].isHidden()
+
+
 def test_appearance_dock_renders_on_an_ortho_viewer_qt(qtbot):
     """Was ``None`` before stage 2 -- no dock, no error (section 4.1)."""
     from tests.convenience._qt_acceptance import assert_panel_renders, control_labels
@@ -277,12 +352,16 @@ def test_appearance_dock_renders_on_an_ortho_viewer_qt(qtbot):
     container = render_dock(AppearanceControls(), ortho, QtLayoutHost(), [])
 
     assert container is not None
-    assert control_labels(container) == ["Image", "Bounding box"]
+    # Two groups, so the selector ("Visual") heads the dock.
+    assert control_labels(container) == ["Visual", "Image", "Bounding box"]
     assert_panel_renders(container)
 
 
-def test_the_rendered_ortho_dock_drives_every_panel(qtbot):
-    """End to end: build the dock from a Layout spec, then edit it."""
+def test_the_rendered_ortho_dock_drives_the_selected_group(qtbot):
+    """End to end: build the dock from a Layout spec, then edit it.
+
+    The selector starts on the first group, the 2D views.
+    """
     from cellier.convenience.layout._spec import AppearanceControls
 
     ortho, visuals = _ortho_with_controls(appearance=["clim"])
@@ -295,8 +374,9 @@ def test_the_rendered_ortho_dock_drives_every_panel(qtbot):
     slider = container.findChild(QLabeledDoubleRangeSlider)
     slider.setValue((0.3, 0.7))
 
-    for key in _PANELS:
+    for key in _2D:
         assert visuals[key].single.clim == pytest.approx((0.3, 0.7))
+    assert visuals["vol"].single.clim == pytest.approx((0.0, 1.0))
 
 
 def test_appearance_dock_renders_on_an_ortho_viewer_anywidget():
@@ -310,19 +390,23 @@ def test_appearance_dock_renders_on_an_ortho_viewer_anywidget():
         controls=InMemoryImageControlsConfig(appearance=["clim"]),
         single=_single(),
     )
-    (target,) = appearance_targets(ortho)
+    for label, keys, n_displayed in (
+        ("image (2D views)", _2D, 2),
+        ("image (3D view)", _3D, 3),
+    ):
+        target = _target(ortho, label)
+        built = build_appearance_widgets(
+            target.visual,
+            target.config,
+            ortho.controller,
+            target.visual_ids,
+            backend=ANYWIDGET_BACKEND,
+        )
 
-    built = build_appearance_widgets(
-        target.visual,
-        target.config,
-        ortho.controller,
-        target.visual_ids,
-        backend=ANYWIDGET_BACKEND,
-    )
-
-    assert control_labels_anywidget(built) == ["Image", "Bounding box"]
-    for widget in built:
-        assert widget.visual_ids == tuple(visuals[key].id for key in _PANELS)
+        assert control_labels_anywidget(built) == ["Image", "Bounding box"]
+        for widget in built:
+            assert widget.visual_ids == tuple(visuals[key].id for key in keys)
+        assert built[0].n_displayed_dimensions == n_displayed
 
 
 # ---------------------------------------------------------------------------

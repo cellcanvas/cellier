@@ -80,12 +80,15 @@ VOL_PARAMS_DTYPE = np.dtype(
 )
 
 # Per level: the float downscale factor, then the integer cell -> brick rule
-# (base cells per brick, brick count) as exact small floats.  Shared by the
+# (base cells per brick, brick count) as exact small floats, then the level's
+# translation in level-0 voxels (level -> data is ``p = scale * u + offset``,
+# plan v2 D1).  Shared by the
 # image and label brick shaders; see cellier.brick_rule.wgsl.
 BLOCK_SCALES_DTYPE = np.dtype(
     [(f"scale_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
     + [(f"span_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
     + [(f"bricks_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
+    + [(f"offset_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
 )
 
 
@@ -174,6 +177,7 @@ def build_brick_scales_buffer(
     level_scale_vecs_data: list[np.ndarray],
     level_shapes: list[tuple[int, ...]] | None = None,
     block_size: int | None = None,
+    level_translation_vecs_data: list[np.ndarray] | None = None,
 ) -> Buffer:
     """Build the block-scales uniform buffer.
 
@@ -203,6 +207,10 @@ def build_brick_scales_buffer(
         are left unbounded, which matches the LUT writer's own fallback.
     block_size : int or None
         Brick side length in voxels.  Required with ``level_shapes``.
+    level_translation_vecs_data : list[np.ndarray] or None
+        Per-level translation in level-0 voxels, data order, parallel to
+        *level_scale_vecs_data*.  Stored as ``offset_k`` in shader order.
+        ``None`` stores zeros.
 
     Returns
     -------
@@ -224,6 +232,10 @@ def build_brick_scales_buffer(
         # shader z = D = data axis 0 (sz)
         data[f"scale_{k}"][2] = float(sv[0])
         data[f"scale_{k}"][3] = 0.0  # padding
+        if level_translation_vecs_data is not None:
+            # Shader order (x, y, z) is the reverse of data order (z, y, x).
+            tv = np.asarray(level_translation_vecs_data[k - 1], dtype=np.float64)
+            data[f"offset_{k}"][:3] = tv[::-1]
 
     spans = level_cell_spans(n_levels, 3, level_scale_vecs_data)
     counts = None
@@ -393,11 +405,15 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         Depth attenuation coefficient for ``"attenuated_mip"`` mode.
         Higher values bias the max-finder toward the near surface.
         Has no effect in other render modes.  Default is ``1.0``.
+    ray_steps_per_voxel : float
+        Ray-march samples per voxel of the drawn level, measured along the
+        ray.  Default is ``1.0``.
     """
 
     uniform_type: ClassVar[dict] = dict(
         gfx.VolumeIsoMaterial.uniform_type,
         attenuation="f4",
+        ray_steps_per_voxel="f4",
     )
 
     def __init__(
@@ -411,6 +427,7 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         map: gfx.TextureMap | None = None,
         threshold: float = 0.5,
         attenuation: float = 1.0,
+        ray_steps_per_voxel: float = 1.0,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -427,6 +444,7 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         self.block_scales_buffer = block_scales_buffer
         self._store.render_mode = "iso"
         self.uniform_buffer.data["attenuation"] = float(attenuation)
+        self.uniform_buffer.data["ray_steps_per_voxel"] = float(ray_steps_per_voxel)
         self.uniform_buffer.update_full()
         self._frame_index: int = 0
 
@@ -451,6 +469,16 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
     @attenuation.setter
     def attenuation(self, value: float) -> None:
         self.uniform_buffer.data["attenuation"] = float(value)
+        self.uniform_buffer.update_full()
+
+    @property
+    def ray_steps_per_voxel(self) -> float:
+        """Ray-march samples per level-k voxel along the ray (3D)."""
+        return float(self.uniform_buffer.data["ray_steps_per_voxel"])
+
+    @ray_steps_per_voxel.setter
+    def ray_steps_per_voxel(self, value: float) -> None:
+        self.uniform_buffer.data["ray_steps_per_voxel"] = float(value)
         self.uniform_buffer.update_full()
 
     def tick(self) -> None:

@@ -31,17 +31,17 @@ function render({ model, el }) {
 
   const readout = document.createElement("span");
   readout.className = "cellier-app-readout";
-  readout.textContent = Number(initVal).toFixed(3);
+  readout.textContent = Number(initVal).toFixed(2);
 
   inp.addEventListener("change", () => {
     if (guard) return;
-    readout.textContent = Number(inp.value).toFixed(3);
+    readout.textContent = Number(inp.value).toFixed(2);
     model.set("lod_bias", parseFloat(inp.value));
     model.save_changes();
   });
   // Live readout while dragging, without emitting to the bus.
   inp.addEventListener("input", () => {
-    readout.textContent = Number(inp.value).toFixed(3);
+    readout.textContent = Number(inp.value).toFixed(2);
   });
 
   model.on("change:lod_bias", () => {
@@ -49,7 +49,7 @@ function render({ model, el }) {
     try {
       const v = model.get("lod_bias") ?? 1.0;
       inp.value = v;
-      readout.textContent = Number(v).toFixed(3);
+      readout.textContent = Number(v).toFixed(2);
     } finally {
       guard = false;
     }

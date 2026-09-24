@@ -9,6 +9,7 @@ import pygfx as gfx
 
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render._spaces import data_slice_positions, visual_covers_position
+from cellier.render.scheduling import is_chunked_visual
 from cellier.scene._background import BackgroundAppearance
 from cellier.transform import (
     NonAffineTransformError,
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 
     from cellier.data.image import ChunkRequest
     from cellier.render._requests import ReslicingRequest
+    from cellier.render.scheduling import DesiredSet
     from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
     from cellier.render.visuals._image import GFXMultiscaleImageVisual
     from cellier.render.visuals._image_memory import GFXImageMemoryVisual
@@ -402,15 +404,64 @@ class SceneManager:
             return True
         return visual_covers_position(extents, positions)
 
+    def plan_chunked(
+        self,
+        request: ReslicingRequest,
+        visual_configs: dict[UUID, VisualRenderConfig],
+    ) -> tuple[dict[UUID, list[DesiredSet]], set[UUID]]:
+        """Plan every targeted chunked visual (design 5.3), 2D or 3D.
+
+        Parameters
+        ----------
+        request : ReslicingRequest
+            A 2D or 3D request.
+        visual_configs : dict[UUID, VisualRenderConfig]
+            Per-visual render configuration.
+
+        Returns
+        -------
+        planned : dict[UUID, list[DesiredSet]]
+            Desired sets per visual that planned anything.
+        idle : set[UUID]
+            Targeted chunked visuals that draw nothing now -- slicing
+            disabled (hidden), no data here, or a slice that misses the
+            data.  Their atlases should be retired.
+        """
+        planned: dict[UUID, list[DesiredSet]] = {}
+        idle: set[UUID] = set()
+        for visual_id, visual in self._visuals.items():
+            if not is_chunked_visual(visual):
+                continue
+            if (
+                request.target_visual_ids is not None
+                and visual_id not in request.target_visual_ids
+            ):
+                continue
+            cfg = visual_configs.get(visual_id, VisualRenderConfig())
+            if not cfg.slicing_enabled or not self._has_data_here(visual_id, request):
+                idle.add(visual_id)
+                continue
+            desired = visual.plan(request, cfg, cfg.plan_mode)
+            if desired:
+                planned[visual_id] = desired
+            else:
+                idle.add(visual_id)
+        return planned, idle
+
     def _build_slice_requests_3d(
         self,
         request: ReslicingRequest,
         visual_configs: dict[UUID, VisualRenderConfig],
     ) -> dict[UUID, list[ChunkRequest]]:
-        """3D planning path using perspective camera and frustum culling."""
+        """3D planning path for visuals on the async slicer.
+
+        Chunked visuals are planned by :meth:`plan_chunked` instead.
+        """
         result: dict[UUID, list[ChunkRequest]] = {}
         _, screen_height_px = request.screen_size_px
         for visual_id, visual in self._visuals.items():
+            if is_chunked_visual(visual):
+                continue
             if (
                 request.target_visual_ids is not None
                 and visual_id not in request.target_visual_ids
@@ -447,7 +498,10 @@ class SceneManager:
         request: ReslicingRequest,
         visual_configs: dict[UUID, VisualRenderConfig],
     ) -> dict[UUID, list[ChunkRequest]]:
-        """2D planning path using orthographic camera and viewport culling."""
+        """2D planning path using orthographic camera and viewport culling.
+
+        Chunked visuals are planned by :meth:`plan_chunked` instead.
+        """
         result: dict[UUID, list[ChunkRequest]] = {}
 
         world_width, world_height = request.world_extent
@@ -462,6 +516,8 @@ class SceneManager:
         view_max = np.array([cx + half_w, cy + half_h], dtype=np.float64)
 
         for visual_id, visual in self._visuals.items():
+            if is_chunked_visual(visual):
+                continue
             if (
                 request.target_visual_ids is not None
                 and visual_id not in request.target_visual_ids

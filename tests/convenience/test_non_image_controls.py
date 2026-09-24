@@ -100,15 +100,16 @@ def test_viewer_add_without_controls_records_nothing(kind, stores):
 
 
 @pytest.mark.parametrize("kind", list(CONFIGS))
-def test_ortho_add_records_the_config_and_the_panel_group(kind, stores):
+def test_ortho_add_records_the_2d_and_3d_groups(kind, stores):
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
     config = CONFIGS[kind](appearance=True)
 
     visuals = _add(ortho, kind, stores, controls=config)
 
-    panel_ids = [visuals[key].id for key in _PANELS]
-    assert ortho._controls_configs == {panel_ids[0]: config}
-    assert ortho._visual_groups[panel_ids[0]] == panel_ids
+    ids_2d = [visuals[key].id for key in ("xy", "xz", "yz")]
+    vol_id = visuals["vol"].id
+    assert ortho._controls_configs == {ids_2d[0]: config, vol_id: config}
+    assert ortho._visual_groups == {ids_2d[0]: ids_2d, vol_id: [vol_id]}
 
 
 @pytest.mark.parametrize("kind", list(CONFIGS))
@@ -234,7 +235,7 @@ def test_dataset_info_reaches_both_docks(qtbot, multiscale_image_store):
     )
 
     rows = [("Scale levels", "2"), ("Data type", "float32")]
-    expected = ["Image", "Bounding box", "Dataset info"]
+    expected = ["Image", "Bounding box", "Data fetch status", "Dataset info"]
 
     qt_viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
     qt_viewer.add_image_multiscale(
@@ -375,8 +376,12 @@ def test_a_rendered_control_writes_the_model(qtbot, points_store):
     assert visual.appearance.size == pytest.approx(12.0)
 
 
-def test_an_ortho_non_image_edit_reaches_all_four_panels(qtbot, points_store):
-    """The stage-2 fan-out, now for a visual type stage 2 did not cover."""
+def test_an_ortho_non_image_edit_reaches_the_2d_panels(qtbot, points_store):
+    """The stage-2 fan-out, now for a visual type stage 2 did not cover.
+
+    The dock starts on the first group, the 2D views; the 3D panel has its
+    own control.
+    """
     from cellier.convenience.layout._spec import AppearanceControls
 
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
@@ -389,8 +394,9 @@ def test_an_ortho_non_image_edit_reaches_all_four_panels(qtbot, points_store):
 
     container.findChild(QDoubleSpinBox).setValue(9.5)
 
-    for key in _PANELS:
+    for key in ("xy", "xz", "yz"):
         assert visuals[key].appearance.size == pytest.approx(9.5)
+    assert visuals["vol"].appearance.size != pytest.approx(9.5)
 
 
 def test_a_visible_toggle_reaches_the_model_on_its_own_event(qtbot, mesh_store):
@@ -503,6 +509,8 @@ def test_composite_default_titles_match_the_shared_vocabulary():
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
         AnywidgetImageControls,
+        AnywidgetLoadingConfigControls,
+        AnywidgetLoadingIndicator,
         AnywidgetLodBiasSlider,
         AnywidgetTrailControls,
     )
@@ -516,6 +524,8 @@ def test_composite_default_titles_match_the_shared_vocabulary():
     from cellier.gui.qt.visuals import (
         QtAABBWidget,
         QtImageControls,
+        QtLoadingConfigControls,
+        QtLoadingIndicator,
         QtLodBiasSlider,
         QtTrailControls,
     )
@@ -525,6 +535,8 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         "lod_bias": (QtLodBiasSlider, AnywidgetLodBiasSlider),
         "aabb": (QtAABBWidget, AnywidgetAABBWidget),
         "trail": (QtTrailControls, AnywidgetTrailControls),
+        "loading": (QtLoadingIndicator, AnywidgetLoadingIndicator),
+        "loading_config": (QtLoadingConfigControls, AnywidgetLoadingConfigControls),
         "visual_outline": (QtVisualOutlineControls, AnywidgetVisualOutlineControls),
         "labels_outline": (QtLabelsOutlineControls, AnywidgetLabelsOutlineControls),
         "visual_occlusion": (

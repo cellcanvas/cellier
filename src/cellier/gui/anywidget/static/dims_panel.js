@@ -47,11 +47,14 @@ function render({ model, el }) {
   let timer = null;
   let pending = null; // { axis, value } captured during the throttle window
 
-  // World positions are floats now, and a raw float64 readout is unreadable
-  // while dragging.  Whole numbers keep their bare form.
-  function formatPosition(value) {
+  // World positions are floats, and a raw float64 readout is unreadable while
+  // dragging.  A continuous axis shows its spec's "decimals" (the Qt panel's
+  // precision too); a discrete value without a label keeps its bare form when
+  // whole.
+  function formatPosition(value, decimals) {
     const number = Number(value);
     if (!Number.isFinite(number)) return String(value);
+    if (decimals !== undefined) return number.toFixed(decimals);
     return Number.isInteger(number) ? String(number) : number.toFixed(3);
   }
 
@@ -161,10 +164,10 @@ function render({ model, el }) {
         // step cannot reach the odd-numbered planes.
         input.step = "any";
         input.value = slices[axis] !== undefined ? slices[axis] : spec.min;
-        readout.textContent = formatPosition(input.value);
+        readout.textContent = formatPosition(input.value, spec.decimals);
 
         input.addEventListener("input", () => {
-          readout.textContent = formatPosition(input.value);
+          readout.textContent = formatPosition(input.value, spec.decimals);
           scheduleSubmit(axis, input.value); // live, throttled
         });
         input.addEventListener("change", () => {
@@ -209,7 +212,7 @@ function render({ model, el }) {
         if (rows[axis].spec.kind === "discrete") continue;
         if (Object.prototype.hasOwnProperty.call(slices, axis)) {
           rows[axis].input.value = slices[axis];
-          rows[axis].readout.textContent = formatPosition(slices[axis]);
+          rows[axis].readout.textContent = formatPosition(slices[axis], rows[axis].spec.decimals);
         }
       }
     } finally {

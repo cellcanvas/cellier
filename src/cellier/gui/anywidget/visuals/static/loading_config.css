@@ -1,0 +1,38 @@
+.cellier-loading-config {
+  font-family: var(--jp-ui-font-family, sans-serif);
+  font-size: 12px;
+  min-width: 260px;
+}
+
+.cellier-loading-config-title {
+  font-weight: 600;
+  margin: 2px 0 4px;
+}
+
+.cellier-loading-config-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cellier-app-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cellier-app-label {
+  min-width: 5.5em;
+  text-align: right;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.cellier-loading-config-input {
+  flex: 1 1 auto;
+}
+
+.cellier-loading-config-error {
+  color: #d04040;
+  margin-top: 4px;
+}

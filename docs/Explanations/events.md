@@ -321,7 +321,6 @@ class DimsChangedEvent(NamedTuple):
     ``dims.selection.slice_indices``, ``dims.selection.displayed_axes``.
 
     Primary consumers:
-    - ``SliceCoordinator``: invalidate stale 2D caches
     - Controller: reslice the affected scene
     - Dims slider widget: update slider position without re-emitting
 
@@ -552,10 +551,16 @@ class TransformChangedEvent(NamedTuple):
 
 A store announces its own changes on ``BaseDataStore.data_changed`` -- when a
 data field is reassigned, or when ``store.notify_changed(kind, regions)`` is
-called after an in-place write.  The controller relays each announcement to
-the bus as one of these two events, after it has refreshed extent-derived
-state and requested a reslice of every visual reading the store.  See
-``plans/store_change_events.md``.
+called after an in-place write, or after another process wrote a
+tensorstore-backed store.  The controller relays each announcement to the bus
+as one of these two events, after it has refreshed extent-derived state, and
+then invalidates the GPU data read from the store and reslices the visuals
+reading it.  The reslice is capped at ``SchedulerConfig.store_change_max_hz``
+(30 Hz) per store: the first change reslices at once and a burst folds into
+one trailing reslice.  A multiscale visual is replanned only for an
+``"extent"`` change; for ``"contents"`` the invalidation already refetches
+what it wants.  See ``plans/store_change_events.md`` and
+``plans/progressive_loading_design_v3.md`` 5.14.
 
 ```python
 class DataStoreMetadataChangedEvent(NamedTuple):
@@ -624,6 +629,67 @@ class ResliceCompletedEvent(NamedTuple):
     scene_id: UUID
     visual_id: UUID
     brick_count: int
+
+
+class LoadingProgress(NamedTuple):
+    """How far a multiscale visual's latest plan has loaded.
+
+    Summed over the visual's atlases (one per drawn channel).  Counts are
+    chunks: bricks in 3D, tiles in 2D.  ``fraction`` is target resident over
+    needed.
+    """
+
+    needed_backstop: int = 0
+    resident_backstop: int = 0
+    needed_target: int = 0
+    resident_target: int = 0
+    in_flight: int = 0
+    failed: int = 0
+    truncated_target: int = 0
+    truncated_backstop: int = 0
+    backstop_complete: bool = True
+    complete: bool = True
+    target_deferred: bool = False  # a dims-drag plan: backstop only
+
+
+class ResliceProgressEvent(NamedTuple):
+    """A multiscale visual's loading progress changed.
+
+    At most once per event-loop iteration per visual: after a plan, a
+    commit round that wrote its data, a given-up read, or an invalidation.
+    Never per read.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    progress: LoadingProgress
+
+
+class BackstopCompleteEvent(NamedTuple):
+    """Every backstop chunk of a multiscale visual's latest plan is done.
+
+    The view now shows the current slice everywhere, possibly blurry.  Once
+    per plan that has a backstop.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+
+
+class LoadingConfigChangedEvent(NamedTuple):
+    """A multiscale visual's ``render_config.loading`` changed.
+
+    Emitted for every change: ``CellierController.set_loading_config`` (and
+    the ``LoadingConfigUpdateEvent`` a loading-settings control sends), or
+    assigning ``render_config`` directly.  An invalid combination raises in
+    the setter and emits nothing.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    loading: ProgressiveLoadingConfig
 
 
 class ResliceCancelledEvent(NamedTuple):
@@ -908,6 +974,9 @@ CellierEventTypes = (
     | DataStoreContentsChangedEvent
     | ResliceStartedEvent
     | ResliceCompletedEvent
+    | ResliceProgressEvent
+    | BackstopCompleteEvent
+    | LoadingConfigChangedEvent
     | ResliceCancelledEvent
     | FrameRenderedEvent
     | VisualAddedEvent
@@ -1071,6 +1140,9 @@ _ENTITY_FIELD: dict[type, str] = {
     DataStoreContentsChangedEvent:     "data_store_id",
     ResliceStartedEvent:               "scene_id",
     ResliceCompletedEvent:             "visual_id",
+    ResliceProgressEvent:              "visual_id",
+    BackstopCompleteEvent:             "visual_id",
+    LoadingConfigChangedEvent:         "visual_id",
     ResliceCancelledEvent:             "visual_id",
     FrameRenderedEvent:                "canvas_id",
     VisualAddedEvent:                  "scene_id",
@@ -1615,8 +1687,7 @@ object registration time.
 
 | Subscriber | Event type | `entity_id` filter | Action |
 |---|---|---|---|
-| `SliceCoordinator` | `DimsChangedEvent` | *(none — all scenes)* | Invalidate stale 2D caches |
-| Controller | `DimsChangedEvent` | *(none — all scenes)* | Call `reslice_scene` for the changed scene |
+| Controller | `DimsChangedEvent` | *(none — all scenes)* | Call `reslice_scene` for the changed scene (backstop-only for `dims_drag="backstop"` visuals, then a full plan after the dims settle) |
 | Controller | `CameraChangedEvent` | *(none — all canvases)* | Update camera model; schedule debounced reslice |
 | `GFX*Visual` | `AppearanceChangedEvent` | `visual_id` | Apply material / shader parameter |
 | `GFX*Visual` | `AABBChangedEvent` | `visual_id` | Update bounding-box display |
@@ -1628,6 +1699,10 @@ object registration time.
 | External callback | `AABBChangedEvent` | `visual_id` | Fire `on_aabb_changed` user callback |
 | External callback | `ResliceStartedEvent` | `scene_id` | Fire `on_reslice_started` user callback |
 | External callback | `ResliceCompletedEvent` | `visual_id` | Fire `on_reslice_completed` user callback |
+| External callback | `ResliceProgressEvent` | `visual_id` | Fire `on_reslice_progress` user callback (multiscale visuals only) |
+| External callback | `BackstopCompleteEvent` | `visual_id` | Fire `on_backstop_complete` user callback (multiscale visuals only) |
+| Loading indicator | `ResliceProgressEvent` | `visual_id` | Redraw the bar and status line (`QtLoadingIndicator`, `AnywidgetLoadingIndicator`) |
+| Loading-settings control | `LoadingConfigChangedEvent` | `visual_id` | Show the visual's `ProgressiveLoadingConfig` (`QtLoadingConfigControls`, `AnywidgetLoadingConfigControls`); edits go out as `LoadingConfigUpdateEvent` on the incoming bus, and a refused edit shows the reason |
 | External callback | `CanvasMouse{Press,Move,Release}{2D,3D}Event` | `canvas_id` | Fire `on_mouse_*` user callback |
 | External callback | `{Image,Labels,Points,Lines,Mesh,Graph}PickEvent` | `canvas_id` | Fire `on_pick` user callback; enables pick-detail extraction |
 | Paint controller | `CanvasMouse{Press,Move,Release}2DEvent` | `canvas_id` | Accumulate brush stroke (direct bus subscription; does not enable pick details) |
@@ -1764,7 +1839,11 @@ planning parameters.
 
 - **Data payloads.** Brick data from `AsyncSlicer` is delivered directly to
   `GFX*Visual.on_data_ready()` via the `callback` argument to `slicer.submit()`.
-  Only the lifecycle signal (`ResliceCompletedEvent`) goes through the bus.
+  Multiscale bricks and tiles go through the chunk scheduler instead, which writes
+  them with its `Residency` adapters in a commit round before a frame.
+  Only the lifecycle signals go through the bus: `ResliceCompletedEvent`, and for
+  multiscale visuals `ResliceProgressEvent` and `BackstopCompleteEvent`.
+  `CellierController.loading_progress(visual_id)` reads the same counts on demand.
 - **Structural add/remove operations.** `add_visual()`, `remove_visual()`, etc. are
   synchronous and handled atomically by the controller. `VisualAddedEvent` and
   `VisualRemovedEvent` are emitted *after* the operation completes, for external
@@ -1813,6 +1892,7 @@ from cellier.events._events import (
     PointsPickInfo,
     ResliceCancelledEvent,
     ResliceCompletedEvent,
+    ResliceProgressEvent,
     ResliceStartedEvent,
     SceneAddedEvent,
     SceneRemovedEvent,

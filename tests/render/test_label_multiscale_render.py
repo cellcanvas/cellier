@@ -26,6 +26,7 @@ from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
     MultiscaleLabelsAppearance,
 )
+from tests._gpu_budget import SMALL_BUDGETS
 
 if TYPE_CHECKING:
     from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
@@ -56,6 +57,7 @@ def test_construction_2d_scene_builds_only_2d_node(controller, multiscale_labels
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -75,6 +77,7 @@ def test_construction_3d_scene_builds_3d_node(controller, multiscale_labels_stor
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -138,6 +141,7 @@ def test_construction_with_a_broadcast_transform_does_not_misindex_the_store(
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
         transform=transform,
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -162,7 +166,7 @@ async def test_render_2d_shows_labels(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -186,7 +190,7 @@ async def test_render_3d_commits_bricks_and_draws(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(force_level=1),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -224,7 +228,7 @@ async def test_render_2d_direct_mode_binds_lut(
                 7: (0.0, 0.0, 1.0, 1.0),
             },
         ),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -253,7 +257,7 @@ async def test_render_3d_direct_mode_binds_lut(
             },
             force_level=1,
         ),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -276,7 +280,7 @@ async def test_salt_change_reseeds_colormap_buffer(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -305,7 +309,7 @@ async def test_render_mode_change_updates_3d_material(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(force_level=1),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -331,7 +335,7 @@ async def test_opacity_change_applies_to_material(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -358,7 +362,7 @@ async def test_visibility_toggle_hides_render(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -423,6 +427,7 @@ def test_the_label_selection_survives_a_geometry_rebuild(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
     controller.add_canvas(scene_id=scene.id)
     gfx = _gfx_visual(controller, scene.id, visual.id)
@@ -445,6 +450,7 @@ def test_the_selection_is_recorded_on_the_model(controller, multiscale_labels_st
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
     controller.add_canvas(scene_id=scene.id)
 
@@ -485,6 +491,7 @@ async def test_a_2d_start_switches_to_3d_and_back(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -514,6 +521,7 @@ async def test_the_3d_node_built_on_switch_takes_the_current_state(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(opacity=0.5),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)

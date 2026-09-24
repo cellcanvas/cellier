@@ -21,6 +21,7 @@ from cellier.visuals import (
     InMemoryImageChannelAppearance,
     effective_transparency_mode,
 )
+from tests._planning import planned_requests_3d
 
 #: World ``(c, y, x)``; a 2D scene displays ``(y, x)`` and slices ``c``.
 _CYX = [("c", "channel"), *spatial_axes("y", "x")]
@@ -59,8 +60,14 @@ def _plan(controller, scene, visual):
     selection = controller._selections_for_scene(scene.id)[canvas_id]
     dims_state = scene.dims.to_state()
     if len(dims_state.selection.displayed_axes) == 3:
-        return gfx.build_slice_request(
-            np.zeros(3), None, 1.0, 100.0, dims_state=dims_state, selection=selection
+        return planned_requests_3d(
+            gfx,
+            np.zeros(3),
+            None,
+            1.0,
+            100.0,
+            dims_state=dims_state,
+            selection=selection,
         )
     return gfx.build_slice_request_2d(
         np.zeros(3), 100.0, 10.0, None, None, dims_state, selection=selection

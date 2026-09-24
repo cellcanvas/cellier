@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import NamedTuple
 from uuid import UUID
 
+from cellier.gui._loading import LOADING_CONFIG_TITLE, LOADING_TITLE
 from cellier.gui._render_controls import VISUAL_RENDER_TITLES
 
 # ── Appearance controls: the toolkit-neutral decision layer ──────────────────
@@ -28,7 +29,8 @@ class ControlSpec:
     ----------
     kind : str
         Which control to build: ``color_map``, ``clim``, ``render``,
-        ``lod_bias``, ``aabb`` or ``dataset_info``.  A renderer with no
+        ``lod_bias``, ``aabb``, ``loading``, ``loading_config`` or
+        ``dataset_info``.  A renderer with no
         builder for a kind skips it.
     title : str
         What the control is called, e.g. ``"Contrast limits"``.  Both front
@@ -72,6 +74,8 @@ _CONTROL_TITLES = {
     "lod_bias": "LOD bias",
     "aabb": "Bounding box",
     "trail": "Trail",
+    "loading": LOADING_TITLE,
+    "loading_config": LOADING_CONFIG_TITLE,
     # Read rather than restated: the per-visual groups name themselves in
     # the shared control spec, beside the controls they hold.
     **VISUAL_RENDER_TITLES,
@@ -245,6 +249,7 @@ def appearance_specs(
             colormap_names=getattr(config, "colormap_names", None),
             clim_range=getattr(config, "clim_range", None),
             channel_labels=getattr(config, "channel_labels", None),
+            decimals=getattr(config, "decimals", 2),
         )
 
     values_for = {
@@ -302,6 +307,25 @@ def appearance_specs(
         )
 
     specs.extend(_visual_render_specs(visual, config, palette))
+
+    # Only a multiscale visual loads progressively; its render config says
+    # so by carrying ``loading``.  The widget reads the current progress off
+    # the controller when it is built, so the spec carries nothing.
+    loading = getattr(getattr(visual, "render_config", None), "loading", None)
+    if loading is not None and getattr(config, "loading_indicator", False):
+        specs.append(ControlSpec("loading", _CONTROL_TITLES["loading"], {}))
+    if loading is not None and getattr(config, "loading_controls", False):
+        level_shapes = getattr(store, "level_shapes", None)
+        specs.append(
+            ControlSpec(
+                "loading_config",
+                _CONTROL_TITLES["loading_config"],
+                {
+                    "loading": loading.model_dump(),
+                    "n_levels": len(level_shapes) if level_shapes else None,
+                },
+            )
+        )
 
     dataset_info_spec = _dataset_info_spec(
         getattr(config, "dataset_info", False), store
@@ -531,15 +555,16 @@ class ControlTarget(NamedTuple):
         targets of one dock.
     visual : BaseVisual
         The representative visual.  Its appearance model is what the controls
-        are seeded from; on an ``OrthoViewer`` it is the first panel's visual
-        and the other three are guaranteed equal to it.
+        are seeded from; on an ``OrthoViewer`` it is the group's first panel
+        visual.
     config : BaseControlsConfig
         The recorded controls config.
     visual_ids : list[UUID]
-        Every visual the controls write to -- one on a ``Viewer``, the four
-        panel siblings on an ``OrthoViewer``.  The widgets accept this
-        directly (see ``cellier.gui._appearance_fields.VisualIdGroup``), so
-        the spec walk is identical either way and only the id list differs.
+        Every visual the controls write to -- one on a ``Viewer``; on an
+        ``OrthoViewer``, the three 2D panel siblings or the 3D panel's
+        visual.  The widgets accept this directly (see
+        ``cellier.gui._appearance_fields.VisualIdGroup``), so the spec walk is
+        identical either way and only the id list differs.
     """
 
     key: UUID
@@ -555,8 +580,9 @@ def appearance_targets(viewer: object) -> list[ControlTarget]:
     A config whose ``appearance`` is falsy (``False``, ``None``, ``[]``) is skipped: it
     asks for no panel, and :func:`appearance_specs` would build none, so offering it in
     the selector would only lead to an empty dock.  Multi-scene aware: an
-    ``OrthoViewer`` records one config per fanned-out add, keyed by the first panel's
-    visual, and ``_visual_groups`` expands it to all four.
+    ``OrthoViewer`` records two groups per fanned-out add, the 2D panels and the
+    3D panel, each keyed by its first visual and labelled by the viewer; the
+    ``_visual_groups`` record expands each key to its visuals.
     """
     return _control_targets(viewer)
 
@@ -575,6 +601,7 @@ def _control_targets(viewer: object) -> list[ControlTarget]:
     if controller is None or not controls_configs:
         return []
     groups: dict = getattr(viewer, "_visual_groups", {}) or {}
+    given_labels: dict = getattr(viewer, "_controls_labels", {}) or {}
 
     resolved = []
     for rep_id, config in controls_configs.items():
@@ -588,7 +615,7 @@ def _control_targets(viewer: object) -> list[ControlTarget]:
         resolved.append(
             (
                 rep_id,
-                _group_name(controller, visual, visual_ids),
+                given_labels.get(rep_id) or _group_name(controller, visual, visual_ids),
                 visual,
                 config,
                 visual_ids,

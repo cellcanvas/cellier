@@ -37,6 +37,8 @@ from cellier.gui.qt.visuals._lines import (
     QtThicknessSpaceCombo,
     QtThicknessSpin,
 )
+from cellier.gui.qt.visuals._loading import QtLoadingIndicator
+from cellier.gui.qt.visuals._loading_config import QtLoadingConfigControls
 from cellier.gui.qt.visuals._lod_bias import QtLodBiasSlider
 from cellier.gui.qt.visuals._mesh import (
     QtFlatShadingToggle,
@@ -69,6 +71,8 @@ __all__ = [
     "QtImageControls",
     "QtIntSpin",
     "QtLabelsRenderModeCombo",
+    "QtLoadingConfigControls",
+    "QtLoadingIndicator",
     "QtLodBiasSlider",
     "QtNodeColorPicker",
     "QtNodeSizeSpaceCombo",

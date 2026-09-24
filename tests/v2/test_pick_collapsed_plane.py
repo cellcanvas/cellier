@@ -28,6 +28,7 @@ from cellier.scene.dims import spatial_axes, world_coordinate_system
 from cellier.transform import AffineTransform, Axis
 from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
+from tests._planning import planned_requests_3d
 from tests._v2 import data_system
 
 CHANNEL_SHAPE = (4, 8, 10, 12)  # (c, z, y, x)
@@ -184,7 +185,8 @@ async def test_a_live_reslice_reports_the_channel_it_fetched():
     # visual records the same plan a real frame would have given it.
     canvas_id = controller.get_canvas_ids(scene.id)[0]
     gfx_visual = controller._render_manager._scenes[scene.id].get_visual(visual.id)
-    gfx_visual.build_slice_request(
+    planned_requests_3d(
+        gfx_visual,
         camera_pos_world=np.zeros(3),
         frustum_corners_world=None,
         fov_y_rad=1.0,

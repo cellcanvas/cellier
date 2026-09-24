@@ -19,6 +19,7 @@ from cellier.visuals import (
     MultiscaleImageSingleAppearance,
 )
 from cellier.visuals._image import MultiscaleImageRenderConfig
+from tests._gpu_budget import SMALL_BUDGETS
 from tests.render.conftest import _write_multiscale_zarr
 
 _CZYX = [("c", "channel"), *spatial_axes("z", "y", "x")]
@@ -59,7 +60,7 @@ def _add(controller, store, *, dim, composite=True, channels=None, **appearance)
         store,
         scene.id,
         appearance=MultiscaleImageAppearance(**appearance),
-        render_config=MultiscaleImageRenderConfig(block_size=8),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         channel_axis=0,
         composite=composite,
         channels=channels,
@@ -102,7 +103,11 @@ def test_a_multiscale_image_without_a_channel_axis_has_one_slot(
     controller, multiscale_image_store
 ):
     scene = controller.add_scene(dim="2d", name="scene")
-    visual = controller.add_image_multiscale(multiscale_image_store, scene.id)
+    visual = controller.add_image_multiscale(
+        multiscale_image_store,
+        scene.id,
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
+    )
     gfx_visual = controller._render_manager._scenes[scene.id].get_visual(visual.id)
     assert len(gfx_visual.slots) == 1
 
@@ -202,11 +207,10 @@ async def test_force_level_reaches_every_drawn_slot(controller, reslice, czyx_st
     await reslice(controller, scene.id)
 
     for index in gfx_visual._drawn.values():
-        levels = {
-            key.level
-            for key in gfx_visual.slots[index]._block_cache_3d.tile_manager.tilemap
-        }
-        assert levels == {1}
+        slot = gfx_visual.slots[index]
+        levels = {key.level for key in slot._block_cache_3d.tile_manager.tilemap}
+        # The target is level 1; the coarsest level is the backstop under it.
+        assert levels - {slot.n_levels} == {1}
 
 
 async def test_a_mode_switch_reuses_the_channel_cache(controller, reslice, czyx_store):
@@ -220,9 +224,13 @@ async def test_a_mode_switch_reuses_the_channel_cache(controller, reslice, czyx_
     await reslice(controller, scene.id)
 
     assert gfx_visual._drawn == {1: slot_for_one}
-    stats = gfx_visual.slots[slot_for_one]._last_plan_stats
-    assert stats["total_required"] > 0
-    assert stats["misses"] == 0
+    slot = gfx_visual.slots[slot_for_one]
+    assert slot._last_plan_stats["total_required"] > 0
+    scheduler = controller._render_manager.scheduler
+    desired, new = scheduler.core.pass_stats(slot.residency_3d().cache_id)
+    stats = slot._last_plan_stats
+    assert desired == stats["n_backstop"] + stats["n_target"]
+    assert new == 0
 
 
 # ---------------------------------------------------------------------------
@@ -230,20 +238,20 @@ async def test_a_mode_switch_reuses_the_channel_cache(controller, reslice, czyx_
 # ---------------------------------------------------------------------------
 
 
-async def test_remove_visual_closes_it_and_cancels_every_slot(
+async def test_remove_visual_closes_it_and_forgets_every_atlas(
     controller, reslice, czyx_store
 ):
     scene, visual, gfx_visual = _add(controller, czyx_store, dim="2d")
     await reslice(controller, scene.id)
-    cancelled: list = []
-    slots = gfx_visual.slots
-    for slot in slots:
-        slot.cancel_pending_2d = lambda s=slot: cancelled.append(s)
+    scheduler = controller._render_manager.scheduler
+    atlases = set(gfx_visual.residencies())
+    assert atlases
+    assert atlases <= set(scheduler.core.cache_ids)
 
     controller.remove_visual(visual.id)
 
-    # Every slot is cancelled (the coordinator and close() may both do it).
-    assert {id(slot) for slot in cancelled} == {id(slot) for slot in slots}
+    # Every slot's atlas is gone from the scheduler, so nothing lands later.
+    assert not atlases & set(scheduler.core.cache_ids)
     assert gfx_visual.slots == ()
     assert gfx_visual.node_2d.children == ()
 
@@ -278,7 +286,7 @@ def test_the_budget_splits_between_channels_not_pool_slots(
         visual = controller.add_image_multiscale(
             czyx_store,
             scene.id,
-            render_config=MultiscaleImageRenderConfig(block_size=8),
+            render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
             channel_axis=0,
             composite=True,
             channels={
@@ -307,7 +315,7 @@ def test_an_image_without_channels_keeps_the_whole_budget(
     plain = controller.add_image_multiscale(
         multiscale_image_store,
         scene.id,
-        render_config=MultiscaleImageRenderConfig(block_size=8),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     plain_gfx = controller._render_manager._scenes[scene.id].get_visual(plain.id)
 
@@ -315,7 +323,7 @@ def test_an_image_without_channels_keeps_the_whole_budget(
     channelled = controller.add_image_multiscale(
         czyx_store,
         channel_scene.id,
-        render_config=MultiscaleImageRenderConfig(block_size=8),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         channel_axis=0,
         channels={0: MultiscaleImageChannelAppearance()},
     )

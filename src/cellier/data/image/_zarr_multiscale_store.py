@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 import tensorstore as ts
-from pydantic import ConfigDict, PrivateAttr, model_validator
+from pydantic import ConfigDict, model_validator
 
 from cellier.data._axes import level_systems
 from cellier.data._base_data_store import BaseDataStore, gridded_axis_extents
@@ -34,9 +34,9 @@ from cellier.data._dataset_info import (
     source_label,
 )
 from cellier.data._tensorstore_cache import (
-    DEFAULT_CACHE_POOL_BYTES,
+    Recheck,
     TensorStoreCacheMixin,
-    build_context,
+    recheck_spec_options,
 )
 
 if TYPE_CHECKING:
@@ -73,7 +73,8 @@ def _detect_zarr_driver(level_path: pathlib.Path) -> str:
 def _open_ts_stores(
     zarr_path: pathlib.Path,
     scale_names: list[str],
-    cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES,
+    context: ts.Context,
+    recheck: Recheck = False,
 ) -> list[ts.TensorStore]:
     """Open one tensorstore per scale level (read-only, synchronous).
 
@@ -87,10 +88,13 @@ def _open_ts_stores(
     scale_names :
         Subdirectory names in order finest → coarsest, e.g.
         ``["s0", "s1", "s2"]``.
-    cache_pool_bytes :
-        Chunk cache cap in bytes, shared by every level opened here --
-        one context serves them all, so a chunk read for one level is not
-        re-decompressed for the next.  ``0`` disables caching.
+    context :
+        Context every level is opened on, so they share one chunk cache
+        (:func:`~cellier.data._tensorstore_cache.build_context`).
+    recheck :
+        Whether cached chunks are revalidated on read: always, never, or
+        once (``"open"``); see
+        :func:`~cellier.data._tensorstore_cache.recheck_spec_options`.
 
     Returns
     -------
@@ -98,7 +102,6 @@ def _open_ts_stores(
         One open ``ts.TensorStore`` per scale level.  Chunk data is
         not loaded until ``await store[...].read()`` is called.
     """
-    context = build_context(cache_pool_bytes)
     stores: list[ts.TensorStore] = []
     for name in scale_names:
         level_path = pathlib.Path(zarr_path) / name
@@ -109,6 +112,7 @@ def _open_ts_stores(
                 "driver": "file",
                 "path": str(level_path),
             },
+            **recheck_spec_options(recheck),
         }
         store = ts.open(spec, context=context).result()
         stores.append(store)
@@ -176,9 +180,6 @@ class MultiscaleZarrDataStore(TensorStoreCacheMixin, BaseDataStore):
     scale_names: list[str]
     name: str = "multiscale zarr data store"
 
-    # ── Private tensorstore handles (not serialised) ────────────────────
-    _ts_stores: list[ts.TensorStore] = PrivateAttr(default_factory=list)
-
     # Allow non-pydantic types in private attrs.
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -209,21 +210,17 @@ class MultiscaleZarrDataStore(TensorStoreCacheMixin, BaseDataStore):
         Called automatically by pydantic after ``__init__``.
         Must run before ``QtAsyncio.run()`` starts the event loop.
         """
-        self._ts_stores = _open_ts_stores(
-            pathlib.Path(self.zarr_path),
-            self.scale_names,
-            self.cache_pool_bytes,
-        )
+        self._reopen_ts_stores()
         # After the handles: the base checks the systems against the level
         # count and rank, which are read off them.
         super().model_post_init(__context)
 
-    def _reopen_ts_stores(self) -> None:
-        """Reopen every level against the store's current cache budget."""
-        self._ts_stores = _open_ts_stores(
-            pathlib.Path(self.zarr_path),
-            self.scale_names,
-            self.cache_pool_bytes,
+    def _open_ts_handles(
+        self, context: ts.Context, recheck: Recheck
+    ) -> list[ts.TensorStore]:
+        """Open every level on *context* (see ``TensorStoreCacheMixin``)."""
+        return _open_ts_stores(
+            pathlib.Path(self.zarr_path), self.scale_names, context, recheck
         )
 
     # ── Convenience constructor ─────────────────────────────────────────

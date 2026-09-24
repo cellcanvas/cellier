@@ -8,13 +8,14 @@ import pygfx as gfx
 from cellier.logging import _GPU_LOGGER
 from cellier.render.lut_indirection._cell_brick_rule import (
     brick_rule_issues,
-    cell_range,
     level_brick_counts,
     level_cell_spans,
 )
+from cellier.render.lut_indirection._lut_paint import LOOP_BELOW, paint_lut
 
 if TYPE_CHECKING:
-    from cellier.render.block_cache._tile_manager_2d import TileManager2D
+    from collections.abc import Sequence
+
     from cellier.render.lut_indirection._layout_2d import BlockLayout2D
 
 
@@ -22,8 +23,8 @@ class LutIndirectionManager2D:
     """Manages the 2D LUT indirection texture.
 
     The LUT maps each finest-level grid cell ``(gy, gx)`` to a cache
-    slot ``(sx, sy)`` and a level indicator.  ``rebuild()`` rewrites
-    the LUT from the current tile manager state.
+    slot ``(sx, sy)`` and a level indicator.  ``paint()`` rewrites the LUT
+    from arrays of resident tiles (the image residency adapter calls it).
 
     Parameters
     ----------
@@ -45,6 +46,14 @@ class LutIndirectionManager2D:
         The tile cache's padding in pixels.  When given together with the
         scales and shapes, levels whose cell -> tile rule needs more padding
         than this are logged as warnings.
+    translation_vecs_data : list[np.ndarray] or None
+        Per-level translations in level-0 voxels, ``(ty, tx)``; the budget
+        warning then includes the translation term.  ``None`` assumes block
+        averaging.
+    sampling_margin : float
+        How far past a sample position this path's shader reads, in level-k
+        voxels, at the default ray density (plan v2, "Padding budgets"):
+        subtracted from *border* for the warning.  Default 0.5 (linear).
     """
 
     def __init__(
@@ -54,6 +63,8 @@ class LutIndirectionManager2D:
         scale_vecs_data: list[np.ndarray] | None = None,
         level_shapes: list | None = None,
         border: float | None = None,
+        translation_vecs_data: list[np.ndarray] | None = None,
+        sampling_margin: float = 0.5,
     ) -> None:
         self._base_layout = base_layout
         self._n_levels = n_levels
@@ -61,50 +72,80 @@ class LutIndirectionManager2D:
         self._level_shapes = level_shapes
         if border is not None:
             for issue in brick_rule_issues(
-                scale_vecs_data, level_shapes, base_layout.block_size, border
+                scale_vecs_data,
+                level_shapes,
+                base_layout.block_size,
+                border,
+                sampling_margin=sampling_margin,
+                translation_vecs_data=translation_vecs_data,
             ):
                 _GPU_LOGGER.warning("brick_rule_padding  2d  %s", issue.describe())
         self.lut_data, self.lut_tex = build_lut_texture_2d(base_layout.grid_dims)
+        # The one cell -> tile rule, shared with the shaders through the
+        # block-scales buffer.  See _cell_brick_rule.
+        self._spans = level_cell_spans(n_levels, 2, scale_vecs_data)
+        self._counts = level_brick_counts(
+            self._spans, base_layout.grid_dims, base_layout.block_size, level_shapes
+        )
 
-    def rebuild(
+    def paint(
         self,
-        tile_manager: TileManager2D,
-        current_slice_coord: tuple[tuple[int, int], ...] | None = None,
-        viewport_cells: tuple[int, int, int, int] | None = None,
+        levels: np.ndarray,
+        grids: np.ndarray,
+        slot_grid_pos: np.ndarray,
+        phases: Sequence[np.ndarray],
+        clips: Sequence[tuple[int, int, int, int] | None] | None = None,
+        *,
+        loop_below: int = LOOP_BELOW,
     ) -> None:
-        """Rewrite ``lut_data`` from current tilemap state and schedule GPU upload.
+        """Rewrite the LUT and schedule its upload.
 
-        Uses a two-phase sweep when ``current_slice_coord`` is provided:
-        old-slice tiles are written first (background), then current-slice
-        tiles overwrite them (foreground).  This keeps the previous image
-        visible while new tiles stream in.
+        Tiles are painted phase by phase, each phase coarsest to finest, so a
+        finer tile covers the coarser fallback under it and a later phase
+        covers an earlier one (design 5.8).
+
+        Channel assignments: ``(sx, sy, level, 0)``; level 0 is out of bounds.
 
         Parameters
         ----------
-        tile_manager : TileManager2D
-            Current tile manager holding the resident tile mapping.
-        current_slice_coord : tuple of (axis_index, world_value) pairs or None
-            The slice coordinate set at the start of the most-recent
-            ``build_slice_request_2d`` call.  When ``None`` all tiles are
-            treated as foreground (backward-compatible single-phase sweep).
-        viewport_cells : tuple[int, int, int, int] or None
-            Base-grid cell bounds ``(gy0, gx0, gy1, gx1)`` (half-open) of the
-            current viewport.  When provided, old-slice **background** tiles are
-            clipped to this region so stale tiles outside the view are no longer
-            referenced in the LUT.  ``None`` disables clipping (background tiles
-            written across the full grid, backward-compatible).
+        levels : np.ndarray
+            ``(N,)`` 1-based level per tile.
+        grids : np.ndarray
+            ``(N, 2)`` tile grid position ``(g0, g1)`` at its level.
+        slot_grid_pos : np.ndarray
+            ``(N, 2)`` cache grid position ``(sy, sx)`` of each tile's slot.
+        phases : sequence of np.ndarray
+            Index arrays into the tiles, in painting order.
+        clips : sequence of tuple or None
+            Per phase, base-cell bounds ``(gy0, gx0, gy1, gx1)`` (half open)
+            to clip that phase's writes to, or ``None``.  Stale background
+            tiles are clipped to the viewport so out-of-view stale data is
+            not referenced.
+        loop_below : int
+            See :func:`paint_lut`.
         """
-        rebuild_lut_2d(
-            self._base_layout,
-            tile_manager,
-            self._n_levels,
+        slot_grid_pos = np.asarray(slot_grid_pos, dtype=np.int64).reshape(-1, 2)
+        levels = np.asarray(levels, dtype=np.int64)
+        values = np.column_stack(
+            [
+                slot_grid_pos[:, 1],
+                slot_grid_pos[:, 0],
+                levels,
+                np.zeros(len(levels), np.int64),
+            ]
+        ).astype(np.float32)
+        paint_lut(
             self.lut_data,
-            self.lut_tex,
-            scale_vecs_data=self._scale_vecs_data,
-            current_slice_coord=current_slice_coord,
-            viewport_cells=viewport_cells,
-            level_shapes=self._level_shapes,
+            values,
+            levels,
+            np.asarray(grids, dtype=np.int64).reshape(-1, 2),
+            phases,
+            self._spans,
+            self._counts,
+            clips=clips,
+            loop_below=loop_below,
         )
+        self.lut_tex.update_range((0, 0, 0), self.lut_tex.size)
 
 
 def build_lut_texture_2d(
@@ -129,130 +170,3 @@ def build_lut_texture_2d(
     lut_data = np.zeros((gh, gw, 4), dtype=np.float32)
     lut_tex = gfx.Texture(lut_data, dim=2)
     return lut_data, lut_tex
-
-
-def rebuild_lut_2d(
-    base_layout: BlockLayout2D,
-    tile_manager: TileManager2D,
-    n_levels: int,
-    lut_data: np.ndarray,
-    lut_tex: gfx.Texture,
-    scale_vecs_data: list[np.ndarray] | None = None,
-    current_slice_coord: tuple[tuple[int, int], ...] | None = None,
-    viewport_cells: tuple[int, int, int, int] | None = None,
-    level_shapes: list | None = None,
-) -> None:
-    """Rebuild the full 2D LUT from the current tile manager state.
-
-    When ``current_slice_coord`` is provided, uses a two-phase sweep:
-
-    - **Phase 1 (background):** Write tiles whose ``slice_coord`` differs from
-      ``current_slice_coord``, coarsest-to-finest.  These are old-slice tiles
-      that serve as a visual placeholder while new data loads.  When
-      ``viewport_cells`` is provided, these writes are clipped to the viewport
-      so stale tiles outside the view are not referenced.
-    - **Phase 2 (foreground):** Write tiles whose ``slice_coord`` matches
-      ``current_slice_coord``, coarsest-to-finest.  These overwrite the
-      background wherever new data has arrived.  Foreground tiles are always
-      written across the full grid (never clipped).
-
-    When ``current_slice_coord`` is ``None``, all tiles are written in a single
-    coarsest-to-finest sweep (backward-compatible behaviour).
-
-    Channel assignments:
-
-    - ``lut[gy, gx, 0]`` = sx (cache grid X)
-    - ``lut[gy, gx, 1]`` = sy (cache grid Y)
-    - ``lut[gy, gx, 2]`` = level (1 = finest; 0 = out-of-bounds)
-    - ``lut[gy, gx, 3]`` = 0  (unused, reserved)
-
-    Parameters
-    ----------
-    base_layout : BlockLayout2D
-        Layout of the finest resolution.
-    tile_manager : TileManager2D
-        Current tile manager with resident tiles.
-    n_levels : int
-        Total number of LOD levels.
-    lut_data : np.ndarray
-        Backing float32 array ``(gH, gW, 4)`` to overwrite.
-    lut_tex : gfx.Texture
-        The LUT texture to schedule for GPU upload.
-    scale_vecs_data : list[np.ndarray] or None
-        Per-level scale vectors in data-axis order ``(sy, sx)`` mapping
-        level-k tiles to base-grid coverage.  When provided the actual
-        per-axis downsampling factor is used; otherwise a uniform
-        ``2^(level-1)`` fallback is applied (correct only for isotropic
-        power-of-2 multiscale pyramids).
-    current_slice_coord : tuple of (axis_index, world_value) pairs or None
-        The slice coordinate to use for phase separation.  ``None`` disables
-        the two-phase sweep.
-    viewport_cells : tuple[int, int, int, int] or None
-        Base-grid cell bounds ``(gy0, gx0, gy1, gx1)`` (half-open) used to clip
-        background (old-slice) writes.  ``None`` disables clipping.
-    level_shapes : list of tuple of int or None
-        Per-level ``(H, W)`` shapes.  Gives each level's tile count for the
-        cell -> tile rule; without it the count is inferred from the grid.
-    """
-    gh, gw = base_layout.grid_dims
-
-    lut_data[:] = 0  # Reset to out-of-bounds (level 0).
-
-    # The one cell -> tile rule, shared with the shaders through the
-    # block-scales buffer.  See _cell_brick_rule.
-    spans = level_cell_spans(n_levels, 2, scale_vecs_data)
-    counts = level_brick_counts(spans, (gh, gw), base_layout.block_size, level_shapes)
-
-    def _write_tiles(
-        tiles_by_level: dict[int, list],
-        clip: tuple[int, int, int, int] | None = None,
-    ) -> None:
-        """Write one group of tiles coarsest-to-finest into lut_data.
-
-        When ``clip`` is provided, each tile's base-grid span is intersected
-        with the clip bounds ``(cy0, cx0, cy1, cx1)`` before writing.
-        """
-        for level in range(n_levels, 0, -1):
-            if level not in tiles_by_level:
-                continue
-            span_y, span_x = spans[level - 1]
-            count_y, count_x = counts[level - 1]
-            for key, slot in tiles_by_level[level]:
-                sy, sx = slot.grid_pos
-                # Base-grid cells this coarse tile owns under the shared rule.
-                gy0, gy1 = cell_range(key.g0, span_y, count_y, gh)
-                gx0, gx1 = cell_range(key.g1, span_x, count_x, gw)
-                if clip is not None:
-                    cy0, cx0, cy1, cx1 = clip
-                    gy0 = max(gy0, cy0)
-                    gy1 = min(gy1, cy1)
-                    gx0 = max(gx0, cx0)
-                    gx1 = min(gx1, cx1)
-                    if gy0 >= gy1 or gx0 >= gx1:
-                        continue  # Tile lies entirely outside the viewport.
-                lut_data[gy0:gy1, gx0:gx1] = (sx, sy, level, 0)
-
-    if current_slice_coord is None:
-        # Single-phase: all tiles are treated as foreground.
-        by_level: dict[int, list] = {}
-        for key, slot in tile_manager.tilemap.items():
-            if key.level > 0:
-                by_level.setdefault(key.level, []).append((key, slot))
-        _write_tiles(by_level)
-    else:
-        # Two-phase: background (old-slice) first, then foreground (current-slice).
-        bg_by_level: dict[int, list] = {}
-        fg_by_level: dict[int, list] = {}
-        for key, slot in tile_manager.tilemap.items():
-            if key.level <= 0:
-                continue
-            if key.slice_coord == current_slice_coord:
-                fg_by_level.setdefault(key.level, []).append((key, slot))
-            else:
-                bg_by_level.setdefault(key.level, []).append((key, slot))
-        # Clip stale background tiles to the viewport so out-of-view stale data
-        # is no longer referenced; foreground (current-slice) is never clipped.
-        _write_tiles(bg_by_level, clip=viewport_cells)
-        _write_tiles(fg_by_level)
-
-    lut_tex.update_range((0, 0, 0), lut_tex.size)

@@ -1,9 +1,9 @@
 """``Layout(left_dock_min_width=..., right_dock_min_width=...)``.
 
-A side dock's minimum width: the narrowest it may be.  On Qt the dock
-separator can still drag it wider; on anywidget, which has no splitter, it is
-the dock's floor.  Unset, Qt keeps its 260 px default and anywidget leaves the
-dock content-sized.
+A side dock's minimum width: the narrowest it may be, on both toolkits.  It
+must be at least ``DOCK_MIN_WIDTH`` (260 px), which is also the default.  It
+is a floor: a dock whose controls need more is as wide as they need.  On Qt
+the dock separator can still drag it wider.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import pytest
 from cellier.convenience import Viewer
 from cellier.convenience._hosts import JupyterHost, MarimoHost, QtLayoutHost
 from cellier.convenience.layout import Layout, RenderControls
+from cellier.convenience.layout._spec import DOCK_MIN_WIDTH
 from cellier.scene.dims import spatial_axes
 
 _DOCK = RenderControls(sections=("temporal",))
@@ -46,10 +47,29 @@ def test_a_width_must_be_an_int(width):
         Layout(center=object(), right_dock=_DOCK, right_dock_min_width=width)
 
 
-@pytest.mark.parametrize("width", [0, -10])
-def test_a_width_must_be_positive(width):
-    with pytest.raises(ValueError, match="left_dock_min_width must be positive"):
-        Layout(center=object(), left_dock=_DOCK, left_dock_min_width=width)
+@pytest.mark.parametrize("side", ["left", "right"])
+@pytest.mark.parametrize("width", [-10, 0, 150, DOCK_MIN_WIDTH - 1])
+def test_a_width_below_the_floor_raises(side, width):
+    with pytest.raises(
+        ValueError, match=f"{side}_dock_min_width must be at least 260 px"
+    ):
+        Layout(
+            center=object(),
+            **{f"{side}_dock": _DOCK, f"{side}_dock_min_width": width},
+        )
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_the_floor_itself_is_accepted(side):
+    layout = Layout(
+        center=object(),
+        **{f"{side}_dock": _DOCK, f"{side}_dock_min_width": DOCK_MIN_WIDTH},
+    )
+    assert layout.dock_min_widths()[side] == DOCK_MIN_WIDTH
+
+
+def test_the_hosts_share_the_floor():
+    assert QtLayoutHost.DEFAULT_DOCK_MIN_WIDTH == DOCK_MIN_WIDTH == 260
 
 
 def test_a_width_needs_a_dock_on_its_side():
@@ -77,10 +97,17 @@ def _qt_window(qtbot, **layout_kwargs):
     return window, docks
 
 
+def _content(dock):
+    """The floored column inside a side dock's scroll area."""
+    return dock.widget().widget()
+
+
 def test_qt_dock_keeps_the_default_floor(qtbot):
     _window, docks = _qt_window(qtbot, right_dock=_DOCK)
 
-    assert docks["right"].widget().minimumWidth() == QtLayoutHost.DEFAULT_DOCK_MIN_WIDTH
+    assert (
+        _content(docks["right"]).minimumWidth() == QtLayoutHost.DEFAULT_DOCK_MIN_WIDTH
+    )
 
 
 def test_qt_dock_takes_the_layout_width(qtbot):
@@ -88,21 +115,39 @@ def test_qt_dock_takes_the_layout_width(qtbot):
         qtbot, left_dock=_DOCK, right_dock=_DOCK, right_dock_min_width=340
     )
 
-    assert docks["right"].widget().minimumWidth() == 340
+    assert _content(docks["right"]).minimumWidth() == 340
     # The other side keeps the default.
-    assert docks["left"].widget().minimumWidth() == QtLayoutHost.DEFAULT_DOCK_MIN_WIDTH
+    assert _content(docks["left"]).minimumWidth() == QtLayoutHost.DEFAULT_DOCK_MIN_WIDTH
 
 
-def test_qt_width_below_the_default_takes_effect(qtbot):
-    """The 260 px default is a dock floor a caller replaces, not a column
-    floor that would outvote a smaller width from inside the dock."""
-    window, docks = _qt_window(qtbot, right_dock=_DOCK, right_dock_min_width=150)
-    window.show()
-    qtbot.waitExposed(window)
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_qt_dock_grows_past_its_floor_to_fit_its_controls(qtbot, side):
+    """Controls that need more than the floor widen the dock, not clip.
 
-    assert docks["right"].minimumSizeHint().width() < (
-        QtLayoutHost.DEFAULT_DOCK_MIN_WIDTH
-    )
+    An explicit ``minimumWidth`` used to outvote the content's size hint, so
+    the dock stayed at the floor and, with no horizontal scroll bar, the
+    controls were squeezed and clipped at the right edge.
+    """
+    from PySide6 import QtWidgets
+
+    from cellier.convenience.layout._qt_renderer import _scroll_dock_widget
+
+    content = QtWidgets.QWidget()
+    content.setMinimumWidth(DOCK_MIN_WIDTH)  # the floor ``assemble`` sets
+    wide = QtWidgets.QWidget()
+    wide.setMinimumWidth(500)
+    QtWidgets.QVBoxLayout(content).addWidget(wide)
+    area = _scroll_dock_widget(content)
+    qtbot.addWidget(area)
+
+    assert area.minimumSizeHint().width() >= 500
+
+    # Narrow content keeps the floor.
+    narrow = QtWidgets.QWidget()
+    narrow.setMinimumWidth(DOCK_MIN_WIDTH)
+    narrow_area = _scroll_dock_widget(narrow)
+    qtbot.addWidget(narrow_area)
+    assert DOCK_MIN_WIDTH <= narrow_area.minimumSizeHint().width() < 500
 
 
 def test_qt_dock_drags_wider_but_not_narrower(qtbot):
@@ -112,7 +157,7 @@ def test_qt_dock_drags_wider_but_not_narrower(qtbot):
     window.resize(1200, 800)
     window.show()
     qtbot.waitExposed(window)
-    content = docks["right"].widget()
+    content = _content(docks["right"])
 
     window.resizeDocks([docks["right"]], [100], Qt.Orientation.Horizontal)
     qtbot.wait(10)
@@ -140,8 +185,11 @@ def test_jupyter_floors_a_side_dock_in_a_box():
         dock_min_widths={"left": None, "right": 340},
     )
 
+    # Both side docks sit in their scroll box; the floor rides on it, and a
+    # dock with no width gets the shared default.
     left_item, middle_center, right_item = root.children
-    assert left_item is left  # no width, no wrapper
+    assert left_item.min_width == DOCK_MIN_WIDTH
+    assert list(left_item.children) == [left]
     assert middle_center is center
     assert right_item.min_width == 340
     assert list(right_item.children) == [right]
@@ -159,4 +207,21 @@ def test_marimo_floors_a_side_dock_with_a_style():
         "center", {"right": "dock"}, [], dock_min_widths={"right": 340}
     )
 
-    assert root == ("hstack", ["center", ("style", "dock", {"min-width": "340px"})])
+    _hstack, [center, (_s, (_s2, dock, inner_style), _outer)] = root
+    assert (center, dock) == ("center", "dock")
+    assert inner_style["min-width"] == "340px"
+
+
+def test_marimo_floors_a_dock_with_no_width_at_the_default():
+    host = MarimoHost.__new__(MarimoHost)  # bypass __init__ (no real marimo import)
+    host._mo = SimpleNamespace(
+        hstack=lambda items, align=None, **kw: ("hstack", list(items)),
+        vstack=lambda items, align=None, **kw: ("vstack", list(items)),
+        style=lambda item, style: ("style", item, style),
+    )
+
+    root = host.assemble("center", {"left": "dock"}, [], dock_min_widths={})
+
+    _hstack, [(_s, (_s2, dock, inner_style), _outer), center] = root
+    assert (center, dock) == ("center", "dock")
+    assert inner_style["min-width"] == f"{DOCK_MIN_WIDTH}px"

@@ -18,6 +18,7 @@ from cellier.convenience._ortho_dims import OrthoDimsController
 from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
 from cellier.render._capture import write_png
+from cellier.scene._background import viewer_background
 from cellier.scene.dims import (
     AxisAlignedSelection,
     DimsManager,
@@ -49,6 +50,12 @@ if TYPE_CHECKING:
     from cellier.data.lines._lines_memory_store import LinesMemoryStore
     from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
     from cellier.data.points._points_memory_store import PointsMemoryStore
+    from cellier.events import (
+        BackstopCompleteEvent,
+        LoadingProgress,
+        ResliceProgressEvent,
+        SubscriptionHandle,
+    )
     from cellier.render._config import RenderManagerConfig
     from cellier.scene._background import BackgroundAppearance
     from cellier.transform import BaseTransform, WorldCoordinateSystem
@@ -78,13 +85,43 @@ if TYPE_CHECKING:
         MultiscaleLabelVisual,
     )
     from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
+    from cellier.visuals._loading import ProgressiveLoadingConfig
     from cellier.visuals._mesh_memory import MeshAppearance, MeshVisual
     from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 
 _T = TypeVar("_T", bound="BaseDataStore")
 
+
+def _callback_ref(callback: Callable, weak: bool) -> Callable[[], Callable | None]:
+    """A zero-argument getter for *callback*, weak when asked.
+
+    The group subscriptions wrap the caller's callback in a closure, so the
+    bus's own weak reference would hold the closure (collected at once)
+    rather than the callback; the weak reference is taken here instead.
+    """
+    if not weak:
+        return lambda: callback
+    import weakref
+
+    if getattr(callback, "__name__", None) == "<lambda>":
+        raise ValueError("Cannot create a weak subscription to a lambda.")
+    if hasattr(callback, "__self__"):
+        return weakref.WeakMethod(callback)
+    return weakref.ref(callback)
+
+
 # Panel keys in display order. ``vol`` is the 3D panel; the rest are 2D slices.
 _PANEL_KEYS: tuple[str, ...] = ("xy", "xz", "yz", "vol")
+
+# The appearance-controls groups a fanned-out add records: one control drives
+# the three 2D panels, another the 3D panel.  Key -> (panel keys, dock label
+# format).  A setting such as a render mode or iso threshold only means
+# something in 3D, and the 2D and 3D views often want different contrast, so
+# the two are never linked.
+_CONTROLS_GROUPS: dict[str, tuple[tuple[str, ...], str]] = {
+    "2d": (("xy", "xz", "yz"), "{name} (2D views)"),
+    "3d": (("vol",), "{name} (3D view)"),
+}
 
 
 def _copy(model):
@@ -175,6 +212,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     :class:`~cellier.convenience._ortho_dims.OrthoDimsController`, so the
     panels share one world point (design 3.6).
 
+    Every panel starts with a uniform black background
+    (:func:`~cellier.scene._background.viewer_background`); see
+    :meth:`set_background`.
+
+    Appearance controls come in two groups per added visual: one drives the
+    three 2D panels together, the other the 3D panel.  An
+    ``AppearanceControls()`` dock offers both, labelled ``"{name} (2D
+    views)"`` and ``"{name} (3D view)"``.
+
     Parameters
     ----------
     axes : WorldAxesLike
@@ -216,10 +262,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._extra_axes = {i for i in range(self._ndim) if i not in self._spatial_axes}
         self._scenes = self._build_scenes(world)
         self._dims_controller: OrthoDimsController | None = None
-        # Per-visual controls configs, keyed by a representative (first-panel)
-        # visual id; _visual_groups maps that id to every panel's sibling
-        # visual id so one widget can drive them all.  Not channel-specific:
-        # any fanned-out add_* records its group here (design section 8.3).
+        # Per-visual controls configs, keyed by a representative visual id;
+        # _visual_groups maps that id to the visuals one widget drives: the
+        # three 2D panels, or the 3D panel (_CONTROLS_GROUPS).  Not
+        # channel-specific: any fanned-out add_* records its groups here.
         self._init_controls_registry()
         # Callbacks fired once all panel scenes' startup data is on the GPU;
         # consumed by the launcher (see convenience._launch._init_view).
@@ -257,6 +303,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ),
                 render_modes=render_modes,
                 lighting="none",
+                background=viewer_background(),
             )
             scenes[key] = self._controller.add_scene_model(scene)
         return scenes
@@ -802,11 +849,13 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Add an in-memory image to every panel from a single data store.
 
         Each panel gets its own visual model with its own copy of the
-        appearances.  Keep them equal through :meth:`set_image_composite`,
+        appearances.  :meth:`set_image_composite`,
         :meth:`update_image_single_field` and
-        :meth:`update_image_channel_field` (or the image control, which uses
-        them).  A composited axis cannot be one of the spatial axes, since some
-        panel always displays it (unified image design 3.4).
+        :meth:`update_image_channel_field` set all four panels at once.  The
+        image controls instead drive the 2D panels and the 3D panel
+        separately, so the two can differ.  A composited axis cannot be one
+        of the spatial axes, since some panel always displays it (unified
+        image design 3.4).
 
         Parameters
         ----------
@@ -817,7 +866,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         name : str
             Base label; each panel's visual is named ``f"{name}_{key}"``.
         controls : InMemoryImageControlsConfig or None
-            Appearance controls configuration shared across all four panels.
+            Appearance controls configuration, used for two controls: one
+            driving the three 2D panels, one the 3D panel.
         single : single appearance or None
             Single mode's appearance.  ``None`` uses the defaults.
         channel_axis : int or None
@@ -855,7 +905,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
             )
         )
-        self._record_controls(visuals, controls)
+        self._record_controls(visuals, controls, name)
         return visuals
 
     def add_labels(
@@ -883,9 +933,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
         controls : LabelsControlsConfig or None
-            Appearance controls configuration shared across all four panels:
-            one dock widget drives every panel's visual in lock-step.  When
-            ``None`` (default), no appearance controls are created.
+            Appearance controls configuration, used for two controls: one
+            drives the three 2D panels' visuals in lock-step, the other the
+            3D panel's.  When ``None`` (default), no appearance controls are
+            created.
 
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
@@ -917,7 +968,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 outline_selected_labels=outline_selected_labels,
             )
         )
-        self._record_controls(visuals, controls)
+        self._record_controls(visuals, controls, name)
         return visuals
 
     def add_mesh(
@@ -944,9 +995,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
         controls : MeshControlsConfig or None
-            Appearance controls configuration shared across all four panels:
-            one dock widget drives every panel's visual in lock-step.  When
-            ``None`` (default), no appearance controls are created.
+            Appearance controls configuration, used for two controls: one
+            drives the three 2D panels' visuals in lock-step, the other the
+            3D panel's.  When ``None`` (default), no appearance controls are
+            created.
 
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
@@ -973,7 +1025,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
             )
         )
-        self._record_controls(visuals, controls)
+        self._record_controls(visuals, controls, name)
         return visuals
 
     def add_points(
@@ -1000,9 +1052,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
         controls : PointsControlsConfig or None
-            Appearance controls configuration shared across all four panels:
-            one dock widget drives every panel's visual in lock-step.  When
-            ``None`` (default), no appearance controls are created.
+            Appearance controls configuration, used for two controls: one
+            drives the three 2D panels' visuals in lock-step, the other the
+            3D panel's.  When ``None`` (default), no appearance controls are
+            created.
 
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
@@ -1029,7 +1082,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
             )
         )
-        self._record_controls(visuals, controls)
+        self._record_controls(visuals, controls, name)
         return visuals
 
     def add_graph(
@@ -1060,9 +1113,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         trail : dict[int, TrailConfig] or None
             Axis index -> window configuration, applied to every panel.
         controls : GraphControlsConfig or None
-            Appearance controls configuration shared across all four panels:
-            one dock widget drives every panel's visual in lock-step.  When
-            ``None`` (default), no appearance controls are created.
+            Appearance controls configuration, used for two controls: one
+            drives the three 2D panels' visuals in lock-step, the other the
+            3D panel's.  When ``None`` (default), no appearance controls are
+            created.
 
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
@@ -1090,7 +1144,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
             )
         )
-        self._record_controls(visuals, controls)
+        self._record_controls(visuals, controls, name)
         return visuals
 
     def add_lines(
@@ -1117,9 +1171,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
         controls : LinesControlsConfig or None
-            Appearance controls configuration shared across all four panels:
-            one dock widget drives every panel's visual in lock-step.  When
-            ``None`` (default), no appearance controls are created.
+            Appearance controls configuration, used for two controls: one
+            drives the three 2D panels' visuals in lock-step, the other the
+            3D panel's.  When ``None`` (default), no appearance controls are
+            created.
 
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
@@ -1146,7 +1201,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
             )
         )
-        self._record_controls(visuals, controls)
+        self._record_controls(visuals, controls, name)
         return visuals
 
     def add_image_multiscale(
@@ -1183,7 +1238,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
         controls : MultiscaleImageControlsConfig or None
-            Appearance controls configuration shared across all four panels.
+            Appearance controls configuration, used for two controls: one
+            driving the three 2D panels, one the 3D panel.
         single : single appearance or None
             Single mode's appearance.  ``None`` uses the defaults.
         channel_axis : int or None
@@ -1222,7 +1278,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
             )
         )
-        self._record_controls(visuals, controls)
+        self._record_controls(visuals, controls, name)
         return visuals
 
     def add_labels_multiscale(
@@ -1252,9 +1308,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
         controls : MultiscaleLabelsControlsConfig or None
-            Appearance controls configuration shared across all four panels:
-            one dock widget drives every panel's visual in lock-step.  When
-            ``None`` (default), no appearance controls are created.
+            Appearance controls configuration, used for two controls: one
+            drives the three 2D panels' visuals in lock-step, the other the
+            3D panel's.  When ``None`` (default), no appearance controls are
+            created.
 
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
@@ -1287,11 +1344,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 outline_selected_labels=outline_selected_labels,
             )
         )
-        self._record_controls(visuals, controls)
+        self._record_controls(visuals, controls, name)
         return visuals
 
     # ------------------------------------------------------------------
     # Image group methods (mode and settings mirrored across the panels)
+    #
+    # These set all four panels at once and are for scripts.  The image
+    # controls do not use them: each drives its own group (the 2D panels or
+    # the 3D panel) through the bus.
     # ------------------------------------------------------------------
 
     def image_group(self, visual: object) -> list[UUID]:
@@ -1326,6 +1387,160 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         if visual_id not in group:
             raise KeyError(f"{visual_id} is not a panel image of this OrthoViewer.")
         return group
+
+    # ------------------------------------------------------------------
+    # Progressive loading (multiscale visuals), over a panel group
+    # ------------------------------------------------------------------
+
+    def loading_progress(self, visual: object) -> LoadingProgress | None:
+        """How far a multiscale visual's four panels have loaded, summed.
+
+        Mirrors :meth:`CellierController.loading_progress` over the panel
+        group: counts are added and the completion flags hold only when they
+        hold for every panel.
+
+        Parameters
+        ----------
+        visual : UUID, visual model, or dict
+            Any panel's multiscale visual; see :meth:`image_group`.
+
+        Returns
+        -------
+        LoadingProgress or None
+            ``None`` while no panel has been planned.
+        """
+        from cellier.gui._loading import sum_progress
+
+        progress = [
+            self._controller.loading_progress(vid) for vid in self.image_group(visual)
+        ]
+        return sum_progress(p for p in progress if p is not None)
+
+    def on_reslice_progress(
+        self,
+        visual: object,
+        callback: Callable[[ResliceProgressEvent], None],
+        *,
+        owner_id: UUID | None = None,
+        weak: bool = False,
+    ) -> list[SubscriptionHandle]:
+        """Register a callback fired as a multiscale visual's panels load.
+
+        Mirrors :meth:`CellierController.on_reslice_progress` over the panel
+        group.  The callback gets each panel's event with ``progress``
+        replaced by the group sum (:meth:`loading_progress`); ``visual_id``
+        and ``scene_id`` name the panel whose change triggered it.
+
+        Parameters
+        ----------
+        visual : UUID, visual model, or dict
+            Any panel's multiscale visual; see :meth:`image_group`.
+        callback : Callable
+            Called with a ``ResliceProgressEvent``.
+        owner_id : UUID or None
+            Owner for ``controller.unsubscribe_owner``.  Defaults to each
+            panel visual's id, so removing a panel's visual removes its
+            subscription.
+        weak : bool
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        list[SubscriptionHandle]
+            One per panel.
+        """
+        group = self.image_group(visual)
+        callback_ref = _callback_ref(callback, weak)
+
+        def _on_progress(event: ResliceProgressEvent) -> None:
+            target = callback_ref()
+            if target is None:
+                return
+            total = self.loading_progress(group[0])
+            target(event._replace(progress=total) if total is not None else event)
+
+        return [
+            self._controller.on_reslice_progress(
+                vid, _on_progress, owner_id=vid if owner_id is None else owner_id
+            )
+            for vid in group
+        ]
+
+    def on_backstop_complete(
+        self,
+        visual: object,
+        callback: Callable[[BackstopCompleteEvent], None],
+        *,
+        owner_id: UUID | None = None,
+        weak: bool = False,
+    ) -> list[SubscriptionHandle]:
+        """Register a callback fired when every panel's backstop is in.
+
+        Mirrors :meth:`CellierController.on_backstop_complete` over the
+        panel group: fires on the panel event that completes the group, with
+        that panel's event.
+
+        Parameters
+        ----------
+        visual : UUID, visual model, or dict
+            Any panel's multiscale visual; see :meth:`image_group`.
+        callback : Callable
+            Called with a ``BackstopCompleteEvent``.
+        owner_id : UUID or None
+            Owner for ``controller.unsubscribe_owner``.  Defaults to each
+            panel visual's id.
+        weak : bool
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        list[SubscriptionHandle]
+            One per panel.
+        """
+        group = self.image_group(visual)
+        callback_ref = _callback_ref(callback, weak)
+
+        def _on_backstop(event: BackstopCompleteEvent) -> None:
+            target = callback_ref()
+            if target is None:
+                return
+            progress = [self._controller.loading_progress(vid) for vid in group]
+            if all(p is not None and p.backstop_complete for p in progress):
+                target(event)
+
+        return [
+            self._controller.on_backstop_complete(
+                vid, _on_backstop, owner_id=vid if owner_id is None else owner_id
+            )
+            for vid in group
+        ]
+
+    def set_loading(self, visual: object, **fields: Any) -> ProgressiveLoadingConfig:
+        """Change how every panel of a multiscale visual loads.
+
+        Mirrors :meth:`CellierController.set_loading_config`, applied to each
+        panel.  The merged config is validated before any panel changes, so
+        an invalid combination raises and changes nothing.
+
+        Parameters
+        ----------
+        visual : UUID, visual model, or dict
+            Any panel's multiscale visual; see :meth:`image_group`.
+        **fields :
+            ``ProgressiveLoadingConfig`` fields, e.g. ``dims_drag="backstop"``.
+
+        Returns
+        -------
+        ProgressiveLoadingConfig
+            The first panel's config after the call.
+        """
+        group = self.image_group(visual)
+        # The first write validates; the rest cannot fail differently, since
+        # the panels are kept equal.
+        result = self._controller.set_loading_config(group[0], **fields)
+        for vid in group[1:]:
+            self._controller.set_loading_config(vid, **fields)
+        return result
 
     def set_image_composite(self, visual: object, composite: bool) -> None:
         """Switch every panel's image between single and composite mode.
@@ -1379,15 +1594,22 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         self,
         visuals: dict[str, object],
         controls: BaseControlsConfig | None,
+        name: str,
     ) -> None:
-        """Record a controls config for a fanned-out add.
+        """Record a controls config for a fanned-out add, as two groups.
 
-        Stores the config keyed by a representative (first-panel) visual id,
-        and maps that id to every panel's sibling visual id so one widget can
-        drive all four panels (design section 7.4).
+        One group holds the three 2D panels' visuals and one the 3D panel's
+        (:data:`_CONTROLS_GROUPS`), both with the same config, so one widget
+        drives the 2D views together and another the 3D view.  Each is
+        labelled for the dock's selector, e.g. ``"image (2D views)"``.
 
         The appearance docks resolve this record through
         ``appearance_targets``, which is what makes ``AppearanceControls()``
         work on an ``OrthoViewer`` at all (section 4.1).
         """
-        self._store_controls([v.id for v in visuals.values()], controls)
+        for keys, label in _CONTROLS_GROUPS.values():
+            self._store_controls(
+                [visuals[key].id for key in keys],
+                controls,
+                label=label.format(name=name),
+            )

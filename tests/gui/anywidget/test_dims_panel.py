@@ -51,7 +51,12 @@ def test_construction_without_toggle():
     assert panel.label == ""
     # dict/tuple keys and values are coerced for the JS-sync boundary.
     assert set(panel.slice_indices) == {"0", "1", "2"}
-    assert panel.axis_values["0"] == {"kind": "continuous", "min": 0.0, "max": 9.0}
+    assert panel.axis_values["0"] == {
+        "kind": "continuous",
+        "min": 0.0,
+        "max": 9.0,
+        "decimals": 2,
+    }
     assert isinstance(panel.axis_values["0"]["min"], float)
 
 
@@ -175,3 +180,19 @@ def test_inbound_dims_changed_without_toggle_does_not_relabel():
     panel._on_dims_changed(event)
 
     assert panel.label == ""
+
+
+def test_axis_value_decimals_reach_the_front_end():
+    panel = AnywidgetDimsPanel(
+        scene_id=uuid4(),
+        axis_values={
+            0: ContinuousAxisValues(min=0, max=9680, decimals=0),
+            1: ContinuousAxisValues(min=0, max=99),
+            2: ContinuousAxisValues(min=0, max=99),
+        },
+        axis_labels={0: "z", 1: "y", 2: "x"},
+        slice_indices={0: 0, 1: 0, 2: 0},
+        displayed_axes=(1, 2),
+    )
+    assert panel.axis_values["0"]["decimals"] == 0
+    assert panel.axis_values["1"]["decimals"] == 2

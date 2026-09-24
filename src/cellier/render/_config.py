@@ -28,6 +28,51 @@ class SlicingConfig(BaseModel):
     render_every: int = Field(default=1, gt=0)
 
 
+class SchedulerConfig(BaseModel):
+    """Configuration for the chunk scheduler that loads multiscale visuals.
+
+    Construction-time only, like :class:`SlicingConfig`: changing it after
+    ``RenderManager`` is created has no effect.  Every value is fixed; the
+    scheduler never tunes itself.
+
+    Parameters
+    ----------
+    max_in_flight : int
+        Reads outstanding at once, shared by every chunked visual and
+        channel.  Reads are never aborted, so this is the only bound on work
+        a superseded view keeps doing.
+    backstop_reserved : int
+        Extra reads only backstop chunks may use, so a backstop never waits
+        behind target reads.
+    commit_fallback_s : float
+        Commits normally run just before a frame is drawn.  If an arrival has
+        waited this long with no frame, a timer commits it (a canvas that is
+        not drawing, or a slow client).
+    dims_settle_s : float
+        Stillness after the last dims change before visuals in
+        ``dims_drag="backstop"`` mode load their target.
+    store_change_max_hz : float
+        Most reslices per second a changing store triggers.  A store that
+        announces changes faster (a live acquisition, a stream of edits)
+        has its GPU data invalidated at once, and its readers resliced at
+        this rate: the first change at once, a burst as one trailing
+        reslice.
+    retry_max_attempts : int
+        Reads of a chunk before it is given up (until a later pass asks for
+        it again).
+    retry_backoff_s : float
+        Delay before the first retry; it doubles with each attempt.
+    """
+
+    max_in_flight: int = Field(default=32, gt=0)
+    backstop_reserved: int = Field(default=8, ge=0)
+    commit_fallback_s: float = Field(default=0.05, gt=0.0)
+    dims_settle_s: float = Field(default=0.15, gt=0.0)
+    store_change_max_hz: float = Field(default=30.0, gt=0.0)
+    retry_max_attempts: int = Field(default=3, gt=0)
+    retry_backoff_s: float = Field(default=0.25, ge=0.0)
+
+
 class TemporalAccumulationConfig(BaseModel):
     """Configuration for the temporal accumulation post-processing pass.
 
@@ -275,7 +320,9 @@ class RenderManagerConfig(BaseModel):
     Parameters
     ----------
     slicing : SlicingConfig
-        Async chunk-slicing pipeline settings.
+        Async chunk-slicing pipeline settings (non-chunked visuals).
+    scheduler : SchedulerConfig
+        Chunk scheduler settings (multiscale visuals).
     temporal : TemporalAccumulationConfig
         Temporal accumulation pass settings.
     camera : CameraConfig
@@ -301,6 +348,7 @@ class RenderManagerConfig(BaseModel):
     """
 
     slicing: SlicingConfig = Field(default_factory=SlicingConfig)
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     temporal: TemporalAccumulationConfig = Field(
         default_factory=TemporalAccumulationConfig
     )

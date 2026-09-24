@@ -21,12 +21,43 @@ decompressing a chunk once per batch and once per timepoint.
 Each store owns its pool, sized by its ``cache_pool_bytes`` field.  The
 limit is a cap, not an allocation: an unused pool costs nothing and fills
 lazily under LRU.
+
+Rechecks
+--------
+By default tensorstore revalidates a cached chunk against the kvstore on
+every read.  Locally that is a stat; remotely it is a round trip per read
+(a ``304``), which makes a remote cache hit cost as much as a miss.  The
+stores therefore open their handles with ``recheck_cached_data=False`` and
+``recheck_cached_metadata=False``: a promise that nothing else writes the
+data while it is open.
+
+Two things turn rechecks back on:
+
+- a registered paint writer, for as long as it is registered;
+- the store's ``recheck_cached_data`` field, for data another process
+  writes.
+
+Toggling rechecks reopens the handles on the store's *existing*
+``ts.Context``, so the warm pool survives: the working set is revalidated
+rather than refetched.  Only a ``cache_pool_bytes`` change builds a new
+context.  Cellier's own paint writes go through the reader's context, so
+they are visible either way; the rechecks are for writers outside it.
+
+A store that announces a change (``notify_changed``, or reassigning a data
+field) while rechecks are off gets a **one-shot** revalidation instead: the
+handles are reopened on the same context with ``recheck_cached_data="open"``
+(and the same for metadata), so every chunk cached before the change is
+revalidated once when next read -- a ``304`` if it is unchanged, a refetch
+if it changed -- and trusted again afterwards
+(``plans/progressive_loading_design_v3.md`` 5.14).  This is what makes a
+live store that another process appends to show its new data without
+turning rechecks on for good.
 """
 
 from __future__ import annotations
 
 import weakref
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import tensorstore as ts
 from pydantic import BaseModel, PrivateAttr, field_validator
@@ -61,6 +92,33 @@ def build_context(cache_pool_bytes: int) -> ts.Context:
         which is cheap, as tensorstore caches the array metadata too.
     """
     return ts.Context({"cache_pool": {"total_bytes_limit": int(cache_pool_bytes)}})
+
+
+Recheck = bool | Literal["open"]
+"""A handle's recheck policy: always, never, or once for data cached before
+the handle was opened (``"open"``)."""
+
+
+def recheck_spec_options(recheck: Recheck) -> dict[str, Any]:
+    """Return the ``ts.open`` spec entries for the given recheck policy.
+
+    Parameters
+    ----------
+    recheck : bool or "open"
+        ``True`` for tensorstore's defaults: revalidate cached data on
+        every read and metadata at open.  ``False`` to trust the cache
+        indefinitely.  ``"open"`` to revalidate what was cached before the
+        handle was opened, once, and trust it afterwards.
+
+    Returns
+    -------
+    dict[str, Any]
+        Entries to merge into a driver spec.  Empty when *recheck* is
+        ``True``, so the handle behaves exactly as tensorstore's default.
+    """
+    if recheck is True:
+        return {}
+    return {"recheck_cached_data": recheck, "recheck_cached_metadata": recheck}
 
 
 def cache_metrics() -> tuple[int, int]:
@@ -105,8 +163,11 @@ class TensorStoreCacheMixin(BaseModel):
 
         store.cache_pool_bytes = 2 * 1024**3
 
-    The subclass supplies :meth:`_reopen_ts_stores`, which reopens its
-    handles against the store's current budget.
+    It also manages the recheck policy described in the module docstring.
+
+    The subclass supplies :meth:`_open_ts_handles`, which opens one handle
+    per level against a given context and recheck policy, and calls
+    :meth:`_reopen_ts_stores` from its ``model_post_init``.
 
     Parameters
     ----------
@@ -114,13 +175,32 @@ class TensorStoreCacheMixin(BaseModel):
         Chunk cache cap for this store, in bytes.  Shared by all of its
         resolution levels.  ``0`` disables caching.  Defaults to
         :data:`DEFAULT_CACHE_POOL_BYTES`.
+    recheck_cached_data : bool
+        Revalidate cached chunks on every read, permanently.  Set it when
+        another process writes this data while it is open and cannot say
+        when; otherwise a cached chunk is served as it was first read.  A
+        writer that can say when calls ``notify_changed`` instead, which
+        revalidates once (:meth:`revalidate_cache`).  Defaults to
+        ``False``.  Assigning it reopens the handles on the same context,
+        keeping the warm pool.
     """
 
     cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES
+    recheck_cached_data: bool = False
 
     #: Set by a paint controller while it holds this store open for writing.
     #: A weakref, so a discarded controller cannot keep the store locked.
     _paint_writer_ref: Callable[[], Any] | None = PrivateAttr(default=None)
+
+    #: One open handle per level, finest first.
+    _ts_stores: list[ts.TensorStore] = PrivateAttr(default_factory=list)
+
+    #: The context the current handles were opened on.  Kept so a recheck
+    #: toggle can reopen on it and keep the warm pool.
+    _ts_context: ts.Context | None = PrivateAttr(default=None)
+
+    #: Whether the current handles revalidate cached data.
+    _ts_rechecking: bool = PrivateAttr(default=False)
 
     @field_validator("cache_pool_bytes")
     @classmethod
@@ -152,6 +232,14 @@ class TensorStoreCacheMixin(BaseModel):
         Held weakly: a controller that is dropped without tearing down does
         not leave the store permanently locked.
 
+        The first registration reopens the handles with rechecks on, on the
+        same context, so a write from outside this store is not masked by
+        the cache while painting.  Registering again while registered (a
+        fresh buffer after an autosave) only swaps the reference.  A
+        transaction already open on the old handle is unaffected: it shares
+        the context, so its staged and committed writes are visible through
+        the new handles.
+
         Parameters
         ----------
         writer : Any
@@ -160,10 +248,16 @@ class TensorStoreCacheMixin(BaseModel):
             ``TensorStoreWriteBuffer``.
         """
         self._paint_writer_ref = weakref.ref(writer)
+        self._sync_rechecks()
 
     def unregister_paint_writer(self) -> None:
-        """Forget the paint write buffer, undoing :meth:`register_paint_writer`."""
+        """Forget the paint write buffer, undoing :meth:`register_paint_writer`.
+
+        Reopens the handles with rechecks off again, unless
+        ``recheck_cached_data`` keeps them on.
+        """
         self._paint_writer_ref = None
+        self._sync_rechecks()
 
     def _has_open_paint_transaction(self) -> bool:
         """Whether a paint transaction is currently open on this store."""
@@ -176,19 +270,94 @@ class TensorStoreCacheMixin(BaseModel):
 
     # ── Reopening ───────────────────────────────────────────────────────
 
-    def _reopen_ts_stores(self) -> None:
-        """Reopen this store's handles against ``cache_pool_bytes``.
+    def _open_ts_handles(
+        self, context: ts.Context, recheck: Recheck
+    ) -> list[ts.TensorStore]:
+        """Open one handle per level on *context*.
 
         Implemented by the subclass, which knows its own open arguments.
+
+        Parameters
+        ----------
+        context : ts.Context
+            The context every level is opened on.
+        recheck : bool or "open"
+            Whether the handles revalidate cached data
+            (:func:`recheck_spec_options`).
+
+        Returns
+        -------
+        list[ts.TensorStore]
+            One handle per level, finest first.
         """
         raise NotImplementedError
 
-    def __setattr__(self, key: str, value: Any) -> None:
-        """Set a field, rebuilding the cache pool when the budget changes.
+    def _wants_rechecks(self) -> bool:
+        """Whether the handles should revalidate cached data now.
 
-        Only ``cache_pool_bytes`` is treated specially; every other field is
-        set as usual.  Assigning the value it already has is a no-op, so a
-        redundant write does not throw away a warm cache.
+        A registered writer whose buffer has been garbage collected still
+        counts: rechecks stay on until :meth:`unregister_paint_writer`,
+        which is slower but never stale.
+        """
+        return self.recheck_cached_data or self._paint_writer_ref is not None
+
+    def _reopen_ts_stores(self) -> None:
+        """Open the handles on a new context sized by ``cache_pool_bytes``.
+
+        Used at construction and when the budget changes.  The new context
+        starts with an empty pool.
+        """
+        context = build_context(self.cache_pool_bytes)
+        recheck = self._wants_rechecks()
+        self._ts_stores = self._open_ts_handles(context, recheck)
+        self._ts_context = context
+        self._ts_rechecking = recheck
+
+    def _sync_rechecks(self) -> None:
+        """Reopen on the same context if the recheck policy has changed.
+
+        A no-op when the handles already follow the policy, so repeated
+        registrations do not reopen.
+        """
+        recheck = self._wants_rechecks()
+        if recheck == self._ts_rechecking:
+            return
+        if self._ts_context is None:
+            # Not opened yet (still constructing): the first open reads the
+            # policy itself.
+            return
+        self._ts_stores = self._open_ts_handles(self._ts_context, recheck)
+        self._ts_rechecking = recheck
+
+    def revalidate_cache(self) -> None:
+        """Revalidate every cached chunk once, on its next read.
+
+        Reopens the handles on the same context with
+        ``recheck_cached_data="open"``: chunks cached before now are checked
+        against the kvstore when next read (unchanged ones cost a ``304``,
+        changed ones are refetched), then trusted again.  Called for every
+        announced change (:meth:`_invalidate_caches`), so a store another
+        process writes to shows the new data after ``notify_changed``.
+
+        A no-op while rechecks are on, since every read revalidates then,
+        and before the handles are opened.
+        """
+        if self._ts_context is None or self._ts_rechecking:
+            return
+        self._ts_stores = self._open_ts_handles(self._ts_context, "open")
+
+    def _invalidate_caches(self, kind: Any) -> None:
+        """Drop derived state, and revalidate the chunk cache once."""
+        super()._invalidate_caches(kind)
+        self.revalidate_cache()
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        """Set a field, reopening the handles when the cache settings change.
+
+        ``cache_pool_bytes`` rebuilds the pool on a new context.
+        ``recheck_cached_data`` reopens on the same context.  Every other
+        field is set as usual.  Assigning the value a field already has is
+        a no-op, so a redundant write does not throw away a warm cache.
 
         Raises
         ------
@@ -200,6 +369,12 @@ class TensorStoreCacheMixin(BaseModel):
             discarded pool, so the change is refused until the stroke is
             committed or aborted.
         """
+        if key == "recheck_cached_data":
+            super().__setattr__(key, value)
+            # Same context, so the paint buffer's handle stays on the live
+            # pool and an open transaction is not a hazard.
+            self._sync_rechecks()
+            return
         if key != "cache_pool_bytes":
             super().__setattr__(key, value)
             return

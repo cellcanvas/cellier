@@ -1,4 +1,9 @@
-"""Tests for BlockCache3D and LutIndirectionManager."""
+"""Tests for BlockCache3D: the atlas texture and its slot geometry.
+
+Which brick occupies which slot is the chunk scheduler's business
+(``tests/render/scheduling``); the atlas writes bricks and maps slots to
+texture positions.
+"""
 
 import numpy as np
 import pytest
@@ -6,6 +11,7 @@ import pytest
 from cellier.render.block_cache import (
     BlockCache3D,
     BlockKey3D,
+    TileSlot,
     compute_block_cache_parameters_3d,
 )
 
@@ -15,78 +21,21 @@ CACHE_INFO = compute_block_cache_parameters_3d(
 )
 
 
-def _stage_and_commit(cache: BlockCache3D, bricks: dict, frame_number: int):
-    """Stage bricks and immediately commit all misses (synchronous helper)."""
-    fill_plan = cache.stage(bricks, frame_number=frame_number)
-    for key, slot in fill_plan:
-        cache.tile_manager.commit(key, slot)
-    return fill_plan
+def _slot(cache: BlockCache3D, index: int) -> TileSlot:
+    return TileSlot(index=index, grid_pos=cache.tile_manager._slot_grid_pos(index))
 
 
-def test_first_request_is_a_miss() -> None:
+def test_slot_grid_positions_cover_the_atlas_once() -> None:
     cache = BlockCache3D(CACHE_INFO)
-    key = BlockKey3D(level=1, g0=0, g1=0, g2=0)
-    fill_plan = cache.stage({key: 1}, frame_number=1)
-    assert len(fill_plan) == 1
-    assert fill_plan[0][0] == key
-
-
-def test_repeated_request_is_a_hit() -> None:
-    cache = BlockCache3D(CACHE_INFO)
-    key = BlockKey3D(level=1, g0=0, g1=0, g2=0)
-    _stage_and_commit(cache, {key: 1}, frame_number=1)
-    fill_plan = cache.stage({key: 1}, frame_number=2)
-    assert fill_plan == []
-
-
-def test_hit_does_not_change_slot() -> None:
-    cache = BlockCache3D(CACHE_INFO)
-    key = BlockKey3D(level=1, g0=0, g1=0, g2=0)
-    first_plan = _stage_and_commit(cache, {key: 1}, frame_number=1)
-    first_slot = first_plan[0][1]
-
-    cache.stage({key: 1}, frame_number=2)
-    same_slot = cache.tile_manager.tilemap[key]
-
-    assert same_slot.index == first_slot.index
-    assert same_slot.grid_pos == first_slot.grid_pos
-
-
-def test_lru_evicts_oldest_brick() -> None:
-    """Fill cache with bricks A-G at frames 1-7, refresh B at frame 8,
-    then request H. A should be evicted (oldest timestamp).
-
-    With the reserve tier, each single-brick stage() call demotes the
-    previous brick to _reserve (it is not in the new plan).  After the
-    loop key_a sits in _reserve with the oldest timestamp (frame 1) so it
-    is the first victim when H needs a slot.
-    """
-    cache = BlockCache3D(CACHE_INFO)
-    keys = [BlockKey3D(level=1, g0=i, g1=0, g2=0) for i in range(7)]
-    for frame, key in enumerate(keys, start=1):
-        _stage_and_commit(cache, {key: 1}, frame_number=frame)
-
-    # After the loop key_a has been demoted to reserve (not hot).
-    key_a = keys[0]
-    slot_a_index = cache.tile_manager._reserve[key_a].index
-
-    key_b = keys[1]
-    cache.stage({key_b: 1}, frame_number=8)  # reserve hit — promotes B
-
-    key_h = BlockKey3D(level=1, g0=99, g1=0, g2=0)
-    fill_plan = cache.stage({key_h: 1}, frame_number=9)
-
-    assert len(fill_plan) == 1
-    assert fill_plan[0][1].index == slot_a_index
-    assert key_a not in cache.tile_manager.tilemap
-    assert key_a not in cache.tile_manager._reserve
+    positions = {cache.tile_manager._slot_grid_pos(i) for i in range(8)}
+    assert len(positions) == 8
+    assert cache.tile_manager._slot_grid_pos(0) == (0, 0, 0)
+    assert cache.tile_manager.n_data_slots == 7
 
 
 def test_write_brick_fills_correct_slice() -> None:
     cache = BlockCache3D(CACHE_INFO)
-    key = BlockKey3D(level=1, g0=0, g1=0, g2=0)
-    fill_plan = cache.stage({key: 1}, frame_number=1)
-    slot = fill_plan[0][1]
+    slot = _slot(cache, 5)
 
     pbs = cache.info.padded_block_size
     data = np.full((pbs, pbs, pbs), fill_value=7.0, dtype=np.float32)
@@ -99,11 +48,18 @@ def test_write_brick_fills_correct_slice() -> None:
 
 def test_write_brick_does_not_touch_other_slots() -> None:
     cache = BlockCache3D(CACHE_INFO)
-    key = BlockKey3D(level=1, g0=0, g1=0, g2=0)
-    fill_plan = cache.stage({key: 1}, frame_number=1)
-    slot = fill_plan[0][1]
-
     pbs = cache.info.padded_block_size
-    cache.write_brick(slot, np.ones((pbs, pbs, pbs), dtype=np.float32))
+    cache.write_brick(_slot(cache, 1), np.ones((pbs, pbs, pbs), dtype=np.float32))
 
     assert cache.cache_data.sum() == pytest.approx(float(pbs**3))
+
+
+def test_n_resident_and_clear_follow_the_drawn_view() -> None:
+    cache = BlockCache3D(CACHE_INFO)
+    assert cache.n_resident == 0
+    cache.tile_manager.tilemap = {
+        BlockKey3D(level=1, g0=0, g1=0, g2=0): _slot(cache, 1)
+    }
+    assert cache.n_resident == 1
+    cache.clear()
+    assert cache.n_resident == 0

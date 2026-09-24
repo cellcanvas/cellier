@@ -67,7 +67,12 @@ def test_multiscale_panel_control_names_in_order(qtbot, multiscale_image_store):
 
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
-    assert control_labels(container) == ["Image", "LOD bias", "Bounding box"]
+    assert control_labels(container) == [
+        "Image",
+        "LOD bias",
+        "Bounding box",
+        "Data fetch status",
+    ]
     assert_panel_renders(container)
 
 

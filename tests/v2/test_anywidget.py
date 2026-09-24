@@ -535,9 +535,18 @@ class _FakeHost(_AnywidgetDockPanel):
     def grid(self, rows):
         return _Node("grid", [list(r) for r in rows])
 
+    def _scroll_dock(self, item, width):
+        return _Node("scroll", (item, width))
+
     def present(self, root):
         self.presented = root
         return None  # imperative: rendered as a side effect
+
+
+def _unscroll(node):
+    """The dock inside the scroll wrapper ``assemble`` gives a side dock."""
+    assert node.kind == "scroll"
+    return node.payload[0]
 
 
 class _FakeReturnValueHost(_FakeHost):
@@ -612,6 +621,7 @@ def test_display_left_dock_stacks_controls_beside_center(monkeypatch):
     assert direction == "h"
     assert len(leaves) == 2
     panel_node, center_node = leaves
+    panel_node = _unscroll(panel_node)
     # The dock is a live slot, leafed once, so it can follow the viewer; the
     # controls are the slot's children rather than a host stack.  Two
     # appearance fields (color_map, clim) plus the always-on AABB widget.
@@ -911,7 +921,7 @@ def test_renderer_builds_appearance_widgets_for_configured_visual(monkeypatch):
     # control and the AABB (always wired alongside when the visual has one).
     presented = fake.presented
     _direction, leaves, _align, _min_width, _gap = presented.payload
-    panel_node = leaves[0]
+    panel_node = _unscroll(leaves[0])
     assert panel_node.kind == "leaf"
     slot = panel_node.payload
     assert slot.gap == APPEARANCE_DOCK_GAP_PX  # shared with the Qt dock column

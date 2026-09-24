@@ -50,6 +50,7 @@ from cellier.visuals import (
     InMemoryImageSingleAppearance,
     MultiscaleImageSingleAppearance,
 )
+from tests._gpu_budget import SMALL_BUDGETS
 
 PICK_ID_MAX = 2**20 - 1
 SIZE = 96
@@ -1210,7 +1211,7 @@ async def test_multiscale_volume_writes_the_normal_target(
         data=multiscale_image_store,
         scene_id=scene.id,
         appearance=MultiscaleImageAppearance(force_level=1),
-        render_config=MultiscaleImageRenderConfig(block_size=8),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         single=MultiscaleImageSingleAppearance(
             color_map="viridis", clim=(0.0, 1.0), render_mode="iso", iso_threshold=0.5
         ),
@@ -1248,7 +1249,7 @@ async def test_multiscale_labels_volume_writes_the_normal_target(
         appearance=MultiscaleLabelsAppearance(
             colormap_mode="random", render_mode="iso_categorical"
         ),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)

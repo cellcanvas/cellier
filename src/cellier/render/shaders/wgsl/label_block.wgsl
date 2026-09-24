@@ -32,6 +32,7 @@ fn get_tile_scale(level: i32) -> vec2<f32> {
 }
 
 {$ include 'cellier.tile_rule.wgsl' $}
+{$ include 'cellier.level_mapping.wgsl' $}
 
 // ── Label LUT indirection sample (returns integer label ID) ───────────────
 fn sample_im_lut(texcoord: vec2<f32>) -> i32 {
@@ -55,17 +56,20 @@ fn sample_im_lut(texcoord: vec2<f32>) -> i32 {
 
     let tile_origin = vec2<f32>(lutv.x, lutv.y) * padded_size;
 
-    // Tile corner from the LUT cell (same rule as the LUT writer); offset inside
-    // the tile from the float scale, clamped to the padded tile.
-    let sj = get_tile_scale(level);
-    let corner_k    = tile_corner_from_cell(tile_idx, level);
-    let within_tile = clamp(pos * sj - corner_k,
-                            vec2<f32>(-overlap),
-                            block_size - vec2<f32>(1.0) + vec2<f32>(overlap));
+    // Level coordinate (cellier.level_mapping.wgsl): p = pos - 0.5 is the
+    // centred data position and u = (p - t) / s the level-k one; nearest
+    // sampling reads voxel floor(u + 0.5).  Tile corner from the LUT cell
+    // (same rule as the LUT writer); offset inside the tile from the float
+    // scale, clamped to the padded tile.
+    let sj = get_tile_scale(level);  // 1 / s
+    let u  = (pos - vec2<f32>(0.5) - get_level_offset(level).xy) * sj;
+    let corner_k = tile_corner_from_cell(tile_idx, level);
+    let texel    = clamp(floor(u - corner_k + vec2<f32>(0.5)),
+                         vec2<f32>(-overlap),
+                         block_size - vec2<f32>(1.0) + vec2<f32>(overlap));
 
-    // Nearest-neighbor: round to texel, no +0.5 offset.
-    let cache_pos_f = tile_origin + within_tile + vec2<f32>(overlap);
-    let cache_pos   = clamp(vec2<i32>(round(cache_pos_f)), vec2<i32>(0), cache_size - vec2<i32>(1));
+    let cache_pos_f = tile_origin + texel + vec2<f32>(overlap);
+    let cache_pos   = clamp(vec2<i32>(cache_pos_f), vec2<i32>(0), cache_size - vec2<i32>(1));
     return textureLoad(t_cache, cache_pos, 0).r;
 }
 

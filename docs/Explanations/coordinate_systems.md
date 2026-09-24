@@ -87,6 +87,49 @@ flowchart LR
 
 In order to align the images with the other visuals (e.g., points or meshes), the center of the origin voxel is aligned with the origin `(0, 0)`, in world space. For example, in 2D, when the world-to-data transform is the identity, the center of voxel (0, 0) is aligned with point (0, 0) in world space.
 
+## Multiscale level placement
+
+A multiscale (pyramid) DataStore has one more transform per resolution level:
+the **level-to-data** transform (`DataStore.level_transforms`), which maps a
+coarser level's voxel coordinates onto the finest level's (level 0). Level 0's
+is the identity; the data-to-world transform then takes level 0 to the world.
+The readers build these from the OME-Zarr `coordinateTransformations` of each
+dataset: per axis, the scale `s_k` and translation `t_k` relative to level 0,
+in level-0 voxels.
+
+Every level is placed with the same convention as the pixel/voxel alignment
+above, **voxel centres**:
+
+- data coordinate `p`: level-0 voxel `i` is centred on `p = i` and covers
+  `[i - 0.5, i + 0.5]`;
+- level coordinate `u`: level-k voxel `i` is centred on `u = i`.
+
+| Quantity | Definition |
+|---|---|
+| level to data | `p = s_k * u + t_k` |
+| data to level | `u = (p - t_k) / s_k` |
+| level-k voxel `i` | `u` in `[i - 0.5, i + 0.5]` |
+| nearest sample (labels) | voxel `floor(u + 0.5)` |
+| linear sample (images) | texel coordinate `u + 0.5` |
+
+So the translation says where each coarse voxel sits: for a pyramid made by
+averaging `2 x 2` blocks, coarse voxel 0 is centred between level-0 voxels 0
+and 1, so its metadata should say `t = 0.5`; for one made by taking every
+second voxel (`[::2]`), `t = 0`. Cellier draws every level where its metadata
+says, in 2D and 3D, so a dataset whose metadata omits the translations of an
+averaged pyramid shifts by `(s - 1) / 2` level-0 voxels at coarse levels.
+
+**What Cellier supports.** A coarse level must be an axis-aligned scale of
+level 0 (scale >= 1, not decreasing with level), offset by less than one of
+its own voxels (`-0.5 <= t_k <= s_k - 0.5`), and cover level 0's extent to
+within one of its own voxels. That accepts block averaging, plain striding
+and offset striding, including non-integer ratios. A store outside this
+contract (for example a cropped coarse level) raises a `ValueError` when it
+gets its transforms or is added to a scene; see
+`cellier.data._level_contract`. The mapping itself lives in
+`cellier.render._level_mapping`, and how the renderer uses it is in
+[Multiscale brick lookup](multiscale_brick_lookup.md#level-placement).
+
 ## Pygfx GPU coordinates
 
 !!! note

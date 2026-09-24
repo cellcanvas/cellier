@@ -314,9 +314,9 @@ class _FakeWriteBuffer:
 def test_assignment_refused_during_a_paint_transaction(single_chunk_uri: str) -> None:
     """Reopening would orphan the paint buffer's handle, so it is refused."""
     store = OMEZarrImageDataStore.from_path(single_chunk_uri)
-    handle_before = store._ts_stores[0]
     writer = _FakeWriteBuffer()
     store.register_paint_writer(writer)
+    handle_before = store._ts_stores[0]
 
     with pytest.raises(RuntimeError, match="paint transaction is open"):
         store.cache_pool_bytes = 0
@@ -354,6 +354,215 @@ def test_dropped_writer_does_not_lock_the_store(single_chunk_uri: str) -> None:
 
     store.cache_pool_bytes = 0
     assert store.cache_pool_bytes == 0
+
+
+# ---------------------------------------------------------------------------
+# Rechecks
+#
+# Read-only handles trust the cache (no revalidation round trip per read).
+# A registered paint writer, or the ``recheck_cached_data`` field, turns
+# revalidation back on by reopening on the same context, so the warm pool
+# survives the toggle.
+# ---------------------------------------------------------------------------
+
+
+def _rechecks(handle) -> bool:
+    """Whether *handle* revalidates cached data (tensorstore's default)."""
+    return handle.spec().to_json().get("recheck_cached_data", True) is not False
+
+
+def _level0_path(uri: str) -> str:
+    return uri.removeprefix("file://") + "/0"
+
+
+def _write_externally(uri: str, index: tuple[int, int], value: int) -> None:
+    """Write through a separate handle and context: another process's write."""
+    import tensorstore as ts
+
+    spec = {"driver": "zarr3", "kvstore": {"driver": "file", "path": _level0_path(uri)}}
+    ts.open(spec).result()[index] = value
+
+
+def test_handles_skip_rechecks_by_default(
+    single_chunk_uri: str, single_chunk_label_uri: str
+) -> None:
+    image = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    labels = OMEZarrLabelDataStore.from_path(single_chunk_label_uri)
+    for store in (image, labels):
+        assert store.recheck_cached_data is False
+        assert not any(_rechecks(handle) for handle in store._ts_stores)
+
+
+def test_zarr_multiscale_store_skips_rechecks(small_zarr_store) -> None:
+    from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
+
+    store = MultiscaleZarrDataStore.from_scale_and_translation(
+        zarr_path=str(small_zarr_store),
+        scale_names=["s0", "s1"],
+        level_scales=[(1.0, 1.0, 1.0), (2.0, 2.0, 2.0)],
+        level_translations=[(0.0, 0.0, 0.0), (0.5, 0.5, 0.5)],
+    )
+    assert not any(_rechecks(handle) for handle in store._ts_stores)
+
+    store.recheck_cached_data = True
+    assert all(_rechecks(handle) for handle in store._ts_stores)
+
+
+def test_external_write_is_masked_without_rechecks(single_chunk_uri: str) -> None:
+    """Pins the promise the default makes: an outside write is not seen."""
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    handle = store._ts_stores[0]
+    before = int(handle[3, 3].read().result())  # warm
+
+    _write_externally(single_chunk_uri, (3, 3), before + 1)
+
+    assert int(handle[3, 3].read().result()) == before
+
+
+def test_registering_a_writer_turns_rechecks_on(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    before = int(store._ts_stores[0][3, 3].read().result())  # warm
+    context = store._ts_context
+
+    writer = _FakeWriteBuffer()
+    store.register_paint_writer(writer)
+
+    assert all(_rechecks(handle) for handle in store._ts_stores)
+    # Reopened on the same context, so the warm pool is kept.
+    assert store._ts_context is context
+
+    _write_externally(single_chunk_uri, (3, 3), before + 1)
+    assert int(store._ts_stores[0][3, 3].read().result()) == before + 1
+
+
+def test_unregistering_turns_rechecks_off(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    context = store._ts_context
+    writer = _FakeWriteBuffer()
+    store.register_paint_writer(writer)
+
+    store.unregister_paint_writer()
+
+    assert not any(_rechecks(handle) for handle in store._ts_stores)
+    assert store._ts_context is context
+
+
+def test_reregistering_does_not_reopen(single_chunk_uri: str) -> None:
+    """An autosave registers a fresh buffer while the store is registered."""
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    first = _FakeWriteBuffer()
+    store.register_paint_writer(first)
+    handle = store._ts_stores[0]
+
+    second = _FakeWriteBuffer()
+    store.register_paint_writer(second)
+
+    assert store._ts_stores[0] is handle
+
+
+def test_dropped_writer_leaves_rechecks_on(single_chunk_uri: str) -> None:
+    """Slower but never stale, until the store is explicitly unregistered."""
+    import gc
+
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    store.register_paint_writer(_FakeWriteBuffer())  # no strong reference kept
+    gc.collect()
+
+    assert all(_rechecks(handle) for handle in store._ts_stores)
+
+
+def test_transaction_open_across_the_reopen(single_chunk_uri: str) -> None:
+    """The paint controller builds its buffer on the handle, then registers.
+
+    The buffer keeps the pre-registration handle.  Because the reopen shares
+    the context, the new handles see the buffer's staged writes inside the
+    transaction and its committed writes outside it, as the pyramid rebuild
+    and the render path need.  The same holds across unregistering.
+    """
+    from cellier.paint._write_buffer import TensorStoreWriteBuffer
+
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    before = int(store._ts_stores[0][6, 6].read().result())  # warm
+    buffer = TensorStoreWriteBuffer(store._ts_stores[0])
+    buffer.stage(np.array([[6, 6]]), np.array([before + 5]))
+
+    store.register_paint_writer(buffer)
+    new_handle = store._ts_stores[0]
+    staged = new_handle.with_transaction(buffer.transaction)[6, 6].read().result()
+    assert int(staged) == before + 5
+    assert int(new_handle[6, 6].read().result()) == before
+
+    buffer.commit()
+    assert int(new_handle[6, 6].read().result()) == before + 5
+
+    store.unregister_paint_writer()
+    assert int(store._ts_stores[0][6, 6].read().result()) == before + 5
+
+
+def test_field_turns_rechecks_on_at_construction(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri, recheck_cached_data=True)
+    assert all(_rechecks(handle) for handle in store._ts_stores)
+
+
+def test_field_keeps_rechecks_on_after_unregistering(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri, recheck_cached_data=True)
+    handle = store._ts_stores[0]
+    writer = _FakeWriteBuffer()
+    store.register_paint_writer(writer)
+    store.unregister_paint_writer()
+
+    # Rechecks were on throughout, so nothing was reopened.
+    assert store._ts_stores[0] is handle
+
+
+def test_field_assignment_reopens_on_the_same_context(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    context = store._ts_context
+
+    store.recheck_cached_data = True
+    assert all(_rechecks(handle) for handle in store._ts_stores)
+    assert store._ts_context is context
+
+    store.recheck_cached_data = False
+    assert not any(_rechecks(handle) for handle in store._ts_stores)
+    assert store._ts_context is context
+
+
+def test_field_assignment_to_the_same_value_does_not_reopen(
+    single_chunk_uri: str,
+) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    handle = store._ts_stores[0]
+    store.recheck_cached_data = False
+    assert store._ts_stores[0] is handle
+
+
+def test_field_assignment_allowed_during_a_paint_transaction(
+    single_chunk_uri: str,
+) -> None:
+    """Unlike a budget change, a same-context reopen cannot orphan the buffer."""
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    writer = _FakeWriteBuffer()
+    store.register_paint_writer(writer)
+
+    store.recheck_cached_data = True
+    store.unregister_paint_writer()
+
+    assert all(_rechecks(handle) for handle in store._ts_stores)
+
+
+def test_budget_change_keeps_the_recheck_policy(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri, recheck_cached_data=True)
+    store.cache_pool_bytes = 0
+    assert all(_rechecks(handle) for handle in store._ts_stores)
+
+
+def test_field_roundtrips_through_serialization(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri, recheck_cached_data=True)
+    dumped = store.model_dump()
+    assert dumped["recheck_cached_data"] is True
+    restored = OMEZarrImageDataStore.model_validate(dumped)
+    assert all(_rechecks(handle) for handle in restored._ts_stores)
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +609,62 @@ def test_committed_write_is_visible_at_coarser_levels(single_chunk_uri: str) -> 
         handle.with_transaction(transaction)[1, 1] = 900 + level
         transaction.commit_sync()
         assert int(handle[1, 1].read().result()) == 900 + level
+
+
+# ---------------------------------------------------------------------------
+# One-shot revalidation on an announced change (design v3 5.14, Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def _recheck_value(handle):
+    return handle.spec().to_json().get("recheck_cached_data", True)
+
+
+@pytest.mark.parametrize("kind", ["contents", "extent"])
+def test_an_announced_change_shows_an_external_write_once(
+    single_chunk_uri: str, kind: str
+) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    context = store._ts_context
+    before = int(store._ts_stores[0][3, 3].read().result())  # warm
+
+    _write_externally(single_chunk_uri, (3, 3), before + 1)
+    assert int(store._ts_stores[0][3, 3].read().result()) == before  # masked
+    store.notify_changed(kind)
+    assert int(store._ts_stores[0][3, 3].read().result()) == before + 1
+
+    # Same context (the warm pool), and rechecks are still off: a later
+    # write is masked again until the next announcement.
+    assert store._ts_context is context
+    assert store._ts_rechecking is False
+    assert all(_recheck_value(h) == "open" for h in store._ts_stores)
+    _write_externally(single_chunk_uri, (3, 3), before + 2)
+    assert int(store._ts_stores[0][3, 3].read().result()) == before + 1
+    store.notify_changed(kind)
+    assert int(store._ts_stores[0][3, 3].read().result()) == before + 2
+
+
+def test_revalidation_is_a_no_op_while_rechecks_are_on(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    store.register_paint_writer(_FakeWriteBuffer())
+    handle = store._ts_stores[0]
+
+    store.notify_changed()
+
+    assert store._ts_stores[0] is handle
+    # Unregistering returns to rechecks off, not to the one-shot policy.
+    store.unregister_paint_writer()
+    assert all(_recheck_value(h) is False for h in store._ts_stores)
+
+
+def test_label_store_revalidates_too(single_chunk_label_uri: str) -> None:
+    store = OMEZarrLabelDataStore.from_path(single_chunk_label_uri)
+    before = int(store._ts_stores[0][3, 3].read().result())
+
+    _write_externally(single_chunk_label_uri, (3, 3), before + 1)
+    store.notify_changed()
+
+    assert int(store._ts_stores[0][3, 3].read().result()) == before + 1
 
 
 def test_mixin_does_not_swallow_the_base_model_post_init(single_chunk_uri: str) -> None:

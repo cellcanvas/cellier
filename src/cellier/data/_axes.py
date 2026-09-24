@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from cellier.data._level_contract import validate_store_levels
 from cellier.transform import (
     AffineTransform,
     Axis,
@@ -444,6 +445,7 @@ def install_level_transforms(store: object) -> None:
             )
         )
     store.level_transforms = transforms
+    validate_store_levels(store)
 
 
 def default_data_to_world(

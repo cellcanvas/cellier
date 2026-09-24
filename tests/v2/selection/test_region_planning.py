@@ -31,6 +31,7 @@ from cellier.visuals import (
 )
 from cellier.visuals._image_memory import InMemoryImageAppearance
 from cellier.visuals._label_memory import InMemoryLabelsAppearance
+from tests._planning import planned_requests_3d
 from tests._v2 import bound
 
 _WORLD = [("t", "time"), *spatial_axes("z", "y", "x")]
@@ -78,7 +79,8 @@ def _plan(controller, scene, visual, *, with_region: bool = True):
     selection = (
         controller._selections_for_scene(scene.id)[canvas_id] if with_region else None
     )
-    requests = gfx.build_slice_request(
+    requests = planned_requests_3d(
+        gfx,
         camera_pos_world=np.zeros(3),
         frustum_corners_world=None,
         fov_y_rad=1.0,

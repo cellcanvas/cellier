@@ -20,3 +20,20 @@
   opacity: 0.75;
   margin-bottom: 4px;
 }
+
+/* A side dock that scrolls within the row's height (see container.js).
+   `el` stays a block the row stretches; the box inside contributes no height
+   to the row and fills whatever height the row settles on.
+   `overscroll-behavior: contain` keeps a scroll that reaches the end from
+   scrolling the notebook. */
+.cellier-anywidget-scroll-host {
+  align-self: stretch;
+}
+
+.cellier-anywidget-box--scroll {
+  height: 0;
+  min-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}

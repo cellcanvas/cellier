@@ -10,6 +10,7 @@ from cellier.visuals._image_memory import (
     BaseImageSingleAppearance,
     BaseImageVisual,
 )
+from cellier.visuals._loading import ProgressiveLoadingConfig
 
 
 class MultiscaleImageAppearance(BaseImageAppearance):
@@ -28,12 +29,20 @@ class MultiscaleImageAppearance(BaseImageAppearance):
         Overrides automatic LOD selection when set.  Default None.
     frustum_cull : bool
         Skip bricks outside the camera frustum.  Default True.
+    ray_steps_per_voxel : float
+        3D ray-march samples per voxel of the drawn level, measured along
+        the ray.  Lower is faster but can skip features a voxel or two
+        thick and dims MIP peaks (a one-voxel spot can lose up to
+        ``1 / (2 * ray_steps_per_voxel)`` of its value).  Must be in
+        [0.5, 8]: below 0.5 a bisection probe can overshoot the brick's
+        ghost border.  Default 1.0.
     """
 
     attenuation: float = 1.0
     lod_bias: float = 1.0
     force_level: int | None = None
     frustum_cull: bool = True
+    ray_steps_per_voxel: float = Field(default=1.0, ge=0.5, le=8.0)
 
 
 class MultiscaleImageSingleAppearance(BaseImageSingleAppearance):
@@ -83,6 +92,9 @@ class MultiscaleImageRenderConfig(BaseModel):
     gpu_budget_bytes_2d : int
         Maximum GPU memory for the 2-D tile caches, split likewise.
         Default 64 MiB.
+    loading : ProgressiveLoadingConfig
+        The coarse backstop loaded ahead of the target level.  Changing
+        only this reslices; the other fields reallocate GPU resources.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -90,6 +102,7 @@ class MultiscaleImageRenderConfig(BaseModel):
     block_size: int = 32
     gpu_budget_bytes: int = 1 * 1024**3
     gpu_budget_bytes_2d: int = 64 * 1024**2
+    loading: ProgressiveLoadingConfig = Field(default_factory=ProgressiveLoadingConfig)
 
 
 class MultiscaleImageVisual(BaseImageVisual):

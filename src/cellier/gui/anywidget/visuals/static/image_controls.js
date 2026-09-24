@@ -2,6 +2,10 @@
 // standalone).  Shared rows, a composite switch, and a page per mode.  Every
 // control writes its whole dict trait back ("shared", "single" or
 // "channels"); Python diffs it and emits one bus event per changed field.
+//
+// Rows that only mean something for some render modes, or only in 3D, hide
+// themselves: rowVisible mirrors cellier.gui._image_controls.row_visible,
+// with the mode lists and n_displayed_dimensions read from the model.
 
 const THROTTLE_MS = 50;
 
@@ -18,6 +22,31 @@ const LABELS = {
 };
 
 const MODE_FIELDS = ["color_map", "clim", "opacity", "render_mode", "iso_threshold"];
+
+// Decimal places for the fraction-like fields (opacity, attenuation); mirrors
+// cellier.gui._image_controls.FRACTION_DECIMALS.  Data-unit fields (contrast
+// limits, threshold) use the model's "decimals" trait instead.
+const FRACTION_DECIMALS = 2;
+
+// The shortest the contrast and threshold tracks may be, in pixels; mirrors
+// cellier.gui._image_controls.MIN_TRACK_WIDTH_PX.  The dock grows to keep it.
+const MIN_TRACK_WIDTH_PX = 120;
+
+// Fields whose rows show only in 3D; mirrors
+// cellier.gui._image_controls.THREE_D_FIELDS.
+const THREE_D_FIELDS = ["render_mode", "iso_threshold", "attenuation"];
+
+function rowVisible(field, modes, nDisplayed, thresholdModes, attenuationModes) {
+  if (!THREE_D_FIELDS.includes(field)) return true;
+  if (nDisplayed !== 3) return false;
+  if (field === "iso_threshold") return modes.some((m) => thresholdModes.includes(m));
+  if (field === "attenuation") return modes.some((m) => attenuationModes.includes(m));
+  return true;
+}
+
+function formatNumber(value, decimals) {
+  return Number(value).toFixed(decimals);
+}
 
 function throttled(fn) {
   let timer = null;
@@ -77,7 +106,7 @@ function makeSelect(options, initial, onChange) {
   };
 }
 
-function makeFloatSlider(min, max, initial, onChange) {
+function makeFloatSlider(min, max, initial, onChange, decimals = FRACTION_DECIMALS) {
   const el = document.createElement("div");
   el.className = "cellier-app-row-inner";
   const inp = document.createElement("input");
@@ -88,10 +117,10 @@ function makeFloatSlider(min, max, initial, onChange) {
   inp.value = initial;
   const readout = document.createElement("span");
   readout.className = "cellier-app-readout";
-  readout.textContent = Number(initial).toFixed(3);
+  readout.textContent = formatNumber(initial, decimals);
   const send = throttled(onChange);
   inp.addEventListener("input", () => {
-    readout.textContent = Number(inp.value).toFixed(3);
+    readout.textContent = formatNumber(inp.value, decimals);
     send(parseFloat(inp.value));
   });
   inp.addEventListener("change", () => onChange(parseFloat(inp.value)));
@@ -101,14 +130,35 @@ function makeFloatSlider(min, max, initial, onChange) {
     el,
     set(v) {
       inp.value = v;
-      readout.textContent = Number(v).toFixed(3);
+      readout.textContent = formatNumber(v, decimals);
     },
   };
 }
 
-function makeClimSlider(range, initial, onChange) {
+function makeClimSlider(range, initial, onChange, decimals) {
+  // Four numbers, as the Qt control shows: the current low and high on a line
+  // above the track, and the range bounds at its two ends.
   const el = document.createElement("div");
-  el.className = "cellier-clim-track";
+  el.className = "cellier-clim";
+  const values = document.createElement("div");
+  values.className = "cellier-clim-values";
+  const loReadout = document.createElement("span");
+  loReadout.className = "cellier-clim-readout";
+  const hiReadout = document.createElement("span");
+  hiReadout.className = "cellier-clim-readout";
+  values.appendChild(loReadout);
+  values.appendChild(hiReadout);
+  const trackRow = document.createElement("div");
+  trackRow.className = "cellier-clim-row";
+  const minBound = document.createElement("span");
+  minBound.className = "cellier-clim-bound";
+  minBound.textContent = formatNumber(range[0], decimals);
+  const maxBound = document.createElement("span");
+  maxBound.className = "cellier-clim-bound";
+  maxBound.textContent = formatNumber(range[1], decimals);
+  const track = document.createElement("div");
+  track.className = "cellier-clim-track";
+  track.style.minWidth = `${MIN_TRACK_WIDTH_PX}px`;
   const rail = document.createElement("div");
   rail.className = "cellier-clim-rail";
   const fill = document.createElement("div");
@@ -128,6 +178,8 @@ function makeClimSlider(range, initial, onChange) {
     const span = parseFloat(lo.max) - mn || 1;
     fill.style.left = ((parseFloat(lo.value) - mn) / span) * 100 + "%";
     fill.style.right = ((parseFloat(lo.max) - parseFloat(hi.value)) / span) * 100 + "%";
+    loReadout.textContent = formatNumber(lo.value, decimals);
+    hiReadout.textContent = formatNumber(hi.value, decimals);
   }
   const current = () => [parseFloat(lo.value), parseFloat(hi.value)];
   const send = throttled(onChange);
@@ -143,10 +195,15 @@ function makeClimSlider(range, initial, onChange) {
   });
   lo.addEventListener("change", () => onChange(current()));
   hi.addEventListener("change", () => onChange(current()));
-  el.appendChild(rail);
-  el.appendChild(fill);
-  el.appendChild(lo);
-  el.appendChild(hi);
+  track.appendChild(rail);
+  track.appendChild(fill);
+  track.appendChild(lo);
+  track.appendChild(hi);
+  trackRow.appendChild(minBound);
+  trackRow.appendChild(track);
+  trackRow.appendChild(maxBound);
+  el.appendChild(values);
+  el.appendChild(trackRow);
   updateFill();
   return {
     el,
@@ -163,16 +220,56 @@ function render({ model, el }) {
   let guard = false;
   // "page|channel|field" -> control
   let controls = {};
+  // Every row that can hide: { el, page, channel, field }.
+  let hideable = [];
 
   function row(parent, field, control) {
     const r = document.createElement("div");
     r.className = "cellier-app-row";
+    r.dataset.field = field;
     const label = document.createElement("label");
     label.className = "cellier-app-label";
     label.textContent = LABELS[field] || field;
     r.appendChild(label);
     r.appendChild(control.el);
     parent.appendChild(r);
+    return r;
+  }
+
+  function hideableRow(parent, page, channel, field, control) {
+    const r = row(parent, field, control);
+    if (THREE_D_FIELDS.includes(field)) hideable.push({ el: r, page, channel, field });
+    return r;
+  }
+
+  // The shared attenuation slider, on the single page (under the render
+  // mode) and once on the composite page; both set the one shared field.
+  function attenuationControl() {
+    const shared = model.get("shared") || {};
+    const fieldsOn = model.get("fields") || [];
+    if (!("attenuation" in shared) || !fieldsOn.includes("attenuation")) return null;
+    return makeFloatSlider(0.0, 10.0, shared.attenuation, (v) =>
+      write("shared", null, "attenuation", v),
+    );
+  }
+
+  // Show or hide every row that can hide, from the current state.  Run in
+  // full on every trigger so the rule lives in one place.
+  function applyVisibility() {
+    const n = model.get("n_displayed_dimensions");
+    const thresholdModes = model.get("threshold_modes") || [];
+    const attenuationModes = model.get("attenuation_modes") || [];
+    const single = model.get("single") || {};
+    const channels = model.get("channels") || {};
+    const channelModes = Object.values(channels).map((c) => c.render_mode);
+    for (const { el: r, page, channel, field } of hideable) {
+      let modes;
+      if (page === "composite") modes = channelModes;
+      else if (page === "channel") modes = [(channels[channel] || {}).render_mode];
+      else modes = [single.render_mode];
+      const visible = rowVisible(field, modes, n, thresholdModes, attenuationModes);
+      r.style.display = visible ? "" : "none";
+    }
   }
 
   // Write one field back into its dict trait.
@@ -186,6 +283,7 @@ function render({ model, el }) {
       model.set(page, { ...(model.get(page) || {}), [field]: value });
     }
     model.save_changes();
+    if (field === "render_mode") applyVisibility();
   }
 
   function modeControl(page, channel, field, values) {
@@ -195,14 +293,25 @@ function render({ model, el }) {
     const v = values[field];
     if (field === "visible") return makeCheckbox(v, onChange);
     if (field === "color_map") return makeSelect(model.get("colormap_names"), v, onChange);
-    if (field === "clim") return makeClimSlider(model.get("clim_range") || [0, 1], v, onChange);
+    const decimals = model.get("decimals");
+    if (field === "clim") {
+      return makeClimSlider(model.get("clim_range") || [0, 1], v, onChange, decimals);
+    }
     if (field === "render_mode") return makeSelect(model.get("render_modes"), v, onChange);
-    return makeFloatSlider(0.0, 1.0, v, onChange);
+    if (field === "iso_threshold") {
+      // A threshold is in data units, like the contrast limits.
+      const [lo, hi] = model.get("clim_range") || [0, 1];
+      const slider = makeFloatSlider(lo, hi, v, onChange, decimals);
+      slider.el.querySelector("input").style.minWidth = `${MIN_TRACK_WIDTH_PX}px`;
+      return slider;
+    }
+    return makeFloatSlider(0.0, 1.0, v, onChange, FRACTION_DECIMALS);
   }
 
   function build() {
     el.innerHTML = "";
     controls = {};
+    hideable = [];
     const fieldsOn = model.get("fields") || [];
 
     const title = document.createElement("div");
@@ -226,13 +335,6 @@ function render({ model, el }) {
       controls["shared||" + field] = c;
       row(sharedBox, field, c);
     }
-    if ("attenuation" in shared && fieldsOn.includes("attenuation")) {
-      const c = makeFloatSlider(0.0, 10.0, shared.attenuation, (v) =>
-        write("shared", null, "attenuation", v),
-      );
-      controls["shared||attenuation"] = c;
-      row(sharedBox, "attenuation", c);
-    }
     el.appendChild(sharedBox);
 
     const switchRow = document.createElement("label");
@@ -254,11 +356,19 @@ function render({ model, el }) {
     const singlePage = document.createElement("div");
     singlePage.className = "cellier-image-page cellier-image-single";
     const single = model.get("single") || {};
+    const attenuation = [];
     for (const field of MODE_FIELDS) {
       const c = modeControl("single", null, field, single);
       if (c === null) continue;
       controls["single||" + field] = c;
-      row(singlePage, field, c);
+      hideableRow(singlePage, "single", null, field, c);
+      if (field === "render_mode") {
+        const a = attenuationControl();
+        if (a !== null) {
+          attenuation.push(a);
+          hideableRow(singlePage, "single", null, "attenuation", a);
+        }
+      }
     }
     el.appendChild(singlePage);
 
@@ -284,12 +394,26 @@ function render({ model, el }) {
         const c = modeControl("channel", key, field, channels[key]);
         if (c === null) continue;
         controls["channel|" + key + "|" + field] = c;
-        row(group, field, c);
+        hideableRow(group, "channel", key, field, c);
       }
       compositePage.appendChild(group);
     }
+    const compositeAttenuation = attenuationControl();
+    if (compositeAttenuation !== null) {
+      // One value for every channel, so one row below them all.
+      attenuation.push(compositeAttenuation);
+      hideableRow(compositePage, "composite", null, "attenuation", compositeAttenuation);
+    }
+    if (attenuation.length > 0) {
+      controls["shared||attenuation"] = {
+        set: (v) => {
+          for (const a of attenuation) a.set(v);
+        },
+      };
+    }
     el.appendChild(compositePage);
     applyPage();
+    applyVisibility();
   }
 
   function applyPage() {
@@ -325,7 +449,10 @@ function render({ model, el }) {
   let channelKeys = Object.keys(model.get("channels") || {}).sort().join(",");
   build();
   model.on("change:shared", () => sync("shared"));
-  model.on("change:single", () => sync("single"));
+  model.on("change:single", () => {
+    sync("single");
+    applyVisibility();
+  });
   model.on("change:channels", () => {
     const keys = Object.keys(model.get("channels") || {}).sort().join(",");
     if (keys !== channelKeys) {
@@ -333,8 +460,12 @@ function render({ model, el }) {
       build();
     } else {
       sync("channels");
+      applyVisibility();
     }
   });
+  for (const name of ["n_displayed_dimensions", "threshold_modes", "attenuation_modes"]) {
+    model.on(`change:${name}`, applyVisibility);
+  }
   model.on("change:composite", () => {
     guard = true;
     try {

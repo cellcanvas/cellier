@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import dataclasses
 import difflib
 import warnings
 from contextlib import contextmanager, suppress
@@ -21,6 +22,7 @@ from cellier.data._axes import (
     scale_and_translation_transform,
     store_level_transforms,
 )
+from cellier.data._level_contract import validate_store_levels
 from cellier.events import (
     AABBChangedEvent,
     AABBUpdateEvent,
@@ -28,6 +30,7 @@ from cellier.events import (
     AppearanceUpdateEvent,
     BackgroundChangedEvent,
     BackgroundUpdateEvent,
+    BackstopCompleteEvent,
     CameraChangedEvent,
     CanvasAddedEvent,
     CanvasConnectedEvent,
@@ -42,12 +45,16 @@ from cellier.events import (
     FrameRenderedEvent,
     ImageCompositeChangedEvent,
     ImageCompositeUpdateEvent,
+    LoadingConfigChangedEvent,
+    LoadingConfigUpdateEvent,
+    LoadingProgress,
     OverlayChangedEvent,
     OverlayUpdateEvent,
     PickWriteChangedEvent,
     RenderConfigChangedEvent,
     RenderConfigUpdateEvent,
     ResliceCompletedEvent,
+    ResliceProgressEvent,
     ResliceStartedEvent,
     SceneAddedEvent,
     SceneRemovedEvent,
@@ -89,7 +96,12 @@ from cellier.events._events import (
     PointsPickInfo,
     _CanvasRawPointerEvent,
 )
-from cellier.logging import _CAMERA_LOGGER, _SOURCE_ID_LOGGER
+from cellier.logging import (
+    _CACHE_LOGGER,
+    _CAMERA_LOGGER,
+    _SCHEDULER_LOGGER,
+    _SOURCE_ID_LOGGER,
+)
 from cellier.render._capture import capture_scene
 from cellier.render._config import RenderManagerConfig
 from cellier.render._scene_config import VisualRenderConfig
@@ -104,6 +116,7 @@ from cellier.render._visual_lut import (
     KIND_WHOLE_OBJECT,
 )
 from cellier.render.render_manager import RenderManager
+from cellier.render.scheduling import PlanMode
 from cellier.render.visuals._canvas_overlay import GFXCenteredAxes2D
 from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
@@ -178,6 +191,7 @@ from cellier.visuals._labels import (
     MultiscaleLabelVisual,
 )
 from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
+from cellier.visuals._loading import ProgressiveLoadingConfig
 from cellier.visuals._mesh_memory import (
     MeshAppearance,
     MeshPhongAppearance,
@@ -308,7 +322,8 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
     Returns
     -------
     VisualRenderConfig
-        LOD settings from a multiscale visual's appearance, and
+        LOD settings from a multiscale visual's appearance, its backstop
+        settings (``render_config.loading``), and
         ``slicing_enabled=False`` for an image visual that draws nothing:
         hidden, or composite with no drawn channel (unified image design 3.3).
     """
@@ -321,6 +336,7 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
             force_level=visual.appearance.force_level,
             frustum_cull=visual.appearance.frustum_cull,
             slicing_enabled=slicing_enabled,
+            loading=visual.render_config.loading,
         )
     return VisualRenderConfig(slicing_enabled=slicing_enabled)
 
@@ -392,6 +408,12 @@ class _OverlayEntry:
     appearance_handler: Callable | None = None
     extent_key: tuple | None = None
 
+
+# Parallel context variable for ``render_config.loading`` changes, stamped on
+# ``LoadingConfigChangedEvent`` (``set_loading_config``).
+_loading_source_id_override: contextvars.ContextVar[UUID | None] = (
+    contextvars.ContextVar("_loading_source_id_override", default=None)
+)
 
 # Parallel context variable for the per-visual render settings (outline slot
 # and placement, the occlusion tri-state, the labels selection).
@@ -749,6 +771,17 @@ class CellierController:
         self._scene_render_modes: dict[UUID, set[Literal["2d", "3d"]]] = {}
         # Camera settle
         self._settle_tasks: dict[UUID, asyncio.Task] = {}
+        # Dims settle, per scene: the pending task and the visuals that
+        # ticked backstop-only since the last settle (design v3 5.10).
+        self._dims_settle_tasks: dict[UUID, asyncio.Task] = {}
+        self._dims_settle_pending: dict[UUID, set[UUID]] = {}
+        # Reslices after store changes, capped per store at
+        # ``SchedulerConfig.store_change_max_hz`` (design v3 5.14): the loop
+        # time of the last one, the trailing one waiting to run, and whether
+        # an extent change is folded into it.
+        self._store_reslice_at: dict[UUID, float] = {}
+        self._store_reslice_tasks: dict[UUID, asyncio.Task] = {}
+        self._store_reslice_extent: dict[UUID, bool] = {}
         # Per-canvas count of active pick-event subscribers (``on_pick``).
         # Drives RenderManager pick-detail gating (Decision 4).  Keyed by
         # canvas_id.
@@ -807,9 +840,6 @@ class CellierController:
             self._on_canvas_size_changed,
             owner_id=self._id,
         )
-        # Must be called before subscribing _on_dims_changed_bus below so the
-        # SliceCoordinator invalidates stale 2D caches before the controller
-        # submits new slice requests.
         self._render_manager.connect_event_bus(self._outgoing_events)
         # Controller's own dims handler: reslice the affected scene.
         self._outgoing_events.subscribe(
@@ -889,6 +919,11 @@ class CellierController:
         self._incoming_events.subscribe(
             TrailUpdateEvent,
             self._on_trail_update,
+            owner_id=self._id,
+        )
+        self._incoming_events.subscribe(
+            LoadingConfigUpdateEvent,
+            self._on_loading_config_update,
             owner_id=self._id,
         )
 
@@ -1173,23 +1208,32 @@ class CellierController:
             _on_data_changed,
         )
 
+    def _store_readers(self, store_id: UUID) -> list[tuple[UUID, Any]]:
+        """``(scene_id, visual)`` for every placed visual reading *store_id*."""
+        return [
+            (scene_id, visual)
+            for scene_id, scene in self._model.scenes.items()
+            for visual in scene.visuals
+            if UUID(str(visual.data_store_id)) == store_id
+            and visual.id in self._visual_to_scene
+        ]
+
     def _on_store_changed(self, store_id: UUID, change: StoreChange) -> None:
         """React to a store announcing that its data changed.
 
         For an ``"extent"`` change, first refresh what is derived from the
         store's extent: the render layer's per-visual extents (the
         out-of-domain slice check) and the scene overlays of every scene
-        showing the store.  Then announce the change on the bus and reslice
-        every visual reading the store -- for both kinds, so a caller that
-        changes a store no longer has to reslice by hand
-        (``plans/store_change_events.md``).
+        showing the store.  Then announce the change on the bus and
+        invalidate the GPU bricks the chunk scheduler read from the store,
+        both at once.  Finally reslice the visuals reading the store, so a
+        caller that changes a store no longer has to reslice by hand
+        (``plans/store_change_events.md``), at most
+        ``SchedulerConfig.store_change_max_hz`` times a second per store
+        (:meth:`_request_store_reslice`).
         """
         readers = [
-            (scene_id, visual.id)
-            for scene_id, scene in self._model.scenes.items()
-            for visual in scene.visuals
-            if UUID(str(visual.data_store_id)) == store_id
-            and visual.id in self._visual_to_scene
+            (scene_id, visual.id) for scene_id, visual in self._store_readers(store_id)
         ]
         if change.kind == "extent":
             for _scene_id, visual_id in readers:
@@ -1204,8 +1248,92 @@ class CellierController:
                 source_id=self._id, data_store_id=store_id, regions=change.regions
             )
         self._outgoing_events.emit(event)
-        for _scene_id, visual_id in readers:
-            self.reslice_visual(visual_id)
+        # Bricks already on the GPU were read before the change: drop the
+        # ones it touches (all of them without regions) so the reslice below
+        # fetches them again rather than finding them resident (design 5.14).
+        self._render_manager.invalidate_store(store_id, change.regions)
+        self._request_store_reslice(store_id, extent=change.kind == "extent")
+
+    def _request_store_reslice(self, store_id: UUID, *, extent: bool) -> None:
+        """Reslice *store_id*'s readers, rate-capped (design v3 5.14).
+
+        The first change after a quiet interval reslices at once.  Changes
+        inside the interval fold into one trailing reslice at its end, so a
+        store streaming frames at any rate costs at most
+        ``store_change_max_hz`` plans a second.  Invalidation is not
+        deferred: it already ran, so nothing stale is drawn meanwhile.
+        """
+        self._store_reslice_extent[store_id] = (
+            self._store_reslice_extent.get(store_id, False) or extent
+        )
+        if store_id in self._store_reslice_tasks:
+            return  # the trailing reslice picks this change up
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No event loop: nothing to coalesce with.
+            self._reslice_store_readers(store_id)
+            return
+        interval = 1.0 / self._render_manager.config.scheduler.store_change_max_hz
+        last = self._store_reslice_at.get(store_id)
+        wait = 0.0 if last is None else last + interval - loop.time()
+        if wait <= 0.0:
+            self._reslice_store_readers(store_id)
+            return
+        _SCHEDULER_LOGGER.info(
+            "store_change  store=%s: reslice deferred %.0f ms (rate cap)",
+            store_id,
+            wait * 1000,
+        )
+        self._store_reslice_tasks[store_id] = loop.create_task(
+            self._store_reslice_after(store_id, wait)
+        )
+
+    async def _store_reslice_after(self, store_id: UUID, wait: float) -> None:
+        await asyncio.sleep(wait)
+        self._store_reslice_tasks.pop(store_id, None)
+        self._reslice_store_readers(store_id)
+
+    def _reslice_store_readers(self, store_id: UUID) -> None:
+        """Reslice the visuals reading *store_id* after a change.
+
+        A multiscale visual needs no new plan for a ``"contents"`` change:
+        invalidation already requeued the chunks it wants, and the scheduler
+        refetches them.  Only an ``"extent"`` change, which can change what
+        should be planned, replans it.  Every other visual loads whole
+        slices and is resliced for either kind.
+        """
+        extent = self._store_reslice_extent.pop(store_id, False)
+        try:
+            self._store_reslice_at[store_id] = asyncio.get_running_loop().time()
+        except RuntimeError:
+            pass
+        _SCHEDULER_LOGGER.info(
+            "store_change  store=%s kind=%s: reslicing readers",
+            store_id,
+            "extent" if extent else "contents",
+        )
+        for _scene_id, visual in self._store_readers(store_id):
+            chunked = isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual))
+            if chunked and not extent:
+                continue
+            self.reslice_visual(visual.id)
+
+    def _deferred_reslice_tasks(self) -> list[asyncio.Task]:
+        """Reslices waiting on a timer: dims settles and store-change reslices.
+
+        Quiescence helpers (``convenience.capture``, the test drains) await
+        these before waiting on the loaders, or they would see an idle
+        scheduler while a reslice is still to come.
+        """
+        return [
+            task
+            for task in (
+                *self._dims_settle_tasks.values(),
+                *self._store_reslice_tasks.values(),
+            )
+            if not task.done()
+        ]
 
     # ------------------------------------------------------------------
     # Visual management — public API
@@ -2102,6 +2230,7 @@ class CellierController:
             self._wire_trail(visual_model)
         self._wire_aabb(visual_model)
         self._wire_transform(visual_model, scene_id)
+        self._wire_render_config(visual_model)
         self._wire_pick_write(visual_model)
         self._wire_visual_render(visual_model)
         # Seed the render layer from the model, so a visual constructed with
@@ -3147,6 +3276,28 @@ class CellierController:
         """Return the live Scene model for scene_id."""
         return self._model.scenes[scene_id]
 
+    def get_visual_scene_id(self, visual_id: UUID) -> UUID:
+        """Return the id of the scene *visual_id* belongs to.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            ID of a visual added to one of the controller's scenes.
+
+        Returns
+        -------
+        UUID
+
+        Raises
+        ------
+        KeyError
+            If no visual with *visual_id* has been added.
+        """
+        try:
+            return self._visual_to_scene[visual_id]
+        except KeyError:
+            raise KeyError(f"No visual with id {visual_id}") from None
+
     def get_data_store(self, store_id: UUID) -> BaseDataStore:
         """Return the registered data store for store_id.
 
@@ -3511,6 +3662,9 @@ class CellierController:
         """
         if data_store.data_coordinate_systems:
             install_level_transforms(data_store)
+            # A store restored or built with its transforms already set skips
+            # the install, and with it the check: run it here.
+            validate_store_levels(data_store)
             self._register_coordinate_systems(*data_store.data_coordinate_systems)
             return
         ndim = getattr(data_store, "ndim", None)
@@ -3610,19 +3764,35 @@ class CellierController:
         ``(z, y, x) -> (x, y, z)`` reversal is not carried here; it stays at
         the pygfx boundary.
 
-        The embedding's linear block is a selection matrix, and every world
-        axis the canvas does not display is a ``constant_output_axes`` entry
-        -- never a broadcast one.  A sliced axis sits at its slice position.
+        The embedding is built by :meth:`_build_rendered_embedding`.
         """
         scene = self._model.scenes[scene_id]
         world = scene.dims.world_coordinate_system
-        selection = scene.dims.selection
-        displayed_axes = tuple(selection.displayed_axes)
+        displayed_axes = tuple(scene.dims.selection.displayed_axes)
         rendered = RenderedCoordinateSystem.from_world(
             world,
             [world.axes[axis].id for axis in displayed_axes],
             canvas_id,
         )
+        return rendered, self._build_rendered_embedding(scene_id, rendered)
+
+    def _build_rendered_embedding(
+        self, scene_id: UUID, rendered: RenderedCoordinateSystem
+    ) -> AffineTransform:
+        """Build the ``rendered -> world`` embedding of an existing system.
+
+        The embedding's linear block is a selection matrix, and every world
+        axis the canvas does not display is a ``constant_output_axes`` entry
+        -- never a broadcast one.  A sliced axis sits at its slice position.
+
+        Takes the rendered system rather than building one: its axis ids are
+        fresh on every ``from_world`` call, so an embedding built from a new
+        system would not start at the one the canvas and its visuals hold.
+        """
+        scene = self._model.scenes[scene_id]
+        world = scene.dims.world_coordinate_system
+        selection = scene.dims.selection
+        displayed_axes = tuple(selection.displayed_axes)
         constant: dict[Any, float] = {}
         for axis in range(world.ndim):
             if axis in displayed_axes:
@@ -3640,7 +3810,7 @@ class CellierController:
             constant_output_axes=constant,
             name="rendered_to_world",
         )
-        return rendered, embedding
+        return embedding
 
     def _rebuild_rendered(self, scene_id: UUID) -> None:
         """Rebuild the rendered system and embedding for every canvas on a scene.
@@ -3662,14 +3832,16 @@ class CellierController:
 
         The rendered system itself is unchanged -- same axes, same ids -- so
         it is reused rather than rebuilt, which is what keeps axis ids stable
-        across a slider drag.
+        across a slider drag.  The new embedding is built against that same
+        system, so the pair keeps agreeing on its ids.
         """
         for canvas_id in self._scene_to_canvases.get(scene_id, []):
             entry = self._rendered.get(canvas_id)
             if entry is None:
                 continue
-            _, embedding = self._build_rendered(scene_id, canvas_id)
-            self._rendered[canvas_id] = (entry[0], embedding)
+            rendered = entry[0]
+            embedding = self._build_rendered_embedding(scene_id, rendered)
+            self._rendered[canvas_id] = (rendered, embedding)
 
     def _forget_rendered(self, canvas_id: UUID) -> None:
         """Drop a canvas's rendered system."""
@@ -4173,6 +4345,46 @@ class CellierController:
             (visual.events.transform, handler)
         )
 
+    def _wire_render_config(self, visual: BaseVisual) -> None:
+        """Reslice a multiscale visual whose ``render_config.loading`` changed.
+
+        ``loading`` (the backstop settings) is read on every plan, so a
+        replaced ``render_config`` that differs only there needs a reslice
+        and nothing else: the atlases are kept.  The other fields size GPU
+        resources when the visual is added and do not apply at runtime.
+        """
+        if not isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual)):
+            return
+        visual_id = visual.id
+        # The field signal carries only the new value.
+        last = [visual.render_config]
+
+        def _on_render_config(new: Any) -> None:
+            old, last[0] = last[0], new
+            if new.model_copy(update={"loading": old.loading}) != old:
+                _CACHE_LOGGER.warning(
+                    "render_config  visual=%s: only 'loading' applies at "
+                    "runtime; the other fields take effect when the visual is "
+                    "added",
+                    visual_id,
+                )
+            if new.loading == old.loading:
+                return
+            self._outgoing_events.emit(
+                LoadingConfigChangedEvent(
+                    source_id=_loading_source_id_override.get() or self._id,
+                    visual_id=visual_id,
+                    loading=new.loading,
+                )
+            )
+            if not self._suppress_reslice:
+                self.reslice_visual(visual_id)
+
+        visual.events.render_config.connect(_on_render_config)
+        self._visual_psygnal_handlers.setdefault(visual.id, []).append(
+            (visual.events.render_config, _on_render_config)
+        )
+
     def _make_transform_handler(self, visual_id: UUID, scene_id: UUID) -> Callable:
         """Return a handler that emits TransformChangedEvent and triggers reslice.
 
@@ -4563,6 +4775,82 @@ class CellierController:
             setattr(target, leaf, value)
         finally:
             _visual_render_source_id_override.reset(token)
+
+    def set_loading_config(
+        self,
+        visual_id: UUID,
+        *,
+        source_id: UUID | None = None,
+        **fields: Any,
+    ) -> ProgressiveLoadingConfig:
+        """Change how a multiscale visual loads, while it is shown.
+
+        Merges *fields* into the visual's current
+        ``render_config.loading`` and applies the result at once: the visual
+        replans with the new settings and keeps what it has loaded.  Emits
+        ``LoadingConfigChangedEvent``.  Nothing happens when the merged
+        config equals the current one.
+
+        Parameters
+        ----------
+        visual_id :
+            A multiscale image or labels visual.
+        source_id :
+            UUID to stamp on the emitted ``LoadingConfigChangedEvent``.  GUI
+            widgets pass ``source_id=self._id`` so their own subscription can
+            ignore the echo.
+        **fields :
+            ``ProgressiveLoadingConfig`` fields: ``backstop``,
+            ``backstop_level``, ``backstop_extent``,
+            ``backstop_max_slot_fraction``, ``dims_drag``.
+
+        Returns
+        -------
+        ProgressiveLoadingConfig
+            The visual's config after the call.
+
+        Raises
+        ------
+        TypeError
+            If the visual is not a multiscale image or labels visual.
+        ValueError
+            If a field name is unknown, or the merged config is invalid
+            (e.g. ``dims_drag="backstop"`` with ``backstop=False``).  The
+            visual is left unchanged; nothing is corrected.
+        """
+        visual = self._get_visual_model(visual_id)
+        if not isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual)):
+            raise TypeError(
+                "Only multiscale image and labels visuals load progressively; "
+                f"got a {type(visual).__name__}."
+            )
+        valid = ProgressiveLoadingConfig.model_fields
+        unknown = [name for name in fields if name not in valid]
+        if unknown:
+            close = difflib.get_close_matches(unknown[0], valid, n=1)
+            suggestion = f" Did you mean {close[0]!r}?" if close else ""
+            raise ValueError(
+                f"{unknown[0]!r} is not a ProgressiveLoadingConfig field."
+                f"{suggestion} Valid fields: {list(valid)}."
+            )
+        current = visual.render_config.loading
+        # Validation errors (a ValueError) propagate unchanged.
+        loading = ProgressiveLoadingConfig(**{**current.model_dump(), **fields})
+        if loading == current:
+            return current
+        token = _loading_source_id_override.set(source_id)
+        try:
+            visual.render_config = visual.render_config.model_copy(
+                update={"loading": loading}
+            )
+        finally:
+            _loading_source_id_override.reset(token)
+        return loading
+
+    def _on_loading_config_update(self, event: LoadingConfigUpdateEvent) -> None:
+        self.set_loading_config(
+            event.visual_id, source_id=event.source_id, **{event.field: event.value}
+        )
 
     def _on_visual_render_update(self, event: VisualRenderUpdateEvent) -> None:
         self.update_visual_render_field(
@@ -5086,10 +5374,95 @@ class CellierController:
                 visual_model.transform = transform
 
     def _on_dims_changed_bus(self, event: DimsChangedEvent) -> None:
-        """Bus handler -- reslice the scene when what it shows changed."""
+        """Bus handler -- reslice the scene when what it shows changed.
+
+        A slider tick plans multiscale visuals in ``dims_drag="backstop"``
+        mode backstop-only and restarts the scene's dims settle timer; when
+        it fires they plan in full (design v3 5.10).  Every other visual,
+        and every visual on a displayed-axes change, plans in full at once.
+        """
         if not event.region_changed:
             return
-        self.reslice_scene(event.scene_id)
+        scene_id = event.scene_id
+        drag = (
+            set() if event.displayed_axes_changed else self._backstop_drag_ids(scene_id)
+        )
+        if not drag:
+            # A full reslice of the scene supersedes a pending settle.
+            self._cancel_dims_settle(scene_id)
+            self.reslice_scene(scene_id)
+            return
+        configs = self._build_visual_configs_for_scene(scene_id)
+        for visual_id in drag:
+            configs[visual_id] = dataclasses.replace(
+                configs[visual_id], plan_mode=PlanMode.BACKSTOP_ONLY
+            )
+        self._render_manager.reslice_scene(
+            scene_id,
+            self._dims_state_for_scene(scene_id),
+            configs,
+            selections=self._selections_for_scene(scene_id),
+        )
+        self._schedule_dims_settle(scene_id, drag)
+
+    def _backstop_drag_ids(self, scene_id: UUID) -> set[UUID]:
+        """Visuals of *scene_id* whose slider ticks plan backstop-only."""
+        return {
+            visual.id
+            for visual in self._model.scenes[scene_id].visuals
+            if isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual))
+            and visual.render_config.loading.dims_drag == "backstop"
+        }
+
+    def _schedule_dims_settle(self, scene_id: UUID, visual_ids: set[UUID]) -> None:
+        """(Re)start *scene_id*'s dims settle, adding *visual_ids* to it."""
+        self._dims_settle_pending.setdefault(scene_id, set()).update(visual_ids)
+        existing = self._dims_settle_tasks.pop(scene_id, None)
+        if existing is not None and not existing.done():
+            existing.cancel()
+        try:
+            task = asyncio.get_running_loop().create_task(
+                self._dims_settle_after(scene_id)
+            )
+        except RuntimeError:
+            # No event loop, so no reads either: settle at once.
+            self._settle_dims(scene_id)
+            return
+        self._dims_settle_tasks[scene_id] = task
+
+    async def _dims_settle_after(self, scene_id: UUID) -> None:
+        await asyncio.sleep(self._render_manager.config.scheduler.dims_settle_s)
+        self._dims_settle_tasks.pop(scene_id, None)
+        self._settle_dims(scene_id)
+
+    def _settle_dims(self, scene_id: UUID) -> None:
+        """Plan in full the visuals that ticked backstop-only."""
+        pending = self._dims_settle_pending.pop(scene_id, set())
+        scene = self._model.scenes.get(scene_id)
+        if scene is None:
+            return
+        target = frozenset(pending & {visual.id for visual in scene.visuals})
+        if not target:
+            return
+        _SCHEDULER_LOGGER.info(
+            "dims_settle  scene=%s visuals=%d: planning the target",
+            scene_id,
+            len(target),
+        )
+        self._render_manager.reslice_scene(
+            scene_id=scene_id,
+            dims_state=self._dims_state_for_scene(scene_id),
+            visual_configs=self._build_visual_configs_for_scene(scene_id),
+            target_visual_ids=target,
+            selections=self._selections_for_scene(scene_id),
+        )
+
+    def _cancel_dims_settle(self, scene_id: UUID) -> None:
+        """Drop *scene_id*'s pending dims settle, if any."""
+        self._dims_settle_pending.pop(scene_id, None)
+        task = self._dims_settle_tasks.pop(scene_id, None)
+        if task is not None and not task.done():
+            task.cancel()
 
     # ------------------------------------------------------------------
     # Model mutation with source-ID threading
@@ -6426,11 +6799,13 @@ class CellierController:
         for visual_model in list(scene.visuals):
             self.remove_visual(visual_model.id)
 
-        # 2. Cancel any pending camera-settle tasks for this scene's canvases.
+        # 2. Cancel any pending camera-settle tasks for this scene's canvases,
+        #    and its dims settle.
         for canvas_id in self._scene_to_canvases.get(scene_id, []):
             task = self._settle_tasks.pop(canvas_id, None)
             if task is not None and not task.done():
                 task.cancel()
+        self._cancel_dims_settle(scene_id)
 
         # 3. Overlays drawn in this scene -- its own and its canvases' --
         #    lose their bridges and render objects with it.
@@ -7411,35 +7786,26 @@ class CellierController:
         """
         self._render_manager._canvases[canvas_id].set_controller_enabled(enabled)
 
-    def _invalidate_painted_tiles_2d(
-        self, visual_id: UUID, dirty_grid_coords: set[tuple[int, int]]
-    ) -> int:
-        """Evict the visible 2D-cache tiles for *visual_id* listed in dirty grid coords.
+    def _invalidate_painted_regions(self, store_id: UUID, regions: tuple) -> list[int]:
+        """Drop GPU data painted over, so the next reslice fetches it again.
 
-        Used by :class:`MultiscalePaintController` after staging level-0
-        writes so the next reslice re-fetches through the open paint
-        transaction.  No-op for visuals that don't own a 2D tile cache.
+        Used by :class:`MultiscalePaintController` after flushing a paint
+        transaction.  Every atlas reading the store drops its resident bricks
+        and tiles that overlap *regions*, at every level (design 5.14).
 
         Parameters
         ----------
-        visual_id :
-            The painted multiscale visual.
-        dirty_grid_coords :
-            Set of ``(gy, gx)`` tile-grid coordinates whose finest-level
-            tiles should be evicted.
+        store_id : UUID
+            The painted store.
+        regions : tuple of DataRegion
+            Level-0 data regions, one ``(start, stop)`` per data axis each.
 
         Returns
         -------
-        int
-            Number of tiles evicted (0 if the visual has no 2D cache or
-            no entries matched).
+        list[int]
+            The atlases touched.
         """
-        scene_id = self._visual_to_scene[visual_id]
-        scene_manager = self._render_manager._scenes[scene_id]
-        gfx_visual = scene_manager.get_visual(visual_id)
-        if not hasattr(gfx_visual, "invalidate_painted_tiles_2d"):
-            return 0
-        return gfx_visual.invalidate_painted_tiles_2d(dirty_grid_coords)
+        return self._render_manager.invalidate_store(store_id, regions)
 
     def _patch_painted_tiles_2d(
         self,
@@ -7451,8 +7817,7 @@ class CellierController:
         """Write paint into the visual's GPU paint cache (Phase-2 fast path).
 
         Used by :class:`MultiscalePaintController._write_values` for
-        sub-frame visible feedback in 2-D paint sessions.  Mirrors the
-        architectural pattern of :meth:`_invalidate_painted_tiles_2d`.
+        sub-frame visible feedback in 2-D paint sessions.
 
         Parameters
         ----------
@@ -7987,6 +8352,13 @@ class CellierController:
         # is guaranteed here is that nothing stays tracked and nothing is left
         # un-cancelled -- not that everything has already stopped.
         self._cancel_settle_tasks()
+        for scene_id in list(self._dims_settle_tasks):
+            self._cancel_dims_settle(scene_id)
+        self._dims_settle_pending.clear()
+        for task in self._store_reslice_tasks.values():
+            task.cancel()
+        self._store_reslice_tasks.clear()
+        self._store_reslice_extent.clear()
         # cancel_all rather than a cancel_pending_slices walk per scene: a
         # superseded non-cancellable reslice is no longer named by any scene's
         # bookkeeping, so the per-scene walk cannot reach it.
@@ -8131,6 +8503,102 @@ class CellierController:
             owner_id=owner_id,
             weak=weak,
         )
+
+    def on_reslice_progress(
+        self,
+        visual_id: UUID,
+        callback: Callable[[ResliceProgressEvent], None],
+        *,
+        owner_id: UUID,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired as a multiscale visual's data loads.
+
+        Fired at most once per event-loop iteration: after each plan, each
+        frame that commits the visual's data, a read given up, or an
+        invalidation.  ``event.progress`` is a
+        :class:`~cellier.events.LoadingProgress`.  Only multiscale visuals
+        load progressively; others never fire it.
+
+        Parameters
+        ----------
+        visual_id :
+            The visual to watch.
+        callback :
+            Called with the ``ResliceProgressEvent``.
+        owner_id :
+            UUID under which this subscription is registered, for
+            ``unsubscribe_owner(owner_id)``.
+        weak :
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+        """
+        return self._outgoing_events.subscribe(
+            ResliceProgressEvent,
+            callback,
+            entity_id=visual_id,
+            owner_id=owner_id,
+            weak=weak,
+        )
+
+    def on_backstop_complete(
+        self,
+        visual_id: UUID,
+        callback: Callable[[BackstopCompleteEvent], None],
+        *,
+        owner_id: UUID,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired when a multiscale visual's backstop is loaded.
+
+        From then on the view shows the current slice everywhere, possibly
+        blurry, while finer data keeps loading.  Fired once per plan that
+        has a backstop (``render_config.loading.backstop``).
+
+        Parameters
+        ----------
+        visual_id :
+            The visual to watch.
+        callback :
+            Called with the ``BackstopCompleteEvent``.
+        owner_id :
+            UUID under which this subscription is registered, for
+            ``unsubscribe_owner(owner_id)``.
+        weak :
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+        """
+        return self._outgoing_events.subscribe(
+            BackstopCompleteEvent,
+            callback,
+            entity_id=visual_id,
+            owner_id=owner_id,
+            weak=weak,
+        )
+
+    def loading_progress(self, visual_id: UUID) -> LoadingProgress | None:
+        """A multiscale visual's current loading progress.
+
+        The same counts the latest ``ResliceProgressEvent`` carried, read
+        now.  ``None`` for a visual that is not multiscale, or that has not
+        been planned yet (or draws nothing).
+
+        Parameters
+        ----------
+        visual_id :
+            The visual.
+
+        Returns
+        -------
+        LoadingProgress or None
+        """
+        return self._render_manager.loading_progress(visual_id)
 
     def on_scene_ready(
         self,

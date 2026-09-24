@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from cellier.visuals import InMemoryImageSingleAppearance
+from tests._gpu_budget import SMALL_BUDGETS
 from tests._v2 import level_transforms
 
 # ── GFXImageMemoryVisual ──────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ def test_label_memory_visible_true_is_default(label_store):
 
 def _multiscale_label_model(visible: bool):
     from cellier.visuals import (
+        MultiscaleLabelRenderConfig,
         MultiscaleLabelsAppearance,
         MultiscaleLabelVisual,
     )
@@ -156,6 +158,7 @@ def _multiscale_label_model(visible: bool):
             [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
         ),
         appearance=MultiscaleLabelsAppearance(visible=visible),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
 
 

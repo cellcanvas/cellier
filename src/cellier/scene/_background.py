@@ -14,6 +14,10 @@ RGBA = tuple[float, float, float, float]
 DEFAULT_BOTTOM_COLOR: RGBA = (100 / 255, 100 / 255, 100 / 255, 1.0)
 DEFAULT_TOP_COLOR: RGBA = (169 / 255, 167 / 255, 168 / 255, 1.0)
 
+# What the convenience viewers (``Viewer``, ``OrthoViewer``) fill the canvas
+# with by default.
+VIEWER_BACKGROUND_COLOR: RGBA = (0.0, 0.0, 0.0, 1.0)
+
 
 class BackgroundAppearance(EventedModel):
     """Appearance of the background drawn behind a scene's visuals.
@@ -60,3 +64,19 @@ class BackgroundAppearance(EventedModel):
         if self.mode == "uniform":
             return (self.color,)
         return (self.bottom_color, self.top_color)
+
+
+def viewer_background() -> BackgroundAppearance:
+    """The background ``Viewer`` and ``OrthoViewer`` start with.
+
+    A uniform :data:`VIEWER_BACKGROUND_COLOR` (black).  The gradient colors
+    keep their defaults, so switching ``mode`` to ``"vertical_gradient"``
+    shows the usual gray gradient.  A scene built directly (``add_scene``,
+    ``Scene``) keeps ``BackgroundAppearance``'s own default, the gradient.
+
+    Returns
+    -------
+    BackgroundAppearance
+        A new model on every call, so no two scenes share one.
+    """
+    return BackgroundAppearance(mode="uniform", color=VIEWER_BACKGROUND_COLOR)

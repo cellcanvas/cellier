@@ -67,6 +67,33 @@
 
 /* ── Contrast limits dual-range (mirrors panel.css) ──────────────────────── */
 
+/* Four numbers, as in the Qt control: the current low / high above the track
+   and the range bounds at its ends. */
+.cellier-clim {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cellier-clim-values {
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+
+.cellier-clim-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cellier-clim-bound {
+  flex-shrink: 0;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
 .cellier-clim-track {
   position: relative;
   flex: 1 1 auto;

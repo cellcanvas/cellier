@@ -98,11 +98,13 @@ def build_lut_params_buffer_2d(
 MAX_LEVELS = 10
 
 # Each level is a separate vec4 field: the float scale, then the integer
-# cell -> tile rule (base cells per tile, tile count) as exact small floats.
+# cell -> tile rule (base cells per tile, tile count) as exact small floats,
+# then the level's translation in level-0 voxels (plan v2, D1).
 BLOCK_SCALES_DTYPE = np.dtype(
     [(f"scale_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
     + [(f"span_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
     + [(f"bricks_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
+    + [(f"offset_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
 )
 
 
@@ -111,6 +113,7 @@ def build_block_scales_buffer_2d(
     n_levels: int | None = None,
     level_shapes: list[tuple[int, int]] | None = None,
     block_size: int | None = None,
+    level_translation_vecs_data: list[np.ndarray] | None = None,
 ) -> Buffer:
     """Build the block-scales uniform buffer.
 
@@ -137,6 +140,10 @@ def build_block_scales_buffer_2d(
         unbounded, which matches the LUT writer's own fallback.
     block_size : int or None
         Tile side length in pixels.  Required with ``level_shapes``.
+    level_translation_vecs_data : list[np.ndarray] or None
+        Per-level translation in level-0 voxels, 2D data order ``(ty, tx)``,
+        parallel to *level_scale_vecs_data*.  Stored as ``offset_k`` in
+        shader order ``(x, y)``, not inverted.  ``None`` stores zeros.
 
     Returns
     -------
@@ -157,6 +164,9 @@ def build_block_scales_buffer_2d(
             # shader y = H = data axis 0 (sy)
             data[f"scale_{k}"][1] = 1.0 / float(sv[0])
             data[f"scale_{k}"][2] = 0.0  # unused z
+            if level_translation_vecs_data is not None:
+                ty, tx = (float(v) for v in level_translation_vecs_data[k - 1])
+                data[f"offset_{k}"][:2] = (tx, ty)
     elif n_levels is not None:
         n = min(n_levels, MAX_LEVELS - 1)
         for k in range(1, n + 1):

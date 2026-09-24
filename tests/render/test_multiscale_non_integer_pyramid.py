@@ -9,11 +9,13 @@ the tile, and nothing wrote the last row at level 3.  See
 ``docs/Explanations/multiscale_brick_lookup.md``.
 
 Each test renders the same data forced to the finest and to the coarsest
-level and compares the two.  Comparisons are made away from the silhouette:
-coarse levels draw their outermost half texel slightly differently from the
-finest level on every pyramid, power-of-two ones included, which is a separate
-edge convention.  The LUT-level guarantees (every cell written, by the brick
-the rule names) are in ``lut_indirection/test_non_integer_pyramid_lut.py``.
+level and compares the two.  In 2D the comparison runs right up to the
+silhouette: since plan v2 Phase 5 every level is placed by its level
+transform, so the coarse level's outermost texels land where the finest
+level's do.  3D still compares away from the silhouette (``EROSION_3D``):
+its shaders keep their own edge convention until Phase 6.  The LUT-level
+guarantees (every cell written, by the brick the rule names) are in
+``lut_indirection/test_non_integer_pyramid_lut.py``.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ import pytest
 import tensorstore as ts
 
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
-from cellier.visuals import MultiscaleImageSingleAppearance
+from cellier.visuals import MultiscaleImageSingleAppearance, ProgressiveLoadingConfig
 from cellier.visuals._image import (
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
@@ -32,6 +34,7 @@ from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
     MultiscaleLabelsAppearance,
 )
+from tests._gpu_budget import SMALL_BUDGETS
 
 BLOCK_SIZE = 8
 SHAPES = [(16, 98, 16), (8, 49, 8), (4, 24, 4)]
@@ -103,6 +106,15 @@ def bands_root(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+#: Pixels kept clear of the silhouette in 3D, where the coarse level's
+#: outermost half texel still lands differently (plan v2 Phase 6).
+EROSION_3D = 4
+
+
+def _erosion(dim: str) -> int:
+    return 0 if dim == "2d" else EROSION_3D
+
+
 def _interior(fine: np.ndarray, coarse: np.ndarray, erosion: int = 4) -> np.ndarray:
     """Pixels both frames drew, at least *erosion* pixels from either silhouette."""
     mask = (fine[..., 3] > 0) & (coarse[..., 3] > 0)
@@ -161,7 +173,12 @@ async def _render_image(controller, render_scene, reslice, root, dim, level):
         data=_store(root, f"ramp-{dim}-{level}"),
         scene_id=scene.id,
         appearance=MultiscaleImageAppearance(force_level=level),
-        render_config=MultiscaleImageRenderConfig(block_size=BLOCK_SIZE),
+        # The level under test only: no backstop drawn beneath it.
+        render_config=MultiscaleImageRenderConfig(
+            **SMALL_BUDGETS,
+            block_size=BLOCK_SIZE,
+            loading=ProgressiveLoadingConfig(backstop=False),
+        ),
         single=MultiscaleImageSingleAppearance(
             color_map="gray", clim=(0.0, 1.0), render_mode="mip"
         ),
@@ -180,7 +197,11 @@ async def _render_labels(controller, render_scene, reslice, root, dim, level):
         data=_store(root, f"bands-{dim}-{level}"),
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(force_level=level),
-        render_config=MultiscaleLabelRenderConfig(block_size=BLOCK_SIZE),
+        render_config=MultiscaleLabelRenderConfig(
+            **SMALL_BUDGETS,
+            block_size=BLOCK_SIZE,
+            loading=ProgressiveLoadingConfig(backstop=False),
+        ),
     )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -210,7 +231,7 @@ async def test_coarse_image_matches_the_finest(
         controller, render_scene, reslice, ramp_root, dim, COARSEST
     )
 
-    inner = _interior(fine, coarse)
+    inner = _interior(fine, coarse, _erosion(dim))
     assert inner.sum() > 500
     assert _color_error_99th(fine, coarse, inner) <= 30
     if dim == "2d":
@@ -233,7 +254,7 @@ async def test_coarse_labels_keep_every_band_in_order(
     assert fine_pixels > 0
     assert np.count_nonzero(coarse[..., 3]) >= 0.5 * fine_pixels
     if dim == "2d":
-        inner = _interior(fine, coarse)
+        inner = _interior(fine, coarse, _erosion(dim))
         bands = _band_sequence(fine, inner)
         assert len(bands) >= 5
         assert _band_sequence(coarse, inner) == bands

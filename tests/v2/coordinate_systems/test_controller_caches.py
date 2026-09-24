@@ -109,6 +109,32 @@ async def test_a_slice_move_keeps_the_rendered_system_and_moves_the_embedding(
     assert after_embedding.translation[0] == pytest.approx(2.0)
 
 
+async def test_a_slice_move_rebuilds_the_embedding_from_the_kept_system(
+    controller_with_canvas,
+):
+    """The moved embedding still starts at the rendered system the canvas holds.
+
+    ``RenderedCoordinateSystem.from_world`` mints fresh ids on every call, so
+    an embedding built from a new system paired the kept system with an
+    embedding of a system nothing else knew.  Every later node matrix on the
+    scene then failed its id check -- in the orthoviewer, on the first camera
+    change after a channel-slider move in the 3D panel.
+    """
+    from cellier.render._spaces import node_matrix
+
+    controller, scene, canvas_id, visual, _store = controller_with_canvas
+    controller.update_slice_indices(scene.id, {0: 2.0})
+
+    system, embedding = controller._rendered[canvas_id]
+    assert embedding.input_coordinate_system == system.id
+
+    # The composition that raised: data -> world -> rendered.
+    spaces = controller.render_spaces(visual.id)
+    assert spaces.world_to_rendered.output_coordinate_system == spaces.rendered.id
+    matrix = node_matrix(spaces, controller.get_visual_model(visual.id).transform, {})
+    assert matrix.shape == (4, 4)
+
+
 async def test_changing_the_displayed_set_rebuilds_the_rendered_system(
     controller_with_canvas,
 ):

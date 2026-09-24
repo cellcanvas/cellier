@@ -191,3 +191,22 @@ def test_a_dims_change_does_not_relabel_a_control_with_no_toggle(qtbot):
     )
 
     assert control.has_toggle is False
+
+
+def test_a_continuous_axis_shows_its_configured_decimals(qtbot):
+    _controller, scene = _make_controller_with_scene()
+    selection = scene.dims.selection
+    control = QtDimsControl(
+        scene_id=scene.id,
+        axis_values={
+            0: ContinuousAxisValues(min=0, max=9680, decimals=0),
+            1: ContinuousAxisValues(min=0, max=99),
+            2: ContinuousAxisValues(min=0, max=99),
+        },
+        axis_labels={0: "z", 1: "y", 2: "x"},
+        initial_slice_indices=dict(selection.slice_indices),
+        initial_displayed_axes=selection.displayed_axes,
+    )
+    qtbot.addWidget(control.widget)
+    assert control._sliders[0].decimals() == 0
+    assert control._sliders[1].decimals() == 2

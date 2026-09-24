@@ -16,8 +16,10 @@ from cellier.controller import CellierController
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
 from cellier.render.visuals._slicing import round_world_to_voxel
 from cellier.scene.dims import spatial_axes
-from cellier.visuals import MultiscaleImageSingleAppearance
+from cellier.visuals import MultiscaleImageRenderConfig, MultiscaleImageSingleAppearance
 from cellier.visuals._image import MultiscaleImageAppearance
+from tests._gpu_budget import SMALL_BUDGETS
+from tests._planning import planned_requests_3d
 from tests._v2 import pyramid_levels
 
 
@@ -76,6 +78,7 @@ def _viewer(path, world=None):
         scene_id=scene.id,
         appearance=MultiscaleImageAppearance(),
         single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
     )
     return controller, scene, visual
 
@@ -88,7 +91,8 @@ def _plan(
     selection = (
         controller._selections_for_scene(scene.id)[canvas_id] if with_region else None
     )
-    requests = gfx.build_slice_request(
+    requests = planned_requests_3d(
+        gfx,
         camera_pos_world=np.array([8.0, 8.0, 40.0]),
         frustum_corners_world=None,
         fov_y_rad=1.0,

@@ -13,7 +13,10 @@ from cellier.render.block_cache._tile_manager_2d import (
 
 
 class BlockCache2D:
-    """Fixed-size GPU slot pool with LRU eviction for 2D tiles.
+    """Fixed-size GPU slot pool for 2D tiles.
+
+    Which tile lives in which slot is the chunk scheduler's decision; the
+    image residency adapter writes the tiles.
 
     Parameters
     ----------
@@ -25,7 +28,7 @@ class BlockCache2D:
     info : BlockCacheParameters2D
         Cache sizing metadata (grid dims, slot count, padded block size).
     tile_manager : TileManager2D
-        Tile-to-slot mapping with LRU eviction.
+        Slot geometry and the drawn-tile view.
     cache_data : np.ndarray
         CPU-side backing array, shape ``(cH, cW)``, dtype float32.
     cache_tex : gfx.Texture
@@ -69,3 +72,12 @@ class BlockCache2D:
             slot.index,
             slot.grid_pos,
         )
+
+    @property
+    def n_resident(self) -> int:
+        """Number of tiles the LUT currently draws."""
+        return len(self.tile_manager.tilemap)
+
+    def clear(self) -> None:
+        """Forget the drawn view.  The slots' data is simply overwritten later."""
+        self.tile_manager.clear()

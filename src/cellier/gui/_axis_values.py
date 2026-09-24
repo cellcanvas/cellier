@@ -60,6 +60,10 @@ class ContinuousAxisValues(BaseModel):
         Lowest world position the slider reaches.
     max : float
         Highest world position the slider reaches.  Must be ``>= min``.
+    decimals : int
+        Decimal places the slider's position readout shows.  Default 2.
+        Display only: the slider stays continuous and the model receives the
+        full-precision position.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -67,6 +71,7 @@ class ContinuousAxisValues(BaseModel):
     kind: Literal["continuous"] = "continuous"
     min: float
     max: float
+    decimals: int = Field(default=2, ge=0)
 
     @model_validator(mode="after")
     def _check_bounds(self) -> ContinuousAxisValues:

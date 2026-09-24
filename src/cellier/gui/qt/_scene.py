@@ -249,6 +249,9 @@ class QtDimsControl:
                 self._set_value(axis, _initial.get(axis, spec.values[0]))
             else:
                 sld = QLabeledDoubleSlider(Qt.Orientation.Horizontal)
+                # Display only; before setValue so the first position is not
+                # rounded to the previous precision.
+                sld.setDecimals(spec.decimals)
                 sld.setRange(spec.min, spec.max)
                 sld.setValue(_initial.get(axis, spec.min))
                 # Capture `axis` by value in the default-argument closure.

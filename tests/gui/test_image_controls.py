@@ -162,7 +162,7 @@ def test_qt_pages_hold_the_right_fields(qt_controls):
     channel = {(ch, f) for page, ch, f in widget._controls if page == "channel"}
     assert single == {"clim", "opacity", "render_mode", "iso_threshold"}
     assert {f for ch, f in channel if ch == 1} == single | {"visible"}
-    assert ("shared", None, "attenuation") not in widget._controls
+    assert not any(f == "attenuation" for _p, _c, f in widget._controls)
 
     multiscale = _multiscale_model(
         channel_axis=0, channels={0: MultiscaleImageChannelAppearance()}
@@ -171,7 +171,10 @@ def test_qt_pages_hold_the_right_fields(qt_controls):
         multiscale.id,
         image_control_values(multiscale, fields=[*_FIELDS, "attenuation"]),
     )
-    assert ("shared", None, "attenuation") in ms_widget._controls
+    # One shared value: under the render mode on the single page, and once
+    # below the channels on the composite page.
+    attenuation = {(p, c) for p, c, f in ms_widget._controls if f == "attenuation"}
+    assert attenuation == {("single", None), ("composite", None)}
 
 
 def test_qt_single_and_channel_edits_reach_the_model_and_back(qt_controls):
@@ -186,6 +189,65 @@ def test_qt_single_and_channel_edits_reach_the_model_and_back(qt_controls):
     controller.update_single_appearance_field(visual.id, "iso_threshold", 0.75)
     value = widget._controls[("single", None, "iso_threshold")].value()
     assert value == pytest.approx(0.75)
+
+
+def test_qt_threshold_slider_spans_the_clim_range(qt_controls):
+    """A threshold is in data units, so its slider spans ``clim_range``.
+
+    It used to share opacity's fixed 0-1 range, which clamped the threshold of
+    any non-normalized image (a uint16 volume) to 1.
+    """
+    controller, visual = _image()
+    controller.update_single_appearance_field(visual.id, "iso_threshold", 30000.0)
+    values = image_control_values(visual, fields=_FIELDS, clim_range=(0.0, 65535.0))
+    widget = _connect(controller, qt_controls(visual.id, values))
+
+    threshold = widget._controls[("single", None, "iso_threshold")]
+    assert (threshold.minimum(), threshold.maximum()) == (0.0, 65535.0)
+    assert threshold.value() == pytest.approx(30000.0)
+    channel_threshold = widget._controls[("channel", 1, "iso_threshold")]
+    assert channel_threshold.maximum() == 65535.0
+    # Opacity is a fraction whatever the data range.
+    opacity = widget._controls[("single", None, "opacity")]
+    assert (opacity.minimum(), opacity.maximum()) == (0.0, 1.0)
+
+    threshold.setValue(40000.0)
+    assert visual.single.iso_threshold == pytest.approx(40000.0)
+
+
+def test_qt_data_unit_fields_follow_the_configured_decimals(qt_controls):
+    """Contrast and threshold show ``decimals``; fractions always show 2."""
+    controller, visual = _image()
+    values = image_control_values(
+        visual, fields=_FIELDS, clim_range=(0.0, 65535.0), decimals=0
+    )
+    widget = _connect(controller, qt_controls(visual.id, values))
+
+    for page, channel in (("single", None), ("channel", 1)):
+        assert widget._controls[(page, channel, "clim")].decimals() == 0
+        assert widget._controls[(page, channel, "iso_threshold")].decimals() == 0
+        assert widget._controls[(page, channel, "opacity")].decimals() == 2
+
+    # The default is 2.
+    default = qt_controls(visual.id, _values(visual))
+    assert default._controls[("single", None, "clim")].decimals() == 2
+    assert default._controls[("single", None, "iso_threshold")].decimals() == 2
+
+
+def test_qt_contrast_and_threshold_tracks_keep_a_minimum_width(qt_controls):
+    """The track, not the whole control, is floored; opacity is not."""
+    from cellier.gui._image_controls import MIN_TRACK_WIDTH_PX
+
+    _controller, visual = _image()
+    widget = qt_controls(visual.id, _values(visual))
+
+    for page, channel in (("single", None), ("channel", 1)):
+        for field in ("clim", "iso_threshold"):
+            control = widget._controls[(page, channel, field)]
+            assert control._slider.minimumWidth() == MIN_TRACK_WIDTH_PX
+            assert control.minimumSizeHint().width() > MIN_TRACK_WIDTH_PX
+        opacity = widget._controls[(page, channel, "opacity")]
+        assert opacity._slider.minimumWidth() == 0
 
 
 def test_qt_shows_a_colormap_that_no_name_can_reconstruct(qt_controls):
@@ -297,3 +359,10 @@ def test_anywidget_channel_edits_reach_the_model_and_back(any_controls):
 
     controller.update_channel_appearance_field(visual.id, 0, "opacity", 0.5)
     assert widget.channels["0"]["opacity"] == pytest.approx(0.5)
+
+
+def test_anywidget_decimals_trait_carries_the_configured_value(any_controls):
+    _controller, visual = _image()
+    assert any_controls(visual.id, _values(visual)).decimals == 2
+    values = image_control_values(visual, fields=_FIELDS, decimals=0)
+    assert any_controls(visual.id, values).decimals == 0

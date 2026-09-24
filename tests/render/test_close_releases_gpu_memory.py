@@ -16,6 +16,7 @@ texture can die is by ``close()`` dropping the references to it.
 
 from __future__ import annotations
 
+import asyncio
 import gc
 import weakref
 from contextlib import contextmanager
@@ -191,7 +192,13 @@ async def test_close_mid_slice_frees_every_texture(kind, request, monkeypatch):
     textures = _track_instances(monkeypatch, gfx.Texture)
     with _collector_off():
         controller, _scene_id = _build(request, kind)
-        in_flight = list(controller._render_manager._slicer._tasks.values())
+        render_manager = controller._render_manager
+        in_flight = list(render_manager._slicer._tasks.values())
+        if not in_flight:
+            # Multiscale 3D loads through the chunk scheduler: its pass runs
+            # on the next loop turn and starts the reads.
+            await asyncio.sleep(0)
+            in_flight = list(render_manager.scheduler._tasks)
         assert in_flight, "no slice was in flight -- the test proves nothing"
 
         controller.close()
@@ -225,3 +232,112 @@ async def test_remove_scene_frees_its_textures(
 
         assert _survivors(textures) == []
     controller.close()
+
+
+# ── Dropped without close() ──────────────────────────────────────────────────
+
+
+_LEVEL_SHAPES = [(8, 8, 8), (4, 4, 4)]
+
+
+def _level_transforms():
+    from tests._v2 import level_transforms
+
+    return level_transforms(
+        [[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]], [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]
+    )
+
+
+def _level_transforms_4d():
+    from tests._v2 import level_transforms
+
+    return level_transforms(
+        [[1.0, 1.0, 1.0, 1.0], [1.0, 2.0, 2.0, 2.0]],
+        [[0.0, 0.0, 0.0, 0.0], [0.0, 0.5, 0.5, 0.5]],
+    )
+
+
+def _image_visual(composite: bool):
+    from cellier.render.visuals import GFXMultiscaleImageVisual
+    from cellier.visuals import MultiscaleImageVisual
+    from cellier.visuals._image import MultiscaleImageChannelAppearance
+
+    render_config = MultiscaleImageRenderConfig(
+        block_size=8, gpu_budget_bytes=_BUDGET_3D, gpu_budget_bytes_2d=_BUDGET_2D
+    )
+    if composite:
+        model = MultiscaleImageVisual(
+            name="img",
+            data_store_id="store",
+            channel_axis=0,
+            composite=True,
+            channels={
+                0: MultiscaleImageChannelAppearance(color_map="red"),
+                1: MultiscaleImageChannelAppearance(color_map="green"),
+            },
+            level_transforms=_level_transforms_4d(),
+            render_config=render_config,
+        )
+        shapes = [(2, *shape) for shape in _LEVEL_SHAPES]
+        displayed = (1, 2, 3)
+    else:
+        model = MultiscaleImageVisual(
+            name="img",
+            data_store_id="store",
+            level_transforms=_level_transforms(),
+            render_config=render_config,
+        )
+        shapes, displayed = _LEVEL_SHAPES, (0, 1, 2)
+    return GFXMultiscaleImageVisual(
+        visual_model=model,
+        level_shapes=shapes,
+        render_modes={"2d", "3d"},
+        displayed_axes=displayed,
+    )
+
+
+def _labels_visual():
+    from cellier.render.visuals import GFXMultiscaleLabelVisual
+    from cellier.visuals import MultiscaleLabelVisual
+
+    model = MultiscaleLabelVisual(
+        name="lbl",
+        data_store_id="store",
+        level_transforms=_level_transforms(),
+        appearance=MultiscaleLabelsAppearance(),
+        render_config=MultiscaleLabelRenderConfig(
+            block_size=8, gpu_budget_bytes=_BUDGET_3D, gpu_budget_bytes_2d=_BUDGET_2D
+        ),
+    )
+    return GFXMultiscaleLabelVisual.from_cellier_model(
+        model=model,
+        level_shapes=_LEVEL_SHAPES,
+        render_modes={"2d", "3d"},
+        displayed_axes=(0, 1, 2),
+    )
+
+
+@pytest.mark.parametrize(
+    "make_visual",
+    [
+        pytest.param(lambda: _image_visual(composite=False), id="image"),
+        pytest.param(lambda: _image_visual(composite=True), id="image_composite"),
+        pytest.param(_labels_visual, id="labels"),
+    ],
+)
+def test_dropped_multiscale_visual_dies_by_refcount(make_visual):
+    """A visual dropped without ``close()`` frees its caches at once.
+
+    Its residencies and slots call back into it; held strongly, those
+    callbacks made cycles, and each dropped visual kept its brick caches until
+    a full collection -- which a 1 GiB array barely brings closer, being one
+    allocation.  Tests that build visuals directly never close them.
+    """
+    with _collector_off():
+        visual = make_visual()
+        assert visual.residencies(), "no residency built -- the test proves nothing"
+        ref = weakref.ref(visual)
+
+        del visual
+
+        assert ref() is None

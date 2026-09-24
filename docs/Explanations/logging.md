@@ -7,19 +7,20 @@ and zero runtime cost in production.
 
 ## Categories
 
-There are six independent loggers, each covering a different part of the
+There are seven independent loggers, each covering a different part of the
 pipeline:
 
 | Category | Logger name | What it covers |
 |----------|-------------------------|------------------------------------------------|
 | `perf` | `cellier.render.perf` | Planning timing, fetch latency statistics |
 | `gpu` | `cellier.render.gpu` | Brick/tile writes, LUT rebuilds |
-| `cache` | `cellier.render.cache` | Cache hit/miss summaries, eviction, clear |
+| `cache` | `cellier.render.cache` | Cache hit/miss summaries, eviction, clear; `backstop_capped` (once per visual, INFO) when `backstop_max_slot_fraction` truncates a backstop |
 | `slicer` | `cellier.render.slicer` | Async task lifecycle, batch progress |
+| `scheduler` | `cellier.render.scheduler` | The chunk scheduler that loads multiscale visuals: per-cache passes, commit rounds (committed / evicted / discarded) and invalidations at INFO, each read issued and landed at DEBUG, failed reads at WARNING; the dims settle and rate-capped store-change reslices at INFO |
 | `camera` | `cellier.render.camera` | Camera change detection, settle timer, reslice trigger |
 | `source_id` | `cellier.render.source_id` | Source ID injection through the ContextVar → psygnal → bus bridge |
 
-All six live under the `cellier.render` parent logger, so standard Python
+All seven live under the `cellier.render` parent logger, so standard Python
 logging hierarchy applies.
 
 ## Log levels

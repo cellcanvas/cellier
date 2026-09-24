@@ -56,7 +56,19 @@ class AnywidgetBox(anywidget.AnyWidget):
         ``titled_group``: the render dock uses it to say whose settings these
         are, since "Outline" beside "Outlines" is not a distinction a reader
         should have to make.
+    scroll : bool
+        Scroll the children vertically within the height of the row the box
+        sits in, instead of making that row as tall as the children.  For a
+        side dock: the canvas column beside it sets the height, and a long
+        controls column scrolls rather than stretching the output (or the
+        sidecar) past the canvas.  The box keeps its content width, and never
+        gets shorter than ``SCROLL_MIN_HEIGHT`` pixels.  Only meaningful for a
+        box that is an item in a horizontal box.
     """
+
+    #: The least height a scrolling box takes, so a small canvas does not
+    #: squeeze a dock to a sliver; a shorter row grows to it.
+    SCROLL_MIN_HEIGHT = 300
 
     _esm = _STATIC / "container.js"
     _css = _STATIC / "container.css"
@@ -70,6 +82,8 @@ class AnywidgetBox(anywidget.AnyWidget):
     gap = traitlets.Int(4).tag(sync=True)
     padding = traitlets.Int(0).tag(sync=True)
     title = traitlets.Unicode("").tag(sync=True)
+    scroll = traitlets.Bool(False).tag(sync=True)
+    scroll_min_height = traitlets.Int(SCROLL_MIN_HEIGHT).tag(sync=True)
 
     def close(self) -> None:
         """Close this box and every widget beneath it.

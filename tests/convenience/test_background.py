@@ -12,6 +12,54 @@ def _top_color(viewer_controller, scene_id) -> np.ndarray:
     return np.asarray(material.color_top_left)
 
 
+_BLACK = (0.0, 0.0, 0.0, 1.0)
+
+
+def test_viewer_background_defaults_to_uniform_black():
+    viewer = Viewer(spatial_axes("y", "x"), dim="2d")
+
+    assert viewer.background.mode == "uniform"
+    assert viewer.background.color == _BLACK
+    np.testing.assert_allclose(
+        _top_color(viewer.controller, viewer.scene.id), _BLACK, atol=1e-6
+    )
+
+
+def test_ortho_panels_default_to_uniform_black():
+    viewer = OrthoViewer(spatial_axes("z", "y", "x"))
+
+    backgrounds = [scene.background for scene in viewer.scenes.values()]
+    assert all(b.mode == "uniform" and b.color == _BLACK for b in backgrounds)
+    # One model per panel, so editing one leaves the others alone.
+    assert len({id(b) for b in backgrounds}) == len(backgrounds)
+    for scene in viewer.scenes.values():
+        np.testing.assert_allclose(
+            _top_color(viewer.controller, scene.id), _BLACK, atol=1e-6
+        )
+
+
+def test_a_directly_built_scene_keeps_the_gradient_default():
+    """Only the convenience viewers default to black."""
+    from cellier.controller import CellierController
+
+    controller = CellierController(gui="offscreen")
+    scene = controller.add_scene(coordinate_system=spatial_axes("y", "x"), dim="2d")
+
+    assert scene.background.mode == "vertical_gradient"
+
+
+def test_switching_the_default_to_a_gradient_shows_the_gray_gradient():
+    from cellier.scene._background import DEFAULT_TOP_COLOR
+
+    viewer = Viewer(spatial_axes("y", "x"), dim="2d")
+
+    viewer.background.mode = "vertical_gradient"
+
+    np.testing.assert_allclose(
+        _top_color(viewer.controller, viewer.scene.id), DEFAULT_TOP_COLOR, atol=1e-6
+    )
+
+
 def test_viewer_background_property_is_the_scene_model():
     viewer = Viewer(spatial_axes("y", "x"), dim="2d")
     assert viewer.background is viewer.scene.background
@@ -20,7 +68,7 @@ def test_viewer_background_property_is_the_scene_model():
 def test_viewer_background_field_change_reaches_the_render_layer():
     viewer = Viewer(spatial_axes("y", "x"), dim="2d")
 
-    viewer.background.top_color = (1.0, 0.0, 0.0, 1.0)
+    viewer.background.color = (1.0, 0.0, 0.0, 1.0)
 
     np.testing.assert_allclose(
         _top_color(viewer.controller, viewer.scene.id),

@@ -148,14 +148,16 @@ def max_out_of_brick(
     count: int,
     level0_extent: int,
     block_size: int,
+    translation: float | None = None,
 ) -> tuple[float, tuple[int, ...]]:
     """How far a sample can land outside the brick that owns its cell.
 
-    The cells brick ``g`` owns cover level-0 voxels
-    ``[start * block_size, stop * block_size)`` (clipped to the data), which
-    is level-k ``[.. / scale)``; the brick's own interior is level-k
-    ``[g * block_size, (g + 1) * block_size)``.  The difference is what the
-    brick's padding has to absorb.
+    In the centre convention (plan v2, D1; ``cellier.render._level_mapping``):
+    the cells brick ``g`` owns cover level-0 voxels ``[start * bs, stop *
+    bs)`` (clipped to the data), i.e. data ``p`` in ``[start * bs - 0.5, stop
+    * bs - 0.5]``, which is level-k ``u = (p - t) / s``; the brick's own
+    interior is ``u`` in ``[g * bs - 0.5, (g + 1) * bs - 0.5]``.  The
+    difference is what the brick's padding has to absorb.
 
     Parameters
     ----------
@@ -169,6 +171,11 @@ def max_out_of_brick(
         Finest-level voxel count along this axis.
     block_size : int
         Brick side length in voxels.
+    translation : float or None
+        The level's translation ``t`` in level-0 voxels.  ``None`` assumes
+        block averaging, ``(scale - 1) / 2`` -- the placement the rule was
+        first written for, which gives the same numbers as before
+        translations were taken into account.
 
     Returns
     -------
@@ -177,6 +184,7 @@ def max_out_of_brick(
     unreachable : tuple[int, ...]
         Bricks that own no cell, so their data is never drawn.
     """
+    t = (scale - 1.0) / 2.0 if translation is None else float(translation)
     grid_dim = math.ceil(level0_extent / block_size)
     worst = 0.0
     unreachable: list[int] = []
@@ -185,9 +193,13 @@ def max_out_of_brick(
         if start >= stop:
             unreachable.append(brick)
             continue
-        low = block_size * start / scale
-        high = min(block_size * stop, level0_extent) / scale
-        worst = max(worst, block_size * brick - low, high - block_size * (brick + 1))
+        low = (block_size * start - 0.5 - t) / scale
+        high = (min(block_size * stop, level0_extent) - 0.5 - t) / scale
+        worst = max(
+            worst,
+            block_size * brick - 0.5 - low,
+            high - (block_size * (brick + 1) - 0.5),
+        )
     return worst, tuple(unreachable)
 
 
@@ -220,12 +232,16 @@ class BrickRuleIssue:
     out_of_brick: float
     allowed: float
     unreachable: tuple[int, ...] = ()
+    translation: float | None = None
 
     def describe(self) -> str:
         """A one-line human-readable description."""
+        shift = (
+            "" if self.translation is None else f", translation {self.translation:.4g}"
+        )
         where = (
             f"level {self.level} axis {self.axis} "
-            f"(scale {self.scale:.4f}, {self.span} base cells per brick)"
+            f"(scale {self.scale:.4f}{shift}, {self.span} base cells per brick)"
         )
         if self.unreachable:
             return (
@@ -245,6 +261,7 @@ def brick_rule_issues(
     block_size: int,
     border: float,
     sampling_margin: float = 0.5,
+    translation_vecs_data: Sequence[Sequence[float]] | None = None,
 ) -> list[BrickRuleIssue]:
     """Levels and axes where the rule needs more padding than the cache has.
 
@@ -259,8 +276,13 @@ def brick_rule_issues(
     border : float
         The cache's padding (``overlap``) in level-k voxels.
     sampling_margin : float
-        Padding reserved for the sampler itself (half a texel for linear
-        filtering).
+        Padding reserved for the sampler itself: how far past a sample
+        position the path reads, in level-k voxels (plan v2, "Padding
+        budgets": 0.5 for linear filtering, 0 for nearest, more for gradient
+        or bisection probes).
+    translation_vecs_data : sequence of sequences of float or None
+        Per-level translations in level-0 voxels, same order as the scales.
+        ``None`` assumes block averaging (see :func:`max_out_of_brick`).
 
     Returns
     -------
@@ -279,12 +301,18 @@ def brick_rule_issues(
     for index in range(n_levels):
         for axis in range(ndim):
             scale = float(scale_vecs_data[index][axis])
+            translation = (
+                None
+                if translation_vecs_data is None
+                else float(translation_vecs_data[index][axis])
+            )
             out_of_brick, unreachable = max_out_of_brick(
                 scale,
                 spans[index][axis],
                 counts[index][axis],
                 int(level_shapes[0][axis]),
                 block_size,
+                translation,
             )
             if unreachable or out_of_brick > allowed + 1e-9:
                 issues.append(
@@ -296,6 +324,7 @@ def brick_rule_issues(
                         out_of_brick=out_of_brick,
                         allowed=allowed,
                         unreachable=unreachable,
+                        translation=translation,
                     )
                 )
     return issues

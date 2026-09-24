@@ -35,6 +35,7 @@ from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
     MultiscaleLabelsAppearance,
 )
+from tests._gpu_budget import SMALL_BUDGETS
 
 _SIZE = 96
 _TRACK_COLOR = (0.0, 1.0, 0.0, 1.0)
@@ -65,7 +66,7 @@ async def _build_scene(controller, reslice, labels_store, *, mode, depth_write):
             transparency_mode=mode,
             depth_write=depth_write,
         ),
-        render_config=MultiscaleLabelRenderConfig(block_size=8),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )
     graph = controller.add_graph(
         data=_track_store(),

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from cellier.render.scheduling._types import PlanMode
+from cellier.visuals._loading import ProgressiveLoadingConfig
 
 
 @dataclass
@@ -32,9 +35,17 @@ class VisualRenderConfig:
         When ``False``, ``SceneManager`` plans no requests for the visual at
         all, so it keeps showing whatever it last loaded.  The controller
         turns this off for hidden image visuals.  Default ``True``.
+    loading : ProgressiveLoadingConfig
+        A multiscale visual's backstop settings (its
+        ``render_config.loading``).  Ignored by every other visual.
+    plan_mode : PlanMode
+        What a multiscale visual plans this reslice: ``FULL`` (default), or
+        ``BACKSTOP_ONLY`` for a dims tick in ``dims_drag="backstop"`` mode.
     """
 
     lod_bias: float = 1.0
     force_level: int | None = None
     frustum_cull: bool = True
     slicing_enabled: bool = True
+    loading: ProgressiveLoadingConfig = field(default_factory=ProgressiveLoadingConfig)
+    plan_mode: PlanMode = PlanMode.FULL

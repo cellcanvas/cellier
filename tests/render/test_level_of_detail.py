@@ -11,13 +11,11 @@ import numpy as np
 import pytest
 
 from cellier.render._level_of_detail import (
-    arr_to_brick_keys,
     build_level_grids,
     select_levels_arr_forced,
     select_levels_from_cache,
     sort_arr_by_distance,
 )
-from cellier.render.block_cache import BlockKey3D
 from cellier.render.lut_indirection import BlockLayout3D
 
 BLOCK_SIZE = 8
@@ -81,10 +79,12 @@ def test_build_level_grids_centres_formula_and_axis_order(
     arr = grids[0]["arr"]
     centres = grids[0]["centres"]
     gz, gy, gx = arr[:, 1], arr[:, 2], arr[:, 3]
-    # centre[x] uses gx (W), centre[z] uses gz (D); bw = 8*scale + translation
-    np.testing.assert_allclose(centres[:, 0], (gx + 0.5) * 8 + 100.0)
-    np.testing.assert_allclose(centres[:, 1], (gy + 0.5) * 8 + 200.0)
-    np.testing.assert_allclose(centres[:, 2], (gz + 0.5) * 8 + 300.0)
+    # centre[x] uses gx (W), centre[z] uses gz (D).  Centre convention (plan
+    # v2, D1): brick g covers level voxels [8g, 8g + 8), centred on
+    # s * ((g + 0.5) * 8 - 0.5) + t, here with s = 1.
+    np.testing.assert_allclose(centres[:, 0], (gx + 0.5) * 8 - 0.5 + 100.0)
+    np.testing.assert_allclose(centres[:, 1], (gy + 0.5) * 8 - 0.5 + 200.0)
+    np.testing.assert_allclose(centres[:, 2], (gz + 0.5) * 8 - 0.5 + 300.0)
 
 
 def test_build_level_grids_power_of_two_fallback_halves_dims(
@@ -379,34 +379,3 @@ def test_sort_arr_stable_for_equidistant():
     arr[1, 0] = 1
     out = sort_arr_by_distance(arr, np.array([4.0, 4.0, 4.0]), BLOCK_SIZE)
     np.testing.assert_array_equal(out, arr)
-
-
-# ---------------------------------------------------------------------------
-# arr_to_brick_keys
-# ---------------------------------------------------------------------------
-
-
-def test_arr_to_brick_keys_mapping_and_order():
-    arr = np.array(
-        [
-            [1, 5, 6, 7],
-            [2, 1, 2, 3],
-        ],
-        dtype=np.int32,
-    )
-    slice_coord = ((0, 4),)
-    keys = arr_to_brick_keys(arr, slice_coord=slice_coord)
-    items = list(keys.items())
-    # row order preserved
-    assert items[0][0] == BlockKey3D(level=1, g0=5, g1=6, g2=7, slice_coord=slice_coord)
-    assert items[1][0] == BlockKey3D(level=2, g0=1, g1=2, g2=3, slice_coord=slice_coord)
-    # value is the level; slice_coord embedded in every key
-    assert items[0][1] == 1 and items[1][1] == 2
-    assert all(k.slice_coord == slice_coord for k in keys)
-
-
-def test_arr_to_brick_keys_default_empty_slice_coord():
-    arr = np.array([[1, 0, 0, 0]], dtype=np.int32)
-    keys = arr_to_brick_keys(arr)
-    (key,) = keys
-    assert key.slice_coord == ()

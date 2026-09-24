@@ -181,3 +181,16 @@ def test_a_long_axis_without_ticks_is_quiet():
         )
 
     assert spec.draw_ticks is False
+
+
+def test_continuous_decimals_default_to_two_and_serialise():
+    assert ContinuousAxisValues(min=0, max=1).decimals == 2
+    spec = ContinuousAxisValues(min=0, max=9680, decimals=0)
+    dumped = spec.model_dump(mode="json")
+    assert dumped["decimals"] == 0
+    assert coerce_axis_values({0: dumped})[0] == spec
+
+
+def test_continuous_rejects_negative_decimals():
+    with pytest.raises(ValidationError):
+        ContinuousAxisValues(min=0, max=1, decimals=-1)

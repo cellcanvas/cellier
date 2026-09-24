@@ -178,6 +178,32 @@ def render_scene(
     return _render
 
 
+async def drain_loading(controller: CellierController) -> None:
+    """Drive the slicer and the chunk scheduler until nothing is loading.
+
+    The slicer runs one task per visual (multiscale 2D, in-memory, geometry);
+    the chunk scheduler loads multiscale 3D and commits on drawn frames, which
+    a test does not produce, so commit rounds run here as reads land.
+    """
+    render_manager = controller._render_manager
+    slicer = render_manager._slicer
+    for _ in range(20):
+        # Let a pass scheduled with call_soon run before looking.
+        await asyncio.sleep(0)
+        # A reslice waiting on a timer (a rate-capped store change, a dims
+        # settle) starts loading of its own.
+        deferred = controller._deferred_reslice_tasks()
+        if deferred:
+            await asyncio.gather(*deferred, return_exceptions=True)
+            await asyncio.sleep(0)
+        tasks = list(slicer._tasks.values())
+        if tasks:
+            await asyncio.gather(*tasks)
+        await render_manager.scheduler.drain(commit=True)
+        if not slicer._tasks or all(t.done() for t in slicer._tasks.values()):
+            return
+
+
 @pytest.fixture
 def drive_reslice() -> Callable[[CellierController], Awaitable[None]]:
     """Return an async helper that drives the slicer to quiescence.
@@ -188,12 +214,7 @@ def drive_reslice() -> Callable[[CellierController], Awaitable[None]]:
     """
 
     async def _drive(controller: CellierController) -> None:
-        slicer = controller._render_manager._slicer
-        for _ in range(20):
-            tasks = list(slicer._tasks.values())
-            if not tasks:
-                return
-            await asyncio.gather(*tasks)
+        await drain_loading(controller)
 
     return _drive
 

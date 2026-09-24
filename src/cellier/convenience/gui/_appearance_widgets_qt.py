@@ -22,9 +22,18 @@ from __future__ import annotations
 
 
 def _qt_image(spec, visual_ids, controller):
+    from cellier.gui._image_controls import display_seed
     from cellier.gui.qt.visuals import QtImageControls
 
-    return QtImageControls(visual_ids, spec.values, title=spec.title)
+    # Seeded now and then followed: DimsChangedEvent fires only on a change.
+    scene_ids, n_displayed = display_seed(controller, visual_ids)
+    return QtImageControls(
+        visual_ids,
+        spec.values,
+        title=spec.title,
+        n_displayed_dimensions=n_displayed,
+        scene_ids=scene_ids,
+    )
 
 
 def _qt_lod_bias(spec, visual_ids, controller):
@@ -33,6 +42,27 @@ def _qt_lod_bias(spec, visual_ids, controller):
     return QtLodBiasSlider(
         visual_ids,
         initial_lod_bias=spec.values["initial_lod_bias"],
+        title=spec.title,
+    )
+
+
+def _qt_loading(spec, visual_ids, controller):
+    from cellier.gui.qt.visuals import QtLoadingIndicator
+
+    return QtLoadingIndicator(
+        visual_ids,
+        initial={vid: controller.loading_progress(vid) for vid in visual_ids},
+        title=spec.title,
+    )
+
+
+def _qt_loading_config(spec, visual_ids, controller):
+    from cellier.gui.qt.visuals import QtLoadingConfigControls
+
+    return QtLoadingConfigControls(
+        visual_ids,
+        loading=spec.values["loading"],
+        n_levels=spec.values["n_levels"],
         title=spec.title,
     )
 
@@ -133,6 +163,8 @@ QT_BUILDERS = {
     "lod_bias": _qt_lod_bias,
     "trail": _qt_trail,
     "aabb": _qt_aabb,
+    "loading": _qt_loading,
+    "loading_config": _qt_loading_config,
     "visual_outline": _qt_visual_outline,
     "labels_outline": _qt_labels_outline,
     "visual_occlusion": _qt_visual_occlusion,

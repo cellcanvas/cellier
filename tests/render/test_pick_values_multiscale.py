@@ -22,8 +22,11 @@ from cellier.render.render_manager import (
 from cellier.scene import spatial_axes
 from cellier.visuals import (
     MultiscaleImageChannelAppearance,
+    MultiscaleImageRenderConfig,
+    MultiscaleLabelRenderConfig,
     MultiscaleLabelsAppearance,
 )
+from tests._gpu_budget import SMALL_BUDGETS
 from tests.render.conftest import _write_multiscale_zarr
 
 _CZYX = [("c", "channel"), *spatial_axes("z", "y", "x")]
@@ -98,6 +101,7 @@ def _composite_image(controller, store, dim):
         channel_axis=0,
         composite=True,
         channels={i: MultiscaleImageChannelAppearance() for i in range(2)},
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
     )
     canvas_id = uuid4()
     received: list = []
@@ -233,7 +237,10 @@ async def test_multiscale_labels_value_arrives_asynchronously(
         coordinate_system=spatial_axes("z", "y", "x"), dim="3d", name="scene"
     )
     visual = controller.add_labels_multiscale(
-        labels_store, scene.id, appearance=MultiscaleLabelsAppearance()
+        labels_store,
+        scene.id,
+        appearance=MultiscaleLabelsAppearance(),
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
     )
     canvas_id = uuid4()
     received: list = []

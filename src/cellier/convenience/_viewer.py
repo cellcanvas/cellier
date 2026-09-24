@@ -11,6 +11,7 @@ from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
 from cellier.events import CanvasAddedEvent
 from cellier.render._capture import write_png
+from cellier.scene._background import viewer_background
 from cellier.scene.dims import WorldAxesLike, world_coordinate_system
 from cellier.visuals._canvas_overlay import CanvasOverlay
 from cellier.visuals._scene_overlay import SceneOverlay
@@ -38,6 +39,12 @@ if TYPE_CHECKING:
     from cellier.data.lines._lines_memory_store import LinesMemoryStore
     from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
     from cellier.data.points._points_memory_store import PointsMemoryStore
+    from cellier.events import (
+        BackstopCompleteEvent,
+        LoadingProgress,
+        ResliceProgressEvent,
+        SubscriptionHandle,
+    )
     from cellier.render._config import RenderManagerConfig
     from cellier.scene._background import BackgroundAppearance
     from cellier.scene.scene import Scene
@@ -72,10 +79,16 @@ if TYPE_CHECKING:
         MultiscaleLabelVisual,
     )
     from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
+    from cellier.visuals._loading import ProgressiveLoadingConfig
     from cellier.visuals._mesh_memory import MeshAppearance, MeshVisual
     from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 
 _T = TypeVar("_T", bound="BaseDataStore")
+
+
+def _visual_id(visual: object) -> UUID:
+    """A visual model's id, or *visual* itself when it is already an id."""
+    return getattr(visual, "id", visual)
 
 
 class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
@@ -132,6 +145,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             dim=dim,
             coordinate_system=world_coordinate_system(axes),
             render_modes=resolved_render_modes,
+            background=viewer_background(),
         )
         # Callbacks fired once the scene's startup data is on the GPU; consumed
         # by the launcher (see convenience._launch._init_view).
@@ -164,10 +178,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def background(self) -> BackgroundAppearance:
         """Appearance of the background drawn behind the scene's visuals.
 
-        Mutate its fields to update the canvas at runtime::
+        Uniform black by default
+        (:func:`~cellier.scene._background.viewer_background`).  Mutate its
+        fields to update the canvas at runtime::
 
-            viewer.background.mode = "uniform"
-            viewer.background.color = (0.0, 0.0, 0.0, 1.0)
+            viewer.background.color = (1.0, 1.0, 1.0, 1.0)
+            viewer.background.mode = "vertical_gradient"
 
         Assigning a whole new ``BackgroundAppearance`` works too.
         """
@@ -488,6 +504,120 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def unsubscribe_pick(self, handle: Any) -> None:
         """Remove a subscription created by :meth:`on_pick`."""
         self._controller.unsubscribe_pick(handle)
+
+    # ------------------------------------------------------------------
+    # Progressive loading (multiscale visuals)
+    # ------------------------------------------------------------------
+
+    def loading_progress(self, visual: object) -> LoadingProgress | None:
+        """How far a multiscale visual's data has loaded.
+
+        Mirrors :meth:`CellierController.loading_progress`.
+
+        Parameters
+        ----------
+        visual : visual model or UUID
+            A multiscale image or labels visual.
+
+        Returns
+        -------
+        LoadingProgress or None
+            ``None`` for a visual that is not multiscale, or not planned yet.
+        """
+        return self._controller.loading_progress(_visual_id(visual))
+
+    def on_reslice_progress(
+        self,
+        visual: object,
+        callback: Callable[[ResliceProgressEvent], None],
+        *,
+        owner_id: UUID | None = None,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired as a multiscale visual's data loads.
+
+        Mirrors :meth:`CellierController.on_reslice_progress`.
+
+        Parameters
+        ----------
+        visual : visual model or UUID
+            A multiscale image or labels visual.
+        callback : Callable
+            Called with each ``ResliceProgressEvent``.
+        owner_id : UUID or None
+            Owner for ``controller.unsubscribe_owner``.  Defaults to the
+            visual's id, so removing the visual removes the subscription.
+        weak : bool
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+        """
+        visual_id = _visual_id(visual)
+        return self._controller.on_reslice_progress(
+            visual_id,
+            callback,
+            owner_id=visual_id if owner_id is None else owner_id,
+            weak=weak,
+        )
+
+    def on_backstop_complete(
+        self,
+        visual: object,
+        callback: Callable[[BackstopCompleteEvent], None],
+        *,
+        owner_id: UUID | None = None,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired when a multiscale visual's backstop is in.
+
+        Mirrors :meth:`CellierController.on_backstop_complete`.
+
+        Parameters
+        ----------
+        visual : visual model or UUID
+            A multiscale image or labels visual.
+        callback : Callable
+            Called with each ``BackstopCompleteEvent``.
+        owner_id : UUID or None
+            Owner for ``controller.unsubscribe_owner``.  Defaults to the
+            visual's id, so removing the visual removes the subscription.
+        weak : bool
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+        """
+        visual_id = _visual_id(visual)
+        return self._controller.on_backstop_complete(
+            visual_id,
+            callback,
+            owner_id=visual_id if owner_id is None else owner_id,
+            weak=weak,
+        )
+
+    def set_loading(self, visual: object, **fields: Any) -> ProgressiveLoadingConfig:
+        """Change how a multiscale visual loads, while it is shown.
+
+        Mirrors :meth:`CellierController.set_loading_config`: *fields* are
+        merged into the visual's ``render_config.loading`` and applied at
+        once.  An invalid combination raises and changes nothing.
+
+        Parameters
+        ----------
+        visual : visual model or UUID
+            A multiscale image or labels visual.
+        **fields :
+            ``ProgressiveLoadingConfig`` fields, e.g. ``dims_drag="backstop"``.
+
+        Returns
+        -------
+        ProgressiveLoadingConfig
+            The visual's config after the call.
+        """
+        return self._controller.set_loading_config(_visual_id(visual), **fields)
 
     # ------------------------------------------------------------------
     # Capture

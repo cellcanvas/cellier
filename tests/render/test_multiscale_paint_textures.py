@@ -156,6 +156,8 @@ async def test_clear_resets_textures(visual_setup):
 
 
 @pytest.mark.asyncio
-async def test_invalidate_with_no_cached_tiles_evicts_nothing(visual_setup):
-    _ctrl, gfx_visual = visual_setup
-    assert gfx_visual.invalidate_painted_tiles_2d({(0, 0), (1, 2)}) == 0
+async def test_invalidating_painted_regions_with_nothing_loaded(visual_setup):
+    """Nothing registered for the store yet: nothing is touched."""
+    ctrl, _gfx_visual = visual_setup
+    (store,) = ctrl._render_manager._slice_coordinator._data_stores.values()
+    assert ctrl._invalidate_painted_regions(store.id, (((0, 16), (0, 16)),)) == []

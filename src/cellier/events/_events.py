@@ -214,6 +214,128 @@ class ResliceCompletedEvent(NamedTuple):
     brick_count: int
 
 
+class LoadingProgress(NamedTuple):
+    """How far a multiscale visual's latest plan has loaded.
+
+    Summed over every atlas of the visual (a composite image has one per
+    drawn channel).  Counts are chunks: bricks in 3D, tiles in 2D.  See
+    ``plans/progressive_loading_design_v3.md`` 5.13.
+
+    Attributes
+    ----------
+    needed_backstop, resident_backstop : int
+        Coarse backstop chunks the plan wants, and how many are on the GPU.
+    needed_target, resident_target : int
+        The same for the target: the level of detail the view asked for.
+    in_flight : int
+        Reads outstanding, including reads for chunks no longer wanted.
+    failed : int
+        Wanted chunks given up after the retry limit.
+    truncated_target, truncated_backstop : int
+        Chunks the plan dropped to fit the GPU cache, or the backstop cap.
+    backstop_complete : bool
+        Every wanted backstop chunk is resident or given up.  The view then
+        shows the current slice everywhere, at least blurry.
+    complete : bool
+        Every wanted chunk is resident or given up.
+    target_deferred : bool
+        The latest plan was the backstop only: a slider tick with
+        ``loading.dims_drag="backstop"``.  The target is planned once the
+        slider settles, so ``complete`` here does not mean full detail.
+    """
+
+    needed_backstop: int = 0
+    resident_backstop: int = 0
+    needed_target: int = 0
+    resident_target: int = 0
+    in_flight: int = 0
+    failed: int = 0
+    truncated_target: int = 0
+    truncated_backstop: int = 0
+    backstop_complete: bool = True
+    complete: bool = True
+    target_deferred: bool = False
+
+    @property
+    def fraction(self) -> float:
+        """Target chunks resident over needed, in ``[0, 1]``; 1 when none."""
+        if self.needed_target == 0:
+            return 1.0
+        return self.resident_target / self.needed_target
+
+
+class ResliceProgressEvent(NamedTuple):
+    """A multiscale visual's loading progress changed.
+
+    Emitted at most once per event-loop iteration per visual: after a plan,
+    after a commit round that wrote its data, after a read is given up, and
+    after an invalidation.  Not emitted per read, so ``in_flight`` is the
+    count at the last of those moments.
+
+    Parameters
+    ----------
+    source_id : UUID
+        ID of the emitter (the render layer).
+    scene_id : UUID
+        Scene that owns the visual.
+    visual_id : UUID
+        The visual.  The routing key.
+    progress : LoadingProgress
+        The visual's counts.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    progress: LoadingProgress
+
+
+class LoadingConfigChangedEvent(NamedTuple):
+    """A multiscale visual's ``render_config.loading`` changed.
+
+    Emitted for every change, whether it came from
+    ``CellierController.set_loading_config`` (or a
+    ``LoadingConfigUpdateEvent``) or from assigning ``render_config``
+    directly, so a control showing the settings stays in step.
+
+    Parameters
+    ----------
+    source_id : UUID
+        Who asked for the change: the widget's id for a GUI edit, otherwise
+        the controller's.
+    visual_id : UUID
+        The visual.  The routing key.
+    loading : ProgressiveLoadingConfig
+        The complete config after the change.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    loading: Any
+
+
+class BackstopCompleteEvent(NamedTuple):
+    """Every backstop chunk of a multiscale visual's latest plan is done.
+
+    From here on the view shows the current slice everywhere, possibly at
+    the backstop's coarse level.  Emitted once per plan whose backstop
+    completes, and only when the plan has a backstop.
+
+    Parameters
+    ----------
+    source_id : UUID
+        ID of the emitter (the render layer).
+    scene_id : UUID
+        Scene that owns the visual.
+    visual_id : UUID
+        The visual.  The routing key.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+
+
 class ResliceCancelledEvent(NamedTuple):
     source_id: UUID
     scene_id: UUID
@@ -1152,6 +1274,9 @@ CellierEventTypes = (
     | DataStoreContentsChangedEvent
     | ResliceStartedEvent
     | ResliceCompletedEvent
+    | ResliceProgressEvent
+    | BackstopCompleteEvent
+    | LoadingConfigChangedEvent
     | ResliceCancelledEvent
     | FrameRenderedEvent
     | VisualAddedEvent

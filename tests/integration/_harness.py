@@ -44,6 +44,8 @@ from cellier.transform import (
     WorldCoordinateSystem,
 )
 from cellier.visuals import InMemoryImageSingleAppearance
+from tests._gpu_budget import BUDGET_2D, BUDGET_3D, SMALL_BUDGETS
+from tests._planning import planned_requests_3d
 from tests._v2 import level_transforms
 
 # ---------------------------------------------------------------------------
@@ -415,7 +417,8 @@ def _drive_slice_requests(
     which is the space the filter runs in.
     """
     if is_3d:
-        reqs = visual.build_slice_request(
+        reqs = planned_requests_3d(
+            visual,
             camera_pos_world=np.array([0.0, 0.0, 0.0]),
             frustum_corners_world=None,
             fov_y_rad=1.0,
@@ -663,7 +666,8 @@ def _geometry_case(
 
     # A real get_data call, to record the surviving element indices.
     if is_3d:
-        reqs = visual.build_slice_request(
+        reqs = planned_requests_3d(
+            visual,
             camera_pos_world=np.zeros(3),
             frustum_corners_world=None,
             fov_y_rad=1.0,
@@ -794,6 +798,8 @@ def _make_multiscale_image_visual(pyramid: PyramidSpec, transform, displayed_axe
         render_modes={"3d"},
         full_level_transforms=full_tf,
         full_level_shapes=full_shapes,
+        gpu_budget_bytes_3d=BUDGET_3D,
+        gpu_budget_bytes_2d=BUDGET_2D,
         transform=transform,
     )
 
@@ -820,6 +826,8 @@ def _make_multiscale_label_visual(pyramid: PyramidSpec, transform, displayed_axe
         render_modes={"3d"},
         full_level_transforms=full_tf,
         full_level_shapes=full_shapes,
+        gpu_budget_bytes_3d=BUDGET_3D,
+        gpu_budget_bytes_2d=BUDGET_2D,
         transform=transform,
     )
 
@@ -835,6 +843,7 @@ def _make_multichannel_multiscale_image_visual(
     from cellier.render.visuals import GFXMultiscaleImageVisual
     from cellier.visuals._image import (
         MultiscaleImageChannelAppearance,
+        MultiscaleImageRenderConfig,
         MultiscaleImageVisual,
     )
 
@@ -847,6 +856,7 @@ def _make_multichannel_multiscale_image_visual(
         channels={0: MultiscaleImageChannelAppearance(color_map="red")},
         level_transforms=pyramid.level_transforms(),
         transform=transform,
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
     )
     return GFXMultiscaleImageVisual(
         visual_model=model,
@@ -881,7 +891,8 @@ def _multiscale_case(
     pairs: list[Any] = []
     scale_indices: set = set()
     for level in range(len(pyramid.level_shapes)):
-        reqs = visual.build_slice_request(
+        reqs = planned_requests_3d(
+            visual,
             camera_pos_world=_MULTISCALE_CAMERA,
             frustum_corners_world=None,
             fov_y_rad=1.0,

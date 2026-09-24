@@ -26,7 +26,10 @@ if TYPE_CHECKING:
 
 
 class BlockCache3D:
-    """Fixed-size GPU slot pool with LRU eviction.
+    """Fixed-size GPU slot pool: a 3-D texture of brick slots.
+
+    Slot allocation and eviction belong to the chunk scheduler; this owns the
+    texture and writes bricks into it.
 
     Parameters
     ----------
@@ -41,7 +44,7 @@ class BlockCache3D:
     info : CacheInfo
         Cache sizing metadata (grid dims, slot count, padded brick size).
     tile_manager : TileManager3D
-        Brick-to-slot mapping with LRU eviction.
+        Slot geometry, and the view of drawn bricks.
     cache_data : np.ndarray
         CPU-side backing array, shape ``(cD, cH, cW)``.
     cache_tex : gfx.Texture
@@ -54,34 +57,6 @@ class BlockCache3D:
         self.cache_data, self.cache_tex = build_cache_texture_3d(
             cache_parameters, dtype=dtype
         )
-
-    def stage(
-        self,
-        required_bricks: dict[BlockKey3D, int],
-        frame_number: int,
-    ) -> list[tuple[BlockKey3D, TileSlot]]:
-        """Classify required bricks as hits or misses; return fill_plan.
-
-        Cache hits have their LRU timestamp refreshed.  Cache misses are
-        allocated a slot — evicting the least-recently-used occupant if
-        the cache is full — and returned as a fill_plan for the caller
-        to load asynchronously.
-
-        Parameters
-        ----------
-        required_bricks : dict[BrickKey, int]
-            Mapping from brick key to desired LOAD level.  Only the keys
-            are used here; the level is already encoded in ``BrickKey``.
-        frame_number : int
-            Monotonically increasing counter used for LRU timestamps.
-
-        Returns
-        -------
-        fill_plan : list[tuple[BrickKey, TileSlot]]
-            Bricks that need data uploaded, paired with their target slot.
-            Empty when every required brick was already resident.
-        """
-        return self.tile_manager.stage(required_bricks, frame_number)
 
     def write_brick(
         self,
@@ -137,14 +112,9 @@ class BlockCache3D:
 
     @property
     def n_resident(self) -> int:
-        """Number of hot (rendered) bricks in the cache."""
+        """Number of bricks the LUT currently draws."""
         return len(self.tile_manager.tilemap)
 
-    @property
-    def n_reserve(self) -> int:
-        """Number of warm (GPU-present, not rendered) bricks in reserve."""
-        return len(self.tile_manager._reserve)
-
     def clear(self) -> None:
-        """Evict all resident bricks and reset the cache to empty."""
+        """Forget the drawn view.  The slots' data is simply overwritten later."""
         self.tile_manager.clear()

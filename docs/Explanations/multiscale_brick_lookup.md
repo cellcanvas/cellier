@@ -2,8 +2,10 @@
 
 This document explains how multiscale image and label visuals find the texel
 for a sample, a bug that made them draw the wrong bricks on pyramids whose
-level ratio is not an integer, and the rule that fixes it. It also covers a
-related cache-key problem found while diagnosing it.
+level ratio is not an integer, and the rule that fixes it. It also covers
+where each level is placed ([Level placement](#level-placement)), how densely
+3D rays sample ([Ray step density](#ray-step-density)), and a related
+cache-key problem found while diagnosing the brick bug.
 
 If you touch the LUT writers, the brick/tile shaders, or the block cache keys,
 read [the checklist](#checklist-for-changes) at the end.
@@ -19,7 +21,7 @@ neighbouring data so that samples near the brick edge still read real values:
 |---|---|
 | 3D image bricks | 3 |
 | 3D label bricks | 2 |
-| 2D image and label tiles | 1 |
+| 2D image and label tiles | 2 (`TILE_BORDER_2D`) |
 
 A **LUT** (lookup texture) says which atlas slot to read for each part of the
 volume. It has one **base cell** per finest-level brick, so a 389 x 610 voxel
@@ -28,12 +30,13 @@ slot and a level.
 
 Two sides use the LUT:
 
-1. **The writer** (`rebuild_lut` / `rebuild_lut_2d`) writes every resident
+1. **The writer** (`paint_lut`, through each LUT manager's `paint`) writes every resident
    brick into the base cells it covers, coarsest level first, so finer data
    overwrites coarser placeholders. A level-k brick covers several base cells.
 2. **The shader** turns a sample position into a base cell, reads the cell's
    slot and level, works out the corner of that brick in level-k voxels, and
-   samples the atlas at `position / scale - corner`.
+   samples the atlas at the level coordinate `(p - t) / scale - corner`
+   (see [Level placement](#level-placement) for `p` and `t`).
 
 Both sides therefore answer the same question: *which level-k brick owns this
 base cell?* The writer answers it when it decides which cells to fill; the
@@ -162,9 +165,12 @@ To keep this safe:
   beyond the padding repeats the edge texel instead of reading another slot.
 - `LutIndirectionManager3D` / `LutIndirectionManager2D` log a
   `brick_rule_padding` warning on the `cellier.render.gpu` logger when a
-  level needs more than `overlap - 0.5` voxels, or when a brick owns no cell at
-  all. On the light-sheet dataset 3D fits; 2D tiles (overlap 1) warn at levels
-  3 and 4 in y, where a sliver of under a pixel repeats edge texels.
+  level needs more than `overlap - sampling_margin` voxels, or when a brick
+  owns no cell at all. The distance includes the level's translation, and
+  the margin is how far past a sample the path reads (see
+  [Padding budgets](#padding-budgets)). On the light-sheet dataset, with its
+  published translations, nothing warns; with 1-voxel 2D tiles (before the
+  tiles got 2) the 2D image warned at levels 3 and 4 in y.
 
 ### Alternatives considered
 
@@ -175,6 +181,111 @@ To keep this safe:
   brick coordinates. Exact for any ratio, including 1.5x or 3x pyramids, but a
   much larger change to the textures and the shader fallback logic. Worth
   revisiting if the padding warning fires on real data.
+
+## Level placement
+
+The rule above says *which brick* to read. Where a level sits in the volume
+comes from its **level-to-data transform**: per axis a scale `s` and a
+translation `t` in level-0 voxels (the OME-Zarr per-dataset
+`coordinateTransformations`, relative to level 0). The convention is voxel
+centres, `p = s * u + t` (see
+[Coordinate systems](coordinate_systems.md#multiscale-level-placement)), and
+`cellier.render._level_mapping` is the one definition of it.
+
+### What was wrong
+
+Until plan v2 (`plans/multiscale_level_transform_v2.md`) the translations
+were parsed but never reached the GPU, and each shader assumed its own
+placement. Where each drew the centre of coarse voxel `i` at cumulative
+factor `F` (correct: `F * i + t`):
+
+| Path | Drawn centre | Implied convention |
+|---|---|---|
+| 3D image | `F * i` | plain striding |
+| 3D labels | `F * i - 0.5` | none |
+| 2D image | `F * i + (F - 1) / 2` | block averaging |
+| 2D labels | `F * i - 0.5` | none |
+
+So stepping the level moved things by up to `F / 2` voxels, labels sat half a
+voxel off the image (and off picking and the paint overlay) even at level 0,
+and the same dataset drew differently in 2D and 3D.
+`examples/multiscale_transform_validation.py` shows it.
+
+### How it works now
+
+- Python uploads `t` per level as `offset_k` in the `BlockScales` uniform
+  (next to `scale_k`, `span_k`, `bricks_k`), shader order, level-0 voxels.
+  `cellier.level_mapping.wgsl` reads it (`get_level_offset`).
+- **2D** (`image_block.wgsl`, `label_block.wgsl`): per fragment,
+  `p = pos - 0.5` (the proxy's edge position to the centred one),
+  `u = (p - t) / s`; the image samples texel `u - corner + 0.5`, labels read
+  voxel `floor(u - corner + 0.5)`.
+- **3D** (`multiscale_volume_brick.wgsl`, `label_volume_brick.wgsl`): the
+  offset is folded into the brick corner **once per brick**
+  (`placed_corner_k`: `corner + (t + shift) / s`, computed in `setup_brick`,
+  `lookup_brick_mip` and `lookup_brick_context`), so a per-sample lookup is
+  just `p / s - placed_corner`. Looking `t` up per sample (a `switch` over
+  the levels) cost 17-30% of the frame; per brick it is about 3%. The labels
+  shader works in index space (`p + 0.5`) and folds that half voxel into the
+  corner too (`shift = 0.5`).
+- **Label rays sample at the midpoint of each step** (`t + (i + 0.5) *
+  step`). They carry no jitter and each brick segment starts on a brick
+  face, so at one sample per voxel face-on, samples starting on the face land
+  exactly on voxel faces, where `floor(u + 0.5)` is a coin toss.
+- Brick selection, the DDA and the LUT stay in index space on the base cell
+  grid: a translation moves a level by less than one of its voxels
+  (the contract below), which the padding absorbs.
+- CPU planning (level-of-detail sorting, frustum and viewport culling,
+  `keys_in_region`) uses the same boxes: `brick_box_data` /
+  `brick_centre_data`.
+
+### The contract
+
+The anchor-brick LUT above can only place levels that stay over the level-0
+block they summarise. `cellier.data._level_contract.validate_level_transforms`
+enforces, per coarse level and axis: a diagonal transform; `s >= 1` and not
+decreasing with level; `-0.5 <= t <= s - 0.5`; and the level covers level 0's
+extent to within one of its voxels. Stores that break it raise when they get
+their transforms or are added to a scene. Block averaging (`t = (s - 1) / 2`),
+plain striding (`t = 0`) and offset striding (`t = s // 2`) all pass, with
+integer or non-integer ratios.
+
+Arbitrary translations (cropped or shifted coarse levels) would need
+per-level page tables and a per-sample brick lookup, and a rendering domain
+that is the union of the levels; that is future work, and the helpers above
+carry over.
+
+### Padding budgets
+
+What the ghost border has to absorb is the out-of-brick distance
+(`max_out_of_brick`: the cell rule plus the translation term) plus how far
+past a sample position the path reads, in level-k voxels:
+
+| Path | Border | Read past the sample | Allowance |
+|---|---|---|---|
+| 2D image | 2 | 0.5 (linear) | 1.5 |
+| 2D labels | 2 | 0 (nearest) | 2.0 |
+| 3D image | 3 | 1.5 (gradient probe; bisection is `1 / ray_steps_per_voxel`) | 1.5 |
+| 3D labels | 2 | 1 (one bisection step at the default density) | 1.0 |
+
+The visuals pass these margins to the LUT managers at the default ray
+density; the check only warns, because exceeding the border repeats an edge
+texel. Worst cases in the repo: 0.48 for integer pyramids with their real
+translations, 1.34 for the light-sheet pyramid with block-average placement
+(0.63 with its published `t = 0`).
+
+## Ray step density
+
+The 3D brick shaders take `ray_steps_per_voxel` samples per voxel of the
+drawn level, counted along the ray (`ray_step_count`: the L2 length of the
+ray segment in level-k voxels), set on `MultiscaleImageAppearance` and
+`MultiscaleLabelsAppearance` (default 1.0, allowed 0.5-8, a live uniform).
+The old count, `24 / max(lod_scale)` steps per brick in normalised physical
+space, depended on the block size and starved thin axes: on an anisotropic
+level (z scale 1, y/x 16) a view down z took about one step per brick and
+dropped whole labels. Labels need about one step per voxel (nearest sampling
+must visit each voxel); a MIP at 0.5 can lose up to all of a one-voxel spot
+(the worst-case loss is `1 / (2 * ray_steps_per_voxel)` of the peak).
 
 ## Slice keys
 
@@ -214,6 +325,20 @@ change (`SliceCoordinator._on_dims_changed`), so for now the benefit is in 3D.
 - `tests/render/test_image_multiscale_render.py::test_slider_positions_on_the_same_frame_share_brick_keys`:
   two slider positions on the same frame share a key and the second plan is
   all cache hits.
+- `tests/render/test_multiscale_level_alignment.py`: every level of four
+  pyramid kinds (offset, plain, offset with a level-0 translation, block
+  average), 2D and 3D, image and labels, drawn at its transform to within
+  0.2 level-0 voxels.
+- `tests/render/test_multiscale_labels_2d_reference.py`: 2D labels on a
+  translated non-integer pyramid match the reference sampler
+  (`tests/render/_level_reference.py`) pixel for pixel, and a 2D pick just
+  inside a label edge returns the drawn label;
+  `tests/render/test_multiscale_labels_3d_pick.py` does the pick in 3D.
+- `tests/data/test_level_contract.py`, `tests/render/test_level_mapping.py`,
+  `tests/render/test_level_offsets_uploaded.py`: the contract, the mapping
+  helpers, and the offsets reaching the uniform.
+- `tests/render/test_ray_steps_per_voxel.py`: the step density is live and
+  sets what a ray can miss.
 
 ## Checklist for changes
 
@@ -226,3 +351,10 @@ change (`SliceCoordinator._on_dims_changed`), so for now the benefit is in 3D.
   managers with `border`); without shapes the tail row is not owned.
 - A new block cache key must describe what is fetched, not a continuous
   position.
+- A sampler must place the level with `cellier.render._level_mapping` (CPU)
+  or `level_mapping.wgsl` (GPU): `u = (p - t) / s` from the centred position
+  `p`, never `position / scale`.
+- Anything that depends on the level goes in the per-brick setup
+  (`BrickInfo`, `BrickContext`), never in the per-sample path.
+- Pass the store's translations (`_translation_vecs_data`) wherever the
+  scales go: the scale buffers and the LUT managers.

@@ -13,6 +13,12 @@ from typing import Literal, get_args
 AppearancePresentation = Literal["selector", "collapsible_sections"]
 """How an :class:`AppearanceControls` dock presents several visuals."""
 
+DOCK_MIN_WIDTH: int = 260
+"""The narrowest a left or right dock may be, in logical pixels, on both
+toolkits.  It is also the default when a layout gives no width, and the lowest
+``left_dock_min_width`` / ``right_dock_min_width`` a layout accepts: narrower
+than this, the controls cannot be laid out legibly."""
+
 
 @dataclass
 class HStack:
@@ -144,12 +150,14 @@ class Layout:
         :class:`OverlayControls`, :class:`RenderControls`, or a stack of
         those.  ``None`` hides the dock.
     left_dock_min_width, right_dock_min_width : int or None
-        The narrowest the left / right dock may be, in logical pixels.  The
-        dock can still be dragged wider on Qt; on anywidget, which has no
-        splitter, it is the dock's floor.  ``None`` (default) keeps the host
-        default: 260 px on Qt, the content's own width on anywidget.  A width
-        needs a dock on its side.  Top and bottom docks span the window, so
-        they have no width setting.
+        The narrowest the left / right dock may be, in logical pixels, on both
+        toolkits.  Must be at least :data:`DOCK_MIN_WIDTH` (260 px); a smaller
+        value raises ``ValueError``.  ``None`` (default) uses
+        :data:`DOCK_MIN_WIDTH`.  It is a floor, not a fixed width: a dock is
+        never narrower than its controls need, so content that needs more
+        widens the dock, and on Qt the dock separator can still drag it wider.
+        A width needs a dock on its side.  Top and bottom docks span the
+        window, so they have no width setting.
     """
 
     center: object
@@ -161,7 +169,7 @@ class Layout:
     right_dock_min_width: int | None = None
 
     def __post_init__(self) -> None:
-        """Reject a dock width that is not a positive int or has no dock."""
+        """Reject a dock width that is not an int, is too narrow, or has no dock."""
         for side in ("left", "right"):
             width = getattr(self, f"{side}_dock_min_width")
             if width is None:
@@ -171,9 +179,10 @@ class Layout:
                     f"{side}_dock_min_width must be an int number of pixels; "
                     f"got {width!r}."
                 )
-            if width <= 0:
+            if width < DOCK_MIN_WIDTH:
                 raise ValueError(
-                    f"{side}_dock_min_width must be positive; got {width}."
+                    f"{side}_dock_min_width must be at least {DOCK_MIN_WIDTH} px; "
+                    f"got {width}."
                 )
             if getattr(self, f"{side}_dock") is None:
                 raise ValueError(

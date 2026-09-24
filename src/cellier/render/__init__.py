@@ -6,6 +6,7 @@ from cellier.render._config import (
     OutlineConfig,
     OutlineLayerConfig,
     RenderManagerConfig,
+    SchedulerConfig,
     SlicingConfig,
     TemporalAccumulationConfig,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "ReslicingRequest",
     "SSAOPass",
     "SceneManager",
+    "SchedulerConfig",
     "SliceCoordinator",
     "SlicingConfig",
     "TemporalAccumulationConfig",

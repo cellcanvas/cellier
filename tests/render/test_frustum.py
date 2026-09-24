@@ -144,19 +144,21 @@ def test_aabb_corners_isotropic_axis_swap_level1():
     key = BlockKey3D(level=1, g0=1, g1=2, g2=3)
     corners = compute_brick_aabb_corners(key, block_size=8)
     assert corners.shape == (8, 3)
-    # x spans g2*8 .. (g2+1)*8, y from g1, z from g0
-    assert corners[:, 0].min() == 24 and corners[:, 0].max() == 32  # x <- g2
-    assert corners[:, 1].min() == 16 and corners[:, 1].max() == 24  # y <- g1
-    assert corners[:, 2].min() == 8 and corners[:, 2].max() == 16  # z <- g0
+    # Centre convention (plan v2, D1): x spans voxels g2*8 .. (g2+1)*8 - 1,
+    # i.e. [g2*8 - 0.5, (g2+1)*8 - 0.5]; y from g1, z from g0.
+    assert corners[:, 0].min() == 23.5 and corners[:, 0].max() == 31.5  # x <- g2
+    assert corners[:, 1].min() == 15.5 and corners[:, 1].max() == 23.5  # y <- g1
+    assert corners[:, 2].min() == 7.5 and corners[:, 2].max() == 15.5  # z <- g0
 
 
 def test_aabb_corners_isotropic_level2_doubles_block_world():
     key = BlockKey3D(level=2, g0=1, g1=2, g2=3)
     corners = compute_brick_aabb_corners(key, block_size=8)
-    # block_world = 8 * 2**(2-1) = 16
-    assert corners[:, 0].min() == 48 and corners[:, 0].max() == 64  # x
-    assert corners[:, 1].min() == 32 and corners[:, 1].max() == 48  # y
-    assert corners[:, 2].min() == 16 and corners[:, 2].max() == 32  # z
+    # block_world = 8 * 2**(2-1) = 16; the implied block-averaged level
+    # (t = 0.5) starts at level-0 voxel 16 * g, low edge 16 * g - 0.5.
+    assert corners[:, 0].min() == 47.5 and corners[:, 0].max() == 63.5  # x
+    assert corners[:, 1].min() == 31.5 and corners[:, 1].max() == 47.5  # y
+    assert corners[:, 2].min() == 15.5 and corners[:, 2].max() == 31.5  # z
 
 
 def test_aabb_corners_anisotropic_honours_scale_and_translation():
@@ -169,12 +171,12 @@ def test_aabb_corners_anisotropic_honours_scale_and_translation():
         level_scale_arr_shader=scale,
         level_translation_arr_shader=translation,
     )
-    # x width = 8*2 = 16, min = 1*16 + 10 = 26
-    assert corners[:, 0].min() == 26 and corners[:, 0].max() == 42
-    # y width = 8*3 = 24, min = 1*24 + 20 = 44
-    assert corners[:, 1].min() == 44 and corners[:, 1].max() == 68
-    # z width = 8*4 = 32, min = 1*32 + 30 = 62
-    assert corners[:, 2].min() == 62 and corners[:, 2].max() == 94
+    # low = s * (g * 8 - 0.5) + t.  x width = 8*2 = 16, min = 2*7.5 + 10 = 25
+    assert corners[:, 0].min() == 25 and corners[:, 0].max() == 41
+    # y width = 8*3 = 24, min = 3*7.5 + 20 = 42.5
+    assert corners[:, 1].min() == 42.5 and corners[:, 1].max() == 66.5
+    # z width = 8*4 = 32, min = 4*7.5 + 30 = 60
+    assert corners[:, 2].min() == 60 and corners[:, 2].max() == 92
 
 
 def test_aabb_corners_level1_isotropic_matches_unit_anisotropic():

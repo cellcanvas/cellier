@@ -6,10 +6,28 @@
 const BORDER: f32          = 2.0;     // ghost border (level-k voxels); must match Python overlap=2
                                       // smooth_iso normal kernel (±1 voxel) also requires BORDER ≥ 2
 const MAX_BRICK_ITERS: u32 = 512u;
-const STEPS_PER_BRICK: f32 = 24.0;
 
 // NOTE: Do NOT define struct LabelParams, VOL_PARAMS, or BlockScales here.
 // pygfx auto-generates them from numpy dtypes via structname=.
+
+// ── Ray-step count ────────────────────────────────────────────────────────
+// Steps for a ray segment of length brick_len (normalized space) through a
+// brick drawn at lod_scale: u_material.ray_steps_per_voxel per level-k voxel
+// crossed, counting voxels along the ray (L2).  ray_dir * dataset_size /
+// norm_size is the ray's rate in level-0 voxels; dividing by lod_scale gives
+// level-k voxels.  The count depends only on the drawn level's voxel size
+// along the ray -- not on the block size, the physical voxel aspect ratio or
+// the level's largest scale -- so a thin axis is never undersampled.
+fn ray_step_count(
+    ray_dir:      vec3<f32>,
+    brick_len:    f32,
+    lod_scale:    vec3<f32>,
+    norm_size:    vec3<f32>,
+    dataset_size: vec3<f32>,
+) -> u32 {
+    let voxels_k = length(ray_dir * (dataset_size / norm_size) / lod_scale) * brick_len;
+    return max(1u, u32(ceil(u_material.ray_steps_per_voxel * voxels_k)));
+}
 
 // ── Block-scale lookup ────────────────────────────────────────────────────
 fn get_lod_scale(lut_w: u32) -> vec3<f32> {
@@ -28,6 +46,7 @@ fn get_lod_scale(lut_w: u32) -> vec3<f32> {
 }
 
 {$ include 'cellier.brick_rule.wgsl' $}
+{$ include 'cellier.level_mapping.wgsl' $}
 
 // ── Coordinate conversions ────────────────────────────────────────────────
 
@@ -110,6 +129,12 @@ fn get_label_color(label_id: i32) -> vec4<f32> {
 }
 
 // ── Atlas sampler (integer, nearest-neighbor) ─────────────────────────────
+// Placement (cellier.level_mapping.wgsl): voxel_pos is in INDEX space like
+// every position in this shader (this file's norm_to_voxel, voxel i covers
+// [i, i + 1)); brick selection and the DDA stay there.  Sampling uses the
+// centred position p = voxel_pos - 0.5 and the level coordinate
+// u = (p - t) / s, and reads the nearest voxel floor(u + 0.5).  The -0.5 and
+// t are folded into the brick corner once per brick (placed_corner_k).
 fn sample_atlas_label(
     voxel_pos:      vec3<f32>,
     lut_entry:      vec4<u32>,
@@ -125,15 +150,19 @@ fn sample_atlas_label(
     let padded_size = block_size + vec3<f32>(2.0 * BORDER);
 
     let tile_origin  = vec3<f32>(lut_entry.xyz) * padded_size;
+    // brick_corner_k is placed (placed_corner_k, shift 0.5): it already
+    // carries (t + 0.5) / s, so voxel_k - brick_corner_k = u - corner.
     let voxel_k      = voxel_pos / lod_scale;
-    // Extend into the ghost border region [-BORDER, block_size-1+BORDER] so that
-    // samples near brick edges read true neighbor data from the padded tile
-    // rather than clamping to the brick's last voxel.
-    let pos_in_brick = clamp(voxel_k - brick_corner_k, vec3<f32>(-BORDER), block_size - vec3<f32>(1.0) + vec3<f32>(BORDER));
+    // Nearest voxel, extended into the ghost border region
+    // [-BORDER, block_size-1+BORDER] so that samples near brick edges read
+    // true neighbor data from the padded tile rather than clamping to the
+    // brick's last voxel.
+    let pos_in_brick = clamp(floor(voxel_k - brick_corner_k + vec3<f32>(0.5)),
+                             vec3<f32>(-BORDER),
+                             block_size - vec3<f32>(1.0) + vec3<f32>(BORDER));
 
-    // Nearest-neighbor: round, no +0.5 sub-voxel shift.
     let cache_pos = tile_origin + pos_in_brick + vec3<f32>(BORDER);
-    let texel     = clamp(vec3<i32>(round(cache_pos)), vec3<i32>(0), cache_size - vec3<i32>(1));
+    let texel     = clamp(vec3<i32>(cache_pos), vec3<i32>(0), cache_size - vec3<i32>(1));
     return textureLoad(t_cache, texel, 0).r;
 }
 
@@ -163,7 +192,9 @@ fn lookup_brick_context(voxel_pos: vec3<f32>) -> BrickContext {
         ctx.lut_entry      = lut_entry;
         ctx.lod_scale      = get_lod_scale(lut_entry.w);
         // The brick the LUT says owns this cell (same rule as the writer).
-        ctx.brick_corner_k = brick_corner_from_cell(safe_idx, lut_entry.w);
+        ctx.brick_corner_k = placed_corner_k(
+            brick_corner_from_cell(safe_idx, lut_entry.w),
+            i32(lut_entry.w), ctx.lod_scale, 0.5);
     }
     return ctx;
 }
@@ -226,11 +257,11 @@ fn setup_brick(
     if (info.valid) {
         info.lod_scale      = get_lod_scale(lut_entry.w);
         // The brick the LUT says owns this cell (same rule as the writer).
-        info.brick_corner_k = brick_corner_from_cell(safe_idx, lut_entry.w);
+        info.brick_corner_k = placed_corner_k(
+            brick_corner_from_cell(safe_idx, lut_entry.w),
+            i32(lut_entry.w), info.lod_scale, 0.5);
         let brick_len       = max(info.t_end - t, 1e-6);
-        let brick_world_len = length(brick_max_n - brick_min_n);
-        let max_scale  = max(info.lod_scale.x, max(info.lod_scale.y, info.lod_scale.z));
-        info.num_steps = max(1u, u32((STEPS_PER_BRICK / max_scale) * brick_len / brick_world_len));
+        info.num_steps = ray_step_count(ray_dir, brick_len, info.lod_scale, norm_size, dataset_size);
         info.step_size = brick_len / f32(info.num_steps);
     }
 
@@ -581,7 +612,13 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         // surface aligns with a brick boundary.  See: ISO brick boundary
         // fix notes.
 
-        var t_sample = t;
+        // Midpoint rule: sample at t + (i + 0.5) * step.  Label rays carry
+        // no jitter and every brick segment starts on a brick face, so
+        // starting at t puts samples exactly on voxel faces whenever the
+        // step divides the brick (face-on views at 1 sample per voxel);
+        // floor(u + 0.5) is then a coin toss between two voxels.  Half a
+        // step in puts them on voxel centres instead (plan v2 Phase 6).
+        var t_sample = t + 0.5 * brick.step_size;
         for (var i = 0u; i < brick.num_steps; i++) {
             if (t_sample > brick.t_end) { break; }
 

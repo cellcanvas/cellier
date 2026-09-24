@@ -52,7 +52,12 @@ def test_discrete_axis_serialises_as_json_for_the_front_end():
         "labels": ["mem9", "H2B"],
         "draw_ticks": False,
     }
-    assert panel.axis_values["1"] == {"kind": "continuous", "min": 0.0, "max": 99.0}
+    assert panel.axis_values["1"] == {
+        "kind": "continuous",
+        "min": 0.0,
+        "max": 99.0,
+        "decimals": 2,
+    }
 
 
 def test_discrete_index_is_derived_at_construction():

@@ -33,8 +33,11 @@ class ControlsRegistryMixin:
 
     ``_controls_configs`` maps a representative visual id to its config, in
     registration order.  ``_visual_groups`` maps that id to every visual the
-    controls drive: the id alone on a ``Viewer``, the four panel siblings on an
-    ``OrthoViewer``.  ``_controls_changed`` is emitted after every change.
+    controls drive: the id alone on a ``Viewer``; on an ``OrthoViewer``, the
+    three 2D panel siblings in one group and the 3D panel's visual in another.
+    ``_controls_labels`` holds an explicit dock label for a group that was
+    given one; a group without one is named from its visuals.
+    ``_controls_changed`` is emitted after every change.
     """
 
     _controls_changed = Signal()
@@ -42,6 +45,7 @@ class ControlsRegistryMixin:
     _controller: CellierController
     _controls_configs: dict[UUID, BaseControlsConfig]
     _visual_groups: dict[UUID, list[UUID]]
+    _controls_labels: dict[UUID, str]
 
     def _init_controls_registry(self) -> None:
         """Create the empty record and start pruning removed visuals.
@@ -51,23 +55,30 @@ class ControlsRegistryMixin:
         """
         self._controls_configs = {}
         self._visual_groups = {}
+        self._controls_labels = {}
         self._controller._outgoing_events.subscribe(
             VisualRemovedEvent, self._forget_removed_visual, weak=True
         )
 
     def _store_controls(
-        self, visual_ids: Sequence[UUID], controls: BaseControlsConfig | None
+        self,
+        visual_ids: Sequence[UUID],
+        controls: BaseControlsConfig | None,
+        label: str | None = None,
     ) -> None:
         """Record *controls* for the visual group *visual_ids*.
 
         The first id is the representative: it keys the config, and its
-        visual is the one the controls are seeded from.
+        visual is the one the controls are seeded from.  *label*, when given,
+        is what the dock's selector calls the group.
         """
         if controls is None or not visual_ids:
             return
         rep_id = visual_ids[0]
         self._controls_configs[rep_id] = controls
         self._visual_groups[rep_id] = list(visual_ids)
+        if label is not None:
+            self._controls_labels[rep_id] = label
         self._controls_changed.emit()
 
     def _forget_removed_visual(self, event: VisualRemovedEvent) -> None:
@@ -89,6 +100,7 @@ class ControlsRegistryMixin:
         if not remaining:
             self._controls_configs.pop(rep_id, None)
             self._visual_groups.pop(rep_id)
+            self._controls_labels.pop(rep_id, None)
         elif rep_id == removed:
             new_rep = remaining[0]
             self._controls_configs = {
@@ -101,6 +113,8 @@ class ControlsRegistryMixin:
                 )
                 for key, ids in self._visual_groups.items()
             }
+            if rep_id in self._controls_labels:
+                self._controls_labels[new_rep] = self._controls_labels.pop(rep_id)
         else:
             self._visual_groups[rep_id] = remaining
         self._controls_changed.emit()

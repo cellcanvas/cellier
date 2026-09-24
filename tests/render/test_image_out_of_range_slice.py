@@ -22,6 +22,7 @@ from cellier.visuals._image import (
     MultiscaleImageRenderConfig,
 )
 from cellier.visuals._image_memory import InMemoryImageAppearance
+from tests._gpu_budget import SMALL_BUDGETS
 from tests.render.conftest import _write_multiscale_zarr
 
 _TZYX = [("t", "time"), *spatial_axes("z", "y", "x")]
@@ -114,7 +115,7 @@ async def test_multiscale_2d(controller, render_scene, reslice, tmp_path):
         data=store,
         scene_id=scene.id,
         appearance=MultiscaleImageAppearance(),
-        render_config=MultiscaleImageRenderConfig(block_size=8),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     controller.add_canvas(scene_id=scene.id)
@@ -138,7 +139,7 @@ async def test_multiscale_3d(controller, render_scene, reslice, tmp_path):
         data=store,
         scene_id=scene.id,
         appearance=MultiscaleImageAppearance(),
-        render_config=MultiscaleImageRenderConfig(block_size=8),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         single=MultiscaleImageSingleAppearance(
             color_map="viridis", clim=(0.0, 1.0), render_mode="mip"
         ),

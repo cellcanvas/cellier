@@ -140,17 +140,32 @@ def _camera_states(controller: object) -> dict:
 
 
 async def _wait_for_slicer(controller: object) -> None:
-    """Await in-flight slice tasks until none are left (at most 50 rounds)."""
-    slicer = controller._render_manager._slicer
+    """Await in-flight loading until none is left.
+
+    Two loaders: the slicer's tasks (in-memory visuals; at most 50 rounds)
+    and the chunk scheduler (multiscale visuals), drained with a commit
+    round per poll, as a drawing canvas would run them.  Reslices still
+    waiting on a timer (a dims settle, a rate-capped store change) are
+    awaited first, since they start new loading.
+    """
+    render_manager = controller._render_manager
+    slicer = render_manager._slicer
+    deferred = getattr(controller, "_deferred_reslice_tasks", list)
+    for _ in range(50):
+        pending = deferred()
+        if not pending:
+            break
+        await asyncio.gather(*pending, return_exceptions=True)
     for _ in range(50):
         tasks = list(slicer._tasks.values())
         if not tasks:
             break
         await asyncio.gather(*tasks)
+    await render_manager.scheduler.drain(commit=True)
 
 
 async def _load_data(viewer: object) -> None:
-    """Drive the slicer to quiescence so the capture sees loaded data.
+    """Drive loading to quiescence so the capture sees loaded data.
 
     A capture renders what is resident on the GPU, so a picture taken before
     the first reads land is an honest picture of an empty scene -- which reads

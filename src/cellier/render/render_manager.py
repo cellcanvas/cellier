@@ -8,7 +8,6 @@ from uuid import uuid4
 
 import numpy as np
 
-from cellier.events import DimsChangedEvent, EventBus
 from cellier.events._events import AABBChangedEvent, ViewRay, _CanvasRawPointerEvent
 from cellier.render._config import RenderManagerConfig
 from cellier.render._scene_config import VisualRenderConfig
@@ -25,6 +24,7 @@ from cellier.render._visual_lut import (
 )
 from cellier.render.canvas_view import CanvasView
 from cellier.render.scene_manager import SceneManager
+from cellier.render.scheduling import ChunkScheduler
 from cellier.render.slice_coordinator import SliceCoordinator
 from cellier.slicer import AsyncSlicer
 
@@ -36,7 +36,8 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
 
     from cellier.data._base_data_store import BaseDataStore
-    from cellier.events._events import VisualPickDetails
+    from cellier.events import EventBus
+    from cellier.events._events import LoadingProgress, VisualPickDetails
     from cellier.render._requests import DimsState
     from cellier.render.visuals._canvas_overlay import GFXCanvasOverlay
     from cellier.render.visuals._image import GFXMultiscaleImageVisual
@@ -187,26 +188,30 @@ class RenderManager:
             batch_size=config.slicing.batch_size,
             render_every=config.slicing.render_every,
         )
+        # Multiscale visuals load through the chunk scheduler, 2D and 3D
+        # (plans/progressive_loading_design_v3.md); everything else through
+        # the slicer.
+        self._scheduler = ChunkScheduler(
+            config.scheduler,
+            request_draw=self._request_draw_scene,
+            on_complete=self._on_cache_complete,
+            on_backstop_complete=self._on_cache_backstop_complete,
+            on_progress=self._on_cache_progress,
+        )
         self._slice_coordinator = SliceCoordinator(
             scenes=self._scenes,
             slicer=self._slicer,
             data_stores=self._data_stores,
+            scheduler=self._scheduler,
         )
+        # canvas id -> its ``before_draw`` handler, removed with the canvas.
+        self._commit_hooks: dict[UUID, Any] = {}
 
     def connect_event_bus(self, event_bus: EventBus) -> None:
-        """Subscribe internal components to *event_bus*.
-
-        Must be called before the caller registers its own DimsChangedEvent
-        handler so the SliceCoordinator invalidates stale 2D caches first.
-        """
+        """Subscribe internal components to *event_bus*."""
         self._event_bus = event_bus
         # Let the coordinator emit ResliceStartedEvent / ResliceCompletedEvent.
         self._slice_coordinator._event_bus = event_bus
-        event_bus.subscribe(
-            DimsChangedEvent,
-            self._slice_coordinator._on_dims_changed,
-            owner_id=self._slice_coordinator.id,
-        )
         # The ambient-occlusion radius is derived from the scene bounding
         # box, so it has to be recomputed when that box moves.  Walking the
         # scene graph per frame is not an option -- a multiscale visual is a
@@ -217,6 +222,54 @@ class RenderManager:
             self._on_aabb_changed_for_ssao,
             owner_id=self._id,
         )
+
+    @property
+    def scheduler(self) -> ChunkScheduler:
+        """The chunk scheduler shared by every multiscale visual."""
+        return self._scheduler
+
+    def _on_cache_complete(self, cache_id: int, generation: int) -> None:
+        self._slice_coordinator.on_cache_complete(cache_id, generation)
+
+    def _on_cache_backstop_complete(self, cache_id: int, generation: int) -> None:
+        self._slice_coordinator.on_cache_backstop_complete(cache_id, generation)
+
+    def _on_cache_progress(self, cache_id: int) -> None:
+        self._slice_coordinator.on_cache_progress(cache_id)
+
+    def loading_progress(self, visual_id: UUID) -> LoadingProgress | None:
+        """A multiscale visual's loading progress, or ``None`` (design 5.13)."""
+        return self._slice_coordinator.visual_progress(visual_id)
+
+    def _request_draw_scene(self, scene_id: UUID | None) -> None:
+        """Scheduler callback: data for *scene_id* changed; draw its canvases."""
+        for canvas_id, canvas_scene_id in list(self._canvas_to_scene.items()):
+            if canvas_scene_id == scene_id:
+                canvas_view = self._canvases.get(canvas_id)
+                if canvas_view is not None:
+                    canvas_view.request_draw()
+
+    def invalidate_store(
+        self, store_id: UUID, regions: tuple | None = None
+    ) -> list[int]:
+        """Forget GPU data read from a store, where it changed (design 5.14).
+
+        Every scheduled atlas reading the store drops the bricks that overlap
+        *regions* (all of them for ``None``); wanted ones are fetched again.
+
+        Parameters
+        ----------
+        store_id : UUID
+            The store that changed.
+        regions : tuple of DataRegion or None
+            Level-0 data regions, as ``StoreChange.regions`` carries them.
+
+        Returns
+        -------
+        list[int]
+            The atlases touched.
+        """
+        return self._scheduler.invalidate(store_id, regions)
 
     @property
     def config(self) -> RenderManagerConfig:
@@ -930,6 +983,16 @@ class RenderManager:
             self._warn_if_outline_unavailable()
         # Wire up per-frame tick for visuals (e.g. jitter seed advance).
         canvas_view._tick_visuals_fn = self._make_tick_fn(scene_id)
+        # Commit what the chunk scheduler has received just before each frame
+        # of this canvas is drawn, scoped to its scene (design 5.7).  Every
+        # canvas of the scene is hooked, including capture canvases.
+        scheduler = self._scheduler
+
+        def _commit_before_draw(event, scene_id=scene_id) -> None:
+            scheduler.commit_round(scene_id)
+
+        canvas_view.widget.add_event_handler(_commit_before_draw, "before_draw")
+        self._commit_hooks[canvas_id] = _commit_before_draw
         self._canvases[canvas_id] = canvas_view
         self._canvas_to_scene[canvas_id] = scene_id
         canvas_view._renderer.add_event_handler(
@@ -1386,6 +1449,8 @@ class RenderManager:
         for canvas_id, canvas_scene_id in list(self._canvas_to_scene.items()):
             if canvas_scene_id == scene_id:
                 self._slice_coordinator.cancel_visual(scene_id, canvas_id, visual_id)
+        # And drop its atlases from the chunk scheduler (design 5.4 remove).
+        self._slice_coordinator.forget_visual(visual_id)
         self._data_stores.pop(visual_id)
         # Drop the per-visual render flags too.  Leaving them behind leaks,
         # and -- because the map is keyed by cellier visual id rather than by
@@ -1408,6 +1473,7 @@ class RenderManager:
         """
         scene_manager = self._scenes.pop(scene_id)
         for vid in scene_manager.visual_ids:
+            self._slice_coordinator.forget_visual(vid)
             self._visual_to_scene.pop(vid, None)
             self._data_stores.pop(vid, None)
             self._visual_flags.pop(vid, None)
@@ -1418,6 +1484,7 @@ class RenderManager:
         ]
         for cid in canvas_ids:
             self._canvas_to_scene.pop(cid)
+            self._unhook_canvas(cid)
             self._canvases.pop(cid).close()
             self._active_gestures.pop(cid, None)
             self._pick_details_enabled.pop(cid, None)
@@ -1436,9 +1503,21 @@ class RenderManager:
             If ``canvas_id`` is not registered.
         """
         self._canvas_to_scene.pop(canvas_id)
+        self._unhook_canvas(canvas_id)
         self._canvases.pop(canvas_id).close()
         self._active_gestures.pop(canvas_id, None)
         self._pick_details_enabled.pop(canvas_id, None)
+
+    def _unhook_canvas(self, canvas_id: UUID) -> None:
+        """Remove the canvas's commit hook (see ``add_canvas``)."""
+        hook = self._commit_hooks.pop(canvas_id, None)
+        canvas_view = self._canvases.get(canvas_id)
+        if hook is None or canvas_view is None:
+            return
+        try:
+            canvas_view.widget.remove_event_handler(hook, "before_draw")
+        except Exception:  # a canvas already torn down by its backend
+            pass
 
     def close(self) -> None:
         """Close every canvas and scene, and drop the render references.
@@ -1451,6 +1530,11 @@ class RenderManager:
 
         Safe to call more than once.
         """
+        # The scheduler first: cancel its reads and drop every atlas, so the
+        # visuals' brick caches are released with the scenes below.
+        self._scheduler.close()
+        for canvas_id in list(self._canvases):
+            self._unhook_canvas(canvas_id)
         for canvas_view in list(self._canvases.values()):
             canvas_view.close()
         self._canvases.clear()

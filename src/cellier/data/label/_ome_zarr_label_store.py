@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
-from pydantic import ConfigDict, Field, PrivateAttr
+from pydantic import ConfigDict, Field
 
 if TYPE_CHECKING:
     import tensorstore as ts
@@ -20,6 +20,7 @@ from cellier.data._base_data_store import BaseDataStore, gridded_axis_extents
 from cellier.data._dataset_info import DatasetInfo, ome_zarr_dataset_info
 from cellier.data._tensorstore_cache import (
     DEFAULT_CACHE_POOL_BYTES,
+    Recheck,
     TensorStoreCacheMixin,
 )
 from cellier.data.image._ome_zarr_image_store import (
@@ -90,31 +91,25 @@ class OMEZarrLabelDataStore(TensorStoreCacheMixin, BaseDataStore):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    _ts_stores: list[ts.TensorStore] = PrivateAttr(default_factory=list)
-
     def model_post_init(self, __context: Any) -> None:
         """Open all TensorStore handles (synchronous, before QtAsyncio)."""
-        from cellier.data.image._ome_zarr_image_store import _open_ome_ts_stores
-
-        self._ts_stores = _open_ome_ts_stores(
-            self.zarr_path,
-            self.scale_names,
-            anonymous=self.anonymous,
-            cache_pool_bytes=self.cache_pool_bytes,
-        )
+        self._reopen_ts_stores()
         # After the handles: the base checks the systems against the level
         # count and rank, which are read off them.
         super().model_post_init(__context)
 
-    def _reopen_ts_stores(self) -> None:
-        """Reopen every level against the store's current cache budget."""
+    def _open_ts_handles(
+        self, context: ts.Context, recheck: Recheck
+    ) -> list[ts.TensorStore]:
+        """Open every level on *context* (see ``TensorStoreCacheMixin``)."""
         from cellier.data.image._ome_zarr_image_store import _open_ome_ts_stores
 
-        self._ts_stores = _open_ome_ts_stores(
+        return _open_ome_ts_stores(
             self.zarr_path,
             self.scale_names,
+            context,
             anonymous=self.anonymous,
-            cache_pool_bytes=self.cache_pool_bytes,
+            recheck=recheck,
         )
 
     # ── Convenience constructors ────────────────────────────────────────
@@ -127,6 +122,7 @@ class OMEZarrLabelDataStore(TensorStoreCacheMixin, BaseDataStore):
         multiscale_index: int = 0,
         anonymous: bool = False,
         cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES,
+        recheck_cached_data: bool = False,
         data_coordinate_system: DataCoordinateSystem | None = None,
         name: str = "ome zarr label data store",
     ) -> OMEZarrLabelDataStore:
@@ -148,6 +144,9 @@ class OMEZarrLabelDataStore(TensorStoreCacheMixin, BaseDataStore):
         cache_pool_bytes : int
             Chunk cache cap for this store, in bytes, shared by all of its
             resolution levels.  ``0`` disables caching.
+        recheck_cached_data : bool
+            Revalidate cached chunks on every read.  Set it when another
+            process writes this data while it is open.  Default False.
         data_coordinate_system : DataCoordinateSystem or None
             The level-0 coordinate system, one axis per array dimension.
             ``None`` builds it from the NGFF axis metadata, and an axis with
@@ -221,6 +220,7 @@ class OMEZarrLabelDataStore(TensorStoreCacheMixin, BaseDataStore):
             physical_translation=physical_translation,
             anonymous=anonymous,
             cache_pool_bytes=cache_pool_bytes,
+            recheck_cached_data=recheck_cached_data,
             name=name,
         )
 

@@ -188,6 +188,12 @@ exclude_lines = [
 
 [tool.coverage.run]
 source = ["cellier"]
+# Measure with sys.monitoring (the default only from 3.14).  On 3.12 the default
+# sys.settrace core took tests/render/scheduling/test_property.py from under a
+# minute to 10-15 min in CI, because it pays a tracer call on every line run,
+# measured or not.  sysmon cannot measure branches before 3.14, so enabling
+# branch coverage falls back to the slow core there (with a "no-sysmon" warning).
+core = "sysmon"
 
 # https://github.com/mgedmin/check-manifest#configuration
 # add files that you want check-manifest to explicitly ignore here

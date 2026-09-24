@@ -270,6 +270,34 @@ class VisualRenderUpdateEvent(NamedTuple):
     value: Any
 
 
+class LoadingConfigUpdateEvent(NamedTuple):
+    """Request to set one ``ProgressiveLoadingConfig`` field on a visual.
+
+    Only multiscale image and labels visuals load progressively
+    (``render_config.loading``).  The controller merges the field into the
+    visual's current config and validates the result, so an invalid
+    combination (``dims_drag="backstop"`` with ``backstop=False``) raises
+    rather than being corrected.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``LoadingConfigChangedEvent``
+        so the caller can echo-filter on its own subscription.
+    visual_id :
+        Target visual.
+    field :
+        A ``ProgressiveLoadingConfig`` field name, e.g. ``"dims_drag"``.
+    value :
+        New value for the field.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    field: str
+    value: Any
+
+
 class TrailUpdateEvent(NamedTuple):
     """Request to set or clear the trail window on one axis of a graph visual.
 
@@ -307,6 +335,7 @@ CellierUpdateEventTypes = (
     | BackgroundUpdateEvent
     | RenderConfigUpdateEvent
     | VisualRenderUpdateEvent
+    | LoadingConfigUpdateEvent
     | TrailUpdateEvent
 )
 

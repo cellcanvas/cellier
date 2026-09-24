@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import numpy as np
 import tensorstore as ts
-from pydantic import ConfigDict, Field, PrivateAttr
+from pydantic import ConfigDict, Field
 
 from cellier.data._axes import build_axes, level_systems
 from cellier.data._axes import data_coordinate_system as build_data_coordinate_system
@@ -21,8 +21,9 @@ from cellier.data._base_data_store import BaseDataStore, gridded_axis_extents
 from cellier.data._dataset_info import DatasetInfo, ome_zarr_dataset_info
 from cellier.data._tensorstore_cache import (
     DEFAULT_CACHE_POOL_BYTES,
+    Recheck,
     TensorStoreCacheMixin,
-    build_context,
+    recheck_spec_options,
 )
 
 if TYPE_CHECKING:
@@ -163,8 +164,9 @@ def _detect_zarr_driver(uri: str, array_path: str) -> str:
 def _open_ome_ts_stores(
     zarr_path: str,
     scale_names: list[str],
+    context: ts.Context,
     anonymous: bool = False,
-    cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES,
+    recheck: Recheck = False,
 ) -> list[ts.TensorStore]:
     """Open one TensorStore per scale level (synchronous, read-only).
 
@@ -176,15 +178,17 @@ def _open_ome_ts_stores(
         Root URI of the OME-Zarr store.
     scale_names : list[str]
         Per-level relative array paths.
+    context : ts.Context
+        Context every level is opened on, so they share one chunk cache
+        (:func:`~cellier.data._tensorstore_cache.build_context`).
     anonymous : bool
         When True, use anonymous credentials for S3/GCS access
         (for public buckets). Default False.
-    cache_pool_bytes : int
-        Chunk cache cap in bytes, shared by every level opened here --
-        one context serves them all, so a chunk read for one level is not
-        re-decompressed for the next.  ``0`` disables caching.
+    recheck : bool
+        Whether cached chunks are revalidated on read
+        (:func:`~cellier.data._tensorstore_cache.recheck_spec_options`).
+        Default False.
     """
-    context = build_context(cache_pool_bytes)
     stores: list[ts.TensorStore] = []
     scheme = urlparse(zarr_path).scheme
     for name in scale_names:
@@ -192,6 +196,7 @@ def _open_ome_ts_stores(
         spec: dict[str, Any] = {
             "driver": driver,
             "kvstore": _build_kvstore_spec(zarr_path, name),
+            **recheck_spec_options(recheck),
         }
         # Use anonymous credentials for public cloud buckets.
         if anonymous and scheme in ("s3", "gs", "gcs"):
@@ -421,29 +426,25 @@ class OMEZarrImageDataStore(TensorStoreCacheMixin, BaseDataStore):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    _ts_stores: list[ts.TensorStore] = PrivateAttr(default_factory=list)
-
     # ── Lifecycle ───────────────────────────────────────────────────────
 
     def model_post_init(self, __context: Any) -> None:
         """Open all TensorStore handles (synchronous, before QtAsyncio)."""
-        self._ts_stores = _open_ome_ts_stores(
-            self.zarr_path,
-            self.scale_names,
-            anonymous=self.anonymous,
-            cache_pool_bytes=self.cache_pool_bytes,
-        )
+        self._reopen_ts_stores()
         # After the handles: the base checks the systems against the level
         # count and rank, which are read off them.
         super().model_post_init(__context)
 
-    def _reopen_ts_stores(self) -> None:
-        """Reopen every level against the store's current cache budget."""
-        self._ts_stores = _open_ome_ts_stores(
+    def _open_ts_handles(
+        self, context: ts.Context, recheck: Recheck
+    ) -> list[ts.TensorStore]:
+        """Open every level on *context* (see ``TensorStoreCacheMixin``)."""
+        return _open_ome_ts_stores(
             self.zarr_path,
             self.scale_names,
+            context,
             anonymous=self.anonymous,
-            cache_pool_bytes=self.cache_pool_bytes,
+            recheck=recheck,
         )
 
     # ── Convenience constructor ─────────────────────────────────────────
@@ -457,6 +458,7 @@ class OMEZarrImageDataStore(TensorStoreCacheMixin, BaseDataStore):
         series_index: int = 0,
         anonymous: bool = False,
         cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES,
+        recheck_cached_data: bool = False,
         data_coordinate_system: DataCoordinateSystem | None = None,
         name: str = "ome zarr image data store",
     ) -> OMEZarrImageDataStore:
@@ -483,6 +485,9 @@ class OMEZarrImageDataStore(TensorStoreCacheMixin, BaseDataStore):
         cache_pool_bytes : int
             Chunk cache cap for this store, in bytes, shared by all of its
             resolution levels.  ``0`` disables caching.
+        recheck_cached_data : bool
+            Revalidate cached chunks on every read.  Set it when another
+            process writes this data while it is open.  Default False.
         data_coordinate_system : DataCoordinateSystem or None
             The level-0 coordinate system, one axis per array dimension.
             ``None`` builds it from the NGFF axis metadata.  A passed system
@@ -573,6 +578,7 @@ class OMEZarrImageDataStore(TensorStoreCacheMixin, BaseDataStore):
             physical_translation=physical_translation,
             anonymous=anonymous,
             cache_pool_bytes=cache_pool_bytes,
+            recheck_cached_data=recheck_cached_data,
             name=name,
         )
 

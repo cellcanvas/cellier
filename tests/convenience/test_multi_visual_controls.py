@@ -121,13 +121,23 @@ def test_ortho_removing_a_sibling_keeps_the_group():
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
     visuals = _add_image(ortho, "a")
     rep_id = visuals["xy"].id
+    vol_id = visuals["vol"].id
 
     ortho.controller.remove_visual(visuals["yz"].id)
 
-    assert list(ortho._controls_configs) == [rep_id]
-    assert ortho._visual_groups[rep_id] == [
-        visuals[key].id for key in ("xy", "xz", "vol")
-    ]
+    assert list(ortho._controls_configs) == [rep_id, vol_id]
+    assert ortho._visual_groups[rep_id] == [visuals[key].id for key in ("xy", "xz")]
+    assert ortho._visual_groups[vol_id] == [vol_id]
+
+
+def test_ortho_removing_the_3d_panel_drops_only_its_group():
+    ortho = OrthoViewer(spatial_axes("z", "y", "x"))
+    visuals = _add_image(ortho, "a")
+
+    ortho.controller.remove_visual(visuals["vol"].id)
+
+    assert list(ortho._controls_configs) == [visuals["xy"].id]
+    assert ortho._controls_labels == {visuals["xy"].id: "a (2D views)"}
 
 
 def test_ortho_removing_the_representative_rekeys_in_place():
@@ -139,11 +149,16 @@ def test_ortho_removing_the_representative_rekeys_in_place():
 
     ortho.controller.remove_visual(a["xy"].id)
 
-    assert list(ortho._controls_configs) == [a["xz"].id, b["xy"].id]
-    assert ortho._controls_configs[a["xz"].id] is config
-    assert ortho._visual_groups[a["xz"].id] == [
-        a[key].id for key in ("xz", "yz", "vol")
+    assert list(ortho._controls_configs) == [
+        a["xz"].id,
+        a["vol"].id,
+        b["xy"].id,
+        b["vol"].id,
     ]
+    assert ortho._controls_configs[a["xz"].id] is config
+    assert ortho._visual_groups[a["xz"].id] == [a[key].id for key in ("xz", "yz")]
+    # The label moves with the config.
+    assert ortho._controls_labels[a["xz"].id] == "a (2D views)"
 
 
 def test_ortho_removing_every_panel_drops_the_entry():
@@ -430,17 +445,23 @@ def test_closing_the_dock_stops_following_the_viewer(toolkit):
     assert all(_subscriptions_of(viewer, widget) == [] for widget in old)
 
 
-def test_the_ortho_dock_drives_every_panel_of_the_selected_add(toolkit):
+def test_the_ortho_dock_offers_each_adds_2d_and_3d_groups(toolkit):
     gui, host_cls = toolkit
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui=gui)
-    _add_image(ortho, "a")
+    a = _add_image(ortho, "a")
     b = _add_image(ortho, "b")
 
     dock, _root = _render(ortho, host_cls)
 
-    assert dock.selector.labels == ("a", "b")
-    dock.selector.select(1)
-    assert dock.selected.visual_ids == [b[key].id for key in _PANELS]
+    assert dock.selector.labels == (
+        "a (2D views)",
+        "a (3D view)",
+        "b (2D views)",
+        "b (3D view)",
+    )
+    assert dock.selected.visual_ids == [a[key].id for key in ("xy", "xz", "yz")]
+    dock.selector.select(3)
+    assert dock.selected.visual_ids == [b["vol"].id]
 
 
 def test_the_ortho_dock_keeps_its_selection_when_the_representative_goes(toolkit):
@@ -449,12 +470,13 @@ def test_the_ortho_dock_keeps_its_selection_when_the_representative_goes(toolkit
     _add_image(ortho, "a")
     b = _add_image(ortho, "b")
     dock, _root = _render(ortho, host_cls)
-    dock.selector.select(1)
+    dock.selector.select(2)
 
     ortho.controller.remove_visual(b["xy"].id)
 
-    assert dock.selector.index == 1
-    assert dock.selected.visual_ids == [b[key].id for key in ("xz", "yz", "vol")]
+    assert dock.selector.index == 2
+    assert dock.selector.labels[2] == "b (2D views)"
+    assert dock.selected.visual_ids == [b[key].id for key in ("xz", "yz")]
 
 
 # ---------------------------------------------------------------------------

@@ -52,6 +52,19 @@ async function render({ model, el }) {
     el.appendChild(heading);
   }
   el.appendChild(box);
+  // A scrolling box (a side dock) must not set the height of the row it sits
+  // in -- the canvas column beside it does -- but must keep its content
+  // width.  `height: 0` takes the box out of the row's height, and
+  // `min-height: 100%` fills the height the row gives `el`: a stretched flex
+  // item's height counts as definite for its children, so the percentage
+  // resolves.  (`position: absolute` would also drop the width, collapsing
+  // the dock.)  The styles on `el` are sizing, not `display`, so the widget
+  // manager's layout pass leaves them alone.
+  if (model.get("scroll")) {
+    box.classList.add("cellier-anywidget-box--scroll");
+    el.classList.add("cellier-anywidget-scroll-host");
+    el.style.minHeight = `${model.get("scroll_min_height")}px`;
+  }
   try {
     for (const ref of model.get("children") || []) {
       const id = String(ref).replace(/^IPY_MODEL_/, "");

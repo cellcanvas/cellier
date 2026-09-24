@@ -10,7 +10,7 @@ Importing this module registers both shaders with pygfx via
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 import pygfx as gfx
@@ -79,7 +79,15 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
         solid blue.  Use to diagnose brick-boundary normal discontinuities.
         ``smooth_iso`` uses a soft trilinear density field for bisection and
         a 3x3x3 Sobel normal kernel for smooth curved shading.
+    ray_steps_per_voxel : float
+        Ray-march samples per voxel of the drawn level, measured along the
+        ray.  Default is ``1.0``.
     """
+
+    uniform_type: ClassVar[dict] = dict(
+        gfx.VolumeBasicMaterial.uniform_type,
+        ray_steps_per_voxel="f4",
+    )
 
     def __init__(
         self,
@@ -97,9 +105,12 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
         render_mode: str = "iso_categorical",
         n_entries: int = 0,
         outline_selection_texture: gfx.Texture | None = None,
+        ray_steps_per_voxel: float = 1.0,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
+        self.uniform_buffer.data["ray_steps_per_voxel"] = float(ray_steps_per_voxel)
+        self.uniform_buffer.update_full()
         self.cache_texture = cache_texture
         self.lut_texture = lut_texture
         self.brick_max_texture = brick_max_texture
@@ -122,6 +133,16 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
             if outline_selection_texture is not None
             else build_outline_selection_texture()
         )
+
+    @property
+    def ray_steps_per_voxel(self) -> float:
+        """Ray-march samples per level-k voxel along the ray (3D)."""
+        return float(self.uniform_buffer.data["ray_steps_per_voxel"])
+
+    @ray_steps_per_voxel.setter
+    def ray_steps_per_voxel(self, value: float) -> None:
+        self.uniform_buffer.data["ray_steps_per_voxel"] = float(value)
+        self.uniform_buffer.update_full()
 
 
 # ---------------------------------------------------------------------------

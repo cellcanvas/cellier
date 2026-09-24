@@ -11,13 +11,11 @@ import numpy as np
 import pytest
 
 from cellier.render._level_of_detail_2d import (
-    arr_to_block_keys_2d,
     build_tile_grids_2d,
     select_lod_2d,
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
 )
-from cellier.render.block_cache._tile_manager_2d import BlockKey2D
 from cellier.render.lut_indirection._layout_2d import BlockLayout2D
 
 BLOCK_SIZE = 8
@@ -60,9 +58,10 @@ def test_build_tile_grids_isotropic_centres(base_layout, level_shapes):
     arr = grids[0]["arr"]
     centres = grids[0]["centres"]
     gy, gx = arr[:, 1], arr[:, 2]
-    # x <- W (gx), y <- H (gy); bw = 8 at level 1
-    np.testing.assert_allclose(centres[:, 0], (gx + 0.5) * 8)
-    np.testing.assert_allclose(centres[:, 1], (gy + 0.5) * 8)
+    # x <- W (gx), y <- H (gy).  Centre convention (plan v2, D1): tile g
+    # covers level-0 voxels [8g, 8g + 8), centred on (g + 0.5) * 8 - 0.5.
+    np.testing.assert_allclose(centres[:, 0], (gx + 0.5) * 8 - 0.5)
+    np.testing.assert_allclose(centres[:, 1], (gy + 0.5) * 8 - 0.5)
 
 
 def test_build_tile_grids_anisotropic_centres(base_layout, level_shapes):
@@ -78,8 +77,9 @@ def test_build_tile_grids_anisotropic_centres(base_layout, level_shapes):
     arr = grids[0]["arr"]
     centres = grids[0]["centres"]
     gy, gx = arr[:, 1], arr[:, 2]
-    np.testing.assert_allclose(centres[:, 0], (gx + 0.5) * (8 * 2) + 10.0)
-    np.testing.assert_allclose(centres[:, 1], (gy + 0.5) * (8 * 3) + 20.0)
+    # s * ((g + 0.5) * 8 - 0.5) + t
+    np.testing.assert_allclose(centres[:, 0], 2 * ((gx + 0.5) * 8 - 0.5) + 10.0)
+    np.testing.assert_allclose(centres[:, 1], 3 * ((gy + 0.5) * 8 - 0.5) + 20.0)
 
 
 # ---------------------------------------------------------------------------
@@ -181,47 +181,46 @@ def test_sort_tiles_anisotropic_reorders():
 
 
 def test_viewport_cull_empty():
-    required: dict[BlockKey2D, int] = {}
-    culled, n = viewport_cull_2d(
-        required, BLOCK_SIZE, np.zeros(2), np.array([16.0, 16.0])
-    )
-    assert culled is required
+    arr = np.empty((0, 3), dtype=np.int32)
+    culled, n = viewport_cull_2d(arr, BLOCK_SIZE, np.zeros(2), np.array([16.0, 16.0]))
+    assert len(culled) == 0
     assert n == 0
 
 
 def test_viewport_cull_removes_outside_tiles():
-    inside = BlockKey2D(level=1, g0=0, g1=0)  # x[0,8], y[0,8]
-    edge = BlockKey2D(level=1, g0=1, g1=1)  # x[8,16], y[8,16]
-    outside = BlockKey2D(level=1, g0=5, g1=5)  # x[40,48], y[40,48]
-    required = {inside: 1, edge: 1, outside: 1}
+    arr = np.array(
+        [
+            [1, 5, 5],  # x[40,48], y[40,48]: outside
+            [1, 0, 0],  # x[0,8], y[0,8]
+            [1, 1, 1],  # x[8,16], y[8,16]: on the edge
+        ],
+        dtype=np.int32,
+    )
     culled, n = viewport_cull_2d(
-        required, BLOCK_SIZE, np.array([0.0, 0.0]), np.array([16.0, 16.0])
+        arr, BLOCK_SIZE, np.array([0.0, 0.0]), np.array([16.0, 16.0])
     )
     assert n == 1
-    assert set(culled) == {inside, edge}
-    # values preserved
-    assert culled[inside] == 1
+    # Load order is kept.
+    np.testing.assert_array_equal(culled, arr[1:])
 
 
-def test_viewport_cull_nothing_removed_returns_same_object():
-    inside = BlockKey2D(level=1, g0=0, g1=0)
-    required = {inside: 1}
+def test_viewport_cull_nothing_removed():
+    arr = np.array([[1, 0, 0]], dtype=np.int32)
     culled, n = viewport_cull_2d(
-        required, BLOCK_SIZE, np.array([0.0, 0.0]), np.array([100.0, 100.0])
+        arr, BLOCK_SIZE, np.array([0.0, 0.0]), np.array([100.0, 100.0])
     )
     assert n == 0
-    assert culled is required
+    np.testing.assert_array_equal(culled, arr)
 
 
 def test_viewport_cull_anisotropic():
     # with a 10x x-scale, tile g1=1 spans x[80,160] and is culled by a small
     # viewport that would keep it under isotropic spacing
-    tile = BlockKey2D(level=1, g0=0, g1=1)
-    required = {tile: 1}
+    arr = np.array([[1, 0, 1]], dtype=np.int32)
     scale = np.array([[10.0, 1.0]])
     translation = np.zeros((1, 2))
     culled, n = viewport_cull_2d(
-        required,
+        arr,
         BLOCK_SIZE,
         np.array([0.0, 0.0]),
         np.array([16.0, 16.0]),
@@ -229,32 +228,4 @@ def test_viewport_cull_anisotropic():
         level_translation_arr_shader=translation,
     )
     assert n == 1
-    assert culled == {}
-
-
-# ---------------------------------------------------------------------------
-# arr_to_block_keys_2d
-# ---------------------------------------------------------------------------
-
-
-def test_arr_to_block_keys_2d_mapping_and_order():
-    arr = np.array(
-        [
-            [1, 5, 6],
-            [2, 1, 2],
-        ],
-        dtype=np.int32,
-    )
-    slice_coord = ((0, 3),)
-    keys = arr_to_block_keys_2d(arr, slice_coord=slice_coord)
-    items = list(keys.items())
-    assert items[0][0] == BlockKey2D(level=1, g0=5, g1=6, slice_coord=slice_coord)
-    assert items[1][0] == BlockKey2D(level=2, g0=1, g1=2, slice_coord=slice_coord)
-    assert items[0][1] == 1 and items[1][1] == 2
-    assert all(k.slice_coord == slice_coord for k in keys)
-
-
-def test_arr_to_block_keys_2d_default_slice_coord():
-    arr = np.array([[1, 0, 0]], dtype=np.int32)
-    (key,) = arr_to_block_keys_2d(arr)
-    assert key.slice_coord == ()
+    assert len(culled) == 0
