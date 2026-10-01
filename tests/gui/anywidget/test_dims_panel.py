@@ -56,6 +56,7 @@ def test_construction_without_toggle():
         "min": 0.0,
         "max": 9.0,
         "decimals": 2,
+        "step_size": 1.0,
     }
     assert isinstance(panel.axis_values["0"]["min"], float)
 

@@ -194,3 +194,17 @@ def test_continuous_decimals_default_to_two_and_serialise():
 def test_continuous_rejects_negative_decimals():
     with pytest.raises(ValidationError):
         ContinuousAxisValues(min=0, max=1, decimals=-1)
+
+
+def test_continuous_step_size_defaults_to_one_and_serialises():
+    assert ContinuousAxisValues(min=0, max=1).step_size == 1.0
+    spec = ContinuousAxisValues(min=0, max=10, step_size=0.5)
+    dumped = spec.model_dump(mode="json")
+    assert dumped["step_size"] == 0.5
+    assert coerce_axis_values({0: dumped})[0] == spec
+
+
+@pytest.mark.parametrize("step_size", [0.0, -1.0, float("inf"), float("nan")])
+def test_continuous_rejects_a_step_size_that_is_not_positive_and_finite(step_size):
+    with pytest.raises(ValidationError):
+        ContinuousAxisValues(min=0, max=1, step_size=step_size)

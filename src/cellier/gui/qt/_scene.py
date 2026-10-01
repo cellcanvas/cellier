@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from psygnal import Signal
-from qtpy.QtCore import Qt, QTimer
+from qtpy.QtCore import QEvent, QObject, Qt, QTimer
 from qtpy.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
@@ -121,6 +121,71 @@ border-radius: 4px;
 
 QLabel { font-size: 12px; }
 """
+
+
+#: How many ``step_size`` steps Page Up / Page Down moves a continuous axis.
+KEY_PAGE_STEPS: int = 10
+
+#: Signed step, in units of the single step, per arrow key.
+_ARROW_KEY_DIRECTIONS = {
+    Qt.Key.Key_Right: 1,
+    Qt.Key.Key_Up: 1,
+    Qt.Key.Key_Left: -1,
+    Qt.Key.Key_Down: -1,
+}
+_PAGE_KEY_DIRECTIONS = {Qt.Key.Key_PageUp: 1, Qt.Key.Key_PageDown: -1}
+
+
+class _ContinuousSliderKeys(QObject):
+    """Keyboard stepping for a continuous axis's ``QLabeledDoubleSlider``.
+
+    superqt's float slider keeps its value in Python and does not override
+    ``keyPressEvent``, so a key press falls through to ``QSlider``'s C++
+    handler.  That steps the hidden integer value of the base class, which
+    nothing reads: the float value does not move and no signal the control
+    listens to fires.  This filter, installed on the inner slider (the widget
+    that holds focus), takes the navigation keys instead and sets the float
+    value, so a key step emits ``valueChanged`` exactly as a mouse move does.
+
+    Arrow keys move by the slider's single step (the axis's ``step_size``),
+    Page Up and Page Down by ``KEY_PAGE_STEPS`` of them, Home and End jump to
+    the ends.
+
+    Parameters
+    ----------
+    slider :
+        The labeled slider to step.  Also the filter's Qt parent, which
+        keeps the filter alive as long as the slider.
+    """
+
+    def __init__(self, slider: QLabeledDoubleSlider) -> None:
+        super().__init__(slider)
+        self._slider = slider
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if event.type() != QEvent.Type.KeyPress:
+            return False
+        target = self._target(event.key())
+        if target is None:
+            return False
+        # Clamped by the slider; a no-op at either end.
+        self._slider.setValue(target)
+        return True
+
+    def _target(self, key: int) -> float | None:
+        """The value *key* moves the slider to, or ``None`` if not handled."""
+        slider = self._slider
+        if key == Qt.Key.Key_Home:
+            return slider.minimum()
+        if key == Qt.Key.Key_End:
+            return slider.maximum()
+        if key in _ARROW_KEY_DIRECTIONS:
+            steps = _ARROW_KEY_DIRECTIONS[key]
+        elif key in _PAGE_KEY_DIRECTIONS:
+            steps = KEY_PAGE_STEPS * _PAGE_KEY_DIRECTIONS[key]
+        else:
+            return None
+        return slider.value() + steps * slider.singleStep()
 
 
 class QtDimsControl:
@@ -254,10 +319,17 @@ class QtDimsControl:
                 sld.setDecimals(spec.decimals)
                 sld.setRange(spec.min, spec.max)
                 sld.setValue(_initial.get(axis, spec.min))
+                # One wheel notch scrolls 3 single steps, capped at the page
+                # step; equal steps make a notch one step_size, as on a
+                # discrete row.  The key filter reads the single step too.
+                sld.setSingleStep(spec.step_size)
+                sld.setPageStep(spec.step_size)
                 # Capture `axis` by value in the default-argument closure.
                 sld.valueChanged.connect(
                     lambda value, ax=axis: self._on_slider_changed(ax, value)
                 )
+                # The inner slider holds keyboard focus; see the filter.
+                sld.findChild(QSlider).installEventFilter(_ContinuousSliderKeys(sld))
                 self._sliders[axis] = sld
                 row = sld
             layout.addRow(axis_labels.get(axis, str(axis)), row)

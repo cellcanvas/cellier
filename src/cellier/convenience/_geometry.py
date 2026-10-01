@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -291,10 +292,74 @@ def _apply_ticks(
     return values
 
 
+def _resolve_step_sizes(
+    step_size: Mapping[str, float], axis_labels: Sequence[str]
+) -> dict[int, float]:
+    """Resolve the ``step_size`` axis names to world axis indices.
+
+    Checked before any extent is measured, like :func:`_resolve_tick_axes`,
+    and keyed by name for the same reason.
+    """
+    if not isinstance(step_size, Mapping):
+        raise TypeError(
+            f"step_size takes a mapping of world axis name to step, e.g. "
+            f"step_size={{'z': 2.0}}; got {step_size!r} "
+            f"({type(step_size).__name__})."
+        )
+    steps: dict[int, float] = {}
+    for name, step in step_size.items():
+        if not isinstance(name, str):
+            raise TypeError(
+                f"step_size is keyed by world axis names; got {name!r} "
+                f"({type(name).__name__})."
+            )
+        if name not in axis_labels:
+            raise ValueError(
+                f"step_size names {name!r}, which is not a world axis. "
+                f"World axes: {list(axis_labels)}."
+            )
+        if isinstance(step, bool) or not isinstance(step, (int, float)):
+            raise TypeError(
+                f"step_size[{name!r}] must be a number; got {step!r} "
+                f"({type(step).__name__})."
+            )
+        if not (math.isfinite(step) and step > 0):
+            raise ValueError(
+                f"step_size[{name!r}] must be finite and > 0; got {step!r}."
+            )
+        steps[axis_labels.index(name)] = float(step)
+    return steps
+
+
+def _apply_step_sizes(
+    values: dict[int, ContinuousAxisValues | DiscreteAxisValues],
+    steps: dict[int, float],
+    axis_labels: Sequence[str],
+) -> dict[int, ContinuousAxisValues | DiscreteAxisValues]:
+    """Set the step of the axes in *steps*, which must all be continuous.
+
+    A discrete slider steps through its listed values and has no step size,
+    so naming one raises rather than being skipped, as in
+    :func:`_apply_ticks`.
+    """
+    for axis, step in steps.items():
+        entry = values[axis]
+        if not isinstance(entry, ContinuousAxisValues):
+            raise ValueError(
+                f"step_size names {axis_labels[axis]!r}, but that axis has a "
+                f"discrete slider, which steps through its listed values and "
+                f"has no step size."
+            )
+        # The model is frozen.
+        values[axis] = ContinuousAxisValues(**{**entry.model_dump(), "step_size": step})
+    return values
+
+
 def axis_values_from_viewer(
     viewer: Viewer,
     *,
     draw_ticks: Iterable[str] = (),
+    step_size: Mapping[str, float] | None = None,
 ) -> dict[int, ContinuousAxisValues | DiscreteAxisValues]:
     """Compute every world axis's slider values from the viewer's visuals.
 
@@ -316,6 +381,13 @@ def axis_values_from_viewer(
         discrete.  Ticks cost per mark on every repaint, so name short axes
         such as a channel axis; see
         :data:`~cellier.gui._axis_values.TICK_WARNING_LIMIT`.
+    step_size : Mapping[str, float] or None
+        World axis name to the world distance one arrow key or wheel notch
+        moves that axis's slider, e.g. ``{"z": 2.0}`` for 2.0 world units
+        per plane.  An axis not named steps by 1.0.  Nothing is read from
+        the data: name every axis whose voxel spacing is not 1.0.  Each
+        named axis must come out continuous and each step must be finite
+        and ``> 0``.  ``None`` (default) names none.
 
     Returns
     -------
@@ -325,22 +397,28 @@ def axis_values_from_viewer(
     Raises
     ------
     ValueError
-        If no visual holds any data, if *draw_ticks* names an axis the world
-        does not have, or if a named axis comes out continuous.
+        If no visual holds any data, if *draw_ticks* or *step_size* names an
+        axis the world does not have, if a *draw_ticks* axis comes out
+        continuous, if a *step_size* axis comes out discrete, or if a step
+        is not finite and ``> 0``.
     TypeError
         If *draw_ticks* is a single string or holds something other than
-        axis names.
+        axis names, or if *step_size* is not a mapping of axis names to
+        numbers.
     """
     axis_labels = viewer.scene.dims.axis_labels
     tick_axes = _resolve_tick_axes(draw_ticks, axis_labels)
+    steps = _resolve_step_sizes({} if step_size is None else step_size, axis_labels)
     values = _axis_values_from_scene(viewer.controller, viewer.scene)
-    return _apply_ticks(values, tick_axes, axis_labels)
+    values = _apply_ticks(values, tick_axes, axis_labels)
+    return _apply_step_sizes(values, steps, axis_labels)
 
 
 def axis_values_from_ortho(
     ortho: OrthoViewer,
     *,
     draw_ticks: Iterable[str] = (),
+    step_size: Mapping[str, float] | None = None,
 ) -> dict[int, ContinuousAxisValues | DiscreteAxisValues]:
     """Compute every world axis's slider values for an :class:`OrthoViewer`.
 
@@ -355,6 +433,9 @@ def axis_values_from_ortho(
     draw_ticks : Iterable[str]
         Names of world axes whose sliders mark each value with a tick.  See
         :func:`axis_values_from_viewer`.
+    step_size : Mapping[str, float] or None
+        World axis name to that axis's slider step, in world units.  See
+        :func:`axis_values_from_viewer`.
 
     Returns
     -------
@@ -364,11 +445,12 @@ def axis_values_from_ortho(
     Raises
     ------
     ValueError
-        If no panel has a visual with data, if *draw_ticks* names an axis the
-        world does not have, or if a named axis comes out continuous.
+        If no panel has a visual with data, or for a bad *draw_ticks* or
+        *step_size* entry as in :func:`axis_values_from_viewer`.
     TypeError
         If *draw_ticks* is a single string or holds something other than
-        axis names.
+        axis names, or if *step_size* is not a mapping of axis names to
+        numbers.
     """
     scenes = list(ortho.scenes.values())
     # The panels share one world, so any panel's labels resolve the names.
@@ -376,12 +458,14 @@ def axis_values_from_ortho(
     # try the next panel" and would otherwise swallow a bad name.
     axis_labels = scenes[0].dims.axis_labels if scenes else ()
     tick_axes = _resolve_tick_axes(draw_ticks, axis_labels)
+    steps = _resolve_step_sizes({} if step_size is None else step_size, axis_labels)
     for scene in scenes:
         try:
             values = _axis_values_from_scene(ortho.controller, scene)
         except ValueError:
             continue
-        return _apply_ticks(values, tick_axes, axis_labels)
+        values = _apply_ticks(values, tick_axes, axis_labels)
+        return _apply_step_sizes(values, steps, axis_labels)
     raise ValueError(
         "No visuals with known shapes found on any orthoviewer panel. "
         "Add an image or label visual before computing axis ranges."

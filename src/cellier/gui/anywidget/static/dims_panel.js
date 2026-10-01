@@ -16,6 +16,17 @@ function render({ model, el }) {
   // throttle and sending every value of a drag to the slicer.
   const THROTTLE_MS = model.get("throttle_ms") ?? 50;
 
+  // Signed step_size multiples a key moves a continuous slider.
+  const PAGE_STEPS = 10;
+  const KEY_STEPS = {
+    ArrowRight: 1,
+    ArrowUp: 1,
+    ArrowLeft: -1,
+    ArrowDown: -1,
+    PageUp: PAGE_STEPS,
+    PageDown: -PAGE_STEPS,
+  };
+
   let guard = false;
 
   const dimsContainer = document.createElement("div");
@@ -167,6 +178,21 @@ function render({ model, el }) {
         readout.textContent = formatPosition(input.value, spec.decimals);
 
         input.addEventListener("input", () => {
+          readout.textContent = formatPosition(input.value, spec.decimals);
+          scheduleSubmit(axis, input.value); // live, throttled
+        });
+        // With step "any" the browser picks its own keyboard step, so the
+        // arrow and page keys are handled here: one step_size per arrow,
+        // PAGE_STEPS of them per page key (the Qt panel's steps too).  Home
+        // and End keep the browser's jump to the ends.
+        input.addEventListener("keydown", (event) => {
+          const steps = KEY_STEPS[event.key];
+          if (steps === undefined) return;
+          event.preventDefault();
+          const target = Number(input.value) + steps * spec.step_size;
+          const clamped = Math.min(spec.max, Math.max(spec.min, target));
+          if (clamped === Number(input.value)) return;
+          input.value = clamped;
           readout.textContent = formatPosition(input.value, spec.decimals);
           scheduleSubmit(axis, input.value); // live, throttled
         });

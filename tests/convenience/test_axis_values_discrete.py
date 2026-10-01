@@ -344,3 +344,85 @@ def test_ortho_draw_ticks(tmp_path):
     # A bad name is not mistaken for "no data on this panel, try the next".
     with pytest.raises(ValueError, match="not a world axis"):
         axis_values_from_ortho(ortho, draw_ticks=["q"])
+
+
+# ---------------------------------------------------------------------------
+# step_size
+# ---------------------------------------------------------------------------
+
+
+def test_every_continuous_axis_steps_by_one_by_default(tmp_path):
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path))
+
+    values = axis_values_from_viewer(viewer)
+
+    assert [values[axis].step_size for axis in (2, 3, 4)] == [1.0, 1.0, 1.0]
+
+
+def test_step_size_sets_only_the_named_axes(tmp_path):
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path))
+    default = axis_values_from_viewer(viewer)
+
+    values = axis_values_from_viewer(viewer, step_size={"z": 2.0, "x": 0.5})
+
+    # The rest of the entry -- the range -- is unchanged.
+    assert values[2] == ContinuousAxisValues(
+        min=default[2].min, max=default[2].max, step_size=2.0
+    )
+    assert values[3] == default[3]
+    assert values[4].step_size == 0.5
+
+
+def test_step_size_names_a_discrete_axis_raises(tmp_path):
+    viewer = Viewer(_WORLD)
+    _add_ome(viewer, _ome_store(tmp_path))
+
+    with pytest.raises(ValueError, match=r"'c'.*discrete slider"):
+        axis_values_from_viewer(viewer, step_size={"c": 1.0})
+
+
+def test_step_size_checks_names_before_measuring():
+    """A bad name is reported even on a viewer with nothing to measure."""
+    with pytest.raises(ValueError, match=r"'q'.*not a world axis"):
+        axis_values_from_viewer(Viewer(_WORLD), step_size={"q": 1.0})
+
+
+@pytest.mark.parametrize("step", [0.0, -1.0, float("inf"), float("nan")])
+def test_step_size_must_be_positive_and_finite(step):
+    with pytest.raises(ValueError, match=r"step_size\['z'\].*finite and > 0"):
+        axis_values_from_viewer(Viewer(_WORLD), step_size={"z": step})
+
+
+@pytest.mark.parametrize(
+    ("step_size", "match"),
+    [
+        (0.5, "mapping of world axis name"),
+        (0, "mapping of world axis name"),
+        (["z"], "mapping of world axis name"),
+        ({2: 0.5}, "keyed by world axis names"),
+        ({"z": "0.5"}, "must be a number"),
+        ({"z": True}, "must be a number"),
+    ],
+)
+def test_step_size_takes_a_mapping_of_names_to_numbers(step_size, match):
+    with pytest.raises(TypeError, match=match):
+        axis_values_from_viewer(Viewer(_WORLD), step_size=step_size)
+
+
+def test_ortho_step_size(tmp_path):
+    ortho = OrthoViewer(_WORLD, gui="offscreen")
+    ortho.add_image_multiscale(
+        _ome_store(tmp_path),
+        appearance=MultiscaleImageAppearance(),
+        single=MultiscaleImageSingleAppearance(color_map="grays"),
+    )
+
+    values = axis_values_from_ortho(ortho, step_size={"z": 2.0})
+
+    assert values[2].step_size == 2.0
+    assert values[3].step_size == 1.0
+    # A bad name is not mistaken for "no data on this panel, try the next".
+    with pytest.raises(ValueError, match="not a world axis"):
+        axis_values_from_ortho(ortho, step_size={"q": 1.0})

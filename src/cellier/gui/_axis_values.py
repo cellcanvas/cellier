@@ -64,6 +64,11 @@ class ContinuousAxisValues(BaseModel):
         Decimal places the slider's position readout shows.  Default 2.
         Display only: the slider stays continuous and the model receives the
         full-precision position.
+    step_size : float
+        World distance one keyboard step (an arrow key) or one mouse-wheel
+        notch moves the slider.  Default 1.0.  Must be finite and ``> 0``.
+        Set it to the axis's voxel spacing to step one plane at a time.
+        Dragging is unaffected: the slider still reaches every position.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -72,6 +77,7 @@ class ContinuousAxisValues(BaseModel):
     min: float
     max: float
     decimals: int = Field(default=2, ge=0)
+    step_size: float = Field(default=1.0, gt=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def _check_bounds(self) -> ContinuousAxisValues:

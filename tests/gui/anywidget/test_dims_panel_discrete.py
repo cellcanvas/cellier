@@ -57,6 +57,7 @@ def test_discrete_axis_serialises_as_json_for_the_front_end():
         "min": 0.0,
         "max": 99.0,
         "decimals": 2,
+        "step_size": 1.0,
     }
 
 
