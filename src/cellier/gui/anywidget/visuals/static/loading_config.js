@@ -33,6 +33,7 @@ function render({ model, el }) {
   for (const spec of model.get("fields")) {
     const row = document.createElement("div");
     row.className = "cellier-app-row";
+    if (spec.tooltip) row.title = spec.tooltip;
     const label = document.createElement("label");
     label.className = "cellier-app-label";
     label.textContent = spec.label;

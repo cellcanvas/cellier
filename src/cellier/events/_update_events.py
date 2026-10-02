@@ -352,6 +352,33 @@ class LoadingConfigUpdateEvent(NamedTuple):
     value: Any
 
 
+class LodConfigUpdateEvent(NamedTuple):
+    """Request to set one ``GeometryLodConfig`` field on a visual.
+
+    Only a multiscale mesh has a level-of-detail config (``visual.lod``).
+    The controller merges the field into the visual's current config and
+    validates the result.  ``coarse_level`` is fixed when the visual is
+    added, so a request to change it raises.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``LodConfigChangedEvent``
+        so the caller can echo-filter on its own subscription.
+    visual_id :
+        Target visual.
+    field :
+        A ``GeometryLodConfig`` field name, e.g. ``"camera_motion"``.
+    value :
+        New value for the field.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    field: str
+    value: Any
+
+
 class TrailUpdateEvent(NamedTuple):
     """Request to set or clear the trail window on one axis of a graph visual.
 
@@ -391,6 +418,7 @@ CellierUpdateEventTypes = (
     | RenderConfigUpdateEvent
     | VisualRenderUpdateEvent
     | LoadingConfigUpdateEvent
+    | LodConfigUpdateEvent
     | TrailUpdateEvent
 )
 

@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from cellier.render._scene_config import VisualRenderConfig
     from cellier.render.scheduling import DesiredSet
     from cellier.transform import BaseTransform
-    from cellier.visuals._mesh_memory import MeshVisual
+    from cellier.visuals._mesh_memory import BaseMeshVisual
 
 _SIDE_MAP = {"both": "both", "front": "front", "back": "back"}
 
@@ -62,6 +62,15 @@ _PLACEHOLDER_NORMALS = np.tile([0.0, 0.0, 1.0], (3, 1)).astype(np.float32)
 
 #: The level every mesh has; a single-level mesh has no other.
 FINE_LEVEL = 0
+
+#: The depth rule of a 2D section, whatever the appearance's
+#: ``depth_compare`` (which applies to the 3D surface).  Every mesh's cut
+#: lies in the slice plane, so every fragment ties on depth.  Under "<" the
+#: first-drawn fragment wins the tie: a higher ``render_order`` is hidden,
+#: and an outline (drawn after every fill) is hidden by any fill.  Under
+#: "<=" the last-drawn wins, so the order is ``render_order``, then the
+#: order the meshes were added, with outlines over fills.
+SECTION_DEPTH_COMPARE = "<="
 
 
 def _apply_alpha_mode(material: gfx.MeshAbstractMaterial, opacity: float) -> None:
@@ -114,7 +123,7 @@ def _build_material_2d(appearance) -> gfx.MeshBasicMaterial:
     )
     material.depth_test = appearance.depth_test
     material.depth_write = appearance.depth_write
-    material.depth_compare = appearance.depth_compare
+    material.depth_compare = SECTION_DEPTH_COMPARE
     return material
 
 
@@ -129,7 +138,7 @@ def _build_material_outline(appearance, width: float) -> gfx.LineSegmentMaterial
     )
     material.depth_test = appearance.depth_test
     material.depth_write = appearance.depth_write
-    material.depth_compare = appearance.depth_compare
+    material.depth_compare = SECTION_DEPTH_COMPARE
     return material
 
 
@@ -303,7 +312,12 @@ class GFXMeshVisual:
         node_3d (gfx.Group)            node_2d (gfx.Group)
           level mesh_3d (gfx.Mesh)       level group_2d (gfx.Group)
           AABB line                        fill (gfx.Mesh)
+                                           outline (gfx.Line)
                                          AABB line
+
+    with one set of level children per resident level: the fine level
+    always, and a coarse level for a multiscale mesh.  At most one level is
+    drawn at a time.
 
     ``get_node_for_dims`` returns the node for the current dimensionality,
     so the scene manager swaps them on a 2D/3D toggle.  The user's
@@ -312,7 +326,7 @@ class GFXMeshVisual:
 
     Parameters
     ----------
-    visual_model : MeshVisual
+    visual_model : MeshVisual or MultiscaleMeshVisual
         Associated model-layer visual.
     render_modes : set[str]
         ``{"2d"}``, ``{"3d"}``, or ``{"2d", "3d"}``.
@@ -323,6 +337,9 @@ class GFXMeshVisual:
         box and places the placeholders, so a camera fit frames the store's
         whole extent whether or not the mesh is loaded.  ``None`` when the
         store is empty.
+    coarse_level : int or None
+        The store level (0-based) kept resident beside the fine level, for a
+        multiscale mesh.  ``None`` (the default) is a single-level mesh.
     """
 
     #: Loads through the chunk scheduler (``is_chunked_visual``).
@@ -330,16 +347,22 @@ class GFXMeshVisual:
 
     def __init__(
         self,
-        visual_model: MeshVisual,
+        visual_model: BaseMeshVisual,
         render_modes: set[str],
         transform: BaseTransform,
         axis_extents: Sequence[tuple[float, float]] | None = None,
+        coarse_level: int | None = None,
     ) -> None:
         invalid = render_modes - {"2d", "3d"}
         if invalid or not render_modes:
             raise ValueError(
                 f"render_modes must be a non-empty subset of {{'2d','3d'}}, "
                 f"got {render_modes!r}"
+            )
+        if coarse_level is not None and int(coarse_level) <= FINE_LEVEL:
+            raise ValueError(
+                f"coarse_level must be a level coarser than {FINE_LEVEL}, "
+                f"got {coarse_level}."
             )
 
         self.visual_model_id: UUID = visual_model.id
@@ -378,28 +401,34 @@ class GFXMeshVisual:
         self._color_mode: str = appearance.color_mode
         self._render_order = appearance.render_order
 
-        # Level children, built once.  A single-level mesh has the fine
-        # level only; materials are shared across levels.
+        # Level children, built once and keyed by store level.  A
+        # single-level mesh has the fine level only; materials are shared
+        # across levels.
+        resident = [FINE_LEVEL] if coarse_level is None else [FINE_LEVEL, coarse_level]
         self._levels: dict[int, _LevelNodes] = {
-            FINE_LEVEL: _LevelNodes(
-                FINE_LEVEL,
+            int(level): _LevelNodes(
+                int(level),
                 self._material_3d,
                 self._material_2d,
                 self._material_outline,
                 self._render_order,
                 np.zeros(3),
             )
+            for level in resident
         }
         self._residency = LevelResidency(
             len(self._levels),
             upload=self._upload_level,
             release=self._release_level,
             on_change=self._apply_display,
+            fine_level=FINE_LEVEL,
         )
         # Whether the 2D children hold a section (per-vertex colours) or
         # whole faces drawn flat.
         self._section_drawn: bool = False
         self._sync_2d_color_modes()
+        # Level-of-detail settings (a multiscale mesh); ``None`` otherwise.
+        self._lod = getattr(visual_model, "lod", None)
         # What each canvas last drew, as ``(level, write serial)``.
         self._drawn: dict[UUID, tuple[int, int] | None] = {}
 
@@ -435,8 +464,20 @@ class GFXMeshVisual:
 
     @property
     def n_levels(self) -> int:
-        """Resident levels: 1 for a single-level mesh."""
+        """Resident levels: 1 for a single-level mesh, 2 for a multiscale one."""
         return len(self._levels)
+
+    @property
+    def resident_levels(self) -> tuple[int, ...]:
+        """The store levels kept resident, finest first."""
+        return tuple(sorted(self._levels))
+
+    def drawn_level(self) -> int | None:
+        """The store level being drawn now, or ``None`` when nothing is."""
+        for nodes in self._levels.values():
+            if nodes.mesh_3d.visible or nodes.group_2d.visible:
+                return nodes.level
+        return None
 
     @property
     def _is_2d(self) -> bool:
@@ -631,7 +672,11 @@ class GFXMeshVisual:
     ) -> list[DesiredSet]:
         """Describe what this view needs: one desired set of whole levels.
 
-        A single-level mesh plans its one level whatever the mode.
+        A single-level mesh plans its one level whatever the mode.  A
+        multiscale mesh plans the coarse and the fine level together: the
+        coarse read is the backstop, so it is issued first and never waits
+        for a fine read, and the fine level replaces it on screen when it
+        has loaded.  Every level is asked for with the same region.
 
         Parameters
         ----------
@@ -807,9 +852,26 @@ class GFXMeshVisual:
         """Drop the record of what a removed canvas drew."""
         self._drawn.pop(canvas_id, None)
 
+    def set_lod(self, lod) -> None:
+        """Adopt new level-of-detail settings; read by the next frame."""
+        self._lod = lod
+
     def _prefers_coarse(self, camera_moving: bool, dims_scrubbing: bool) -> bool:
-        """Whether the coarse level is preferred now; a single level has none."""
-        return False
+        """Whether the coarse level is preferred now; a single level has none.
+
+        During a dims scrub with ``lod.dims_drag_draw == "coarse"`` (D23),
+        and, in a 3D view, while this canvas's camera moves with
+        ``lod.camera_motion == "coarse"`` (I2).  A 2D view never switches
+        level on camera motion.  It is a preference: when the coarse level
+        is not drawable the fine one is drawn, and the reverse.
+        """
+        if self._lod is None or len(self._levels) < 2:
+            return False
+        if dims_scrubbing and self._lod.dims_drag_draw == "coarse":
+            return True
+        return bool(
+            camera_moving and self._lod.camera_motion == "coarse" and not self._is_2d
+        )
 
     def decode_pick(
         self, hit_object: gfx.WorldObject, pick_info: dict
@@ -935,9 +997,12 @@ class GFXMeshVisual:
             else:
                 _apply_alpha_mode(self._material_3d, float(self._material_3d.opacity))
                 _apply_alpha_mode(self._material_2d, float(self._material_2d.opacity))
-        if name in ("depth_test", "depth_write", "depth_compare"):
+        if name in ("depth_test", "depth_write"):
             for mat in (self._material_3d, self._material_2d, self._material_outline):
                 setattr(mat, name, val)
+        elif name == "depth_compare":
+            # The 2D section keeps SECTION_DEPTH_COMPARE.
+            self._material_3d.depth_compare = val
         # Flat-only fields.
         if name == "wireframe" and hasattr(self._material_3d, "wireframe"):
             self._material_3d.wireframe = val

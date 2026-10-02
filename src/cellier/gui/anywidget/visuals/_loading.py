@@ -36,6 +36,9 @@ class AnywidgetLoadingIndicator(VisualIdGroup, anywidget.AnyWidget):
         The visual, or a group of them, shown summed.
     initial :
         Their progress now, so an indicator built mid-load starts right.
+    levels :
+        The visuals are meshes: the status line names levels ("Loading
+        coarse level"), not chunk counts.
     """
 
     _esm = _STATIC / "loading.js"
@@ -58,12 +61,15 @@ class AnywidgetLoadingIndicator(VisualIdGroup, anywidget.AnyWidget):
         visual_id: UUID | Sequence[UUID],
         *,
         initial: Mapping[UUID, LoadingProgress | None] | None = None,
+        levels: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self._id = uuid4()
         self._init_visual_ids(visual_id)
-        self._model = LoadingIndicatorModel(self._visual_ids, initial or {}, self._show)
+        self._model = LoadingIndicatorModel(
+            self._visual_ids, initial or {}, self._show, levels
+        )
         self._show(self._model.state)
 
     # -- Public interface ------------------------------------------------------

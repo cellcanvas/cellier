@@ -52,7 +52,12 @@ def _any_loading(spec: ControlSpec, visual_ids, controller=None):
         if controller is not None
         else None
     )
-    return AnywidgetLoadingIndicator(visual_ids, initial=initial, title=spec.title)
+    return AnywidgetLoadingIndicator(
+        visual_ids,
+        initial=initial,
+        levels=spec.values.get("levels", False),
+        title=spec.title,
+    )
 
 
 def _any_loading_config(spec: ControlSpec, visual_ids, controller=None):
@@ -63,6 +68,14 @@ def _any_loading_config(spec: ControlSpec, visual_ids, controller=None):
         loading=spec.values["loading"],
         n_levels=spec.values["n_levels"],
         title=spec.title,
+    )
+
+
+def _any_lod_config(spec: ControlSpec, visual_ids, controller=None):
+    from cellier.gui.anywidget.visuals import AnywidgetLodConfigControls
+
+    return AnywidgetLodConfigControls(
+        visual_ids, lod=spec.values["lod"], title=spec.title
     )
 
 
@@ -164,6 +177,7 @@ ANYWIDGET_BUILDERS = {
     "loading": _any_loading,
     "loading_config": _any_loading_config,
     "mesh_section": _any_mesh_section,
+    "lod_config": _any_lod_config,
     "visual_outline": _any_visual_outline,
     "labels_outline": _any_labels_outline,
     "visual_occlusion": _any_visual_occlusion,

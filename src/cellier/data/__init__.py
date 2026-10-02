@@ -14,6 +14,7 @@ from cellier.data.label._ome_zarr_label_store import OMEZarrLabelDataStore
 from cellier.data.lines._lines_memory_store import LinesMemoryStore
 from cellier.data.lines._lines_requests import LinesData, LinesSliceRequest
 from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
+from cellier.data.mesh._mesh_multiscale_store import MeshLevel, MultiscaleMeshStore
 from cellier.data.mesh._mesh_requests import MeshData, MeshSliceRequest
 from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.data.points._points_requests import PointsData, PointsSliceRequest
@@ -32,8 +33,10 @@ __all__ = [
     "LinesMemoryStore",
     "LinesSliceRequest",
     "MeshData",
+    "MeshLevel",
     "MeshMemoryStore",
     "MeshSliceRequest",
+    "MultiscaleMeshStore",
     "MultiscaleZarrDataStore",
     "OMEZarrImageDataStore",
     "OMEZarrLabelDataStore",

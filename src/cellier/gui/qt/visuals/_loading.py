@@ -43,6 +43,9 @@ class QtLoadingIndicator(VisualIdGroup):
         siblings), shown summed.
     initial :
         Their progress now, so an indicator built mid-load starts right.
+    levels :
+        The visuals are meshes: the status line names levels ("Loading
+        coarse level"), not chunk counts.
     title :
         The group's title.  Defaults to :data:`DEFAULT_TITLE`.
     parent :
@@ -60,6 +63,7 @@ class QtLoadingIndicator(VisualIdGroup):
         visual_id: UUID | Sequence[UUID],
         *,
         initial: Mapping[UUID, LoadingProgress | None] | None = None,
+        levels: bool = False,
         title: str | None = None,
         parent=None,
     ) -> None:
@@ -85,7 +89,9 @@ class QtLoadingIndicator(VisualIdGroup):
             self.DEFAULT_TITLE if title is None else title, box, parent
         )
 
-        self._model = LoadingIndicatorModel(self._visual_ids, initial or {}, self._show)
+        self._model = LoadingIndicatorModel(
+            self._visual_ids, initial or {}, self._show, levels
+        )
         self._show(self._model.state)
 
     # -- Public interface ------------------------------------------------------

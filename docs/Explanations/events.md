@@ -787,6 +787,20 @@ class LoadingConfigChangedEvent(NamedTuple):
     loading: ProgressiveLoadingConfig
 
 
+class LodConfigChangedEvent(NamedTuple):
+    """A multiscale mesh's ``lod`` config changed.
+
+    Emitted for every change: ``CellierController.set_lod_config`` (and the
+    ``LodConfigUpdateEvent`` a level-of-detail control sends), or assigning
+    ``visual.lod`` directly.  An invalid value, or a change of
+    ``coarse_level``, raises in the setter and emits nothing.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    lod: GeometryLodConfig
+
+
 class ResliceCancelledEvent(NamedTuple):
     """Fired when an in-flight reslice task is cancelled.
 
@@ -1074,6 +1088,7 @@ CellierEventTypes = (
     | ResliceProgressEvent
     | BackstopCompleteEvent
     | LoadingConfigChangedEvent
+    | LodConfigChangedEvent
     | ResliceCancelledEvent
     | FrameRenderedEvent
     | VisualAddedEvent
@@ -1242,6 +1257,7 @@ _ENTITY_FIELD: dict[type, str] = {
     ResliceProgressEvent:              "visual_id",
     BackstopCompleteEvent:             "visual_id",
     LoadingConfigChangedEvent:         "visual_id",
+    LodConfigChangedEvent:             "visual_id",
     ResliceCancelledEvent:             "visual_id",
     FrameRenderedEvent:                "canvas_id",
     VisualAddedEvent:                  "scene_id",
@@ -1815,6 +1831,8 @@ object registration time.
 | External callback | `BackstopCompleteEvent` | `visual_id` | Fire `on_backstop_complete` user callback (multiscale visuals only) |
 | Loading indicator | `ResliceProgressEvent` | `visual_id` | Redraw the bar and status line (`QtLoadingIndicator`, `AnywidgetLoadingIndicator`) |
 | Loading-settings control | `LoadingConfigChangedEvent` | `visual_id` | Show the visual's `ProgressiveLoadingConfig` (`QtLoadingConfigControls`, `AnywidgetLoadingConfigControls`); edits go out as `LoadingConfigUpdateEvent` on the incoming bus, and a refused edit shows the reason |
+| Level-of-detail control | `LodConfigChangedEvent` | `visual_id` | Show a multiscale mesh's `GeometryLodConfig` (`QtLodConfigControls`, `AnywidgetLodConfigControls`); edits go out as `LodConfigUpdateEvent` on the incoming bus, and a refused edit shows the reason |
+| External callback | `LodConfigChangedEvent` | `visual_id` | Fire `on_lod_config_changed` user callback |
 | External callback | `CanvasMouse{Press,Move,Release}{2D,3D}Event` | `canvas_id` | Fire `on_mouse_*` user callback |
 | External callback | `{Image,Labels,Points,Lines,Mesh,Graph}PickEvent` | `canvas_id` | Fire `on_pick` user callback; enables pick-detail extraction |
 | Paint controller | `CanvasMouse{Press,Move,Release}2DEvent` | `canvas_id` | Accumulate brush stroke (direct bus subscription; does not enable pick details) |

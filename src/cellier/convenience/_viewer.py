@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from cellier.data.label._label_memory_store import LabelMemoryStore
     from cellier.data.lines._lines_memory_store import LinesMemoryStore
     from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
+    from cellier.data.mesh._mesh_multiscale_store import MultiscaleMeshStore
     from cellier.data.points._points_memory_store import PointsMemoryStore
     from cellier.events import (
         BackstopCompleteEvent,
@@ -82,11 +83,12 @@ if TYPE_CHECKING:
         MultiscaleLabelVisual,
     )
     from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
-    from cellier.visuals._loading import ProgressiveLoadingConfig
+    from cellier.visuals._loading import GeometryLodConfig, ProgressiveLoadingConfig
     from cellier.visuals._mesh_memory import (
         MeshAppearance,
         MeshSectionConfig,
         MeshVisual,
+        MultiscaleMeshVisual,
     )
     from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 
@@ -631,6 +633,29 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The visual's config after the call.
         """
         return self._controller.set_loading_config(_visual_id(visual), **fields)
+
+    def set_lod_config(self, visual: object, **fields: Any) -> GeometryLodConfig:
+        """Change the level-of-detail settings of a multiscale mesh.
+
+        Mirrors :meth:`CellierController.set_lod_config`.  ``dims_drag_draw``
+        and ``camera_motion`` choose among the levels already loaded and
+        apply in the next frame; ``dims_drag`` decides what the next dims
+        scrub loads.
+
+        Parameters
+        ----------
+        visual : visual model or UUID
+            A multiscale mesh visual.
+        **fields :
+            ``GeometryLodConfig`` fields, e.g. ``camera_motion="full"``.
+            ``coarse_level`` cannot be changed.
+
+        Returns
+        -------
+        GeometryLodConfig
+            The visual's config after the call.
+        """
+        return self._controller.set_lod_config(_visual_id(visual), **fields)
 
     # ------------------------------------------------------------------
     # Capture
@@ -1314,6 +1339,72 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
             section=section,
+        )
+        self._store_controls([visual.id], controls)
+        return visual
+
+    def add_multiscale_mesh(
+        self,
+        data: MultiscaleMeshStore | UUID,
+        appearance: MeshAppearance,
+        name: str = "mesh",
+        transform: BaseTransform | None = None,
+        controls: MeshControlsConfig | None = None,
+        outline: VisualOutline | None = None,
+        ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
+        section: MeshSectionConfig | None = None,
+        lod: GeometryLodConfig | None = None,
+    ) -> MultiscaleMeshVisual:
+        """Add a mesh with levels of detail.
+
+        Two levels are kept loaded, the finest and one coarse level.  A new
+        position shows the coarse level first and the finest when it has
+        loaded; a dims scrub loads the coarse level only until it ends.
+
+        Parameters
+        ----------
+        data : MultiscaleMeshStore or UUID
+            The mesh's levels, finest first, or the UUID of an
+            already-registered store.
+        appearance : MeshFlatAppearance, MeshPhongAppearance,
+            Appearance parameters, shared by both levels.
+        name : str
+            Human-readable label. Default ``"mesh"``.
+        transform : BaseTransform or None
+            Data-to-world transform. Defaults to identity when ``None``.
+        controls : MeshControlsConfig or None
+            Appearance controls configuration.  When ``None`` (default), no
+            appearance controls are created.
+        outline : VisualOutline or None
+            Screen-space outline assignment; see :meth:`add_mesh`.
+        ambient_occlusion : bool or None
+            Whether this visual receives ambient occlusion; see
+            :meth:`add_mesh`.
+        pick_write : bool
+            Whether the visual writes to the pick buffer; see
+            :meth:`add_mesh`.
+        section : MeshSectionConfig or None
+            How the mesh is drawn in a 2D view; see :meth:`add_mesh`.
+        lod : GeometryLodConfig or None
+            Which coarse level is kept (the coarsest by default), and what a
+            dims scrub loads and draws.
+
+        Returns
+        -------
+        MultiscaleMeshVisual
+        """
+        visual = self._controller.add_multiscale_mesh(
+            self._resolve_data_store(data),
+            self._scene.id,
+            appearance,
+            name,
+            transform,
+            outline=outline,
+            ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
+            section=section,
+            lod=lod,
         )
         self._store_controls([visual.id], controls)
         return visual

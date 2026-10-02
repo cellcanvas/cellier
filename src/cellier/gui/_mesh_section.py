@@ -38,6 +38,21 @@ _MESH_SECTION_LABELS: dict[str, str] = {
     "mode": "Mode",
 }
 
+#: What each row says when the pointer rests on it.
+_MESH_SECTION_TOOLTIPS: dict[str, str] = {
+    "outline": "Draw the curve where the surface crosses the plane.",
+    "fill": (
+        "Fill the area the outline encloses. An open surface has no fill "
+        "where its cut does not close."
+    ),
+    "outline_width": "Outline thickness, in screen pixels.",
+    "mode": (
+        "cut: draw the one plane at the slider's position; the scene's "
+        "thickness on a spatial axis is ignored. "
+        "slab: draw what lies inside the scene's slab, flattened."
+    ),
+}
+
 #: The outline width's range and step, in screen pixels.
 OUTLINE_WIDTH_RANGE: tuple[float, float, float] = (0.5, 20.0, 0.5)
 
@@ -60,15 +75,14 @@ def mesh_section_fields() -> list[LoadingConfigField]:
     for name, label in _MESH_SECTION_LABELS.items():
         annotation = MeshSectionConfig.model_fields[name].annotation
         if annotation is bool:
-            fields.append(LoadingConfigField(name, label, "bool"))
+            field = LoadingConfigField(name, label, "bool")
         elif get_origin(annotation) is Literal:
             choices = tuple(str(choice) for choice in get_args(annotation))
-            fields.append(LoadingConfigField(name, label, "choice", choices))
+            field = LoadingConfigField(name, label, "choice", choices)
         else:
             low, high, step = OUTLINE_WIDTH_RANGE
-            fields.append(
-                LoadingConfigField(name, label, "fraction", (), low, high, step)
-            )
+            field = LoadingConfigField(name, label, "fraction", (), low, high, step)
+        fields.append(field._replace(tooltip=_MESH_SECTION_TOOLTIPS[name]))
     return fields
 
 

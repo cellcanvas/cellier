@@ -5,6 +5,7 @@ from psygnal import EventedModel
 from pydantic import ConfigDict, Field
 
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
+from cellier.visuals._loading import GeometryLodConfig
 
 
 class MeshFlatAppearance(BaseAppearance):
@@ -138,6 +139,14 @@ class BaseMeshVisual(BaseVisual):
     section: MeshSectionConfig = Field(default_factory=MeshSectionConfig)
     requires_camera_reslice: bool = Field(default=False, frozen=True)
 
+    def draws_nothing(self) -> bool:
+        """Whether the mesh is hidden, and so loads nothing.
+
+        A hidden mesh is not planned, and its reads stop.  Shown again at
+        the same position it reads nothing: what it held is still there.
+        """
+        return not self.appearance.visible
+
 
 class MeshVisual(BaseMeshVisual):
     """Model-layer visual for an in-memory triangle mesh.
@@ -159,10 +168,41 @@ class MeshVisual(BaseMeshVisual):
 
     visual_type: Literal["mesh_memory"] = "mesh_memory"
 
-    def draws_nothing(self) -> bool:
-        """Whether the mesh is hidden, and so loads nothing.
 
-        A hidden mesh is not planned, and its reads stop.  Shown again at
-        the same position it reads nothing: what it held is still there.
+class MultiscaleMeshVisual(BaseMeshVisual):
+    """Model-layer visual for a mesh with levels of detail.
+
+    Two levels are kept loaded, the finest and one coarse level
+    (``lod.coarse_level``).  A change of position loads the coarse level
+    first, so the mesh is back on screen sooner, and the finest replaces it
+    when it has loaded.  With a store of one level it behaves as a
+    ``MeshVisual``.
+
+    Parameters
+    ----------
+    visual_type : Literal["mesh_multiscale"]
+        Discriminator field; always ``"mesh_multiscale"``.
+    data_store_id : str
+        UUID string of the associated ``MultiscaleMeshStore``.
+    appearance : MeshFlatAppearance | MeshPhongAppearance
+        Appearance parameters, shared by both levels.
+    section : MeshSectionConfig
+        How the mesh is drawn in a 2D view: outline and fill of its
+        cross-section, at whichever level is drawn.
+    lod : GeometryLodConfig
+        Which coarse level is kept, and when it is loaded and drawn.
+    requires_camera_reslice : bool
+        Always False; frozen.  Camera movement does not trigger reslicing.
+    """
+
+    visual_type: Literal["mesh_multiscale"] = "mesh_multiscale"
+    lod: GeometryLodConfig = Field(default_factory=GeometryLodConfig)
+
+    @property
+    def plans_coarse_on_scrub(self) -> bool:
+        """``True`` when ``lod.dims_drag`` is ``"coarse"``.
+
+        While the scene's dims are scrubbed the mesh then loads its coarse
+        level only, and the finest once when the scrub ends.
         """
-        return not self.appearance.visible
+        return self.lod.dims_drag == "coarse"

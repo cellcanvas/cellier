@@ -28,6 +28,7 @@ to composite mode (one appearance per channel index).
 ::: cellier.visuals.MultiscaleImageChannelAppearance
 ::: cellier.visuals.MultiscaleImageRenderConfig
 ::: cellier.visuals.ProgressiveLoadingConfig
+::: cellier.visuals.GeometryLodConfig
 
 ## In-memory labels
 
@@ -54,6 +55,8 @@ to composite mode (one appearance per channel index).
 ## Meshes
 
 ::: cellier.visuals.MeshVisual
+::: cellier.visuals.MultiscaleMeshVisual
+::: cellier.visuals.MeshSectionConfig
 ::: cellier.visuals.MeshAppearance
 ::: cellier.visuals.MeshFlatAppearance
 ::: cellier.visuals.MeshPhongAppearance

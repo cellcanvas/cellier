@@ -35,6 +35,7 @@ from cellier.events._events import (
     LabelsPickEvent,
     LinesPickEvent,
     LoadingConfigChangedEvent,
+    LodConfigChangedEvent,
     MeshPickEvent,
     MeshSectionChangedEvent,
     OverlayChangedEvent,
@@ -79,6 +80,7 @@ _ENTITY_FIELD: dict[type, str] = {
     ResliceProgressEvent: "visual_id",
     BackstopCompleteEvent: "visual_id",
     LoadingConfigChangedEvent: "visual_id",
+    LodConfigChangedEvent: "visual_id",
     ResliceCancelledEvent: "visual_id",
     FrameRenderedEvent: "canvas_id",
     CanvasConnectedEvent: "canvas_id",
@@ -495,6 +497,7 @@ class EventBus:
               ``TransformChangedEvent``, ``ResliceCompletedEvent``,
               ``ResliceProgressEvent``, ``BackstopCompleteEvent``,
               ``LoadingConfigChangedEvent``,
+              ``LodConfigChangedEvent``,
               ``ResliceCancelledEvent``
             - Canvas (keyed by ``canvas_id``) — ``FrameRenderedEvent``,
               ``CanvasConnectedEvent``

@@ -34,5 +34,7 @@ slice-result types used to fetch data for the current view.
 ## Meshes
 
 ::: cellier.data.mesh.MeshMemoryStore
+::: cellier.data.mesh.MultiscaleMeshStore
+::: cellier.data.mesh.MeshLevel
 ::: cellier.data.mesh.MeshSliceRequest
 ::: cellier.data.mesh.MeshData

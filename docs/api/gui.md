@@ -16,3 +16,5 @@ Qt widgets for building interactive cellier-based applications.
 ::: cellier.gui.qt.visuals.QtLodBiasSlider
 ::: cellier.gui.qt.visuals.QtLoadingIndicator
 ::: cellier.gui.qt.visuals.QtLoadingConfigControls
+::: cellier.gui.qt.visuals.QtMeshSectionControls
+::: cellier.gui.qt.visuals.QtLodConfigControls

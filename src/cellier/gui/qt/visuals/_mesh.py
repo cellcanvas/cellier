@@ -222,6 +222,8 @@ class QtMeshSectionControls(VisualIdGroup):
                 widget.valueChanged.connect(lambda v, n=name: self._editor.edit(n, v))
             self._inputs[name] = widget
             form.addRow(field.label, widget)
+            widget.setToolTip(field.tooltip)
+            form.labelForField(widget).setToolTip(field.tooltip)
 
         self._error = QLabel(content)
         self._error.setWordWrap(True)

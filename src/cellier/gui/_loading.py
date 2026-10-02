@@ -72,7 +72,9 @@ def sum_progress(progress: Iterable[LoadingProgress]) -> LoadingProgress | None:
     return total
 
 
-def indicator_state(progress: LoadingProgress | None) -> IndicatorState:
+def indicator_state(
+    progress: LoadingProgress | None, levels: bool = False
+) -> IndicatorState:
     """The bar and text for *progress*.
 
     - no plan yet: ``"Not loaded"``;
@@ -84,11 +86,30 @@ def indicator_state(progress: LoadingProgress | None) -> IndicatorState:
 
     Chunks the plan dropped to fit the cache (``truncated_target``) are
     reported after either, since they will never load at this cache size.
+
+    With *levels* (a mesh) the text names levels, not chunk counts: a mesh
+    reads each level whole, so there is at most one of each to count.
+
+    - the coarse level still loading: ``"Loading coarse level"``;
+    - then the finest: ``"Loading fine level"``, or ``"Loading"`` for a mesh
+      with one level;
+    - done: ``"Loaded"``, or ``"Loaded, 1 failed"``;
+    - done, but only the coarse level was planned (a dims scrub with
+      ``lod.dims_drag="coarse"``): ``"Coarse level ready. Fine on stop."``.
     """
     if progress is None:
         return IndicatorState(1, 0, "Not loaded", busy=False)
     p = progress
-    if not p.backstop_complete:
+    if levels:
+        if not p.backstop_complete:
+            text = "Loading coarse level"
+        elif not p.complete:
+            text = "Loading fine level" if p.needed_backstop else "Loading"
+        elif p.target_deferred:
+            text = "Coarse level ready. Fine on stop."
+        else:
+            text = "Loaded"
+    elif not p.backstop_complete:
         text = f"Overview: {p.resident_backstop} / {p.needed_backstop}"
     elif not p.complete:
         text = f"Detail: {p.resident_target} / {p.needed_target}"
@@ -120,6 +141,9 @@ class LoadingIndicatorModel:
         indicator built mid-load does not wait for the next event.
     on_change : Callable[[IndicatorState], None]
         Called with the new state after every event.
+    levels : bool
+        The visuals are meshes: the text names levels, not chunk counts
+        (:func:`indicator_state`).
     """
 
     def __init__(
@@ -127,7 +151,9 @@ class LoadingIndicatorModel:
         visual_ids: Iterable[UUID],
         initial: Mapping[UUID, LoadingProgress | None],
         on_change: Callable[[IndicatorState], None],
+        levels: bool = False,
     ) -> None:
+        self._levels = levels
         self._visual_ids = tuple(visual_ids)
         self._progress: dict[UUID, LoadingProgress] = {
             vid: p for vid, p in initial.items() if p is not None
@@ -140,7 +166,8 @@ class LoadingIndicatorModel:
         return indicator_state(
             sum_progress(
                 self._progress[vid] for vid in self._visual_ids if vid in self._progress
-            )
+            ),
+            self._levels,
         )
 
     def subscription_specs(self) -> list[SubscriptionSpec]:
@@ -190,6 +217,8 @@ class LoadingConfigField(NamedTuple):
         The options of a ``"choice"``.
     minimum, maximum, step : float
         The range of a ``"level"`` or ``"fraction"``.
+    tooltip : str
+        Shown when the pointer rests on the row; "" for none.
     """
 
     name: str
@@ -199,6 +228,7 @@ class LoadingConfigField(NamedTuple):
     minimum: float = 0.0
     maximum: float = 0.0
     step: float = 1.0
+    tooltip: str = ""
 
 
 def loading_config_fields(n_levels: int | None = None) -> list[LoadingConfigField]:

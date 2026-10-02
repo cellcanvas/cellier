@@ -512,6 +512,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         AnywidgetLoadingConfigControls,
         AnywidgetLoadingIndicator,
         AnywidgetLodBiasSlider,
+        AnywidgetLodConfigControls,
         AnywidgetMeshSectionControls,
         AnywidgetTrailControls,
     )
@@ -528,6 +529,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         QtLoadingConfigControls,
         QtLoadingIndicator,
         QtLodBiasSlider,
+        QtLodConfigControls,
         QtMeshSectionControls,
         QtTrailControls,
     )
@@ -540,6 +542,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         "loading": (QtLoadingIndicator, AnywidgetLoadingIndicator),
         "loading_config": (QtLoadingConfigControls, AnywidgetLoadingConfigControls),
         "mesh_section": (QtMeshSectionControls, AnywidgetMeshSectionControls),
+        "lod_config": (QtLodConfigControls, AnywidgetLodConfigControls),
         "visual_outline": (QtVisualOutlineControls, AnywidgetVisualOutlineControls),
         "labels_outline": (QtLabelsOutlineControls, AnywidgetLabelsOutlineControls),
         "visual_occlusion": (

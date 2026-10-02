@@ -38,17 +38,19 @@ def uv_sphere(
     )
     positions = radius * unit * np.asarray(scale) + np.asarray(centre)
 
-    faces = []
+    # Built with array operations, so a sphere of a million faces is quick.
     south = len(unit) - 1
-    for j in range(n_lon):
-        k = (j + 1) % n_lon
-        faces.append([0, 1 + j, 1 + k])
-        last = 1 + (n_lat - 2) * n_lon
-        faces.append([south, last + k, last + j])
-    for i in range(n_lat - 2):
-        for j in range(n_lon):
-            k = (j + 1) % n_lon
-            a, b = 1 + i * n_lon + j, 1 + i * n_lon + k
-            c, d = a + n_lon, b + n_lon
-            faces += [[a, c, b], [b, c, d]]
+    j = np.arange(n_lon)
+    k = (j + 1) % n_lon
+    last = 1 + (n_lat - 2) * n_lon
+    north = np.stack([np.zeros(n_lon, dtype=np.int64), 1 + j, 1 + k], axis=1)
+    south_fan = np.stack([np.full(n_lon, south), last + k, last + j], axis=1)
+    caps = np.stack([north, south_fan], axis=1).reshape(-1, 3)
+    row = 1 + np.arange(n_lat - 2)[:, None] * n_lon
+    a, b = row + j, row + k
+    c, d = a + n_lon, b + n_lon
+    body = np.stack(
+        [np.stack([a, c, b], axis=-1), np.stack([b, c, d], axis=-1)], axis=2
+    ).reshape(-1, 3)
+    faces = np.concatenate([caps, body])
     return positions.astype(np.float32), np.array(faces, dtype=np.int32)

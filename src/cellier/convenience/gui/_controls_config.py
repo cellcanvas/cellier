@@ -387,6 +387,16 @@ class MeshControlsConfig(BaseControlsConfig):
         :class:`~cellier.visuals.MeshSectionConfig`).  ``False`` (default)
         omits it.  Like ``outline_controls`` it adds to the appearance
         panel, so it needs ``appearance`` to be ``True`` or a field list.
+    lod_controls : bool
+        Show the "LOD" group of a multiscale mesh: what a dims
+        scrub loads and draws, and what a moving camera draws (see
+        :class:`~cellier.visuals.GeometryLodConfig`).  ``False`` (default)
+        omits it.  A mesh with one level has no such settings and gets no
+        group.
+    loading_indicator : bool
+        Show the "Data fetch status" group.  A mesh is not drawn while a new
+        position loads, and this says that it is loading: the coarse level,
+        then the fine one.  ``False`` (default) omits it.
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
@@ -400,6 +410,8 @@ class MeshControlsConfig(BaseControlsConfig):
     }
 
     section_controls: bool = False
+    lod_controls: bool = False
+    loading_indicator: bool = False
 
 
 @dataclass

@@ -159,6 +159,9 @@ class CanvasView:
         # last frame drawn; see ``_draw_frame``.
         self._driving: bool = False
         self.camera_moving: bool = False
+        # A capture canvas (a screenshot): it draws the finest level whatever
+        # the scene's interaction state.
+        self.is_capture: bool = False
         # True for the length of ``_draw_frame``: planning must not run
         # inside a draw, so the controller queues reslices it detects there.
         self._drawing: bool = False

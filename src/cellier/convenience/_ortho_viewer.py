@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.data.label._label_memory_store import LabelMemoryStore
     from cellier.data.lines._lines_memory_store import LinesMemoryStore
+    from cellier.data.mesh import MultiscaleMeshStore
     from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
     from cellier.data.points._points_memory_store import PointsMemoryStore
     from cellier.events import (
@@ -88,11 +89,12 @@ if TYPE_CHECKING:
         MultiscaleLabelVisual,
     )
     from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
-    from cellier.visuals._loading import ProgressiveLoadingConfig
+    from cellier.visuals._loading import GeometryLodConfig, ProgressiveLoadingConfig
     from cellier.visuals._mesh_memory import (
         MeshAppearance,
         MeshSectionConfig,
         MeshVisual,
+        MultiscaleMeshVisual,
     )
     from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 
@@ -1182,6 +1184,74 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._record_controls(visuals, controls, name)
         return visuals
 
+    def add_multiscale_mesh(
+        self,
+        data: MultiscaleMeshStore | UUID,
+        appearance: MeshAppearance,
+        name: str = "mesh",
+        transform: BaseTransform | None = None,
+        controls: MeshControlsConfig | None = None,
+        outline: VisualOutline | None = None,
+        ambient_occlusion: bool | None = None,
+        section: MeshSectionConfig | None = None,
+        lod: GeometryLodConfig | None = None,
+    ) -> dict[str, MultiscaleMeshVisual]:
+        """Add a mesh with levels of detail to every panel, from one store.
+
+        Each panel keeps two levels loaded, the finest and one coarse level.
+        The three 2D panels draw the cross-section of the level; the 3D
+        panel draws the surface.  A dims scrub loads the coarse level only
+        until it ends, and the 3D panel draws the coarse level while its
+        camera moves.
+
+        Parameters
+        ----------
+        data : MultiscaleMeshStore or UUID
+            The mesh's levels, finest first, or the UUID of an
+            already-registered store.
+        appearance : MeshFlatAppearance, MeshPhongAppearance,
+            Appearance parameters, shared by both levels.
+        name : str
+            Base label; each panel's visual is named ``f"{name}_{key}"``.
+        transform : BaseTransform or None
+            Data-to-world transform.  Defaults to identity when ``None``.
+        controls : MeshControlsConfig or None
+            Appearance controls configuration; see :meth:`add_mesh`.
+        outline : VisualOutline or None
+            Screen-space outline assignment; see :meth:`add_mesh`.
+        ambient_occlusion : bool or None
+            Whether this visual receives ambient occlusion; see
+            :meth:`add_mesh`.
+        section : MeshSectionConfig or None
+            How the mesh is drawn in a 2D view; see :meth:`add_mesh`.  Each
+            panel's visual gets its own copy.
+        lod : GeometryLodConfig or None
+            Which coarse level is kept (the coarsest by default), what a
+            dims scrub loads and draws, and what a moving camera draws.  The
+            same for every panel; change it later with
+            :meth:`set_lod_config`.
+
+        Returns
+        -------
+        dict[str, MultiscaleMeshVisual]
+        """
+        store = self._resolve_data_store(data)
+        visuals = self._fan_out(
+            lambda key, scene: self._controller.add_multiscale_mesh(
+                store,
+                scene.id,
+                appearance,
+                f"{name}_{key}",
+                transform,
+                outline=outline,
+                ambient_occlusion=ambient_occlusion,
+                section=None if section is None else section.model_copy(),
+                lod=lod,
+            )
+        )
+        self._record_controls(visuals, controls, name)
+        return visuals
+
     def add_points(
         self,
         data: PointsMemoryStore | UUID,
@@ -1694,6 +1764,35 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         result = self._controller.set_loading_config(group[0], **fields)
         for vid in group[1:]:
             self._controller.set_loading_config(vid, **fields)
+        return result
+
+    def set_lod_config(self, visual: object, **fields: Any) -> GeometryLodConfig:
+        """Change the level-of-detail settings of every panel of a mesh.
+
+        Mirrors :meth:`CellierController.set_lod_config`, applied to each
+        panel.  The merged config is validated before any panel changes, so
+        an invalid value raises and changes nothing.
+
+        Parameters
+        ----------
+        visual : UUID, visual model, or dict
+            Any panel's multiscale mesh, or the dict
+            :meth:`add_multiscale_mesh` returned.
+        **fields :
+            ``GeometryLodConfig`` fields, e.g. ``camera_motion="full"``.
+            ``coarse_level`` cannot be changed.
+
+        Returns
+        -------
+        GeometryLodConfig
+            The first panel's config after the call.
+        """
+        group = self.image_group(visual)
+        # The first write validates; the rest cannot fail differently, since
+        # the panels are kept equal.
+        result = self._controller.set_lod_config(group[0], **fields)
+        for vid in group[1:]:
+            self._controller.set_lod_config(vid, **fields)
         return result
 
     def set_image_composite(self, visual: object, composite: bool) -> None:

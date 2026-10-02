@@ -175,6 +175,8 @@ class RenderManager:
         self._scenes: dict[UUID, SceneManager] = {}
         self._canvases: dict[UUID, CanvasView] = {}
         self._canvas_to_scene: dict[UUID, UUID] = {}
+        # Scenes whose dims are being scrubbed (``set_dims_scrubbing``).
+        self._dims_scrubbing: set[UUID] = set()
         self._visual_to_scene: dict[UUID, UUID] = {}
         self._data_stores: dict[UUID, BaseDataStore] = {}
         self._event_bus: EventBus | None = None
@@ -1641,8 +1643,12 @@ class RenderManager:
                 vis.tick()
                 prepare_draw = getattr(vis, "prepare_draw", None)
                 if prepare_draw is not None:
-                    # Phase 7 supplies dims_scrubbing, Phase 8 camera_moving.
-                    changed |= bool(prepare_draw(canvas_id, False, False))
+                    # A capture canvas is never told of a scrub or of a
+                    # camera motion: a screenshot draws fine.
+                    live = not canvas_view.is_capture
+                    scrubbing = live and scene_id in self._dims_scrubbing
+                    moving = live and canvas_view.camera_moving
+                    changed |= bool(prepare_draw(canvas_id, moving, scrubbing))
             if changed:
                 canvas_view._accum_pass.reset()
 
@@ -1761,6 +1767,38 @@ class RenderManager:
         self._canvases[canvas_id]._camera.show_object(
             gfx_scene, view_dir=view_direction, up=up
         )
+
+    def set_dims_scrubbing(self, scene_id: UUID, scrubbing: bool) -> None:
+        """Record whether a scene's dims are being scrubbed.
+
+        Driven by the controller's dims tracker: ``True`` when a scrub
+        starts, ``False`` when it ends, before the reslice the transition
+        causes.  Visuals with ``prepare_draw`` read it in each frame of the
+        scene's canvases (a mesh with levels of detail draws its coarse
+        level during a scrub that does not change it).  Capture canvases
+        are not told.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            ID of the scene.
+        scrubbing : bool
+            Whether its dims are being scrubbed.
+        """
+        if scrubbing:
+            self._dims_scrubbing.add(scene_id)
+        else:
+            self._dims_scrubbing.discard(scene_id)
+
+    def set_visual_lod(self, visual_id: UUID, lod: Any) -> None:
+        """Hand a visual its level-of-detail settings; ignored if it has none."""
+        scene_id = self._visual_to_scene.get(visual_id)
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is None:
+            return
+        set_lod = getattr(scene_manager.get_visual(visual_id), "set_lod", None)
+        if set_lod is not None:
+            set_lod(lod)
 
     def set_camera_moving(self, canvas_id: UUID, moving: bool) -> None:
         """Record whether a canvas's camera is in motion.

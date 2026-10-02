@@ -52,6 +52,8 @@ from cellier.events import (
     LoadingConfigChangedEvent,
     LoadingConfigUpdateEvent,
     LoadingProgress,
+    LodConfigChangedEvent,
+    LodConfigUpdateEvent,
     MeshSectionChangedEvent,
     MeshSectionUpdateEvent,
     OverlayChangedEvent,
@@ -198,7 +200,7 @@ from cellier.visuals._labels import (
     MultiscaleLabelVisual,
 )
 from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
-from cellier.visuals._loading import ProgressiveLoadingConfig
+from cellier.visuals._loading import GeometryLodConfig, ProgressiveLoadingConfig
 from cellier.visuals._mesh_memory import (
     SECTION_RESLICE_FIELDS,
     BaseMeshVisual,
@@ -206,6 +208,7 @@ from cellier.visuals._mesh_memory import (
     MeshPhongAppearance,
     MeshSectionConfig,
     MeshVisual,
+    MultiscaleMeshVisual,
 )
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 from cellier.visuals._scene_overlay import SceneBoundingBox, SceneOverlay
@@ -226,6 +229,7 @@ if TYPE_CHECKING:
     from cellier.data.label._label_memory_store import LabelMemoryStore
     from cellier.data.lines._lines_memory_store import LinesMemoryStore
     from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
+    from cellier.data.mesh._mesh_multiscale_store import MultiscaleMeshStore
     from cellier.data.points._points_memory_store import PointsMemoryStore
     from cellier.gui._protocol import WidgetView
     from cellier.render._config import RenderManagerConfig
@@ -240,11 +244,11 @@ _RESLICE_FIELDS: frozenset[str] = frozenset({"lod_bias", "force_level", "frustum
 
 #: Visuals that load nothing while they draw nothing; showing one reslices it.
 #: The scheduled ones are retired while hidden: their reads stop.
-_SKIP_WHEN_HIDDEN = (BaseImageVisual, MeshVisual)
+_SKIP_WHEN_HIDDEN = (BaseImageVisual, BaseMeshVisual)
 
 #: Visuals the chunk scheduler loads.  A ``"contents"`` store change needs no
 #: new plan for them: invalidation already requeued what they want.
-_SCHEDULED_VISUALS = (MultiscaleImageVisual, MultiscaleLabelVisual, MeshVisual)
+_SCHEDULED_VISUALS = (MultiscaleImageVisual, MultiscaleLabelVisual, BaseMeshVisual)
 
 
 #: The pick event for each render-layer pick detail that is complete as
@@ -435,6 +439,12 @@ class _OverlayEntry:
 # ``LoadingConfigChangedEvent`` (``set_loading_config``).
 _loading_source_id_override: contextvars.ContextVar[UUID | None] = (
     contextvars.ContextVar("_loading_source_id_override", default=None)
+)
+
+# Parallel context variable for ``visual.lod`` changes, stamped on
+# ``LodConfigChangedEvent`` (``set_lod_config``).
+_lod_source_id_override: contextvars.ContextVar[UUID | None] = contextvars.ContextVar(
+    "_lod_source_id_override", default=None
 )
 
 # Parallel context variable for the per-visual render settings (outline slot
@@ -992,6 +1002,11 @@ class CellierController:
             self._on_loading_config_update,
             owner_id=self._id,
         )
+        self._incoming_events.subscribe(
+            LodConfigUpdateEvent,
+            self._on_lod_config_update,
+            owner_id=self._id,
+        )
 
     @property
     def incoming_events(self) -> EventBus:
@@ -1479,7 +1494,7 @@ class CellierController:
             return self._add_points_visual(scene_id, visual_model)
         elif isinstance(visual_model, LinesVisual):
             return self._add_lines_visual(scene_id, visual_model)
-        elif isinstance(visual_model, MeshVisual):
+        elif isinstance(visual_model, BaseMeshVisual):
             return self._add_mesh_visual(scene_id, visual_model)
         elif isinstance(visual_model, GraphVisual):
             return self._add_graph_visual(scene_id, visual_model)
@@ -1722,6 +1737,86 @@ class CellierController:
             data_store_id=str(data.id),
             appearance=appearance,
             transform=resolved_transform,
+            **({} if section is None else {"section": section}),
+        )
+        _apply_render_settings(
+            visual_model,
+            outline=outline,
+            ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
+        )
+        return self.add_visual(scene_id, visual_model, data_store=data)
+
+    def add_multiscale_mesh(
+        self,
+        data: MultiscaleMeshStore,
+        scene_id: UUID,
+        appearance: MeshAppearance,
+        name: str = "mesh",
+        transform: AffineTransform | None = None,
+        outline: VisualOutline | None = None,
+        ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
+        section: MeshSectionConfig | None = None,
+        lod: GeometryLodConfig | None = None,
+    ) -> MultiscaleMeshVisual:
+        """Add a mesh with levels of detail to a scene.
+
+        Two levels are kept loaded: the finest, and one coarse level.  When
+        the position changes the coarse level is read first, so the mesh is
+        back on screen sooner, and the finest replaces it when it has
+        loaded.  A pick reports which level was drawn
+        (``MeshPickInfo.level``, 0 the finest).  The bounding box and a
+        camera fit use the finest level's extent.
+
+        Parameters
+        ----------
+        data : MultiscaleMeshStore
+            The mesh's levels, finest first.  A store of one level loads as
+            a plain mesh.
+        scene_id : UUID
+            ID of an existing scene.
+        appearance : MeshFlatAppearance | MeshPhongAppearance
+            Appearance, shared by both levels.  Use MeshPhongAppearance with
+            ``lighting="default"`` on the scene for shaded rendering.
+        name : str
+            Human-readable label.  Default ``"mesh"``.
+        transform : AffineTransform or None
+            Data-to-world transform for this visual. Defaults to identity when
+            ``None``.
+        outline : VisualOutline or None
+            Screen-space outline assignment; see :meth:`add_mesh`.
+        ambient_occlusion : bool or None
+            Whether this visual receives ambient occlusion; see
+            :meth:`add_mesh`.
+        pick_write : bool
+            Whether the visual writes to the pick buffer; see
+            :meth:`add_mesh`.
+        section : MeshSectionConfig or None
+            How the mesh is drawn in a 2D view; see :meth:`add_mesh`.
+        lod : GeometryLodConfig or None
+            Which coarse level is kept (``coarse_level``, 1-based; the
+            coarsest by default), and when it is loaded and drawn.
+
+        Returns
+        -------
+        MultiscaleMeshVisual
+
+        Raises
+        ------
+        ValueError
+            If ``lod.coarse_level`` names a level the store does not have.
+        """
+        resolved_lod = GeometryLodConfig() if lod is None else lod
+        # Before anything is registered, so a refused level leaves no store.
+        resolved_lod.coarse_scale_index(data.level_count)
+        resolved_transform = self._prepare_transform(scene_id, data, transform)
+        visual_model = MultiscaleMeshVisual(
+            name=name,
+            data_store_id=str(data.id),
+            appearance=appearance,
+            transform=resolved_transform,
+            lod=resolved_lod,
             **({} if section is None else {"section": section}),
         )
         _apply_render_settings(
@@ -2308,6 +2403,8 @@ class CellierController:
         self._wire_aabb(visual_model)
         if isinstance(visual_model, BaseMeshVisual):
             self._wire_section(visual_model)
+        if isinstance(visual_model, MultiscaleMeshVisual):
+            self._wire_lod(visual_model)
         self._wire_transform(visual_model, scene_id)
         self._wire_render_config(visual_model)
         self._wire_pick_write(visual_model)
@@ -2599,9 +2696,9 @@ class CellierController:
     def _add_mesh_visual(
         self,
         scene_id: UUID,
-        visual_model: MeshVisual,
-    ) -> MeshVisual:
-        """Wire and register a pre-built MeshVisual."""
+        visual_model: BaseMeshVisual,
+    ) -> BaseMeshVisual:
+        """Wire and register a pre-built mesh visual, of one level or two."""
         import warnings
 
         if isinstance(visual_model.appearance, MeshPhongAppearance):
@@ -2618,11 +2715,23 @@ class CellierController:
         render_modes = self._scene_render_modes.get(
             scene_id, {"3d"} if len(displayed_axes) == 3 else {"2d"}
         )
+        coarse_level = None
+        if isinstance(visual_model, MultiscaleMeshVisual):
+            level_count = getattr(data_store, "level_count", None)
+            if level_count is None:
+                raise TypeError(
+                    "A MultiscaleMeshVisual needs a MultiscaleMeshStore, got "
+                    f"{type(data_store).__name__}."
+                )
+            # Refuses a coarse_level the store does not have; None for a
+            # store of one level, which then loads as a plain mesh.
+            coarse_level = visual_model.lod.coarse_scale_index(level_count)
         gfx_visual = GFXMeshVisual(
             visual_model=visual_model,
             render_modes=render_modes,
             transform=visual_model.transform,
             axis_extents=data_store.axis_extents,
+            coarse_level=coarse_level,
         )
         self._register_visual(
             scene_id, visual_model, gfx_visual, data_store, displayed_axes
@@ -4730,6 +4839,34 @@ class CellierController:
             (visual.section.events, handler)
         )
 
+    def _wire_lod(self, visual: MultiscaleMeshVisual) -> None:
+        """Carry a replaced ``lod`` config to the render layer.
+
+        ``dims_drag_draw`` and ``camera_motion`` choose among levels that
+        are already loaded, so they apply in the next frame with no read.
+        ``dims_drag`` is read by the next plan.  Emits
+        ``LodConfigChangedEvent``.
+        """
+        visual_id = visual.id
+
+        def _on_lod(lod: GeometryLodConfig) -> None:
+            self._outgoing_events.emit(
+                LodConfigChangedEvent(
+                    source_id=_lod_source_id_override.get() or self._id,
+                    visual_id=visual_id,
+                    lod=lod,
+                )
+            )
+            self._render_manager.set_visual_lod(visual_id, lod)
+            scene_id = self._visual_to_scene.get(visual_id)
+            for canvas_id in self._scene_to_canvases.get(scene_id, ()):
+                self._render_manager.request_frame(canvas_id)
+
+        visual.events.lod.connect(_on_lod)
+        self._visual_psygnal_handlers.setdefault(visual_id, []).append(
+            (visual.events.lod, _on_lod)
+        )
+
     def _make_section_handler(self, visual_id: UUID) -> Callable:
         """Return a psygnal catch-all handler for a mesh's section config.
 
@@ -5564,9 +5701,15 @@ class CellierController:
         """
         axes = frozenset(self._dims_scrub_axes.get(scene_id, ()))
         pending: set[UUID] = set()
+        # Before the reslice this transition causes: what a frame draws of a
+        # visual with levels of detail depends on it.
+        self._render_manager.set_dims_scrubbing(scene_id, transition.phase == "start")
         if transition.phase == "end":
             self._dims_scrub_axes.pop(scene_id, None)
             pending = self._dims_scrub_pending.pop(scene_id, set())
+            # The finest level returns in the next frame, with no input.
+            for canvas_id in self._scene_to_canvases.get(scene_id, ()):
+                self._render_manager.request_frame(canvas_id)
         self._outgoing_events.emit(
             DimsInteractionEvent(
                 source_id=transition.source_id,
@@ -5610,6 +5753,7 @@ class CellierController:
     def _forget_dims_interaction(self, scene_id: UUID) -> None:
         """Drop *scene_id*'s scrub state; no event, and its timer is cancelled."""
         self._dims_driver.drop(scene_id)
+        self._render_manager.set_dims_scrubbing(scene_id, False)
         self._dims_scrub_pending.pop(scene_id, None)
         self._dims_scrub_axes.pop(scene_id, None)
 
@@ -6349,6 +6493,79 @@ class CellierController:
             setattr(visual.section, field, value)
         finally:
             _section_source_id_override.reset(token)
+
+    def set_lod_config(
+        self,
+        visual_id: UUID,
+        *,
+        source_id: UUID | None = None,
+        **fields: Any,
+    ) -> GeometryLodConfig:
+        """Change the level-of-detail settings of a multiscale mesh.
+
+        ``dims_drag_draw`` and ``camera_motion`` choose among the levels
+        already loaded: they apply in the next frame, with nothing read.
+        ``dims_drag`` decides what the next dims scrub loads.  Emits
+        ``LodConfigChangedEvent``.  Nothing happens when the merged config
+        equals the current one.
+
+        Parameters
+        ----------
+        visual_id :
+            Target visual.
+        source_id :
+            UUID to stamp on the emitted ``LodConfigChangedEvent``.  GUI
+            widgets pass ``source_id=self._id`` so their own subscription
+            can ignore the echo.
+        **fields :
+            ``GeometryLodConfig`` fields to replace: ``dims_drag``,
+            ``dims_drag_draw``, ``camera_motion``.
+
+        Returns
+        -------
+        GeometryLodConfig
+            The visual's new config.
+
+        Raises
+        ------
+        TypeError
+            If the visual has no levels of detail.
+        ValueError
+            If a field is unknown or its value invalid, or if
+            ``coarse_level`` is changed: which coarse level is kept is
+            fixed when the visual is added.
+        """
+        visual = self.get_visual_model(visual_id)
+        if not isinstance(visual, MultiscaleMeshVisual):
+            raise TypeError(
+                f"Visual {visual_id} is a {type(visual).__name__}; only a "
+                "multiscale mesh has a level-of-detail config."
+            )
+        unknown = set(fields) - set(GeometryLodConfig.model_fields)
+        if unknown:
+            raise ValueError(
+                f"Unknown GeometryLodConfig field(s) {sorted(unknown)}; "
+                f"expected any of {sorted(GeometryLodConfig.model_fields)}."
+            )
+        new = GeometryLodConfig.model_validate({**visual.lod.model_dump(), **fields})
+        if new.coarse_level != visual.lod.coarse_level:
+            raise ValueError(
+                "coarse_level cannot be changed on a visual that is in a "
+                "scene: remove the visual and add it again with the new lod."
+            )
+        if new == visual.lod:
+            return new
+        token = _lod_source_id_override.set(source_id)
+        try:
+            visual.lod = new
+        finally:
+            _lod_source_id_override.reset(token)
+        return new
+
+    def _on_lod_config_update(self, event: LodConfigUpdateEvent) -> None:
+        self.set_lod_config(
+            event.visual_id, source_id=event.source_id, **{event.field: event.value}
+        )
 
     def update_aabb_field(
         self,
@@ -9162,6 +9379,40 @@ class CellierController:
         """
         return self._outgoing_events.subscribe(
             MeshSectionChangedEvent,
+            callback,
+            entity_id=visual_id,
+            owner_id=owner_id,
+            weak=weak,
+        )
+
+    def on_lod_config_changed(
+        self,
+        visual_id: UUID,
+        callback: Callable[[LodConfigChangedEvent], None],
+        *,
+        owner_id: UUID,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired when a multiscale mesh's lod config changes.
+
+        Parameters
+        ----------
+        visual_id :
+            The multiscale mesh visual to watch.
+        callback :
+            Called with the ``LodConfigChangedEvent``: ``source_id`` for
+            echo filtering, and ``lod``, the complete new config.
+        owner_id :
+            UUID under which this subscription is registered.
+        weak :
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+        """
+        return self._outgoing_events.subscribe(
+            LodConfigChangedEvent,
             callback,
             entity_id=visual_id,
             owner_id=owner_id,

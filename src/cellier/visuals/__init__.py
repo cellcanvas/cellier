@@ -40,13 +40,14 @@ from cellier.visuals._labels import (
     MultiscaleLabelVisual,
 )
 from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
-from cellier.visuals._loading import ProgressiveLoadingConfig
+from cellier.visuals._loading import GeometryLodConfig, ProgressiveLoadingConfig
 from cellier.visuals._mesh_memory import (
     MeshAppearance,
     MeshFlatAppearance,
     MeshPhongAppearance,
     MeshSectionConfig,
     MeshVisual,
+    MultiscaleMeshVisual,
 )
 from cellier.visuals._overlay_types import CanvasOverlayType, SceneOverlayType
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
@@ -67,6 +68,7 @@ __all__ = [
     "CanvasOverlayType",
     "CenteredAxes2D",
     "CenteredAxes2DAppearance",
+    "GeometryLodConfig",
     "GraphAppearance",
     "GraphVisual",
     "ImageVisual",
@@ -90,6 +92,7 @@ __all__ = [
     "MultiscaleLabelRenderConfig",
     "MultiscaleLabelVisual",
     "MultiscaleLabelsAppearance",
+    "MultiscaleMeshVisual",
     "OutlineMode",
     "PointsMarkerAppearance",
     "PointsVisual",

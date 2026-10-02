@@ -11,7 +11,7 @@ from cellier.visuals._image_memory import ImageVisual
 from cellier.visuals._label_memory import LabelMemoryVisual
 from cellier.visuals._labels import MultiscaleLabelVisual
 from cellier.visuals._lines_memory import LinesVisual
-from cellier.visuals._mesh_memory import MeshVisual
+from cellier.visuals._mesh_memory import MeshVisual, MultiscaleMeshVisual
 from cellier.visuals._points_memory import PointsVisual
 
 VisualType = Annotated[
@@ -23,6 +23,7 @@ VisualType = Annotated[
         PointsVisual,
         LinesVisual,
         MeshVisual,
+        MultiscaleMeshVisual,
         GraphVisual,
     ],
     Field(discriminator="visual_type"),

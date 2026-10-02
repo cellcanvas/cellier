@@ -52,6 +52,7 @@ def _qt_loading(spec, visual_ids, controller):
     return QtLoadingIndicator(
         visual_ids,
         initial={vid: controller.loading_progress(vid) for vid in visual_ids},
+        levels=spec.values.get("levels", False),
         title=spec.title,
     )
 
@@ -65,6 +66,12 @@ def _qt_loading_config(spec, visual_ids, controller):
         n_levels=spec.values["n_levels"],
         title=spec.title,
     )
+
+
+def _qt_lod_config(spec, visual_ids, controller):
+    from cellier.gui.qt.visuals import QtLodConfigControls
+
+    return QtLodConfigControls(visual_ids, lod=spec.values["lod"], title=spec.title)
 
 
 def _qt_mesh_section(spec, visual_ids, controller):
@@ -179,6 +186,7 @@ QT_BUILDERS = {
     "loading": _qt_loading,
     "loading_config": _qt_loading_config,
     "mesh_section": _qt_mesh_section,
+    "lod_config": _qt_lod_config,
     "visual_outline": _qt_visual_outline,
     "labels_outline": _qt_labels_outline,
     "visual_occlusion": _qt_visual_occlusion,

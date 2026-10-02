@@ -418,6 +418,30 @@ class LoadingConfigChangedEvent(NamedTuple):
     loading: Any
 
 
+class LodConfigChangedEvent(NamedTuple):
+    """A multiscale mesh's ``lod`` config changed.
+
+    Emitted for every change, whether it came from
+    ``CellierController.set_lod_config`` (or a ``LodConfigUpdateEvent``) or
+    from assigning ``visual.lod`` directly, so a control showing the
+    settings stays in step.
+
+    Parameters
+    ----------
+    source_id : UUID
+        Who asked for the change: the widget's id for a GUI edit, otherwise
+        the controller's.
+    visual_id : UUID
+        The visual.  The routing key.
+    lod : GeometryLodConfig
+        The complete config after the change.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    lod: Any
+
+
 class BackstopCompleteEvent(NamedTuple):
     """Every backstop chunk of a multiscale visual's latest plan is done.
 
@@ -1417,6 +1441,7 @@ CellierEventTypes = (
     | ResliceProgressEvent
     | BackstopCompleteEvent
     | LoadingConfigChangedEvent
+    | LodConfigChangedEvent
     | ResliceCancelledEvent
     | FrameRenderedEvent
     | VisualAddedEvent

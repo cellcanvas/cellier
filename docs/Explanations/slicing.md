@@ -62,6 +62,9 @@ A 2D view cuts a mesh with the slice plane and draws the cut. How is set per mes
 - **An open surface has no fill where its cut does not close.** `dataset_info` reports whether a mesh is closed, once it has been cut the first time.
 - **Outline and fill share the mesh's colour and opacity.** With both on, the outline is visible only where the fill is not opaque over it.
 - **Picks say what was drawn**: `MeshPickInfo.part` is `"outline"` (with the face the plane crosses there), `"fill"` (no face) or `"face"` (a face lying in the plane, or any face in 3D).
+- **Where two meshes overlap in a 2D view, the last one drawn is on top.** Their cuts lie in the same plane, so depth does not separate them. The order is `appearance.render_order` (higher on top), then the order the meshes were added (later on top). An outline is drawn after the fills of the same `render_order`, so one mesh's outline shows on another's fill. A section is always drawn with the depth rule `"<="`; `appearance.depth_compare` applies to the 3D surface only. A section is drawn over an image in the same view.
+
+`examples/mesh_cross_section.py` shows a cut with a cavity, an outline-only mesh inside a filled one, and the "2D section" controls.
 
 ## Slicing flow
 
@@ -236,9 +239,87 @@ A mesh (`GFXMeshVisual`) loads through the chunk scheduler, like a multiscale im
 - **A read that raises is tried once.** The error is logged and counted as failed in the visual's loading progress; the same request is not tried again until the store changes.
 - **Only a store change invalidates.** Reassigning the store's arrays drops what was read; a read in flight for the old arrays is discarded when it lands.
 
+### A mesh with levels of detail
+
+A `MultiscaleMeshStore` holds the same surface at several levels, finest first, supplied by the caller. `controller.add_multiscale_mesh(store, scene_id, appearance, lod=GeometryLodConfig(...))` draws it with the same visual as a plain mesh, and keeps **two levels loaded**: the finest, and one coarse level (`lod.coarse_level`, 1-based, the coarsest by default). `Viewer.add_multiscale_mesh` adds it to the viewer's scene, and `OrthoViewer.add_multiscale_mesh` adds one visual per panel, all reading the one store.
+
+- **A new position asks for both levels at once.** The coarse read is issued first and never waits for a fine read, so the mesh is back on screen after the coarse read. The finest replaces it when it has loaded, with no frame without the mesh between. A fine read that lands first is drawn directly.
+- **One level is drawn at a time**, and only a level that holds the current position. In a 2D view each level is cut by itself, so the coarse section is the coarse surface's.
+- **A pick names the level it hit**: `MeshPickInfo.level`, 0-based, 0 the finest, with the face in that level's numbering.
+- **The bounding box and a camera fit use the finest level's extent**, whichever level is drawn.
+- **Each level costs its own first read** (its index and normals) and its own memory, on the CPU and on the GPU.
+- **A store of one level** loads as a plain mesh.
+
+During a dims scrub (a slider drag, or `controller.dims_interaction`) and while the camera moves, the `lod` settings decide what loads and what is drawn:
+
+| Setting | Default | During a scrub |
+|---|---|---|
+| `dims_drag` | `"coarse"` | What each tick **loads**. `"coarse"`: the coarse level only, and the finest once when the scrub ends. `"full"`: both levels on every tick. |
+| `camera_motion` | `"coarse"` | Not a scrub setting: what a **3D** canvas draws while its camera moves. `"coarse"`: the coarse level from the first moved frame to the end of the motion (the drag and its damped tail, or one wheel notch), and the finest in the frame after. `"full"`: the finest throughout. Nothing is read either way. |
+| `dims_drag_draw` | `"coarse"` | What is **drawn** of a mesh the scrub does not change (a static mesh beside a time series). `"coarse"`: the coarse level while the slider moves, so a very large mesh does not slow the scrub's frames; the finest stays loaded and is back in the frame after the scrub ends. `"full"`: the finest throughout. |
+
+- **A mesh the scrub does not change reads nothing**, during the scrub or at its end. Both of its levels stay loaded.
+- **Camera motion is per canvas.** A second canvas on the same scene keeps drawing the finest level while the first is orbited. A 2D view never switches level when it is panned or zoomed. A programmatic camera move (`fit_camera`, `set_camera_state`) does not switch level, unless it is made while the user is dragging, when it is part of that motion.
+- **A move that is not a scrub** (a programmatic `update_slice_indices`, a click on the slider track) loads both levels at once.
+- **A screenshot taken during a scrub draws the finest level.**
+- **The mouse wheel switches level once per notch** when the notches are more than about 0.4 s apart. One notch is a camera motion of its own: it starts, glides, and ends 0.3 s after the camera last moved, so the mesh goes coarse at the notch and fine again before the next one. Notches closer together than that are one motion, and the mesh stays coarse until the last one ends. Set `camera_motion="full"` on a mesh that should not switch.
+- **Set `dims_drag_draw="full"` on a small static mesh.** The default draws the coarse level of a mesh the scrub does not change, which shows as a level switch at the scrub's start and at its end. It is there for meshes too large to draw at the scrub's frame rate; a mesh the GPU draws easily gains nothing from it.
+- `controller.set_lod_config(visual_id, dims_drag_draw="full")` changes a setting on a mesh that is in a scene. `dims_drag_draw` and `camera_motion` apply in the next frame with nothing read; `dims_drag` is read by the next scrub. `coarse_level` is fixed when the mesh is added. `Viewer.set_lod_config(visual, ...)` is the same call, and `OrthoViewer.set_lod_config(visual, ...)` changes every panel. Each change emits `LodConfigChangedEvent` (`controller.on_lod_config_changed`).
+- **The "LOD" control group** (`MeshControlsConfig(lod_controls=True)`) has one row for each of the three settings and changes them the same way. A mesh with one level has no such group.
+
+Build the levels yourself; cellier does not simplify a mesh. Use quadric decimation rather than quadric clustering: a decimated level stays closed, so its 2D section is still filled. A coarse level that is open draws its outline only where its cut does not close. `examples/multiscale_mesh_decimation.py` builds the levels with pyvista's `decimate`.
+
 The first read of a mesh builds what later reads share: an index of the faces along each sliced axis, and the vertex normals for a 3D view. That costs once per mesh and is paid again after the store changes. A mesh whose arrays are reassigned many times a second is not what this is built for.
 
-The mesh's bounding box and the camera fit use the store's whole extent (every timepoint of a series), not the faces of the current slice, so neither changes while the mesh loads.
+The mesh's bounding box and the camera fit use the store's whole extent (every timepoint of a series), not the faces of the current slice, so neither changes while the mesh loads. A camera fit on a time series therefore frames everywhere the mesh ever is, not where it is now.
+
+### What a mesh costs
+
+The times below were measured on one machine (Apple M-series, macOS, a 900 x 700 window). They show which sizes work; the figures on another machine will differ.
+
+**A scrub blinks or goes blank, depending on the size of what each step reads.** A mesh is not drawn until the new position has loaded. When the read and one frame fit in the time between two steps, the mesh is back before the next step, and a read that lands within the draw hold (50 ms) shows no blank frame at all. When they do not fit, the mesh is absent until the slider rests. A smaller level shortens the gap; it does not remove it.
+
+| Faces read per step | Read | A 20 steps-per-second scrub |
+|---|---|---|
+| 100k | 7-11 ms | Almost every step is drawn before the next (39 of 40). |
+| 400k | 28-30 ms | About half the steps are drawn (23 of 40). |
+| 1M | 71-75 ms | Almost none (0-7% of frames have the mesh). |
+| 4M | about 300 ms | None. The mesh returns when the slider rests. |
+
+- For a multiscale mesh the step reads the **coarse level**, so the row to read is the coarse level's size per position. A coarse level of about **100k faces per position** keeps up with a 20 steps-per-second scrub; at 30 steps per second about half the steps are drawn even at 100k.
+- For a time series the size that counts is the faces of **one timepoint**, not of the whole series.
+- When the scrub ends, the finest level is drawn one fine read and one frame later: about 95 ms at 1M faces per timepoint and 330 ms at 4M.
+- A mesh the scrub does not change reads nothing and is never hidden, at any size.
+
+**The first read of a mesh is slower than the ones after it.** It builds an index of the faces along each sliced axis and, for a 3D view, the vertex normals, over the whole level:
+
+| Mesh | First read | Later reads |
+|---|---|---|
+| Static, 3D view, 4.5M faces | 290 ms | none: the request does not change |
+| Static, 3D view, 16M faces | 1.0 s | none |
+| Static, first slice on an axis, 4.5M faces | 115 ms | 2 ms |
+| Static, first slice on an axis, 16M faces | 407 ms | 8 ms |
+| Series of 10 timepoints, 100k faces each | 78 ms | 7 ms |
+| Series of 10 timepoints, 1M faces each | 744 ms | 71 ms |
+| Series of 10 timepoints, 4M faces each | 3.1 s | about 300 ms |
+
+- A series pays for **every timepoint** at its first read, so a single-level series of 10 x 4M faces shows nothing for about 3 s. With a coarse level beside it the mesh is on screen after the coarse level's own first read (about 100 ms at 100k faces per timepoint, 370 ms at 400k), while the fine one runs.
+- The index takes about 8 bytes per face per sliced axis (128 MB at 16M faces).
+- A coarse level of 400k faces beside a fine level of 4M or 16M adds 2-5% to the process's peak memory.
+
+**The frame that puts a new level on the GPU is a long one.** The read runs off the event loop, but the upload of the result is one frame's work: about 21 ms at 1M faces, 38 ms at 4M, and 120-180 ms at 16M. Nothing else in the window updates during that frame. It happens once per load of a level, not per frame drawn.
+
+### The "Data fetch status" group for a mesh
+
+A mesh that is loading is not drawn, so an empty view does not say whether the mesh is loading or has nothing at this position. `MeshControlsConfig(loading_indicator=True)` adds the "Data fetch status" group to a mesh's controls. It reads the same `LoadingProgress` a multiscale image reports (`controller.loading_progress`, `ResliceProgressEvent`), worded in levels:
+
+| Text | Meaning |
+|---|---|
+| `Loading coarse level` | A new position was asked for; neither level has loaded. |
+| `Loading fine level` | The coarse level is drawn; the finest is being read. |
+| `Loading` | A mesh with one level is being read. |
+| `Coarse level ready. Fine on stop.` | A scrub in progress: the coarse level is drawn, and the finest loads when the scrub ends. |
+| `Loaded` | What the view asked for is drawn. `Loaded, 1 failed` when a read raised. |
 
 ## Canceling requests
 

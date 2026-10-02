@@ -131,6 +131,7 @@ Visuals do not subscribe to the tracker. Each visual model answers one question 
 | Visual | `plans_coarse_on_scrub` |
 |---|---|
 | Multiscale image, multiscale labels | `render_config.loading.dims_drag == "backstop"` (the default is `"eager"`, which is `False`) |
+| Multiscale mesh | `lod.dims_drag == "coarse"` (the default, which is `True`), when the mesh has more than one level |
 | Everything else | `False` |
 
 The controller turns the tracker's state into a plan mode in one place, `CellierController._render_config_for`:
@@ -204,7 +205,7 @@ The controller's scope is what "release" means for the camera: **the controller 
 
 ### What a motion does
 
-- **While active, nothing is resliced.** A reslice per frame is not wanted. The canvas's `CanvasView.camera_moving` flag is `True`, for visuals that choose what to draw per frame.
+- **While active, nothing is resliced.** A reslice per frame is not wanted. The canvas's `CanvasView.camera_moving` flag is `True`, for visuals that choose what to draw per frame. A multiscale mesh reads it: in a 3D view it draws its coarse level on the canvas whose camera is moving, and its finest level in the frame after the motion ends (`lod.camera_motion`; see [A mesh with levels of detail](slicing.md#a-mesh-with-levels-of-detail)).
 - **At the end** (release or stillness), the scene's visuals with `requires_camera_reslice` plan in full. Today those are the multiscale image and labels, which choose their level of detail and the bricks to load from the camera. The end reslices the whole scene, one request per canvas, because chunk residency is per visual.
 - **A jump** reslices those visuals at once.
 - `controller.camera_reslice_enabled = False` keeps the tracker and its events and skips the reslices.
