@@ -192,25 +192,6 @@ centres, `p = s * u + t` (see
 [Coordinate systems](coordinate_systems.md#multiscale-level-placement)), and
 `cellier.render._level_mapping` is the one definition of it.
 
-### What was wrong
-
-Until plan v2 (`plans/multiscale_level_transform_v2.md`) the translations
-were parsed but never reached the GPU, and each shader assumed its own
-placement. Where each drew the centre of coarse voxel `i` at cumulative
-factor `F` (correct: `F * i + t`):
-
-| Path | Drawn centre | Implied convention |
-|---|---|---|
-| 3D image | `F * i` | plain striding |
-| 3D labels | `F * i - 0.5` | none |
-| 2D image | `F * i + (F - 1) / 2` | block averaging |
-| 2D labels | `F * i - 0.5` | none |
-
-So stepping the level moved things by up to `F / 2` voxels, labels sat half a
-voxel off the image (and off picking and the paint overlay) even at level 0,
-and the same dataset drew differently in 2D and 3D.
-`examples/multiscale_transform_validation.py` shows it.
-
 ### How it works now
 
 - Python uploads `t` per level as `offset_k` in the `BlockScales` uniform

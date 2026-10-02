@@ -655,8 +655,7 @@ reading it.  The reslice is capped at ``SchedulerConfig.store_change_max_hz``
 (30 Hz) per store: the first change reslices at once and a burst folds into
 one trailing reslice.  A multiscale visual is replanned only for an
 ``"extent"`` change; for ``"contents"`` the invalidation already refetches
-what it wants.  See ``plans/store_change_events.md`` and
-``plans/progressive_loading_design_v3.md`` 5.14.
+what it wants.
 
 ```python
 class DataStoreMetadataChangedEvent(NamedTuple):
