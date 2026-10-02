@@ -115,7 +115,7 @@ async def test_a_scrub_says_the_fine_level_waits(reads, qtbot):
         indicator = _indicator(rig, mesh, qtbot)
         assert indicator.text == "Loaded"
 
-        with rig.controller.dims_interaction(rig.scene.id):
+        with rig.scrub():
             rig.controller.update_slice_indices(rig.scene.id, {0: 1.0})
             await rig.until(
                 lambda: indicator.text == "Coarse level ready. Fine on stop."

@@ -133,7 +133,7 @@ def test_the_scrub_opt_in_follows_dims_drag(rig):
 async def test_a_scrub_reads_coarse_per_tick_and_fine_once_at_its_end(rig, reads):
     (series,) = await _loaded(rig, reads, _series_store())
 
-    with rig.controller.dims_interaction(rig.scene.id):
+    with rig.scrub():
         for t in (1, 2, 3):
             rig.set_t(t)
             await rig.until(lambda: rig.gfx(series)._residency.is_drawable(1))
@@ -154,7 +154,7 @@ async def test_no_scrub_frame_draws_a_position_the_slider_left(rig, reads):
     rig.controller._render_manager.config.draw_hold_ms = 0.0
     seen = []
 
-    with rig.controller.dims_interaction(rig.scene.id):
+    with rig.scrub():
         for t in (1, 2, 3, 4, 3, 2):
             rig.set_t(t)
             for _ in range(4):
@@ -182,7 +182,7 @@ async def test_dims_drag_full_reads_both_levels_on_every_tick(rig, reads):
         rig, reads, _series_store(), lod=GeometryLodConfig(dims_drag="full")
     )
 
-    with rig.controller.dims_interaction(rig.scene.id):
+    with rig.scrub():
         for t in (1, 2):
             rig.set_t(t)
             await rig.until(lambda: rig.gfx(series)._residency.is_drawable(0))
@@ -213,7 +213,7 @@ async def test_a_section_change_mid_scrub_reads_coarse_and_the_end_reads_fine():
 
         MultiscaleMeshStore.get_data = get_data
         try:
-            with rig.controller.dims_interaction(rig.scene.id):
+            with rig.scrub():
                 rig.set_z(17.0)
                 await rig.until(lambda: rig.gfx(mesh)._residency.is_drawable(1))
                 rig.controller.update_section_field(mesh.id, "fill", False)
@@ -295,7 +295,7 @@ async def test_a_static_mesh_reads_nothing_and_is_never_hidden(draw, rig, reads)
     rig.controller._render_manager.config.draw_hold_ms = 0.0
     during = []
 
-    with rig.controller.dims_interaction(rig.scene.id):
+    with rig.scrub():
         for t in (1, 2, 3):
             rig.set_t(t)
             for _ in range(3):
@@ -321,7 +321,7 @@ async def test_dims_drag_draw_applies_in_the_next_frame_with_no_read(rig, reads)
     inner_reset = rig.view._accum_pass.reset
     rig.view._accum_pass.reset = lambda: (resets.append(1), inner_reset())[1]
 
-    with rig.controller.dims_interaction(rig.scene.id):
+    with rig.scrub():
         rig.set_t(1)
         assert _drawn_level(rig, static) == 1
         resets.clear()
@@ -357,7 +357,7 @@ async def test_a_capture_mid_scrub_draws_the_finest(rig, reads):
 
     gfx.prepare_draw = prepare_draw
 
-    with rig.controller.dims_interaction(rig.scene.id):
+    with rig.scrub():
         rig.set_t(1)
         assert _drawn_level(rig, static) == 1
         flags.clear()
@@ -385,7 +385,7 @@ async def test_a_scrub_of_one_scene_leaves_another_scene_fine(rig, reads):
     scenes = rig.controller._render_manager._scenes
     there_gfx = scenes[other.id].get_visual(there.id)
 
-    with rig.controller.dims_interaction(rig.scene.id):
+    with rig.scrub():
         rig.set_t(1)
         assert _drawn_level(rig, here) == 1
         other_view._canvas.draw()
@@ -422,7 +422,7 @@ async def test_dims_drag_set_live_is_read_by_the_next_scrub(rig, reads):
     (series,) = await _loaded(rig, reads, _series_store())
 
     rig.controller.set_lod_config(series.id, dims_drag="full")
-    with rig.controller.dims_interaction(rig.scene.id):
+    with rig.scrub():
         rig.set_t(1)
         await rig.until(lambda: rig.gfx(series)._residency.is_drawable(0))
     await rig.settle()

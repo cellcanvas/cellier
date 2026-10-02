@@ -769,6 +769,11 @@ async def test_a_camera_reslice_during_a_scrub_plans_coarse(make_rig, how):
     controller = rig.controller
     await rig.settle_first_frames()
     visual_id = rig.visual.id
+    # The drag below draws frames in real time.  The dims stillness timer
+    # is real time too, and must not end the scrub under it: a scrub that
+    # settles mid-drag hands the visual to the camera's end, which plans it
+    # in full (seen on a slow CI runner).
+    controller._render_manager.config.scheduler.dims_settle_s = NO_SETTLE
 
     with controller.dims_interaction(rig.scene.id):
         controller.update_slice_indices(rig.scene.id, {0: 6.0})

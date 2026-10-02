@@ -11,6 +11,7 @@ round, then the per-canvas ``prepare_draw``, then the render.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 import numpy as np
@@ -152,6 +153,24 @@ class Rig:
         """Let the loop run a few iterations (a pass, a read's start)."""
         for _ in range(n):
             await asyncio.sleep(0)
+
+    @contextlib.contextmanager
+    def scrub(self):
+        """A dims scrub held open, as by a slider that is not released.
+
+        The stillness timer runs on real time, so a test that waits inside a
+        scope would, on a slow machine, see the scrub end by itself.  It is
+        put out of reach while the scope is open; the scope's end ends the
+        scrub.
+        """
+        config = self.controller._render_manager.config.scheduler
+        before = config.dims_settle_s
+        config.dims_settle_s = 60.0
+        try:
+            with self.controller.dims_interaction(self.scene.id):
+                yield
+        finally:
+            config.dims_settle_s = before
 
     async def until(self, condition, timeout: float = 10.0) -> None:
         async with asyncio.timeout(timeout):
