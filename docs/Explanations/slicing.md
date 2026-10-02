@@ -85,7 +85,7 @@ A store announcing a change (`notify_changed`, or reassigning a data field) is h
 
 Re-slicing is triggered by changes to the dims model or the camera model. Only multiscale visuals reslice on a camera change: this is driven by the `requires_camera_reslice` flag on the visual model, which is `True` only on the multiscale image and label visuals. Camera-triggered re-slicing is also gated by `config.camera.reslice_enabled`.
 
-Both triggers go through the same mechanism, the **interaction tracker**, which tells an *interaction* (the user is scrubbing a slider, or moving the camera) from a *jump* (a script moved the dims or the camera). The next section describes it; the two after it give the call path of each trigger.
+Both triggers go through the same mechanism, the **interaction tracker**, which tells an *interaction* (the user is scrubbing a slider, or moving the camera) from a *jump* (a script moved the dims or the camera). The next section describes it; the two after it give the call path of each trigger. [Interaction tracker](interaction_tracker.md) explains the tracker itself in full, with timelines of the events and an example of listening to them.
 
 ## Interaction and progressive loading
 

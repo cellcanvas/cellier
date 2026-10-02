@@ -50,6 +50,7 @@ nav = [
         { "Architecture" = "Explanations/architecture.md" },
         { "Coordinate systems" = "Explanations/coordinate_systems.md" },
         { "Events" = "Explanations/events.md" },
+        { "Interaction tracker" = "Explanations/interaction_tracker.md" },
         { "Logging" = "Explanations/logging.md" },
         { "Multiscale brick lookup" = "Explanations/multiscale_brick_lookup.md" },
         { "Repository Structure" = "Explanations/repo_structure.md" },
