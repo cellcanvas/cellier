@@ -49,8 +49,10 @@ class SchedulerConfig(BaseModel):
         waited this long with no frame, a timer commits it (a canvas that is
         not drawing, or a slow client).
     dims_settle_s : float
-        Stillness after the last dims change before visuals in
-        ``dims_drag="backstop"`` mode load their target.
+        The dims tracker's stillness time: seconds without a slice-position
+        change after which a dims scrub ends, and visuals in
+        ``dims_drag="backstop"`` mode load their target.  A scrub also ends,
+        sooner, when its slider is released.
     store_change_max_hz : float
         Most reslices per second a changing store triggers.  A store that
         announces changes faster (a live acquisition, a stream of edits)
@@ -301,9 +303,13 @@ class CameraConfig(BaseModel):
         When ``False`` camera movement never triggers a reslice.
         Manual calls to ``CellierController.reslice_scene`` still work.
     settle_threshold_s : float
-        Seconds of camera stillness required before a reslice is
-        triggered. Lower values give more responsive LOD updates;
-        higher values reduce redundant I/O during fast panning.
+        The camera tracker's stillness time: seconds without a camera
+        change after which a camera motion ends and camera-sensitive visuals
+        reslice.  A motion driven by the camera controller normally ends
+        sooner, in the frame after the controller stops moving the camera
+        (a drag released and its damped tail finished); this is what ends a
+        motion while a drag is held still.  Lower values give more
+        responsive LOD updates; higher values reduce redundant I/O.
     """
 
     reslice_enabled: bool = True

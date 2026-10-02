@@ -120,3 +120,37 @@ def test_a_refused_toggle_leaves_the_widget_on_its_previous_mode(gui, monkeypatc
     else:
         assert list(panel.displayed_axes) == [2, 3]
         assert panel.label == "Switch to 3D"
+
+
+async def test_a_slider_tick_is_an_interactive_tick(gui):
+    """A drag with no scope scrubs, and ends on stillness (tracker design 4.8)."""
+    import asyncio
+
+    viewer = _viewer(gui)
+    canvas = build_canvas_widget(viewer, _AXIS_VALUES)
+    panel = canvas.dims_control
+    controller = viewer.controller
+    scene = viewer.scene
+    controller._render_manager.config.scheduler.dims_settle_s = 0.02
+    emitted: list[DimsUpdateEvent] = []
+    panel.changed.connect(emitted.append)
+    events: list[tuple] = []
+    controller.on_dims_interaction(
+        scene.id,
+        lambda event: events.append((event.phase, event.reason)),
+        owner_id=controller._id,
+    )
+
+    if gui == "qt":
+        panel._sliders[1].setValue(2.0)
+    else:
+        panel.slice_indices = {**panel.slice_indices, "1": 2.0}
+
+    assert emitted[-1].slice_indices == {1: 2.0}
+    assert emitted[-1].interactive is True
+    assert scene.dims.selection.slice_indices[1] == 2.0
+    assert controller.dims_interaction_state(scene.id) == "active"
+    assert events == [("start", None)]
+
+    await asyncio.sleep(0.1)
+    assert events == [("start", None), ("end", "settle")]

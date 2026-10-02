@@ -77,6 +77,42 @@ function render({ model, el }) {
     model.save_changes();
   }
 
+  // A dims interaction scope, held while a slider is pressed, so the scrub
+  // ends on release instead of waiting for stillness.  One at a time: a user
+  // presses one slider.
+  //
+  // The end message CARRIES the final position.  It cannot rely on the
+  // slice_indices write that precedes it: a custom message can overtake a
+  // traitlet sync (in Jupyter while the kernel is busy, in marimo always),
+  // and Python would then end the scrub on a position the slider has left.
+  let scope = null; // { axis, value: () => world value, entry }
+
+  function beginScope(axis, entry, value) {
+    if (scope !== null) endScope();
+    scope = { axis, entry, value };
+    model.send({ type: "interaction", phase: "begin" });
+    // On the window, not the input: the pointer is often released off the
+    // slider, and a press with no move fires no "change".
+    window.addEventListener("pointerup", endScope, true);
+    window.addEventListener("pointercancel", endScope, true);
+  }
+
+  function endScope() {
+    if (scope === null) return;
+    const { axis, entry, value } = scope;
+    scope = null;
+    window.removeEventListener("pointerup", endScope, true);
+    window.removeEventListener("pointercancel", endScope, true);
+    entry.dragging = false;
+    // What the throttle still holds is superseded by the final position.
+    pending = null;
+    model.send({
+      type: "interaction",
+      phase: "end",
+      slice_indices: { [axis]: Number(value()) },
+    });
+  }
+
   function scheduleSubmit(axis, value) {
     if (guard) return;
     if (timer === null) {
@@ -153,6 +189,7 @@ function render({ model, el }) {
         // drag; applying them would pull the handle backwards mid-gesture.
         input.addEventListener("pointerdown", () => {
           entry.dragging = true;
+          beginScope(axis, entry, () => spec.values[Number(input.value)]);
         });
         input.addEventListener("pointercancel", () => {
           entry.dragging = false;
@@ -165,6 +202,7 @@ function render({ model, el }) {
         input.addEventListener("change", () => {
           entry.dragging = false;
           pending = null;
+          endScope(); // if the release did not already
           submit(axis, spec.values[Number(input.value)]);
         });
       } else {
@@ -177,6 +215,9 @@ function render({ model, el }) {
         input.value = slices[axis] !== undefined ? slices[axis] : spec.min;
         readout.textContent = formatPosition(input.value, spec.decimals);
 
+        input.addEventListener("pointerdown", () => {
+          beginScope(axis, entry, () => input.value);
+        });
         input.addEventListener("input", () => {
           readout.textContent = formatPosition(input.value, spec.decimals);
           scheduleSubmit(axis, input.value); // live, throttled
@@ -200,6 +241,7 @@ function render({ model, el }) {
           // Final flush on release so the last position always lands even if
           // it arrived between throttle ticks.
           pending = null;
+          endScope(); // if the release did not already
           submit(axis, input.value);
         });
       }

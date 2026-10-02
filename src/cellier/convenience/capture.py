@@ -144,8 +144,8 @@ async def _wait_for_slicer(controller: object) -> None:
 
     Two loaders: the slicer's tasks (in-memory visuals; at most 50 rounds)
     and the chunk scheduler (multiscale visuals), drained with a commit
-    round per poll, as a drawing canvas would run them.  Reslices still
-    waiting on a timer (a dims settle, a rate-capped store change) are
+    round per poll, as a drawing canvas would run them.  Reslices still to
+    come (a scrub or camera motion ending, a rate-capped store change) are
     awaited first, since they start new loading.
     """
     render_manager = controller._render_manager

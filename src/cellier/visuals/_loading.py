@@ -39,13 +39,17 @@ class ProgressiveLoadingConfig(BaseModel):
         ``cellier.render.cache`` names the settings that would avoid it.
         Default ``0.1``.
     dims_drag : {"eager", "backstop"}
-        What a dims slider tick loads.  ``"eager"`` (default): the full plan,
+        What a tick of a dims scrub loads: a slider being moved, or a
+        programmatic move marked ``interactive=True`` or made inside
+        ``dims_interaction``.  ``"eager"`` (default): the full plan,
         so the target starts loading at once; best on local disk.
-        ``"backstop"``: the backstop only, and the target once the slider has
-        been still for ``SchedulerConfig.dims_settle_s``; this saves most of
+        ``"backstop"``: the backstop only, and the target once the scrub
+        ends, when the slider is released or has been still for
+        ``SchedulerConfig.dims_settle_s``; this saves most of
         a scrub's reads, and is recommended for remote stores.  Both show the
         slider's slice (blurry) about one read behind it.  Needs
-        ``backstop=True``.
+        ``backstop=True``.  A plain programmatic move is a jump and loads in
+        full either way.
     """
 
     model_config = ConfigDict(frozen=True)

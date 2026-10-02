@@ -51,12 +51,11 @@ def controller(qtbot) -> Iterator[CellierController]:
     """A ``CellierController`` with camera-driven reslicing disabled.
 
     The render tests drive reslicing explicitly and read pixels deterministically.
-    The camera-settle debounce (``_on_camera_changed`` -> ``create_task``) would
-    otherwise schedule ``_settle_after`` coroutines that never get awaited once
-    the test's event loop closes, surfacing as ``PytestUnraisableExceptionWarning``
-    under the suite's ``filterwarnings = error``.  Disabling it keeps frames
-    deterministic and the loop clean.  ``qtbot`` ensures a ``QApplication`` exists
-    for the offscreen canvas the controller builds in ``add_canvas``.
+    A camera jump (``fit_camera``) or the end of a camera motion would otherwise
+    reslice the multiscale visuals on its own, between the reslices a test
+    counts.  Disabling it keeps frames deterministic.  ``qtbot`` ensures a
+    ``QApplication`` exists for the offscreen canvas the controller builds in
+    ``add_canvas``.
     """
     ctrl = CellierController()
     ctrl.camera_reslice_enabled = False
@@ -190,8 +189,8 @@ async def drain_loading(controller: CellierController) -> None:
     for _ in range(20):
         # Let a pass scheduled with call_soon run before looking.
         await asyncio.sleep(0)
-        # A reslice waiting on a timer (a rate-capped store change, a dims
-        # settle) starts loading of its own.
+        # A reslice still to come (a rate-capped store change, the end of a
+        # dims scrub or a camera motion) starts loading of its own.
         deferred = controller._deferred_reslice_tasks()
         if deferred:
             await asyncio.gather(*deferred, return_exceptions=True)

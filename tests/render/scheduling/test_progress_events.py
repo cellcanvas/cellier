@@ -196,7 +196,7 @@ async def test_no_progress_for_a_visual_that_is_not_loaded(controller):
     assert controller.loading_progress(uuid4()) is None
 
 
-async def test_a_dims_drag_marks_the_target_deferred_until_the_settle(
+async def test_a_dims_scrub_marks_the_target_deferred_until_it_ends(
     controller, tmp_path
 ):
     from tests.render.scheduling.test_dims_drag import DRAG, _settle_s, _tzyx_store
@@ -207,7 +207,7 @@ async def test_a_dims_drag_marks_the_target_deferred_until_the_settle(
     assert not controller.loading_progress(visual.id).target_deferred
 
     rec = _Recorder(controller, visual.id)
-    controller.update_slice_indices(scene.id, {0: 6.0})
+    controller.update_slice_indices(scene.id, {0: 6.0}, interactive=True)
     await asyncio.sleep(0)
     await asyncio.sleep(0)
     progress = controller.loading_progress(visual.id)

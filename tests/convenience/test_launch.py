@@ -24,6 +24,7 @@ class StubController:
         self.camera_reslice_enabled = True
         self._canvas_ids = canvas_ids_map or {}
         self.fit_calls: list = []
+        self.reslice_enabled_at_fit: list = []
         self.reslice_calls: list = []
         self.cancel_calls: list = []
         self._first_frame_cbs: list = []
@@ -34,6 +35,7 @@ class StubController:
 
     def fit_camera(self, scene_id):
         self.fit_calls.append(scene_id)
+        self.reslice_enabled_at_fit.append(self.camera_reslice_enabled)
 
     def reslice_scene(self, scene_id, on_ready=None):
         self.reslice_calls.append(scene_id)
@@ -127,6 +129,10 @@ def test_reslice_suppressed_until_ready_then_restored():
     # fit="ready": fit on first frame + re-fit on ready == two fits.
     assert controller.fit_calls == [scene_id, scene_id]
     assert controller.camera_reslice_enabled is True  # restored after ready
+    # The startup fit is suppressed.  The re-fit is not: it is a camera jump,
+    # which reslices at once or not at all, so with reslicing still off the
+    # re-fitted view would never load.
+    assert controller.reslice_enabled_at_fit == [False, True]
 
 
 def test_fit_immediate_fits_once():

@@ -23,7 +23,7 @@ _GPU_LOGGER = logging.getLogger("cellier.render.gpu")
 _CACHE_LOGGER = logging.getLogger("cellier.render.cache")
 _SLICER_LOGGER = logging.getLogger("cellier.render.slicer")
 # The chunk scheduler that loads multiscale visuals: passes, commit rounds,
-# invalidation, failed reads, and the deferred reslices (dims settle,
+# invalidation, failed reads, and the deferred reslices (dims scrub end,
 # rate-capped store changes).
 _SCHEDULER_LOGGER = logging.getLogger("cellier.render.scheduler")
 _CAMERA_LOGGER = logging.getLogger("cellier.render.camera")

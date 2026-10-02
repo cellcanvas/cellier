@@ -361,10 +361,10 @@ def _init_view(
     *on_ready* argument fire once, after the *last* scene becomes ready.
 
     Camera-driven reslicing is suppressed for the duration of the startup load
-    and restored once every scene is ready.  Without this, the camera move
-    produced by the initial ``fit_camera`` would schedule a settle reslice that
-    cancels the in-flight startup reads, which could starve the readiness
-    callback for slow (e.g. remote) data.
+    and restored once every scene is ready.  Without this, the initial
+    ``fit_camera`` (a camera jump, which reslices at once) would add a second
+    reslice to the startup load.  The ``fit="ready"`` re-fit is the one
+    exception: reslicing is on for it, so the re-fitted view loads.
 
     Parameters
     ----------
@@ -397,8 +397,9 @@ def _init_view(
     if on_ready is not None:
         user_callbacks.append(on_ready)
 
-    # Suppress camera-settle reslices during startup so the initial load is a
-    # single, un-cancelled generation; restore the prior setting once ready.
+    # Suppress camera reslices during startup (the initial ``fit_camera`` is a
+    # jump, which reslices) so the initial load is a single generation;
+    # restore the prior setting once ready.
     prev_reslice_enabled = controller.camera_reslice_enabled
     controller.camera_reslice_enabled = False
 
@@ -438,7 +439,15 @@ def _init_view(
 
             def _ready(s=s, k=k) -> None:
                 if fit == "ready":
-                    controller.fit_camera(s.id)
+                    # The re-fit is a camera jump, and a jump reslices at
+                    # once or not at all: with camera reslicing still off
+                    # the re-fitted view would never load.  So it is on for
+                    # the re-fit, and off again until every scene is ready.
+                    controller.camera_reslice_enabled = prev_reslice_enabled
+                    try:
+                        controller.fit_camera(s.id)
+                    finally:
+                        controller.camera_reslice_enabled = False
                 _scene_ready(k)
 
             controller.reslice_scene(s.id, on_ready=_ready)

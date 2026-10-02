@@ -98,3 +98,8 @@ class MultiscaleLabelVisual(BaseLabelsVisual):
         default_factory=MultiscaleLabelRenderConfig
     )
     requires_camera_reslice: bool = Field(default=True, frozen=True)
+
+    @property
+    def plans_coarse_on_scrub(self) -> bool:
+        """``True`` when ``render_config.loading.dims_drag`` is ``"backstop"``."""
+        return self.render_config.loading.dims_drag == "backstop"

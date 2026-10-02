@@ -83,18 +83,105 @@ A store announcing a change (`notify_changed`, or reassigning a data field) is h
 
 ## Triggering slicing
 
-Re-slicing is triggered by changes to the dims model or the camera model. Only multiscale visuals replace based on changes to the camera model: this is driven by the `requires_camera_reslice` flag on the visual model, which defaults to `True` only on the multiscale image and label visuals. Camera-triggered re-slicing is also gated by `config.camera.reslice_enabled` — when that is disabled, camera motion never triggers a reslice. To maintain performance while changing the camera state interactively (e.g., rotating the camera), the controller waits for the camera to be stationary for a specified amount of time (i.e., the settle time) before triggering re-slicing. Both triggering mechanisms are described below.
+Re-slicing is triggered by changes to the dims model or the camera model. Only multiscale visuals reslice on a camera change: this is driven by the `requires_camera_reslice` flag on the visual model, which is `True` only on the multiscale image and label visuals. Camera-triggered re-slicing is also gated by `config.camera.reslice_enabled`.
+
+Both triggers go through the same mechanism, the **interaction tracker**, which tells an *interaction* (the user is scrubbing a slider, or moving the camera) from a *jump* (a script moved the dims or the camera). The next section describes it; the two after it give the call path of each trigger.
+
+## Interaction and progressive loading
+
+### The two states
+
+The controller keeps one `InteractionTracker` per **scene** for the dims (a *scrub*) and one per **canvas** for the camera (a *motion*). A tracker is `IDLE` or `ACTIVE`, and is driven by two inputs:
+
+- **Ticks.** A change of the tracked input: a slice position moved, or the camera moved. A tick is **interactive** when it is marked so, or when a scope is open. Otherwise it is a **jump**.
+- **Scopes.** "Something is holding the input": a slider held down, the camera controller driving the camera, or a `with` block in a script. Opening a scope starts nothing by itself; the first tick does.
+
+| Input | In `IDLE` | In `ACTIVE` |
+|---|---|---|
+| Interactive tick | start | re-arm the stillness timer |
+| Jump | nothing (it loads in full at once) | end, reason `"jump"` |
+| The last open scope closes | nothing | end, reason `"release"` |
+| No tick for the stillness time | nothing | end, reason `"settle"` |
+| The view is replaced (displayed axes change, 2D/3D switch) | nothing | end, reason `"cancel"` |
+
+An interaction ends **on release or on stillness, whichever comes first**. Holding the input still settles it even with the button down; the next movement starts a new interaction. The stillness times are `SchedulerConfig.dims_settle_s` (0.15 s) for the dims and `CameraConfig.settle_threshold_s` (0.3 s) for the camera.
+
+| | Dims (per scene) | Camera (per canvas) |
+|---|---|---|
+| Interactive ticks | slider moves (drag, groove click, keyboard, wheel); `update_slice_indices(..., interactive=True)` | camera changes seen between frames; programmatic moves with `interactive=True` |
+| Scopes | a slider held down; the ortho viewer's mirror; `controller.dims_interaction(scene_id)` | the camera controller driving the camera (a drag held, its damped tail, a wheel or key animation); `controller.camera_interaction(canvas_id)` |
+| Jumps | a plain `update_slice_indices`; a thickness change | `fit_camera`, `look_at_visual`, `set_camera_depth_range`, `set_camera_state` |
+| While active | visuals that opted in plan their coarse backstop only, on every reslice | nothing is resliced |
+| At the end | the visuals that planned coarse plan in full | the scene's `requires_camera_reslice` visuals plan in full |
+| Events | `DimsInteractionEvent`; `DimsChangedEvent.interactive` | `CameraInteractionEvent`; `CameraChangedEvent.interactive` |
+| State | `controller.dims_interaction_state(scene_id)` | `controller.camera_interaction_state(canvas_id)` |
+
+Visuals do not subscribe to these events. Each visual model says through its own explicit config what it does during a scrub (`BaseVisual.plans_coarse_on_scrub`, which a multiscale image or labels visual answers from `render_config.loading.dims_drag == "backstop"`), and the controller turns transitions into plan modes and reslices. The events are for GUIs (a "loading full resolution" indicator) and tests.
+
+### What a script gets
+
+A script's move is a **jump**: it loads in full at once, with no coarse pass first and no wait.
+
+```python
+controller.update_slice_indices(scene.id, {0: 12.0})   # full plan, now
+controller.fit_camera(scene.id)                         # reslices for the fitted view, now
+```
+
+A jump during an interaction (a script moves the dims while the user drags) ends it with reason `"jump"`; the user's next tick starts a new one.
+
+### Players and fly-throughs: opt in with a scope
+
+A loop that moves the dims or the camera many times a second is an interaction, and says so by opening a scope. Inside it every move is a tick, so the loop loads coarse (dims) or does not reslice (camera) while it runs, and loads in full once, when the block exits:
+
+```python
+with controller.dims_interaction(scene.id):
+    for t in frames:
+        controller.update_slice_indices(scene.id, {0: t})
+
+with controller.camera_interaction(canvas_id):
+    for pose in path:
+        controller.set_camera_state(canvas_id, pose)
+```
+
+`Viewer` and `OrthoViewer` mirror these: `viewer.dims_interaction()`, `viewer.set_slice_positions(...)`, `viewer.camera_interaction()`, `viewer.set_camera_state(...)`.
+
+A loop that wants every position at full resolution does not open a scope. That is its explicit choice: each step is then a jump, and each jump issues target reads that cannot be aborted, for a position the loop is about to leave.
+
+!!! note "Stepping the dims over a multiscale mesh"
+    A multiscale mesh draws nothing for a new position until that position's level has loaded. A script that steps the dims with no scope asks for the fine level at every step; each fine read runs to completion for a position the loop has already left. A script that wants only the preview while it steps should open `dims_interaction`: the mesh then loads its coarse level at each step and its fine level once, at the end.
+
+### Rules worth knowing
+
+- **Every reslice during a scrub plans coarse**, not only the scrub's own ticks: a visual shown, a loading-config change, a store change, a transform change, a visual added, and a camera reslice all plan opted-in visuals backstop-only while the scene is scrubbing. The scrub's end plans them in full, once.
+- **A scrub that ends while a camera of the scene is moving** leaves the camera-sensitive visuals to the camera's end. Planning them in full from a camera that is still moving would issue reads for a view the camera's end replaces.
+- **A camera motion ends one frame after the camera stops**, not when the mouse button goes up: a drag has a damped tail, and the scope covers it.
+- **A camera end reslices the whole scene**, one request per canvas, not only the canvas that moved. Chunk residency is per visual and the last pass wins, so a reslice of one canvas would replace what the others want.
+- **A move that changes nothing is not a tick.** `update_slice_indices` with the positions already set, a position change on a *displayed* axis, or a `fit_camera` on an already fitted canvas do nothing.
+- **With no event loop** (a synchronous test, a bare script) there are no timers: an interactive tick ends at once with `"settle"`.
+- **`camera_reslice_enabled = False`** keeps the camera tracker and its events and skips only the reslices.
 
 ### Change to the dims model
 
-1. **`CellierController.update_slice_indices`**: writes the new slice position onto the dims model (a psygnal field).
-2. **`CellierController._make_dims_handler`**: the controller event bridge emits a `DimsChangedEvent` on the outgoing bus.
-3. **`CellierController._on_dims_changed_bus`**: second bus subscriber — calls `reslice_scene` for the whole scene.  A multiscale visual whose `render_config.loading.dims_drag` is `"backstop"` plans only its backstop on a slider tick (`PlanMode.BACKSTOP_ONLY`), and the controller restarts the scene's **dims settle** timer (`SchedulerConfig.dims_settle_s`, 0.15 s).  When the slider has been still that long, those visuals plan in full.  The default, `"eager"`, plans in full on every tick.  Both show the slider's slice, blurry, about one read behind it; `"backstop"` saves most of a scrub's reads (recommended for remote stores) and reaches full resolution about one settle later.  A displayed-axes change always plans in full and drops a pending settle.
+1. **`CellierController.update_slice_indices`**: if a *sliced* axis moves, ticks the scene's dims tracker **before** writing the positions, so a scrub's start event reaches its listeners ahead of the tick's own consequences. Then writes the new positions onto the dims model (a psygnal field).
+2. **`CellierController._make_dims_handler`**: the controller event bridge emits a `DimsChangedEvent` on the outgoing bus, with `interactive` set for a scrub tick.
+3. **`CellierController._on_dims_changed_bus`**: calls `reslice_scene` for the whole scene. A displayed-axes change cancels a scrub first. A region change that did not come through `update_slice_indices` (a thickness) is a tick with no `interactive` flag.
+4. **`CellierController._render_config_for`**: the one place a plan mode is decided. While the scene's tracker is `ACTIVE`, a visual with `plans_coarse_on_scrub` gets `PlanMode.BACKSTOP_ONLY` and joins the scene's pending set.
+5. **`CellierController._on_dims_transition`**: at a scrub's end by release or stillness, plans the pending set in full with `target_visual_ids`.
+
+`dims_drag="eager"` (the default) plans in full on every tick. `"backstop"` saves most of a scrub's reads and is recommended for remote stores. Both show the slider's slice, blurry, about one read behind it.
+
+A slider sends more than ticks. On press it opens a scope and on release it closes it, so the target loads on release instead of 0.15 s later. The release first flushes the slider's throttle: the end plans in full, and it must plan the final position. The anywidget panel's release message carries the final position itself, because in a notebook a custom message can overtake the traitlet sync sent before it.
+
+In the ortho viewer, `OrthoDimsController` mirrors positions to the other panels with plain `update_slice_indices` calls, which by themselves would be jumps. So when a scrub starts on one panel it opens a scope on every other panel, and closes them when that scrub ends. A panel that *displays* the scrubbed axis receives no tick (its region does not change) and its scope opens and closes silently.
 
 ### Change to the camera model
 
-1. **`CellierController._on_camera_changed`**: on each `CameraChangedEvent`, updates the camera model and debounces — cancels any pending settle task and schedules a fresh one.
-2. **`CellierController._settle_after`**: after `settle_threshold_s` with no further movement, gathers visuals with `requires_camera_reslice` and calls `RenderManager.reslice_scene` directly with `target_visual_ids`. 
+1. **`CanvasView._draw_frame`**: the view drives its pygfx camera controller itself (`auto_update=False`). Each frame it ticks the controller, applies the returned state to the camera, and then compares the camera with the last reported state. A difference emits `CameraChangedEvent(interactive=True)` and resets temporal accumulation, in the frame that draws the new camera. When the controller starts or stops having a running action, the view emits an internal `_CameraControllerEvent`.
+2. **`CellierController._on_camera_changed`**: writes the model camera and ticks the canvas's camera tracker. **`_on_camera_controller_event`** opens and closes the controller's scope on that tracker.
+3. **`CellierController._on_camera_transition`**: sets `CanvasView.camera_moving`, emits `CameraInteractionEvent`, and at an end by release or stillness reslices the scene's `requires_camera_reslice` visuals. The end also requests one frame on its canvas, without resetting accumulation.
+4. **Programmatic moves** go through `_after_programmatic_camera_move`: `CanvasView.accept_camera_state` takes the moved camera as the canvas's baseline (so the next frame does not see it as motion), the model camera is written, `CameraChangedEvent` is emitted with `interactive=False`, and the jump reslices at once.
+
+A transition detected inside a draw (a camera tick, the controller's scope closing) must not plan there. Its reslice is queued as a task on the event loop, one per scene. `CellierController._deferred_reslice_tasks` reports those tasks and both kinds of stillness timers, so a drain (`convenience.capture`, the test helpers) waits for a reslice that is still to come.
 
 ## Canceling requests
 
@@ -105,7 +192,7 @@ During interactive use the dims and camera models change faster than data loads 
 There are four actions/events that cancel an in-flight fetch:
 
 - **New slice request**: if a new slice request is made before the previous one completed, the in-flight request is canceled.
-- **Trigger debounce**: `CellierController._on_camera_changed` cancels the pending `_settle_after` task on each camera event. This cancels the *trigger* before any request exists, rather than an in-flight fetch.
+- **Interaction teardown**: removing a scene or a canvas, or closing the controller, drops its interaction trackers: the stillness timers and any camera reslice queued from a draw are cancelled. This cancels the *trigger* before any request exists, rather than an in-flight fetch.
 - **Safety-net resubmit**: `AsyncSlicer.submit` cancels any lingering task that shares the same `slice_request_id` before starting a new one.
 - **Scene teardown**: `SliceCoordinator.cancel_scene` cancels every in-flight task for a scene.
 

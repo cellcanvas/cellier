@@ -9,6 +9,7 @@ register one data store and fan a visual out to every panel.
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Literal, TypeVar
 from uuid import UUID
 
@@ -28,10 +29,12 @@ from cellier.scene.dims import (
 from cellier.scene.scene import Scene
 
 if TYPE_CHECKING:
+    from collections.abc import Generator, Mapping
     from pathlib import Path
 
     import numpy as np
 
+    from cellier._state import CameraState
     from cellier.convenience.gui._controls_config import (
         BaseControlsConfig,
         GraphControlsConfig,
@@ -808,11 +811,150 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         }
         if not midpoints:
             return
+        self.set_slice_positions(midpoints)
+
+    def set_slice_positions(
+        self, positions: Mapping[int, float], *, interactive: bool = False
+    ) -> None:
+        """Move the slice position of one or more world axes on every panel.
+
+        Once, through the dims controller, when the panels are linked.  By
+        default a **jump**: every visual loads in full at once.  With
+        ``interactive=True``, or inside :meth:`dims_interaction`, it is a
+        tick of a **scrub**; see ``CellierController.update_slice_indices``.
+
+        Parameters
+        ----------
+        positions : Mapping[int, float]
+            World axis index -> world position.  Other axes keep theirs.
+        interactive : bool
+            Whether the move is a tick of a scrub.
+        """
         if self.axis_sync_enabled:
-            self._dims_controller.set_slice_positions(midpoints)
+            self._dims_controller.set_slice_positions(
+                positions, interactive=interactive
+            )
             return
         for scene in self._scenes.values():
-            self._controller.update_slice_indices(scene.id, midpoints)
+            self._controller.update_slice_indices(
+                scene.id, positions, interactive=interactive
+            )
+
+    @contextmanager
+    def dims_interaction(self) -> Generator[None, None, None]:
+        """Scrub the dims of all four panels for the length of a ``with`` block.
+
+        Every slice-position move inside the block is a scrub tick on every
+        panel it changes, so a player loads coarse while it runs and in full
+        when the block exits::
+
+            with viewer.dims_interaction():
+                for t in range(n_frames):
+                    viewer.set_slice_positions({0: t})
+        """
+        with ExitStack() as stack:
+            for scene in self._scenes.values():
+                stack.enter_context(self._controller.dims_interaction(scene.id))
+            yield
+
+    # ------------------------------------------------------------------
+    # Camera control
+    # ------------------------------------------------------------------
+
+    def _panel_canvas(self, panel: str) -> UUID:
+        """The canvas of one panel."""
+        if panel not in _PANEL_KEYS:
+            raise ValueError(
+                f"Unknown panel {panel!r}. Expected one of {list(_PANEL_KEYS)}."
+            )
+        canvas_ids = self._controller.get_canvas_ids(self._scenes[panel].id)
+        if not canvas_ids:
+            raise ValueError(f"Panel {panel!r} has no canvas yet.")
+        return canvas_ids[0]
+
+    def get_camera_state(self, panel: str) -> CameraState:
+        """Return a snapshot of one panel's camera.
+
+        Parameters
+        ----------
+        panel : {"xy", "xz", "yz", "vol"}
+            The panel.
+
+        Raises
+        ------
+        ValueError
+            If *panel* is not a panel key, or the panel has no canvas yet.
+        """
+        return self._controller.get_camera_state(self._panel_canvas(panel))
+
+    def set_camera_state(
+        self, panel: str, state: CameraState, *, interactive: bool = False
+    ) -> None:
+        """Move one panel's camera to *state*.
+
+        The four cameras are independent.  By default a **jump**; with
+        ``interactive=True``, or inside :meth:`camera_interaction`, a tick of
+        a **motion**.  See ``CellierController.set_camera_state``.
+
+        Parameters
+        ----------
+        panel : {"xy", "xz", "yz", "vol"}
+            The panel.
+        state : CameraState
+            The state to apply; :meth:`get_camera_state` returns one.
+        interactive : bool
+            Whether the move is a tick of a motion.
+
+        Raises
+        ------
+        ValueError
+            If *panel* is not a panel key, the panel has no canvas yet, or
+            *state* is for the other kind of camera.
+        """
+        self._controller.set_camera_state(
+            self._panel_canvas(panel), state, interactive=interactive
+        )
+
+    def fit_camera(
+        self, panel: str | None = None, *, interactive: bool = False
+    ) -> None:
+        """Fit a panel's camera, or every panel's, to its scene.
+
+        Parameters
+        ----------
+        panel : {"xy", "xz", "yz", "vol"} or None
+            The panel to fit.  ``None`` (default) fits all four.
+        interactive : bool
+            Whether the move is a tick of a camera motion instead of a jump.
+
+        Raises
+        ------
+        ValueError
+            If *panel* is not a panel key.
+        """
+        if panel is not None and panel not in _PANEL_KEYS:
+            raise ValueError(
+                f"Unknown panel {panel!r}. Expected one of {list(_PANEL_KEYS)}."
+            )
+        for key in _PANEL_KEYS if panel is None else (panel,):
+            self._controller.fit_camera(self._scenes[key].id, interactive=interactive)
+
+    @contextmanager
+    def camera_interaction(self, panel: str) -> Generator[None, None, None]:
+        """Move one panel's camera as one motion for a ``with`` block.
+
+        Parameters
+        ----------
+        panel : {"xy", "xz", "yz", "vol"}
+            The panel whose camera moves.
+
+        Raises
+        ------
+        ValueError
+            If *panel* is not a panel key, or the panel has no canvas yet.
+        """
+        with self._controller.camera_interaction(self._panel_canvas(panel)):
+            yield
 
     # ------------------------------------------------------------------
     # Internal helpers

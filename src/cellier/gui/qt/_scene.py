@@ -56,6 +56,7 @@ from superqt import QLabeledDoubleSlider
 
 from cellier.events import (
     DimsChangedEvent,
+    DimsInteractionUpdateEvent,
     DimsUpdateEvent,
     SliderAxesChangedEvent,
     SubscriptionSpec,
@@ -289,6 +290,9 @@ class QtDimsControl:
         )
         self._rate_limit_timer.timeout.connect(self._on_rate_limit_tick)
         self._slider_dirty = False
+        # Whether this control holds a dims interaction scope: a slider is
+        # pressed.  One flag for all sliders; a user presses one at a time.
+        self._scope_open = False
 
         # ── Qt seam 1: build container and sliders ───────────────────────────
         self._container = QWidget(parent)
@@ -328,6 +332,8 @@ class QtDimsControl:
                 sld.valueChanged.connect(
                     lambda value, ax=axis: self._on_slider_changed(ax, value)
                 )
+                sld.sliderPressed.connect(self._on_slider_pressed)
+                sld.sliderReleased.connect(self._on_slider_released)
                 # The inner slider holds keyboard focus; see the filter.
                 sld.findChild(QSlider).installEventFilter(_ContinuousSliderKeys(sld))
                 self._sliders[axis] = sld
@@ -382,7 +388,11 @@ class QtDimsControl:
         return {axis: self._world_value(axis) for axis in self._sliders}
 
     def close(self) -> None:
-        """Emit ``closed`` to trigger bus unsubscription via the controller."""
+        """Emit ``closed`` to trigger bus unsubscription via the controller.
+
+        A scope still open (a control closed mid-drag) is ended first.
+        """
+        self._end_scope()
         self.closed.emit()
 
     def subscription_specs(self) -> list[SubscriptionSpec]:
@@ -436,6 +446,45 @@ class QtDimsControl:
             self._submit_slider_values()
             self._rate_limit_timer.start()
 
+    def _on_slider_pressed(self) -> None:
+        """Open a dims interaction scope: the scrub can then end on release.
+
+        The press can come after the first tick (a press on a superqt slider
+        nudges the value first, and a groove click jumps before it presses).
+        Nothing depends on the order: slider ticks are interactive anyway.
+        """
+        if self._scope_open:
+            return
+        self._scope_open = True
+        self.changed.emit(
+            DimsInteractionUpdateEvent(
+                source_id=self._id, scene_id=self._scene_id, phase="begin"
+            )
+        )
+
+    def _on_slider_released(self) -> None:
+        """Flush the throttle, then close the scope.
+
+        In that order: the end plans in full, and it must plan the final
+        position.  A drag usually leaves that position waiting in the
+        throttle; left there, it would land after the release and start a
+        new scrub.
+        """
+        if self._slider_dirty:
+            self._rate_limit_timer.stop()
+            self._submit_slider_values()
+        self._end_scope()
+
+    def _end_scope(self) -> None:
+        if not self._scope_open:
+            return
+        self._scope_open = False
+        self.changed.emit(
+            DimsInteractionUpdateEvent(
+                source_id=self._id, scene_id=self._scene_id, phase="end"
+            )
+        )
+
     def _on_rate_limit_tick(self) -> None:
         if self._slider_dirty:
             self._submit_slider_values()
@@ -454,6 +503,8 @@ class QtDimsControl:
                 scene_id=self._scene_id,
                 slice_indices=updates,
                 displayed_axes=None,
+                # A slider move is a scrub tick (interaction tracker 4.8).
+                interactive=True,
             )
         )
 
@@ -521,6 +572,8 @@ class QtDimsControl:
         sld.valueChanged.connect(
             lambda _position, ax=axis: self._on_discrete_slider_changed(ax)
         )
+        sld.sliderPressed.connect(self._on_slider_pressed)
+        sld.sliderReleased.connect(self._on_slider_released)
         row_layout.addWidget(sld, stretch=1)
         row_layout.addWidget(readout)
         self._sliders[axis] = sld

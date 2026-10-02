@@ -1706,6 +1706,36 @@ class RenderManager:
             gfx_scene, view_dir=view_direction, up=up
         )
 
+    def set_camera_moving(self, canvas_id: UUID, moving: bool) -> None:
+        """Record whether a canvas's camera is in motion.
+
+        Driven by the controller's camera tracker: ``True`` when a motion
+        starts, ``False`` when it ends.  The flag is ``CanvasView.camera_moving``,
+        which per-frame draw choices read in the frame it changes.
+
+        Parameters
+        ----------
+        canvas_id : UUID
+            ID of the canvas.  An unknown id is ignored.
+        moving : bool
+            Whether the camera is moving.
+        """
+        canvas_view = self._canvases.get(canvas_id)
+        if canvas_view is not None:
+            canvas_view.camera_moving = moving
+
+    def request_frame(self, canvas_id: UUID) -> None:
+        """Ask one canvas for a frame, keeping its accumulation history.
+
+        Parameters
+        ----------
+        canvas_id : UUID
+            ID of the canvas.  An unknown id is ignored.
+        """
+        canvas_view = self._canvases.get(canvas_id)
+        if canvas_view is not None:
+            canvas_view.request_frame()
+
     def set_camera_depth_range(
         self,
         canvas_id: UUID,

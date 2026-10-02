@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from uuid import uuid4
+
 import numpy as np
 from cmap import Colormap
 
@@ -205,3 +208,221 @@ def test_save_load_keeps_the_panels_in_agreement(tmp_path):
     slider_axes = {scene.slider_axes for scene in loaded.scenes.values()}
     assert slider_axes == {(0, 1, 2, 3)}
     assert loaded.axis_sync_enabled
+
+
+# -- scrub forwarding (interaction tracker design 4.8) ---------------------------
+
+
+def _record_interactions(viewer: OrthoViewer) -> list[tuple]:
+    """``(panel key, phase, reason)`` for every ``DimsInteractionEvent``."""
+    events: list[tuple] = []
+    for key, scene in viewer.scenes.items():
+        viewer.controller.on_dims_interaction(
+            scene.id,
+            lambda event, key=key: events.append((key, event.phase, event.reason)),
+            owner_id=viewer.controller._id,
+        )
+    return events
+
+
+def _states(viewer: OrthoViewer) -> dict[str, str]:
+    return {
+        key: viewer.controller.dims_interaction_state(scene.id)
+        for key, scene in viewer.scenes.items()
+    }
+
+
+def _count_scopes(viewer: OrthoViewer, monkeypatch) -> list[tuple]:
+    """Record every scope the mirror opens or closes."""
+    controller = viewer.controller
+    calls: list[tuple] = []
+    keys = {scene.id: key for key, scene in viewer.scenes.items()}
+    begin, end = controller.begin_dims_interaction, controller.end_dims_interaction
+
+    def spy_begin(scene_id, *, source_id):
+        calls.append(("begin", keys[scene_id]))
+        begin(scene_id, source_id=source_id)
+
+    def spy_end(scene_id, *, source_id):
+        calls.append(("end", keys[scene_id]))
+        end(scene_id, source_id=source_id)
+
+    monkeypatch.setattr(controller, "begin_dims_interaction", spy_begin)
+    monkeypatch.setattr(controller, "end_dims_interaction", spy_end)
+    return calls
+
+
+async def test_a_t_scrub_in_one_panel_scrubs_and_ends_all_four(monkeypatch):
+    """``t`` is sliced in every panel, so a ``t`` tick ticks all four."""
+    viewer = OrthoViewer(_WORLD)
+    controller = viewer.controller
+    xy = viewer.scenes["xy"]
+    events = _record_interactions(viewer)
+    dims_events = _record(viewer)
+    widget = uuid4()
+
+    controller.begin_dims_interaction(xy.id, source_id=widget)
+    scopes = _count_scopes(viewer, monkeypatch)
+    for t in (1.0, 2.0, 3.0):
+        controller.update_slice_indices(
+            xy.id, {0: t}, source_id=widget, interactive=True
+        )
+    assert all(position[0] == 3.0 for position in _positions(viewer))
+    assert _states(viewer) == dict.fromkeys(("xy", "xz", "yz", "vol"), "active")
+    # The origin starts first, and its start opens the others' scopes before
+    # the mirrored ticks arrive: every mirrored tick is a scrub tick.
+    assert events[0] == ("xy", "start", None)
+    assert sorted(events) == sorted((key, "start", None) for key in viewer.scenes)
+    assert len(dims_events) == 12
+    assert all(event.interactive for event in dims_events)
+    # The echo guard: three scopes for the whole scrub, no recursion.
+    assert scopes == [("begin", "xz"), ("begin", "yz"), ("begin", "vol")]
+
+    del events[:]
+    controller.end_dims_interaction(xy.id, source_id=widget)
+    assert sorted(events) == sorted((key, "end", "release") for key in viewer.scenes)
+    assert _states(viewer) == dict.fromkeys(("xy", "xz", "yz", "vol"), "idle")
+    assert not controller._dims_driver.tasks()
+
+
+async def test_a_z_scrub_in_xy_scrubs_only_xy(monkeypatch):
+    """The other panels display ``z``: their region does not change."""
+    viewer = OrthoViewer(_WORLD)
+    controller = viewer.controller
+    xy = viewer.scenes["xy"]
+    events = _record_interactions(viewer)
+    widget = uuid4()
+
+    with controller.dims_interaction(xy.id):
+        controller.update_slice_indices(xy.id, {1: 5.0}, source_id=widget)
+        controller.update_slice_indices(xy.id, {1: 6.0}, source_id=widget)
+        assert all(position[1] == 6.0 for position in _positions(viewer))
+        assert _states(viewer) == {
+            "xy": "active",
+            "xz": "idle",
+            "yz": "idle",
+            "vol": "idle",
+        }
+    # The forwarded scopes opened and closed with nothing emitted.
+    assert events == [("xy", "start", None), ("xy", "end", "release")]
+
+
+async def test_a_scrub_that_settles_releases_the_other_panels():
+    viewer = OrthoViewer(_WORLD)
+    controller = viewer.controller
+    controller._render_manager.config.scheduler.dims_settle_s = 0.02
+    events = _record_interactions(viewer)
+
+    # A keyboard or wheel step: interactive, no scope.
+    controller.update_slice_indices(
+        viewer.scenes["xy"].id, {0: 2.0}, source_id=uuid4(), interactive=True
+    )
+    await asyncio.sleep(0.1)
+    ends = {key: reason for key, phase, reason in events if phase == "end"}
+    assert ends == {
+        "xy": "settle",
+        "xz": "release",
+        "yz": "release",
+        "vol": "release",
+    }
+    assert not controller._dims_driver.tasks()
+
+
+async def test_without_forwarding_a_mirrored_tick_is_a_jump():
+    """What the forwarding is for: unlinked, the mirror's writes plan in full."""
+    viewer = OrthoViewer(_WORLD)
+    viewer.dims_controller._enabled = True
+    viewer.controller.unsubscribe_owner(viewer.dims_controller.id)  # no forwarding
+    events = _record_interactions(viewer)
+    dims_events = _record(viewer)
+    viewer.controller.update_slice_indices(
+        viewer.scenes["xy"].id, {0: 2.0}, source_id=uuid4(), interactive=True
+    )
+    assert events == [("xy", "start", None)]
+    assert [event.interactive for event in dims_events].count(True) == 1
+
+
+async def test_with_forwarding_no_mirrored_panel_plans_in_full(monkeypatch):
+    from cellier.render.scheduling import PlanMode
+    from cellier.visuals._image_memory import ImageVisual
+
+    viewer = OrthoViewer(_WORLD)
+    _add_image(viewer)
+    controller = viewer.controller
+    # Every visual opts in, so the mode each panel would plan is visible.
+    monkeypatch.setattr(
+        ImageVisual, "plans_coarse_on_scrub", property(lambda self: True)
+    )
+    keys = {scene.id: key for key, scene in viewer.scenes.items()}
+    modes: dict[str, list] = {key: [] for key in viewer.scenes}
+    render_manager = controller._render_manager
+    original = render_manager.reslice_scene
+
+    def spy(scene_id, dims_state, visual_configs, **kwargs):
+        modes[keys[scene_id]].extend(c.plan_mode for c in visual_configs.values())
+        return original(scene_id, dims_state, visual_configs, **kwargs)
+
+    monkeypatch.setattr(render_manager, "reslice_scene", spy)
+    widget = uuid4()
+    xy = viewer.scenes["xy"]
+    controller.begin_dims_interaction(xy.id, source_id=widget)
+    for t in (1.0, 2.0):
+        controller.update_slice_indices(
+            xy.id, {0: t}, source_id=widget, interactive=True
+        )
+    for key in viewer.scenes:
+        assert modes[key] == [PlanMode.BACKSTOP_ONLY] * 2, key
+
+    controller.end_dims_interaction(xy.id, source_id=widget)
+    for key in viewer.scenes:
+        assert modes[key][2:] == [PlanMode.FULL], key
+    await asyncio.sleep(0)
+
+
+async def test_two_panels_scrubbed_at_once_end_on_stillness():
+    """Two origins hold a forwarded scope on each other: the timer ends them.
+
+    Each origin's forwarded scope is its own, so one release does not end the
+    other's scrub.  But neither origin can end by release while the other's
+    forwarded scope is open on it, so the pair ends on stillness.  Bounded by
+    ``dims_settle_s``, like a leaked scope (design 4.3).
+    """
+    viewer = OrthoViewer(_WORLD)
+    controller = viewer.controller
+    controller._render_manager.config.scheduler.dims_settle_s = 0.02
+    xy, xz = viewer.scenes["xy"], viewer.scenes["xz"]
+    first, second = uuid4(), uuid4()
+    controller.begin_dims_interaction(xy.id, source_id=first)
+    controller.begin_dims_interaction(xz.id, source_id=second)
+    # z ticks only xy and y only xz, so both panels start as origins.
+    controller.update_slice_indices(xy.id, {1: 5.0}, source_id=first)
+    controller.update_slice_indices(xz.id, {2: 5.0}, source_id=second)
+    controller.update_slice_indices(xy.id, {0: 1.0}, source_id=first)  # all four
+    assert set(_states(viewer).values()) == {"active"}
+
+    controller.end_dims_interaction(xy.id, source_id=first)
+    # xz's forwarded scopes are still open on the other three, xy included.
+    assert set(_states(viewer).values()) == {"active"}
+    controller.end_dims_interaction(xz.id, source_id=second)
+    await asyncio.sleep(0.1)
+    assert set(_states(viewer).values()) == {"idle"}
+    assert not viewer.dims_controller._forwarded
+    assert not controller._dims_driver.tasks()
+
+
+async def test_closing_the_mirror_closes_its_forwarded_scopes():
+    viewer = OrthoViewer(_WORLD)
+    controller = viewer.controller
+    xy = viewer.scenes["xy"]
+    widget = uuid4()
+    controller.begin_dims_interaction(xy.id, source_id=widget)
+    controller.update_slice_indices(xy.id, {0: 1.0}, source_id=widget)
+    assert _states(viewer)["vol"] == "active"
+    viewer.dims_controller.close()
+    assert _states(viewer) == {
+        "xy": "active",
+        "xz": "idle",
+        "yz": "idle",
+        "vol": "idle",
+    }
+    controller.end_dims_interaction(xy.id, source_id=widget)

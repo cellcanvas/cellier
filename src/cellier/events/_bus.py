@@ -14,6 +14,7 @@ from cellier.events._events import (
     BackgroundChangedEvent,
     BackstopCompleteEvent,
     CameraChangedEvent,
+    CameraInteractionEvent,
     CanvasAddedEvent,
     CanvasConnectedEvent,
     CanvasMouseMove2DEvent,
@@ -26,6 +27,7 @@ from cellier.events._events import (
     DataStoreContentsChangedEvent,
     DataStoreMetadataChangedEvent,
     DimsChangedEvent,
+    DimsInteractionEvent,
     FrameRenderedEvent,
     GraphPickEvent,
     ImageCompositeChangedEvent,
@@ -56,8 +58,10 @@ from cellier.events._events import (
 # Map every event type to its canonical entity-filter field name.
 _ENTITY_FIELD: dict[type, str] = {
     DimsChangedEvent: "scene_id",
+    DimsInteractionEvent: "scene_id",
     SliderAxesChangedEvent: "scene_id",
     CameraChangedEvent: "scene_id",
+    CameraInteractionEvent: "scene_id",
     AppearanceChangedEvent: "visual_id",
     ChannelAppearanceChangedEvent: "visual_id",
     SingleAppearanceChangedEvent: "visual_id",

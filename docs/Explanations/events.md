@@ -338,12 +338,61 @@ class DimsChangedEvent(NamedTuple):
         ``True`` when ``displayed_axes`` changed, not just
         ``slice_indices``.  The controller uses this flag to rebuild
         visual geometry and switch canvas cameras.
+    slice_indices :
+        World axis -> world slice position, for the dims widgets.
+    region_changed :
+        ``False`` when only a displayed axis's position or thickness
+        moved: what the scene shows is unchanged, so nothing reslices.
+    interactive :
+        ``True`` when the change is a tick of a dims scrub: it was marked
+        interactive, or it came inside an open scope.
     """
 
     source_id: UUID
     scene_id: UUID
     dims_state: DimsState
     displayed_axes_changed: bool
+    slice_indices: Mapping[int, float] = NO_SLICE_POSITIONS
+    region_changed: bool = True
+    interactive: bool = False
+```
+
+```python
+class DimsInteractionEvent(NamedTuple):
+    """A dims scrub started or ended on a scene.
+
+    A scrub is a run of interactive slice-position changes: slider ticks,
+    or programmatic moves marked ``interactive=True`` or made inside
+    ``CellierController.dims_interaction``.  The start is emitted
+    **before** the first tick changes the dims model.  No event is
+    emitted per tick; ``DimsChangedEvent.interactive`` carries that.
+
+    Primary consumers:
+    - ``OrthoDimsController``: open a scope on the other panels
+    - GUIs: a "loading full resolution" indicator
+
+    Parameters
+    ----------
+    source_id :
+        The source of the tick or scope that caused the transition.
+    scene_id :
+        The scene being scrubbed.
+    phase :
+        ``"start"`` or ``"end"``.
+    reason :
+        Why the scrub ended: ``"release"`` (the last scope closed),
+        ``"settle"`` (still for ``SchedulerConfig.dims_settle_s``),
+        ``"jump"`` (a change that was not interactive), or ``"cancel"``
+        (the displayed axes changed).  ``None`` for a start.
+    axes :
+        The world axes moved by the scrub.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    phase: Literal["start", "end"]
+    reason: Literal["release", "settle", "jump", "cancel"] | None = None
+    axes: frozenset[int] = frozenset()
 ```
 
 ```python
@@ -354,8 +403,12 @@ class CameraChangedEvent(NamedTuple):
     comparing a cached ``CameraState`` snapshot; it emits this event
     with ``source_id = canvas_id`` when the state changes.
 
+    The controller emits it too, for a programmatic move (``fit_camera``,
+    ``look_at_visual``, ``set_camera_state``), with ``interactive=False``
+    unless the move asked to be interactive or ran inside a scope.
+
     Primary consumers:
-    - Controller: update camera model and schedule debounced reslice
+    - Controller: update camera model and tick the canvas's camera tracker
 
     Parameters
     ----------
@@ -366,12 +419,55 @@ class CameraChangedEvent(NamedTuple):
         The scene whose active camera moved.
     camera_state :
         Full snapshot of the new camera state.
+    interactive :
+        ``True`` for a change detected between frames and for a
+        programmatic move that is a tick of a camera motion; ``False``
+        for a programmatic jump.
     """
 
     source_id: UUID
     scene_id: UUID
     camera_state: CameraState
+    interactive: bool = True
 ```
+
+```python
+class CameraInteractionEvent(NamedTuple):
+    """A camera motion started or ended on a canvas.
+
+    The camera counterpart of ``DimsInteractionEvent``, with the same
+    fields plus the canvas.  Routed by ``scene_id``.  A motion driven by
+    the camera controller ends with ``"release"`` one frame after the
+    camera stops (a drag released and its damped tail finished), or with
+    ``"settle"`` when a drag is held still for
+    ``CameraConfig.settle_threshold_s``.
+
+    Parameters
+    ----------
+    source_id :
+        The source of the tick or scope that caused the transition; the
+        canvas's id for motion driven by its camera controller.
+    scene_id :
+        The scene the canvas shows.
+    canvas_id :
+        The canvas whose camera is moving.
+    phase :
+        ``"start"`` or ``"end"``.
+    reason :
+        ``"release"``, ``"settle"``, ``"jump"`` (a programmatic move that
+        was not interactive) or ``"cancel"`` (a 2D/3D switch).  ``None``
+        for a start.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    canvas_id: UUID
+    phase: Literal["start", "end"]
+    reason: Literal["release", "settle", "jump", "cancel"] | None = None
+```
+
+See "Interaction and progressive loading" in `slicing.md` for the states
+behind these two events.
 
 ### Visual / appearance events
 
@@ -964,7 +1060,9 @@ catalogue and subscribers should not depend on it.
 ```python
 CellierEventTypes = (
     DimsChangedEvent
+    | DimsInteractionEvent
     | CameraChangedEvent
+    | CameraInteractionEvent
     | AppearanceChangedEvent
     | ChannelAppearanceChangedEvent
     | PickWriteChangedEvent
@@ -1130,7 +1228,9 @@ entity:
 ```python
 _ENTITY_FIELD: dict[type, str] = {
     DimsChangedEvent:                  "scene_id",
+    DimsInteractionEvent:              "scene_id",
     CameraChangedEvent:                "scene_id",
+    CameraInteractionEvent:            "scene_id",
     AppearanceChangedEvent:            "visual_id",
     ChannelAppearanceChangedEvent:     "visual_id",
     PickWriteChangedEvent:             "visual_id",
@@ -1311,10 +1411,18 @@ class QtDimsControl:
         ))
 ```
 
-`DimsUpdateEvent` carries `source_id`, `scene_id`, `slice_indices` and
-`displayed_axes`. Every field except `source_id` and `scene_id` is optional
-(`None` = leave unchanged), so a widget sets only the fields it owns, and
-`slice_indices` merges: send only the axes that moved.
+`DimsUpdateEvent` carries `source_id`, `scene_id`, `slice_indices`,
+`displayed_axes` and `interactive`. Every field except `source_id` and
+`scene_id` is optional (`None` = leave unchanged), so a widget sets only the
+fields it owns, and `slice_indices` merges: send only the axes that moved.
+A slider sets `interactive=True` on every position it submits: its ticks are
+a scrub, not jumps.
+
+A slider also emits `DimsInteractionUpdateEvent(source_id, scene_id, phase)`
+on the same `changed` signal: `"begin"` when it is pressed and `"end"` when
+it is released, after flushing its throttle. The controller maps them to
+`begin_dims_interaction` / `end_dims_interaction`, so the scrub ends on
+release instead of waiting for stillness.
 
 Both guards are necessary and serve different roles:
 
@@ -1687,8 +1795,13 @@ object registration time.
 
 | Subscriber | Event type | `entity_id` filter | Action |
 |---|---|---|---|
-| Controller | `DimsChangedEvent` | *(none — all scenes)* | Call `reslice_scene` for the changed scene (backstop-only for `dims_drag="backstop"` visuals, then a full plan after the dims settle) |
-| Controller | `CameraChangedEvent` | *(none — all canvases)* | Update camera model; schedule debounced reslice |
+| Controller | `DimsChangedEvent` | *(none — all scenes)* | Call `reslice_scene` for the changed scene (during a scrub, backstop-only for `dims_drag="backstop"` visuals; the scrub's end plans them in full) |
+| Controller | `CameraChangedEvent` | *(none — all canvases)* | Update camera model; tick the canvas's camera tracker (a motion's end, or a jump, reslices) |
+| Controller | `_CameraControllerEvent` (internal) | *(none — all canvases)* | Open or close the camera controller's scope on the canvas's camera tracker |
+| Controller | `FrameRenderedEvent` | *(none — all canvases)* | With no event loop, run the camera reslices the frame queued |
+| `OrthoDimsController` | `DimsInteractionEvent` | `scene_id` (each panel) | Open a dims interaction scope on the other panels while one is scrubbed |
+| External callback | `DimsInteractionEvent` | `scene_id` | Fire `on_dims_interaction` user callback |
+| External callback | `CameraInteractionEvent` | `scene_id` | Fire `on_camera_interaction` user callback |
 | `GFX*Visual` | `AppearanceChangedEvent` | `visual_id` | Apply material / shader parameter |
 | `GFX*Visual` | `AABBChangedEvent` | `visual_id` | Update bounding-box display |
 | `GFX*Visual` | `VisualVisibilityChangedEvent` | `visual_id` | Show / hide scene-graph node |
@@ -1713,9 +1826,10 @@ dims changes happen synchronously inside the controller's psygnal bridge handler
 (`_make_dims_handler`), not through bus subscriptions.
 
 `CanvasView` is not a bus subscriber. It emits `CameraChangedEvent` (detected by
-comparing a cached `CameraState` snapshot each frame) but does not subscribe to any
-event type. The controller receives `CameraChangedEvent` and handles model sync and
-reslice scheduling.
+comparing a cached `CameraState` snapshot each frame, after ticking its camera
+controller) and the internal `_CameraControllerEvent`, but does not subscribe to any
+event type. The controller receives both and handles model sync, the camera tracker
+and reslicing.
 
 ---
 
@@ -1865,6 +1979,7 @@ from cellier.events._events import (
     AABBChangedEvent,
     AppearanceChangedEvent,
     CameraChangedEvent,
+    CameraInteractionEvent,
     CanvasMouseMove2DEvent,
     CanvasMouseMove3DEvent,
     CanvasMousePress2DEvent,
@@ -1877,6 +1992,7 @@ from cellier.events._events import (
     DataStoreContentsChangedEvent,
     DataStoreMetadataChangedEvent,
     DimsChangedEvent,
+    DimsInteractionEvent,
     FrameRenderedEvent,
     GraphPickEvent,
     ImagePickEvent,
@@ -1907,6 +2023,7 @@ from cellier.events._update_events import (
     AABBUpdateEvent,
     AppearanceUpdateEvent,
     CellierUpdateEventTypes,
+    DimsInteractionUpdateEvent,
     DimsUpdateEvent,
     SubscriptionSpec,
 )

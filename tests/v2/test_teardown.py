@@ -73,28 +73,31 @@ def test_close_clears_the_event_buses():
     assert controller._incoming_events._subs == {}
 
 
-async def test_close_cancels_pending_camera_settle_tasks(qtbot):
-    """A closed controller must not leave the camera-settle debounce running.
+async def test_close_cancels_pending_camera_motion_timers(qtbot):
+    """A closed controller must not leave a camera motion's timer running.
 
-    Every other teardown path cancels these -- the ``camera_reslice_enabled``
-    setter, ``remove_scene``, ``remove_canvas`` -- and ``close`` was the one
-    that did not, so closing mid-gesture left a task holding the scene it was
-    about to reslice.
+    Every other teardown path drops these -- ``remove_scene``,
+    ``remove_canvas`` -- and closing mid-gesture must too, or a task is left
+    holding the scene it was about to reslice.
     """
     controller, scene, _visual = _controller_with_visual()
     controller.add_canvas(scene_id=scene.id)
     canvas_id = controller._scene_to_canvases[scene.id][0]
 
-    # Exactly what _on_camera_changed schedules once the camera moves.
-    task = asyncio.create_task(controller._settle_after(canvas_id, scene.id))
-    controller._settle_tasks[canvas_id] = task
-    await asyncio.sleep(0)
-    assert not task.done(), "sanity: the settle task is still pending"
+    # What a camera move seen between frames starts.
+    with controller.camera_interaction(canvas_id):
+        state = controller.get_camera_state(canvas_id)
+        moved = state._replace(position=(1.0, 2.0, 3.0))
+        controller.set_camera_state(canvas_id, moved)
+        (task,) = controller._camera_driver.tasks()
+        await asyncio.sleep(0)
+        assert not task.done(), "sanity: the timer is still pending"
 
-    controller.close()
-    await asyncio.sleep(0)
+        controller.close()
+        await asyncio.sleep(0)
 
-    assert controller._settle_tasks == {}
+    assert controller._camera_driver.tasks() == []
+    assert controller._deferred_reslice_tasks() == []
     assert task.cancelled()
 
 

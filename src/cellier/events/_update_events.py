@@ -8,7 +8,7 @@ dispatch each event to the corresponding ``update_*`` method, threading
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,12 +57,39 @@ class DimsUpdateEvent(NamedTuple):
     displayed_axes :
         Tuple of axis indices to display, or ``None`` to leave the
         current displayed axes unchanged.
+    interactive :
+        Whether the slice-position change is a tick of a scrub (a slider
+        being moved).  GUI sliders pass ``True``; the default is a jump,
+        which plans in full at once.
     """
 
     source_id: UUID
     scene_id: UUID
     slice_indices: dict[int, float] | None
     displayed_axes: tuple[int, ...] | None
+    interactive: bool = False
+
+
+class DimsInteractionUpdateEvent(NamedTuple):
+    """Request to open or close a dims interaction scope on a scene.
+
+    A slider sends ``"begin"`` when it is pressed and ``"end"`` when it is
+    released, so a scrub ends on release instead of waiting for stillness.
+    The press may arrive after the first tick; nothing depends on the order.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  One scope is counted per source.
+    scene_id :
+        Target scene.
+    phase :
+        ``"begin"`` or ``"end"``.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    phase: Literal["begin", "end"]
 
 
 class SliderOverrideUpdateEvent(NamedTuple):
@@ -326,6 +353,7 @@ class TrailUpdateEvent(NamedTuple):
 CellierUpdateEventTypes = (
     AppearanceUpdateEvent
     | DimsUpdateEvent
+    | DimsInteractionUpdateEvent
     | SliderOverrideUpdateEvent
     | AABBUpdateEvent
     | OverlayUpdateEvent

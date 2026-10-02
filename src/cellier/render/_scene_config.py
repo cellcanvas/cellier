@@ -40,7 +40,8 @@ class VisualRenderConfig:
         ``render_config.loading``).  Ignored by every other visual.
     plan_mode : PlanMode
         What a multiscale visual plans this reslice: ``FULL`` (default), or
-        ``BACKSTOP_ONLY`` for a dims tick in ``dims_drag="backstop"`` mode.
+        ``BACKSTOP_ONLY`` for any reslice while the scene's dims are being
+        scrubbed, when the visual opted in (``dims_drag="backstop"``).
     """
 
     lod_bias: float = 1.0

@@ -171,3 +171,14 @@ class BaseVisual(EventedModel):
     id: UUID4 | Annotated[str, AfterValidator(lambda x: uuid.UUID(x, version=4))] = (
         Field(frozen=True, default_factory=lambda: uuid4())
     )
+
+    @property
+    def plans_coarse_on_scrub(self) -> bool:
+        """Whether an interactive dims tick plans this visual ``BACKSTOP_ONLY``.
+
+        While the scene's dims are being scrubbed, the controller plans a
+        visual that returns ``True`` coarse only, and plans it in full once
+        when the scrub ends.  A subclass derives the answer from its own
+        explicit config; the base answer is ``False``.
+        """
+        return False

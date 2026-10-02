@@ -671,7 +671,12 @@ def _make_settle_controller(small_zarr_store, threshold_s=0.05):
     # Bypass camera model writeback — no canvas model wired in headless tests.
     controller._update_camera_model = lambda scene_id, canvas_id, camera_state: None
 
+    # A canvas known to the controller's maps but with no render-layer view:
+    # the camera tracker is per canvas and finds its scene through them.
+    # This mirrors what add_canvas_model does in real usage.
     canvas_id = uuid4()
+    controller._scene_to_canvases[scene.id].append(canvas_id)
+    controller._canvas_to_scene[canvas_id] = scene.id
     return controller, scene, visual, canvas_id, reslice_calls
 
 
@@ -698,11 +703,13 @@ async def test_settle_cancellation_on_rapid_events(small_zarr_store):
     )
 
     event = _make_camera_event(canvas_id, scene.id)
-    controller._on_camera_changed(event)  # starts first settle task
-    controller._on_camera_changed(event)  # cancels it; starts second
+    controller._on_camera_changed(event)  # starts the motion and its timer
+    controller._on_camera_changed(event)  # only moves the deadline
+    assert len(controller._camera_driver.tasks()) == 1
 
     await asyncio.sleep(0.15)
     assert len(reslice_calls) == 1
+    assert not controller._camera_driver.tasks()
 
 
 async def test_settle_disabled_flag_suppresses_reslice(small_zarr_store):
@@ -975,18 +982,13 @@ async def test_remove_scene_cancels_settle_task(small_zarr_store):
         small_zarr_store, threshold_s=10.0
     )
 
-    # Register the fake canvas so remove_scene can find it in _scene_to_canvases.
-    # This mirrors what add_canvas_model does in real usage.
-    controller._scene_to_canvases[scene.id].append(canvas_id)
-    controller._canvas_to_scene[canvas_id] = scene.id
-
     event = _make_camera_event(canvas_id, scene.id)
     controller._on_camera_changed(event)
-    task = controller._settle_tasks.get(canvas_id)
-    assert task is not None and not task.done()
+    (task,) = controller._camera_driver.tasks()
 
     controller.remove_scene(scene.id)
-    assert canvas_id not in controller._settle_tasks
+    assert not controller._camera_driver.tasks()
+    assert controller.camera_interaction_state(canvas_id) == "idle"
 
     # Yield to the event loop so the CancelledError is processed.
     await asyncio.sleep(0)

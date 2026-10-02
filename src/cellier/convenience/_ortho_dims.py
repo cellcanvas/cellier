@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from cellier.controller import CellierController
+    from cellier.events import DimsInteractionEvent
     from cellier.scene.scene import Scene
 
 
@@ -24,6 +25,15 @@ class OrthoDimsController:
     This holds **no dims state**.  Each scene's ``DimsManager`` stays the
     source of truth and is what gets serialized; this only copies between
     them.  ``displayed_axes`` is per panel and is never mirrored.
+
+    A **scrub** is forwarded too (interaction tracker design 4.8).  A
+    mirrored position reaches the other panels as a plain
+    ``update_slice_indices``, which by itself would be a jump and plan each
+    of them in full on every tick.  So when a scrub starts on one panel, this
+    opens a dims interaction scope on every other panel, and closes them when
+    that scrub ends: the mirrored ticks are then scrub ticks, and the other
+    panels end with ``"release"``.  A panel that displays the scrubbed axis
+    receives no tick, and its forwarded scope opens and closes silently.
 
     Parameters
     ----------
@@ -47,10 +57,18 @@ class OrthoDimsController:
         self._syncing = False
         self._enabled = True
         self._handlers: list[tuple[Any, Any]] = []
+        # One scope source per panel a scrub can start on, so two panels
+        # scrubbed at once hold two scopes on the others; and the panels
+        # each origin currently holds a scope on.
+        self._scope_ids: dict[UUID, UUID] = {scene.id: uuid4() for scene in scenes}
+        self._forwarded: dict[UUID, list[UUID]] = {}
         for scene in self._scenes:
             handler = self._make_handler(scene.id)
             scene.dims.events.connect(handler)
             self._handlers.append((scene.dims.events, handler))
+            controller.on_dims_interaction(
+                scene.id, self._on_dims_interaction, owner_id=self._id
+            )
         if self._scenes:
             self._mirror_from(self._scenes[0].id, source_id=self._id)
 
@@ -81,7 +99,12 @@ class OrthoDimsController:
             self._mirror_from(self._scenes[0].id, source_id=self._id)
 
     def set_slice_position(
-        self, axis: int, value: float, *, source_id: UUID | None = None
+        self,
+        axis: int,
+        value: float,
+        *,
+        source_id: UUID | None = None,
+        interactive: bool = False,
     ) -> None:
         """Move one world axis's slice position on every panel.
 
@@ -94,11 +117,20 @@ class OrthoDimsController:
         source_id : UUID or None
             Stamped on every emitted ``DimsChangedEvent``.  Defaults to this
             controller's id.
+        interactive : bool
+            Whether the move is a tick of a scrub; see
+            ``CellierController.update_slice_indices``.
         """
-        self.set_slice_positions({axis: value}, source_id=source_id)
+        self.set_slice_positions(
+            {axis: value}, source_id=source_id, interactive=interactive
+        )
 
     def set_slice_positions(
-        self, positions: Mapping[int, float], *, source_id: UUID | None = None
+        self,
+        positions: Mapping[int, float],
+        *,
+        source_id: UUID | None = None,
+        interactive: bool = False,
     ) -> None:
         """Move several world axes' slice positions on every panel at once.
 
@@ -109,12 +141,15 @@ class OrthoDimsController:
         source_id : UUID or None
             Stamped on every emitted ``DimsChangedEvent``.  Defaults to this
             controller's id.
+        interactive : bool
+            Whether the move is a tick of a scrub; see
+            ``CellierController.update_slice_indices``.
         """
         resolved = source_id if source_id is not None else self._id
         with self._guard():
             for scene in self._scenes:
                 self._controller.update_slice_indices(
-                    scene.id, positions, source_id=resolved
+                    scene.id, positions, source_id=resolved, interactive=interactive
                 )
 
     def set_slider_override(
@@ -139,10 +174,13 @@ class OrthoDimsController:
                 )
 
     def close(self) -> None:
-        """Stop mirroring and drop the model connections."""
+        """Stop mirroring, close forwarded scopes and drop the connections."""
         for signal, handler in self._handlers:
             signal.disconnect(handler)
         self._handlers.clear()
+        self._controller.unsubscribe_owner(self._id)
+        for origin in list(self._forwarded):
+            self._end_forwarded(origin)
 
     # ------------------------------------------------------------------
     # Inbound mirroring
@@ -187,6 +225,36 @@ class OrthoDimsController:
                     self._controller.set_slider_override(
                         scene.id, axis, overrides.get(axis), source_id=source_id
                     )
+
+    # ------------------------------------------------------------------
+    # Scrub forwarding
+    # ------------------------------------------------------------------
+
+    def _on_dims_interaction(self, event: DimsInteractionEvent) -> None:
+        """Hold a scope on the other panels for as long as one is scrubbed."""
+        origin = event.scene_id
+        if event.phase == "end":
+            # Whatever ended it, and whoever: only an origin has an entry.
+            self._end_forwarded(origin)
+            return
+        # Echo guard: a scrub this mirror caused (a mirrored tick, or a move
+        # through ``set_slice_positions``) is not forwarded back.
+        if not self._enabled or event.source_id == self._id:
+            return
+        if origin in self._forwarded or origin not in self._scope_ids:
+            return
+        others = [scene.id for scene in self._scenes if scene.id != origin]
+        self._forwarded[origin] = others
+        for other in others:
+            self._controller.begin_dims_interaction(
+                other, source_id=self._scope_ids[origin]
+            )
+
+    def _end_forwarded(self, origin: UUID) -> None:
+        for other in self._forwarded.pop(origin, ()):
+            self._controller.end_dims_interaction(
+                other, source_id=self._scope_ids[origin]
+            )
 
     def _guard(self):
         return _Reentrancy(self)

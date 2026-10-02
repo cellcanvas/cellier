@@ -12,6 +12,7 @@ from psygnal import Signal
 
 from cellier.events import (
     DimsChangedEvent,
+    DimsInteractionUpdateEvent,
     DimsUpdateEvent,
     SliderAxesChangedEvent,
     SubscriptionSpec,
@@ -91,6 +92,11 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
     # Incremented by the JS click handler; observed on the Python side.
     _clicks = traitlets.Int(0).tag(sync=True)
 
+    # Whether this panel holds a dims interaction scope: a slider is pressed
+    # in the browser.  A class default, because ``close`` reads it and
+    # ipywidgets closes a widget whose ``__init__`` raised.
+    _scope_open = False
+
     def __init__(
         self,
         *,
@@ -133,6 +139,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
 
         self.observe(self._on_slice_indices, names="slice_indices")
         self.observe(self._on_toggle_click, names="_clicks")
+        self.on_msg(self._on_custom_message)
 
     @classmethod
     def from_scene(
@@ -206,6 +213,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         ``ipywidgets`` holds every widget, and every widget's ``layout``, in a
         process-global table that only ``close()`` clears.
         """
+        self._end_scope()
         self.closed.emit()
         close_aux_widgets(self)
         super().close()
@@ -272,6 +280,58 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
                 scene_id=self._scene_id,
                 slice_indices=updates,
                 displayed_axes=None,
+                # A slider move is a scrub tick (interaction tracker 4.8).
+                interactive=True,
+            )
+        )
+
+    def _on_custom_message(self, _widget, content, _buffers) -> None:
+        """Handle the slider press and release messages from the browser.
+
+        ``{"type": "interaction", "phase": "begin"}`` opens this panel's dims
+        interaction scope.  ``{"type": "interaction", "phase": "end",
+        "slice_indices": {...}}`` applies the final position and then closes
+        it, so the scrub ends, and plans in full, on that position.
+
+        The end message carries the position because a custom message can
+        overtake the ``slice_indices`` sync sent before it.  The sync that
+        arrives afterwards finds the position already applied and moves
+        nothing.  A ``begin`` that arrives after the first ticks is harmless:
+        slider ticks are interactive with or without a scope.
+        """
+        if not isinstance(content, dict) or content.get("type") != "interaction":
+            return
+        phase = content.get("phase")
+        if phase == "begin":
+            self._begin_scope()
+        elif phase == "end":
+            final = {
+                str(axis): float(value)
+                for axis, value in (content.get("slice_indices") or {}).items()
+            }
+            if final:
+                # Through the trait, so the observer submits what moved as an
+                # interactive tick and the browser's model agrees.
+                self.slice_indices = {**self.slice_indices, **final}
+            self._end_scope()
+
+    def _begin_scope(self) -> None:
+        if self._scope_open:
+            return
+        self._scope_open = True
+        self.changed.emit(
+            DimsInteractionUpdateEvent(
+                source_id=self._id, scene_id=self._scene_id, phase="begin"
+            )
+        )
+
+    def _end_scope(self) -> None:
+        if not self._scope_open:
+            return
+        self._scope_open = False
+        self.changed.emit(
+            DimsInteractionUpdateEvent(
+                source_id=self._id, scene_id=self._scene_id, phase="end"
             )
         )
 
