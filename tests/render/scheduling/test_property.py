@@ -101,7 +101,15 @@ def importance(snap: tuple[int, int, int, int, int]) -> tuple:
 
 
 class Environment:
-    """A simulated clock and store, random actions, and the invariant checks."""
+    """A simulated clock and store, random actions, and the invariant checks.
+
+    Every cache here has the default policy; ``test_property_general.py``
+    subclasses this with random policies.  The random stream of this class
+    is what ``trace_baseline.json`` was recorded from: do not add a draw.
+    """
+
+    #: The core under test; a subclass may substitute a mutant.
+    core_class = SchedulerCore
 
     def __init__(self, seed: int) -> None:
         self.rng = np.random.default_rng(seed)
@@ -112,7 +120,7 @@ class Environment:
             retry_max_attempts=int(self.rng.integers(1, 4)),
             retry_backoff_s=0.05,
         )
-        self.core = SchedulerCore(self.config, now=lambda: self.clock)
+        self.core = self.core_class(self.config, now=lambda: self.clock)
         self.core.trace = self._on_trace
         self.core.on_complete = self._on_complete
         self.fail_p = float(self.rng.choice([0.0, 0.02, 0.1]))
@@ -410,11 +418,12 @@ class Environment:
 
     def check(self) -> None:
         core = self.core
-        # 2: the in-flight budget.
-        shared, lane = core.in_flight
+        # 2: the in-flight budget, one per lane.
+        shared, lane, compute = core.in_flight
         assert 0 <= shared <= self.config.max_in_flight
         assert 0 <= lane <= self.config.backstop_reserved
-        assert shared + lane == len(self.reads)
+        assert 0 <= compute <= self.config.compute_budget
+        assert shared + lane + compute == len(self.reads)
         for cache_id in core.cache_ids:
             self._check_cache(cache_id)
 
@@ -482,13 +491,17 @@ class Environment:
                         f"cache {cache_id}: old slice drawn over a complete backstop"
                     )
 
+    def _max_attempts(self, cache_id: int) -> int:
+        """Reads of a key before the cache gives it up."""
+        return self.config.retry_max_attempts
+
     def _expected_lut(self, cache_id: int) -> dict[tuple[int, int], int]:
         """Design 5.8 as an oracle, from the registry columns directly."""
         reg = self.core.registry(cache_id)
         live = reg.state != DEAD
         visible = live & (reg.tier == _VISIBLE)
         done = (reg.state == _RESIDENT) | (
-            (reg.state == _FAILED) & (reg.attempts >= self.config.retry_max_attempts)
+            (reg.state == _FAILED) & (reg.attempts >= self._max_attempts(cache_id))
         )
         background_on = not done[visible].all()
         rows = np.flatnonzero(live & (reg.state == _RESIDENT)).tolist()

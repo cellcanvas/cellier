@@ -11,7 +11,6 @@ from cellier.scene.cameras import (
 )
 from cellier.scene.canvas import Canvas
 from cellier.scene.dims import (
-    DEFAULT_HALF_THICKNESS,
     AxisAlignedSelection,
     DimsManager,
     spatial_axes,
@@ -20,7 +19,6 @@ from cellier.scene.dims import (
 from cellier.scene.scene import Scene
 
 __all__ = [
-    "DEFAULT_HALF_THICKNESS",
     "AxisAlignedSelection",
     "BackgroundAppearance",
     "CameraControllerType",

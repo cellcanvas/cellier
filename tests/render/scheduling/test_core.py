@@ -226,7 +226,7 @@ def test_budget_and_backstop_lane() -> None:
         (True, SHARED_LANE),
         (False, SHARED_LANE),
     ]
-    assert core.in_flight == [3, 2]
+    assert core.in_flight == [3, 2, 0]
     assert core.next_reads() == []
 
     # A finished backstop read frees a lane slot, which a target cannot use.
@@ -309,7 +309,7 @@ def test_a_failing_request_builder_fails_the_reads() -> None:
     core.set_desired(ds)
     core.process()
     assert core.next_reads() == []
-    assert core.in_flight == [0, 0]
+    assert core.in_flight == [0, 0, 0]
     assert core.progress(1).failed == 2
     assert core.is_complete(1)
 
@@ -744,7 +744,7 @@ def test_remove_drops_reads_that_land_later() -> None:
     replacement = FakeResidency(8)
     core.register(1, replacement)
     assert _land(core, tickets) == [ReadOutcome.DROPPED] * 2
-    assert core.in_flight == [0, 0]
+    assert core.in_flight == [0, 0, 0]
     core.commit_round()
     assert residency.writes == []
     assert replacement.writes == []

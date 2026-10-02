@@ -34,7 +34,6 @@ from cellier.render.visuals._slicing import (
     round_world_to_voxel,
 )
 from cellier.scene.dims import (
-    DEFAULT_HALF_THICKNESS,
     AxisAlignedSelection,
     DimsManager,
     spatial_axes,
@@ -128,10 +127,17 @@ def test_a_float_slice_position_reaches_the_voxel_mapper_unchanged():
     assert selections[0] == round_world_to_voxel(5.0, 10) == 5
 
 
-def test_an_absent_axis_gets_the_default_half_thickness():
+def test_an_absent_axis_has_no_thickness():
+    """The scene's thickness is the only one: an axis with no entry is a
+    plane, and there is no default for a family to fall back on."""
+    import cellier.scene
+    import cellier.scene.dims as dims
+
     selection = AxisAlignedSelection(displayed_axes=(1, 2), slice_indices={0: 0.0})
-    assert selection.half_thickness(0) == DEFAULT_HALF_THICKNESS
-    assert DEFAULT_HALF_THICKNESS == 0.5
+    assert selection.thickness == {}
+    assert not hasattr(selection, "half_thickness")
+    assert not hasattr(dims, "DEFAULT_HALF_THICKNESS")
+    assert "DEFAULT_HALF_THICKNESS" not in cellier.scene.__all__
 
 
 def test_thickness_is_per_axis():
@@ -142,8 +148,7 @@ def test_thickness_is_per_axis():
         slice_indices={0: 0.0, 1: 0.0},
         thickness={0: 1.5},
     )
-    assert selection.half_thickness(0) == 1.5
-    assert selection.half_thickness(1) == DEFAULT_HALF_THICKNESS
+    assert selection.thickness == {0: 1.5}
 
 
 def test_a_negative_half_thickness_is_rejected():

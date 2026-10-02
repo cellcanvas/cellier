@@ -16,7 +16,7 @@ class AxisAlignedSelectionState(NamedTuple):
     """Immutable snapshot of an axis-aligned selection.
 
     ``thickness`` is a per-axis world-unit **half**-thickness; an axis absent
-    from it uses ``cellier.scene.dims.DEFAULT_HALF_THICKNESS``.
+    from it has thickness 0, a plane.
 
     **Where the slice positions went.**  This carried ``slice_indices`` -- a
     mapping of world axis to world position -- until Phase 8 (D5, deferred by

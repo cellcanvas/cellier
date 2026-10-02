@@ -24,9 +24,7 @@ from cellier.render._spaces import (
     axis_scales,
     data_slice_positions,
     geometry_data_region,
-    with_minimum_thickness,
 )
-from cellier.scene.dims import DEFAULT_HALF_THICKNESS
 from cellier.transform import (
     AffineTransform,
     Axis,
@@ -155,25 +153,26 @@ def test_a_three_dimensional_view_has_no_slabs_and_keeps_everything(points_3_12)
     assert pulled.contains(positions).all()
 
 
-def test_a_plane_is_widened_because_a_point_has_no_extent(points_3_12):
-    """D42: ``contains`` on a measure-zero region is float-exact, so a plane
-    -- what the dims editor emits for an axis nobody gave a thickness --
-    would select almost nothing.  The geometry families give it a floor;
-    the image families want the plane, because they draw one."""
-    _data, world, transform, positions = points_3_12
-    selection = _selection(world, (1, 2), {0: (15.0, 0.0)})
-    bare = transform.imap_region(selection.region, world)
-    assert not bare.contains(positions).any()
+def test_a_plane_selects_only_what_lies_on_it(points_3_12):
+    """The scene's thickness is the one knob: an axis nobody gave a thickness
+    is a plane, and a continuous axis keeps pure containment.  No family adds
+    a floor."""
+    data, world, transform, positions = points_3_12
+    # World Z = 14 is data z = 2, where p1 sits exactly.
+    on_a_point = _selection(world, (1, 2), {0: (14.0, 0.0)})
+    region = geometry_data_region(on_a_point, transform, world, data)
+    assert np.flatnonzero(region.contains(positions)).tolist() == [1]
+    between = _selection(world, (1, 2), {0: (15.0, 0.0)})
+    region = geometry_data_region(between, transform, world, data)
+    assert not region.contains(positions).any()
+
+
+def test_a_thickness_the_user_asked_for_is_the_band(points_3_12):
+    data, world, transform, positions = points_3_12
     # World Z in [14, 16] is data z in [2, 3]: p1, p2 and p3.
-    widened = geometry_data_region(selection, transform, world, 1.0)
-    assert np.flatnonzero(widened.contains(positions)).tolist() == [1, 2, 3]
-
-
-def test_a_thickness_the_user_asked_for_is_not_widened(points_3_12):
-    """The floor is a floor, not an addition."""
-    _data, world, _transform, _positions = points_3_12
-    region = ConvexRegion.from_axis_slabs(world, {world.axes[0].id: (14.0, 3.0)})
-    assert with_minimum_thickness(region, 0.5) is region
+    selection = _selection(world, (1, 2), {0: (15.0, 1.0)})
+    region = geometry_data_region(selection, transform, world, data)
+    assert np.flatnonzero(region.contains(positions)).tolist() == [1, 2, 3]
 
 
 def test_oblique_needs_no_further_work(points_3_12):
@@ -316,9 +315,3 @@ def test_the_slice_position_moves_into_data_coordinates(points_3_12):
     positions = data_slice_positions(selection.region, transform, world)
     # world Z = 14 on a ``2 z + 10`` axis is data z = 2.
     assert positions == {0: pytest.approx(2.0)}
-
-
-def test_the_default_half_thickness_is_the_number_the_builders_hardcoded():
-    """D4 keeps 0.5 -- it is what the two request builders used -- but the
-    unit changes from unstated data-space voxels to world units."""
-    assert DEFAULT_HALF_THICKNESS == 0.5

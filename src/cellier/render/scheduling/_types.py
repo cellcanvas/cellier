@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -52,6 +52,67 @@ class PlanMode(enum.Enum):
 
     FULL = "full"
     BACKSTOP_ONLY = "backstop_only"
+
+
+@dataclass(frozen=True, slots=True)
+class CachePolicy:
+    """How the scheduler treats one cache's reads; declared by its adapter.
+
+    Read once, when the cache is registered (like ``n_slots``).  The default
+    is what an image or labels atlas wants, and is the scheduler's behaviour
+    before policies existed.
+
+    Parameters
+    ----------
+    max_target_fetching : int or None
+        At most this many ``TARGET`` reads of the cache in flight at once,
+        wanted or not.  A read is never cancelled, so this is what stops a
+        slow target read (a whole mesh level) from being started again for
+        every newer request.  A ``BACKSTOP`` read is never held by it, so a
+        coarse read can start beside a target read still in flight.  A
+        capped cache also waits to start a target read while a ``VISIBLE``
+        backstop arrival of its own waits for its commit round.  ``None`` is
+        no cap.
+    resource : {"io", "compute"}
+        What a read of the cache occupies.  ``"io"`` reads share
+        ``SchedulerConfig.max_in_flight`` and the backstop lane.
+        ``"compute"`` reads (work done in an executor) count against
+        ``SchedulerConfig.compute_budget`` instead, and take neither.
+    retry_max_attempts : int or None
+        Reads of a key before it is given up; ``None`` uses
+        ``SchedulerConfig.retry_max_attempts``.
+    retry_on_pass : bool
+        Whether a later pass that wants a given-up key grants it one more
+        attempt.  ``True`` suits a store that may have been unreachable.
+        ``False`` suits a read that fails the same way every time: the key
+        is tried again only when its store is invalidated.
+    """
+
+    max_target_fetching: int | None = None
+    resource: Literal["io", "compute"] = "io"
+    retry_max_attempts: int | None = None
+    retry_on_pass: bool = True
+
+    def __post_init__(self) -> None:
+        """Reject values the scheduler cannot honour."""
+        if self.max_target_fetching is not None and self.max_target_fetching < 1:
+            raise ValueError(
+                f"max_target_fetching must be at least 1 or None, got "
+                f"{self.max_target_fetching}."
+            )
+        if self.resource not in ("io", "compute"):
+            raise ValueError(
+                f"resource must be 'io' or 'compute', got {self.resource!r}."
+            )
+        if self.retry_max_attempts is not None and self.retry_max_attempts < 1:
+            raise ValueError(
+                f"retry_max_attempts must be at least 1 or None, got "
+                f"{self.retry_max_attempts}."
+            )
+
+
+#: The policy of a cache whose adapter declares none.
+DEFAULT_CACHE_POLICY = CachePolicy()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -112,9 +173,14 @@ class Residency(Protocol):
 
     Slots are numbered ``0 .. n_slots - 1``; the adapter maps them onto its
     own storage (an atlas may reserve a slot of its own for "empty").
+
+    ``policy`` says how the scheduler treats the cache's reads
+    (:class:`CachePolicy`).  It is read once, at registration; an adapter
+    without the attribute gets the default.
     """
 
     n_slots: int
+    policy: CachePolicy
 
     def write(self, slot: int, key: int, data: Any) -> None:
         """Upload *data* for *key* into *slot*."""
@@ -289,7 +355,8 @@ class ReadTicket:
     store : Any
         The store to read from.
     lane : int
-        The capacity the read holds: ``0`` shared, ``1`` the backstop lane.
+        The capacity the read holds: ``0`` shared, ``1`` the backstop lane,
+        ``2`` the compute lane.
     token : object
         The cache incarnation that issued it; a read for a removed (or
         removed and re-registered) cache is dropped when it lands.

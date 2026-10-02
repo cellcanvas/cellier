@@ -96,14 +96,17 @@ async def test_planning_without_a_region_is_now_an_error():
         await _selected(controller, scene, visual, store, with_region=False)
 
 
-async def test_the_world_default_thickness_is_used_when_none_is_stated():
-    """D4's 0.5, in world units.  A plane would select nothing (D42), so the
-    geometry families floor it."""
+async def test_no_thickness_is_a_plane():
+    """The scene's thickness is the only one: with none stated, only what
+    lies on the plane is drawn.  There is no per-family floor."""
     controller, scene, visual, store = _viewer()
     controller.update_slice_indices(scene.id, {0: 14.0})
     assert scene.dims.selection.thickness == {}
-    # world Z in [13.5, 14.5] is data z in [1.75, 2.25]: p1 alone.
+    # world Z = 14 is data z = 2, where p1 sits.
     assert await _selected(controller, scene, visual, store) == [1]
+    # world Z = 14.2 is data z = 2.1: inside the old +/-0.5 floor, on no point.
+    controller.update_slice_indices(scene.id, {0: 14.2})
+    assert await _selected(controller, scene, visual, store) == []
 
 
 async def test_a_three_dimensional_view_keeps_every_point():

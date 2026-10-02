@@ -15,6 +15,13 @@ The order of ``RECENT`` records (design 5.5), most important first::
     (cls desc, wanted_gen desc, rank asc)
 
 Every ``VISIBLE`` record outranks every ``RECENT`` one.
+
+A cache declares how its reads are treated with a
+:class:`~cellier.render.scheduling.CachePolicy` (``plans/mesh_refactor_v3.md``
+5.2): a cap on target reads in flight, the resource a read occupies (I/O or
+compute), and what a failure costs.  With the default policy on every cache
+the core decides exactly as it did before policies existed; the trace guard
+in ``tests/render/scheduling/test_trace_guard.py`` holds it to that.
 """
 
 from __future__ import annotations
@@ -30,6 +37,8 @@ import numpy as np
 from cellier.logging import _SCHEDULER_LOGGER
 from cellier.render.scheduling._registry import DEAD, CacheRegistry
 from cellier.render.scheduling._types import (
+    DEFAULT_CACHE_POLICY,
+    CachePolicy,
     CacheProgress,
     ChunkClass,
     ChunkState,
@@ -46,9 +55,11 @@ if TYPE_CHECKING:
 
 _LOGGER = _SCHEDULER_LOGGER
 
-#: Capacity lanes: the shared window, and the backstop-only lane.
+#: Capacity lanes: the shared window, the backstop-only lane, and the lane
+#: of compute caches (``CachePolicy(resource="compute")``).
 SHARED_LANE: int = 0
 BACKSTOP_LANE: int = 1
+COMPUTE_LANE: int = 2
 
 _QUEUED = int(ChunkState.QUEUED)
 _FETCHING = int(ChunkState.FETCHING)
@@ -94,6 +105,7 @@ class _Cache:
     residency: Residency
     scene: Hashable | None
     n_slots: int
+    policy: CachePolicy = DEFAULT_CACHE_POLICY
     token: object = field(default_factory=object)
     registry: CacheRegistry = field(default_factory=CacheRegistry)
     free: list[int] = field(default_factory=list)
@@ -160,7 +172,7 @@ class SchedulerCore:
         Test hook: every decision, as ``(kind, payload)``.  ``None`` costs
         nothing.
     in_flight : list[int]
-        Reads outstanding per lane: ``[shared, backstop]``.
+        Reads outstanding per lane: ``[shared, backstop, compute]``.
     """
 
     def __init__(
@@ -168,7 +180,7 @@ class SchedulerCore:
     ) -> None:
         self.config = config
         self.now = now
-        self.in_flight: list[int] = [0, 0]
+        self.in_flight: list[int] = [0, 0, 0]
         self.on_complete: Callable[[int, int], None] | None = None
         self.on_backstop_complete: Callable[[int, int], None] | None = None
         self.on_progress: Callable[[int], None] | None = None
@@ -189,7 +201,8 @@ class SchedulerCore:
         cache_id : int
             The id the cache's desired sets carry.
         residency : Residency
-            The cache's adapter.  ``n_slots`` is read once, here.
+            The cache's adapter.  ``n_slots`` and ``policy`` are read once,
+            here; an adapter with no ``policy`` gets the default.
         scene : Hashable | None
             The scene whose canvases draw the cache; commit rounds are scoped
             to it.
@@ -199,13 +212,21 @@ class SchedulerCore:
         ValueError
             If *cache_id* is registered already, or the cache has fewer than
             two slots.
+        TypeError
+            If the adapter's ``policy`` is not a ``CachePolicy``.
         """
         if cache_id in self._caches:
             raise ValueError(f"cache {cache_id} is already registered.")
         n_slots = int(residency.n_slots)
         if n_slots < 2:
             raise ValueError(f"a cache needs at least 2 slots, got {n_slots}.")
-        self._caches[cache_id] = _Cache(cache_id, residency, scene, n_slots)
+        policy = getattr(residency, "policy", DEFAULT_CACHE_POLICY)
+        if not isinstance(policy, CachePolicy):
+            raise TypeError(
+                f"cache {cache_id}: policy must be a CachePolicy, got "
+                f"{type(policy).__name__}."
+            )
+        self._caches[cache_id] = _Cache(cache_id, residency, scene, n_slots, policy)
 
     def remove(self, cache_id: int) -> None:
         """Forget a cache: its registry, queue, arrivals and adapter.
@@ -229,6 +250,15 @@ class SchedulerCore:
     def cache_ids(self) -> list[int]:
         """Registered caches."""
         return list(self._caches)
+
+    def policy_of(self, cache_id: int) -> CachePolicy:
+        """The policy *cache_id* was registered with."""
+        return self._caches[cache_id].policy
+
+    def _max_attempts(self, cache: _Cache) -> int:
+        """Reads of a key before it is given up: the cache's, or the config's."""
+        own = cache.policy.retry_max_attempts
+        return self.config.retry_max_attempts if own is None else own
 
     # -- passes (5.4) ----------------------------------------------------------
 
@@ -322,13 +352,16 @@ class SchedulerCore:
         rows, found = reg.find_many(keys)
         hit = rows[found]
 
-        # Kept: re-prioritised.  A given-up record gets one more attempt.
-        gave_up = (reg.state[hit] == _FAILED) & (
-            reg.attempts[hit] >= self.config.retry_max_attempts
-        )
-        again = hit[gave_up]
-        reg.state[again] = _QUEUED
-        reg.attempts[again] = self.config.retry_max_attempts - 1
+        # Kept: re-prioritised.  A given-up record gets one more attempt,
+        # unless the cache's reads fail the same way every time
+        # (``retry_on_pass=False``): then it stays given up, still counts as
+        # done, and is tried again only after an invalidation.
+        if cache.policy.retry_on_pass:
+            max_attempts = self._max_attempts(cache)
+            gave_up = (reg.state[hit] == _FAILED) & (reg.attempts[hit] >= max_attempts)
+            again = hit[gave_up]
+            reg.state[again] = _QUEUED
+            reg.attempts[again] = max_attempts - 1
         reg.tier[hit] = _VISIBLE
         reg.cls[hit] = cls[found]
         reg.rank[hit] = rank[found]
@@ -374,11 +407,46 @@ class SchedulerCore:
             key = int(cache.queue[cache.cursor])
             row = reg.find(key)
             if row >= 0 and reg.state[row] == _QUEUED and reg.tier[row] == _VISIBLE:
-                return int(reg.cls[row]), key
+                cls = int(reg.cls[row])
+                if cls != _BACKSTOP and self._target_held(cache):
+                    return None
+                return cls, key
             cache.cursor += 1
         return None
 
-    def _lane_for(self, cls: int) -> int | None:
+    def _target_held(self, cache: _Cache) -> bool:
+        """Whether a capped cache must not start a target read now.
+
+        The cap counts target reads in flight, wanted or not: a read cannot
+        be cancelled, so one left over from an earlier request still holds
+        it.  A backstop read is never held, which is why this is asked of
+        target heads only.
+
+        A capped cache also waits while a ``VISIBLE`` backstop arrival of its
+        own has not been committed: started now, the target read would
+        compete with that commit and the coarse picture would reach the
+        screen late.  The commit round that takes the arrival is followed by
+        a pump (:meth:`ChunkScheduler.commit_round`).
+        """
+        cap = cache.policy.max_target_fetching
+        if cap is None:
+            return False
+        reg = cache.registry
+        fetching_targets = (reg.state == _FETCHING) & (reg.cls != _BACKSTOP)
+        if int(fetching_targets.sum()) >= cap:
+            return True
+        for key in cache.arrived:
+            row = reg.find(key)
+            if row >= 0 and reg.cls[row] == _BACKSTOP and reg.tier[row] == _VISIBLE:
+                return True
+        return False
+
+    def _lane_for(self, cache: _Cache, cls: int) -> int | None:
+        if cache.policy.resource == "compute":
+            # Neither a shared slot nor a backstop slot: its own budget.
+            if self.in_flight[COMPUTE_LANE] < self.config.compute_budget:
+                return COMPUTE_LANE
+            return None
         if cls == _BACKSTOP and self.in_flight[BACKSTOP_LANE] < (
             self.config.backstop_reserved
         ):
@@ -393,7 +461,11 @@ class SchedulerCore:
         Between caches, the head with the highest class goes first, ties to
         the cache served longest ago (round robin).  Within a cache, the
         planner's order.  A backstop read takes the backstop lane first and a
-        shared slot after that; a target read only a shared slot.
+        shared slot after that; a target read only a shared slot.  A read of
+        a compute cache takes the compute lane and nothing else.
+
+        A head that cannot start blocks its own resource only: with the
+        compute lane full, I/O reads still start, and the other way round.
 
         Returns
         -------
@@ -402,9 +474,12 @@ class SchedulerCore:
             :meth:`complete_read`.
         """
         picks: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        blocked: set[str] = set()
         while True:
             best: tuple[tuple[int, int], _Cache, int, int] | None = None
             for cache in self._caches.values():
+                if cache.policy.resource in blocked:
+                    continue
                 head = self._head(cache)
                 if head is None:
                     continue
@@ -414,12 +489,14 @@ class SchedulerCore:
             if best is None:
                 break
             _, cache, cls, key = best
-            lane = self._lane_for(cls)
+            lane = self._lane_for(cache, cls)
             if lane is None:
-                # The best head cannot start, so none can: heads rank
-                # class first, and a target needs what a backstop falls
-                # back to.
-                break
+                # The best head of this resource cannot start, so none of
+                # the resource can: heads rank class first, and a target
+                # needs what a backstop falls back to.  The other resource
+                # has its own capacity and carries on.
+                blocked.add(cache.policy.resource)
+                continue
             reg = cache.registry
             row = reg.find(key)
             reg.state[row] = _FETCHING
@@ -518,14 +595,15 @@ class SchedulerCore:
             reg.retry_at[row] = self.now() + self.config.retry_backoff_s * 2 ** (
                 attempts - 1
             )
+            max_attempts = self._max_attempts(cache)
             _LOGGER.warning(
                 "cache %s: read failed (attempt %d of %d): %r",
                 cache.cache_id,
                 attempts,
-                self.config.retry_max_attempts,
+                max_attempts,
                 error,
             )
-            if attempts >= self.config.retry_max_attempts:
+            if attempts >= max_attempts:
                 # Trigger 4 (5.8): completion, and so the background, may change.
                 self._settle(cache)
                 return ReadOutcome.GAVE_UP
@@ -554,7 +632,7 @@ class SchedulerCore:
         for cache in self._caches.values():
             reg = cache.registry
             waiting = (reg.state == _FAILED) & (
-                reg.attempts < self.config.retry_max_attempts
+                reg.attempts < self._max_attempts(cache)
             )
             if waiting.any():
                 t = float(reg.retry_at[waiting].min())
@@ -575,7 +653,7 @@ class SchedulerCore:
             reg = cache.registry
             due = (
                 (reg.state == _FAILED)
-                & (reg.attempts < self.config.retry_max_attempts)
+                & (reg.attempts < self._max_attempts(cache))
                 & (reg.retry_at <= now)
             )
             k = int(due.sum())
@@ -693,8 +771,8 @@ class SchedulerCore:
                 cache.residency.write(slot, key, data)
             except Exception:
                 # A write that raises will raise again: give the record up
-                # (a later pass that wants it grants one more attempt) rather
-                # than retry into a storm.
+                # (a later pass that wants it may grant one more attempt)
+                # rather than retry into a storm.
                 _LOGGER.exception(
                     "cache %s: write of key %d failed", cache.cache_id, key
                 )
@@ -702,7 +780,7 @@ class SchedulerCore:
                 reg.slot[row] = -1
                 if visible:
                     reg.state[row] = _FAILED
-                    reg.attempts[row] = self.config.retry_max_attempts
+                    reg.attempts[row] = self._max_attempts(cache)
                 else:
                     reg.kill(row)
                 continue
@@ -812,16 +890,18 @@ class SchedulerCore:
 
     # -- completion, drawing, progress (5.8, 5.13) -------------------------------
 
-    def _done_mask(self, reg: CacheRegistry) -> np.ndarray:
+    def _done_mask(self, cache: _Cache) -> np.ndarray:
+        reg = cache.registry
         return (reg.state == _RESIDENT) | (
-            (reg.state == _FAILED) & (reg.attempts >= self.config.retry_max_attempts)
+            (reg.state == _FAILED) & (reg.attempts >= self._max_attempts(cache))
         )
 
     def is_complete(self, cache_id: int) -> bool:
         """Every ``VISIBLE`` record is resident or given up."""
-        reg = self._caches[cache_id].registry
+        cache = self._caches[cache_id]
+        reg = cache.registry
         visible = (reg.tier == _VISIBLE) & (reg.state != DEAD)
-        return bool(self._done_mask(reg)[visible].all())
+        return bool(self._done_mask(cache)[visible].all())
 
     def is_backstop_complete(self, cache_id: int) -> bool:
         """Every ``VISIBLE`` backstop record of the latest pass is done."""
@@ -829,13 +909,25 @@ class SchedulerCore:
         return cache.backstop_gen == cache.generation
 
     def _settle(self, cache: _Cache) -> None:
-        """Fire completion events, rebuild the cache's draw, report progress."""
+        """Rebuild the cache's draw, fire completion events, report progress.
+
+        The draw comes first: a completion callback (``on_ready``, a capture
+        drain) must find the picture it announces already built.  An adapter
+        that shows its result in ``rebuild_draw`` would otherwise be told it
+        is complete while it still draws nothing.
+
+        Both events are decided before the draw.  Building the view can
+        compact the registry, and the masks here are over its rows as they
+        were.
+        """
         reg = cache.registry
         visible = (reg.tier == _VISIBLE) & (reg.state != DEAD)
-        done = self._done_mask(reg)
+        done = self._done_mask(cache)
         complete = bool(done[visible].all())
+        backstop_complete = bool(done[visible & (reg.cls == _BACKSTOP)].all())
         gen = cache.generation
-        if cache.backstop_gen < gen and done[visible & (reg.cls == _BACKSTOP)].all():
+        cache.residency.rebuild_draw(reg.view(gen, complete))
+        if cache.backstop_gen < gen and backstop_complete:
             cache.backstop_gen = gen
             if self.on_backstop_complete is not None:
                 self.on_backstop_complete(cache.cache_id, gen)
@@ -843,7 +935,6 @@ class SchedulerCore:
             cache.completed_gen = gen
             if self.on_complete is not None:
                 self.on_complete(cache.cache_id, gen)
-        cache.residency.rebuild_draw(reg.view(gen, complete))
         if self.on_progress is not None:
             self.on_progress(cache.cache_id)
 
@@ -867,9 +958,7 @@ class SchedulerCore:
         backstop = visible & (reg.cls == _BACKSTOP)
         target = visible & (reg.cls != _BACKSTOP)
         resident = reg.state == _RESIDENT
-        gave_up = (reg.state == _FAILED) & (
-            reg.attempts >= self.config.retry_max_attempts
-        )
+        gave_up = (reg.state == _FAILED) & (reg.attempts >= self._max_attempts(cache))
         return CacheProgress(
             needed_backstop=int(backstop.sum()),
             resident_backstop=int((backstop & resident).sum()),
@@ -906,7 +995,7 @@ class SchedulerCore:
             if (reg.state == _QUEUED).any():
                 return False
             waiting = (reg.state == _FAILED) & (
-                reg.attempts < self.config.retry_max_attempts
+                reg.attempts < self._max_attempts(cache)
             )
             if waiting.any():
                 return False

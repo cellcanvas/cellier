@@ -80,6 +80,11 @@ def main() -> None:
         render_modes={"2d", "3d"},
     )
 
+    # A slice with no thickness is a plane: only what lies exactly on it is
+    # drawn.  Give the sliced z axis a slab, so the 2D view shows the segments
+    # within half a unit of the slice.
+    controller.update_thickness(scene.id, {0: 0.5})
+
     appearance = LinesMemoryAppearance(
         color=(0.2, 0.9, 0.4, 1.0),
         thickness=2.0,

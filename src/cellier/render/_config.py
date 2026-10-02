@@ -44,6 +44,12 @@ class SchedulerConfig(BaseModel):
     backstop_reserved : int
         Extra reads only backstop chunks may use, so a backstop never waits
         behind target reads.
+    compute_budget : int
+        Reads outstanding at once over every cache whose reads are compute
+        work in an executor (``CachePolicy(resource="compute")``: a mesh
+        being sliced).  Separate from ``max_in_flight``: a compute read
+        takes neither a shared slot nor a backstop slot, and I/O reads never
+        take one of these.
     commit_fallback_s : float
         Commits normally run just before a frame is drawn.  If an arrival has
         waited this long with no frame, a timer commits it (a canvas that is
@@ -68,6 +74,7 @@ class SchedulerConfig(BaseModel):
 
     max_in_flight: int = Field(default=32, gt=0)
     backstop_reserved: int = Field(default=8, ge=0)
+    compute_budget: int = Field(default=4, gt=0)
     commit_fallback_s: float = Field(default=0.05, gt=0.0)
     dims_settle_s: float = Field(default=0.15, gt=0.0)
     store_change_max_hz: float = Field(default=30.0, gt=0.0)

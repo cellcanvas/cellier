@@ -47,7 +47,7 @@ function render({ model, el }) {
     toggleButton.textContent = model.get("label");
   }
 
-  let rows = {}; // axis(str) -> { row, input, readout, spec, dragging }
+  let rows = {}; // axis(str) -> { row, input, readout, spec, dragging, thickness }
 
   // Datalist ids must be unique within the tree the input lives in (the page,
   // or marimo's shadow root), and two dims panels can share one.
@@ -75,6 +75,44 @@ function render({ model, el }) {
     current[axis] = Number(value);
     model.set("slice_indices", current);
     model.save_changes();
+  }
+
+  // A half-thickness box: world units, minimum 0, where 0 is a plane.  The
+  // scene's thickness is the only thickness in the slicing path, so this is
+  // how much depth every visual shows along the axis.  Submitted on "change"
+  // (Enter, blur or a spinner step), not on every keystroke.
+  function submitThickness(axis, value) {
+    if (guard) return;
+    const number = Math.max(0, Number(value));
+    if (!Number.isFinite(number)) return;
+    const current = { ...(model.get("thickness") || {}) };
+    current[axis] = number;
+    model.set("thickness", current);
+    model.save_changes();
+  }
+
+  function buildThickness(axis, spec, entry, row) {
+    const boxed = (model.get("thickness_axes") || []).map(String);
+    if (!boxed.includes(String(axis))) return;
+    const sign = document.createElement("span");
+    sign.className = "cellier-dim-thickness-sign";
+    sign.textContent = "+/-";
+    const box = document.createElement("input");
+    box.type = "number";
+    box.className = "cellier-dim-thickness";
+    box.min = 0;
+    box.step = spec.kind === "discrete" ? 1 : spec.step_size;
+    box.title =
+      "Half-thickness of the slice along this axis, in world units. 0 is a plane.";
+    const current = (model.get("thickness") || {})[axis];
+    box.value = current !== undefined ? current : 0;
+    box.addEventListener("change", () => {
+      if (!(Number(box.value) >= 0)) box.value = 0;
+      submitThickness(axis, box.value);
+    });
+    row.appendChild(sign);
+    row.appendChild(box);
+    entry.thickness = box;
   }
 
   // A dims interaction scope, held while a slider is pressed, so the scrub
@@ -249,6 +287,7 @@ function render({ model, el }) {
       row.appendChild(label);
       row.appendChild(input);
       row.appendChild(readout);
+      buildThickness(axis, spec, entry, row);
       dimsContainer.appendChild(row);
       rows[axis] = entry;
     }
@@ -288,6 +327,22 @@ function render({ model, el }) {
     }
   }
 
+  function syncThickness() {
+    guard = true;
+    try {
+      const thickness = model.get("thickness") || {};
+      for (const axis of Object.keys(rows)) {
+        const box = rows[axis].thickness;
+        if (!box || document.activeElement === box) continue;
+        if (Object.prototype.hasOwnProperty.call(thickness, axis)) {
+          box.value = thickness[axis];
+        }
+      }
+    } finally {
+      guard = false;
+    }
+  }
+
   function syncDiscrete() {
     guard = true;
     try {
@@ -311,6 +366,8 @@ function render({ model, el }) {
   model.on("change:axis_labels", build);
   model.on("change:slice_indices", syncValues);
   model.on("change:discrete_index", syncDiscrete);
+  model.on("change:thickness", syncThickness);
+  model.on("change:thickness_axes", build);
   model.on("change:displayed_axes", updateVisibility);
   model.on("change:slider_axes", updateVisibility);
   model.on("change:label", updateToggle);

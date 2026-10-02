@@ -73,10 +73,8 @@ async def test_the_slice_position_lives_in_the_transforms_constant_column(viewer
 
 
 async def test_an_axis_with_no_thickness_is_a_plane(viewer):
-    """``half_thickness`` defaults to 0.5 because that is the number the
-    geometry request builders hardcoded, but the *region* says only what the
-    user asked for.  Bounding a collapsed axis by default would make an image
-    visual -- which draws a single plane -- fetch a slab it cannot show."""
+    """The region says only what the user asked for: an axis with no
+    thickness is a plane, for every visual family."""
     controller, scene, _ = viewer
     controller.update_slice_indices(scene.id, {0: 1.0})
     box = _selection(viewer).region.bounding_box()

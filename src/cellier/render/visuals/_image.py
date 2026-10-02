@@ -912,6 +912,54 @@ class MultiscaleRegionPlanner:
         self._level0_region = None
         self._level_boxes = {}
 
+    def _begin_plane_planning(self, selection, exempt_data_axes=()) -> None:
+        """Start a planning call, applying the one-plane slicing rule first.
+
+        Design 3.2, decided on **level 0**: each sliced axis draws its nearest
+        level-0 sample within the thickness, and if any sliced axis has none
+        the visual draws nothing -- ``_slice_empty`` is set and the inner data
+        nodes are hidden until a later plan lands in the data.
+
+        Otherwise planning continues from a selection whose sliced slabs are
+        planes at the slice position.  Level 0 rounds that position to the
+        chosen sample; coarser levels keep their own rounding of it.  Image
+        and labels visuals both plan this way: a slab never becomes a range
+        of planes.
+
+        Parameters
+        ----------
+        selection : RegionSelection or None
+            The canvas's selection.
+        exempt_data_axes : Collection[int]
+            Data axes the rule skips (a composite's channel axis).
+        """
+        planned = selection
+        empty = False
+        if (
+            selection is not None
+            and self._spaces is not None
+            and self._transform is not None
+            and self._full_level_shapes
+        ):
+            planned = image_plane_selection(
+                selection,
+                self._transform,
+                self._spaces,
+                tuple(self._full_level_shapes[0]),
+                exempt_data_axes=exempt_data_axes,
+            )
+            empty = planned is None
+        self._slice_empty = empty
+        for inner in (
+            getattr(self, "_inner_node_2d", None),
+            getattr(self, "_inner_node_3d", None),
+        ):
+            if inner is not None:
+                inner.visible = not self._slice_empty
+        MultiscaleRegionPlanner._begin_region_planning(
+            self, selection if planned is None else planned
+        )
+
     def _level_box(self, level_index: int):
         """The selection pulled back to level *level_index*, as a box.
 
@@ -2535,42 +2583,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             self.node_2d.visible = event.visible
 
     def _begin_region_planning(self, selection) -> None:
-        """Start a planning call, applying the image slicing rule first.
-
-        Design 3.2, decided on **level 0**: each sliced axis draws its nearest
-        level-0 sample within the thickness, and if any sliced axis has none
-        the visual draws nothing -- ``_slice_empty`` is set and the inner data
-        nodes are hidden until a later plan lands in the data.
-
-        Otherwise planning continues from a selection whose sliced slabs are
-        planes at the slice position.  Level 0 rounds that position to the
-        chosen sample; coarser levels keep their own rounding of it.  Labels
-        share the base planner and keep clamping.
-        """
-        planned = selection
-        empty = False
-        if (
-            selection is not None
-            and self._spaces is not None
-            and self._transform is not None
-            and self._full_level_shapes
-        ):
-            planned = image_plane_selection(
-                selection,
-                self._transform,
-                self._spaces,
-                tuple(self._full_level_shapes[0]),
-                exempt_data_axes=self._unsliced_data_axes,
-            )
-            empty = planned is None
-        self._slice_empty = empty
-        for inner in (
-            getattr(self, "_inner_node_2d", None),
-            getattr(self, "_inner_node_3d", None),
-        ):
-            if inner is not None:
-                inner.visible = not self._slice_empty
-        super()._begin_region_planning(selection if planned is None else planned)
+        """Start a planning call, applying the image slicing rule first."""
+        self._begin_plane_planning(selection, self._unsliced_data_axes)
 
     def pick_data_coordinate(
         self, hit_object, pick_info: dict

@@ -75,3 +75,25 @@ def initial_slice_indices(
             continue
         seeded[axis] = (spec.min + spec.max) / 2.0
     return seeded
+
+
+def thickness_axes(scene: object) -> tuple[int, ...]:
+    """The world axes of *scene* whose slider row gets a thickness box.
+
+    Every axis except a channel axis: a thickness is a depth in world units,
+    and a channel axis has none.
+
+    Parameters
+    ----------
+    scene :
+        The live ``Scene``.
+
+    Returns
+    -------
+    tuple[int, ...]
+        World axis indices, ascending.
+    """
+    axes = scene.dims.world_coordinate_system.axes
+    return tuple(
+        index for index, axis in enumerate(axes) if axis.axis_type != "channel"
+    )

@@ -120,13 +120,6 @@ def world_coordinate_system(
     return WorldCoordinateSystem(name=name, axes=tuple(built))
 
 
-#: Half-thickness used for an axis with no entry in ``thickness``.
-#:
-#: Matches the number the geometry request builders hardcoded before D4, so
-#: an identity transform slices exactly as it did.
-DEFAULT_HALF_THICKNESS = 0.5
-
-
 class AxisAlignedSelection(EventedModel):
     """Mutable selection model for axis-aligned slicing.
 
@@ -146,7 +139,8 @@ class AxisAlignedSelection(EventedModel):
         axis cannot address the odd-numbered planes (D3).
     thickness : dict[int, float]
         Mapping of axis index -> **half**-thickness in world units.  An axis
-        absent from the mapping uses :data:`DEFAULT_HALF_THICKNESS`.  Per axis
+        absent from the mapping has thickness 0: a plane.  This is the only
+        thickness in the slicing path; no visual family adds one.  Per axis
         rather than scalar because one number means three frames on a
         0.5 s/frame time axis and a quarter of a voxel on a 2 um/voxel spatial
         one (D4).
@@ -178,22 +172,6 @@ class AxisAlignedSelection(EventedModel):
                     f"not be negative; got {half_thickness} on axis {axis}."
                 )
         return self
-
-    def half_thickness(self, axis: int) -> float:
-        """Return the world-unit half-thickness for *axis*.
-
-        Parameters
-        ----------
-        axis : int
-            World axis index.
-
-        Returns
-        -------
-        float
-            The stored half-thickness, or :data:`DEFAULT_HALF_THICKNESS` when
-            the axis has none.
-        """
-        return float(self.thickness.get(axis, DEFAULT_HALF_THICKNESS))
 
     def to_state(self) -> AxisAlignedSelectionState:
         """Return an immutable snapshot of this selection."""
@@ -334,12 +312,10 @@ class DimsManager(EventedModel):
         layer never reaches into the render layer.
 
         **Thickness comes from the stored mapping, and an axis without an
-        entry is a plane.**  ``half_thickness`` defaults to 0.5 because that
-        is the number the geometry request builders hardcoded, but a region
-        built at that default would give every collapsed axis a one-unit slab
-        -- and an image visual, which draws a single plane, would start
-        fetching more than it can show.  So the region says exactly what the
-        user asked for, and nothing when they asked for nothing.
+        entry is a plane.**  The region says exactly what the user asked for,
+        and nothing when they asked for nothing.  Each visual family then
+        draws what its kind draws from that region: an image or labels visual
+        one plane within it, a geometry visual what lies in it.
 
         Displayed axes are left unbounded, although they keep a stored
         position (D36).  Bounding one is the viewport-crop follow-up; the

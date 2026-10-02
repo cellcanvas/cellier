@@ -100,10 +100,13 @@ def test_known_behaviour_changes_are_registered():
         by_family[case.family.name] = by_family.get(case.family.name, 0) + 1
         assert case.xfail_reason  # a human-readable why
 
-    # points, lines, graph and mesh each contribute non-identity cases.
+    # points, lines, graph and mesh each contribute non-identity cases
+    # (design 3.6) and, since the thickness floor went, identity ones too;
+    # in-memory labels changed when they took the one-plane slicing rule.
     assert set(by_family) == {
         "GFXPointsMemoryVisual",
         "GFXLinesMemoryVisual",
         "GFXGraphMemoryVisual",
         "GFXMeshMemoryVisual",
+        "GFXLabelMemoryVisual",
     }

@@ -1,0 +1,162 @@
+{
+  "0:1500": {
+    "digest": "69b60ae0939c0e02862a7f7a8890710c",
+    "events": 4710
+  },
+  "10:400": {
+    "digest": "0e742323b39a2d96d304f63073136076",
+    "events": 1311
+  },
+  "11:400": {
+    "digest": "0b42b6216e35f66f9a9787e7926db1e3",
+    "events": 803
+  },
+  "12:400": {
+    "digest": "a5db1a3791f9656b633b6b392f7c1939",
+    "events": 930
+  },
+  "13:400": {
+    "digest": "c0e230659e251c330d1ce7e9551cf021",
+    "events": 1603
+  },
+  "14:400": {
+    "digest": "469c4b0847fac6ec7190e76c55ae83e0",
+    "events": 609
+  },
+  "15:400": {
+    "digest": "94b738d20be539614332f858165571f8",
+    "events": 1608
+  },
+  "16:400": {
+    "digest": "b217500375a298b570929a8306765cb5",
+    "events": 942
+  },
+  "17:400": {
+    "digest": "5e66cbf75a024c23a9111045f5d3d611",
+    "events": 1551
+  },
+  "18:400": {
+    "digest": "ffa484d70c3e477f3acbf31761c2a189",
+    "events": 967
+  },
+  "19:400": {
+    "digest": "420aeb31939c58bf12e4c8b1a408a379",
+    "events": 1150
+  },
+  "1:1500": {
+    "digest": "f6e2a871c48596db2fb5f975eae6b87f",
+    "events": 3612
+  },
+  "20:400": {
+    "digest": "033d9cab020740fe776e73608b34862d",
+    "events": 1153
+  },
+  "21:400": {
+    "digest": "29919fc420a9aeaeec25da641f844044",
+    "events": 1305
+  },
+  "22:400": {
+    "digest": "07d0f83a3d509c95f21fdfb089df97d6",
+    "events": 1037
+  },
+  "23:400": {
+    "digest": "3f02769017ec3526f7c2ee8c2a2bf74a",
+    "events": 833
+  },
+  "24:400": {
+    "digest": "9faee2dffefeb7b7588fa4108ca79a38",
+    "events": 824
+  },
+  "25:400": {
+    "digest": "8d760aa45f544723afaf632c162e2730",
+    "events": 1196
+  },
+  "26:400": {
+    "digest": "f21226ac5c890368ae0bd44906e3b4c4",
+    "events": 1062
+  },
+  "27:400": {
+    "digest": "c1d12cab7bcf803a3381b823ecc86a7f",
+    "events": 1114
+  },
+  "28:400": {
+    "digest": "cd990573020ce87401642636d8c470c0",
+    "events": 915
+  },
+  "29:400": {
+    "digest": "8c5bafb9c20f37fee7458eb90599e3eb",
+    "events": 1260
+  },
+  "2:1500": {
+    "digest": "0f20f320ebfcf3f81c676e3ed7c77966",
+    "events": 4364
+  },
+  "30:400": {
+    "digest": "e79fe4fd4d136543605b905ec36773e0",
+    "events": 519
+  },
+  "31:400": {
+    "digest": "446f3f0343adcb5df1ff0226415b660b",
+    "events": 1290
+  },
+  "32:400": {
+    "digest": "fe50074f3207c1d107f85839b9f79e72",
+    "events": 950
+  },
+  "33:400": {
+    "digest": "408ee7c4e5098b3f4791d5e78f3ad712",
+    "events": 1517
+  },
+  "34:400": {
+    "digest": "e15bd47cd25bb17af14420230b466d6c",
+    "events": 381
+  },
+  "35:400": {
+    "digest": "74b7ef8e72f8a98fd648fc12733e605d",
+    "events": 891
+  },
+  "36:400": {
+    "digest": "7b9dc0822db1cac1880c43619b9c5d62",
+    "events": 758
+  },
+  "37:400": {
+    "digest": "1be3624576ec905353748f4c3514c2d6",
+    "events": 1046
+  },
+  "38:400": {
+    "digest": "757f1b72b46428df2a5c144b0748371d",
+    "events": 768
+  },
+  "39:400": {
+    "digest": "93ff35a678fdfa018e79a41cb961d605",
+    "events": 1705
+  },
+  "3:1500": {
+    "digest": "d4fac3913a4c67ec5c241bb009265fbf",
+    "events": 4523
+  },
+  "4:1500": {
+    "digest": "d4874aeb6a5d6c57aa72ca474c460214",
+    "events": 3987
+  },
+  "5:1500": {
+    "digest": "50f7551ee576bda4fce2b30628593add",
+    "events": 4349
+  },
+  "6:1500": {
+    "digest": "4e37450fef789946705af7b232b546dd",
+    "events": 3118
+  },
+  "7:1500": {
+    "digest": "baa3ffa3e4da5153b73c54c2aa85333e",
+    "events": 4925
+  },
+  "8:400": {
+    "digest": "5875334b9612908273850136bd94b2de",
+    "events": 1188
+  },
+  "9:400": {
+    "digest": "ad4c66d76a43636a1ba081b3bcbf7ff5",
+    "events": 1456
+  }
+}

@@ -19,7 +19,6 @@ from cellier.render.visuals._aabb import (
     make_aabb_line,
     refresh_aabb_line,
 )
-from cellier.scene.dims import DEFAULT_HALF_THICKNESS
 
 if TYPE_CHECKING:
     from cellier._state import DimsState
@@ -297,7 +296,7 @@ class GFXLinesMemoryVisual:
         if selection is None or self._spaces is None or self._transform is None:
             return None
         return geometry_data_region(
-            selection, self._transform, self._spaces.world, DEFAULT_HALF_THICKNESS
+            selection, self._transform, self._spaces.world, self._spaces.data
         )
 
     def _collapsed_origin(self) -> dict[int, float]:
@@ -323,12 +322,9 @@ class GFXLinesMemoryVisual:
     ) -> LinesSliceRequest:
         """One request.
 
-        The region carries the whole selection.  Until v1 was retired,
-        ``slice_indices`` and ``thickness`` rode along for the headless
-        fallback -- with a hardcoded ``0.5`` documented as data-space voxel
-        units on a family that has no voxels; both are gone, and the
-        world-unit default of D4 is applied to the region before the
-        pull-back (R8.3).
+        The region carries the whole selection: the scene's thickness as
+        the user set it (none is a plane), with a discrete axis anchored
+        at the sample the slider selects (``geometry_data_region``).
         """
         region = self._data_region(selection)
         if region is None:

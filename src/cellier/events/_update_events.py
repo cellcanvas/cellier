@@ -61,6 +61,11 @@ class DimsUpdateEvent(NamedTuple):
         Whether the slice-position change is a tick of a scrub (a slider
         being moved).  GUI sliders pass ``True``; the default is a jump,
         which plans in full at once.
+    thickness :
+        Mapping of axis index -> half-thickness in world units for the axes
+        whose thickness changed, or ``None`` to leave every thickness
+        unchanged.  **Merged** into the scene's thickness, like
+        ``slice_indices``.
     """
 
     source_id: UUID
@@ -68,6 +73,7 @@ class DimsUpdateEvent(NamedTuple):
     slice_indices: dict[int, float] | None
     displayed_axes: tuple[int, ...] | None
     interactive: bool = False
+    thickness: dict[int, float] | None = None
 
 
 class DimsInteractionUpdateEvent(NamedTuple):

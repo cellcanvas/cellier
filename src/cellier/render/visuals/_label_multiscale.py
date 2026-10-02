@@ -163,6 +163,10 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
     #: 3D loads go through the chunk scheduler (``plan`` / ``residencies``).
     chunked: bool = True
     cancellable: bool = True
+    #: The one-plane slicing rule decides when a slice misses the data, so
+    #: the scene manager must not skip this visual on its own extent check.
+    decides_empty_slices: bool = True
+    _slice_empty: bool = False
 
     def __init__(
         self,
@@ -1014,6 +1018,11 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
             resources for the request's mode.
         """
         displayed = tuple(request.dims_state.selection.displayed_axes)
+        # One plane within a slab, as images draw; a slice that misses the
+        # data draws nothing.
+        self._begin_region_planning(request.selection)
+        if self._slice_empty:
+            return []
         if len(displayed) == 2:
             return self._plan_2d(request, config, mode)
         if self._volume_geometry is None or self._block_cache_3d is None:
@@ -1039,6 +1048,15 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         if residency is None:
             return []
         return self._finish_plan(residency, brick_arr, backstop, config.loading)
+
+    def _begin_region_planning(self, selection) -> None:
+        """Start a planning call, applying the one-plane slicing rule first.
+
+        Labels draw one plane within a slab, as images do.  Planned as a
+        range of planes, a slab made every 2D tile write fail (a tile is one
+        plane).
+        """
+        self._begin_plane_planning(selection)
 
     def _finish_plan(self, residency, arr, backstop, loading) -> list[DesiredSet]:
         """The planner tail shared by both modes: one desired set, and stats."""

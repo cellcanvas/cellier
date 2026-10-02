@@ -47,7 +47,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "aniso"
+      "transform": "aniso",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=3|t=aniso|dims=2d_lead_sliced_zero": {
       "dims": "2d_lead_sliced_zero",
@@ -96,7 +97,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "aniso"
+      "transform": "aniso",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=3|t=aniso|dims=3d_all": {
       "dims": "3d_all",
@@ -148,7 +150,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "aniso"
+      "transform": "aniso",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=3|t=identity|dims=2d_lead_sliced_nonzero": {
       "dims": "2d_lead_sliced_nonzero",
@@ -197,7 +200,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "identity"
+      "transform": "identity",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=3|t=identity|dims=2d_lead_sliced_zero": {
       "dims": "2d_lead_sliced_zero",
@@ -246,7 +250,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "identity"
+      "transform": "identity",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=3|t=identity|dims=3d_all": {
       "dims": "3d_all",
@@ -298,7 +303,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "identity"
+      "transform": "identity",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=3|t=scale_trans|dims=2d_lead_sliced_nonzero": {
       "dims": "2d_lead_sliced_nonzero",
@@ -330,24 +336,11 @@
         ]
       ],
       "notes": [],
-      "scale_indices": [
-        0
-      ],
-      "selections": [
-        [
-          0,
-          [
-            0,
-            6
-          ],
-          [
-            0,
-            7
-          ]
-        ]
-      ],
+      "scale_indices": [],
+      "selections": [],
       "status": "ok",
-      "transform": "scale_trans"
+      "transform": "scale_trans",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=3|t=scale_trans|dims=2d_lead_sliced_zero": {
       "dims": "2d_lead_sliced_zero",
@@ -379,24 +372,11 @@
         ]
       ],
       "notes": [],
-      "scale_indices": [
-        0
-      ],
-      "selections": [
-        [
-          0,
-          [
-            0,
-            6
-          ],
-          [
-            0,
-            7
-          ]
-        ]
-      ],
+      "scale_indices": [],
+      "selections": [],
       "status": "ok",
-      "transform": "scale_trans"
+      "transform": "scale_trans",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=3|t=scale_trans|dims=3d_all": {
       "dims": "3d_all",
@@ -448,7 +428,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "scale_trans"
+      "transform": "scale_trans",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=4|t=identity4|dims=2d_two_sliced": {
       "dims": "2d_two_sliced",
@@ -498,7 +479,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "identity4"
+      "transform": "identity4",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=4|t=identity4|dims=3d_all_but_time": {
       "dims": "3d_all_but_time",
@@ -551,7 +533,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "identity4"
+      "transform": "identity4",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=4|t=identity4|dims=3d_time_sliced_nonzero": {
       "dims": "3d_time_sliced_nonzero",
@@ -604,7 +587,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "identity4"
+      "transform": "identity4",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=4|t=tzyx|dims=2d_two_sliced": {
       "dims": "2d_two_sliced",
@@ -636,25 +620,11 @@
         ]
       ],
       "notes": [],
-      "scale_indices": [
-        0
-      ],
-      "selections": [
-        [
-          2,
-          0,
-          [
-            0,
-            6
-          ],
-          [
-            0,
-            7
-          ]
-        ]
-      ],
+      "scale_indices": [],
+      "selections": [],
       "status": "ok",
-      "transform": "tzyx"
+      "transform": "tzyx",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=4|t=tzyx|dims=3d_all_but_time": {
       "dims": "3d_all_but_time",
@@ -707,7 +677,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "tzyx"
+      "transform": "tzyx",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     },
     "rank=4|t=tzyx|dims=3d_time_sliced_nonzero": {
       "dims": "3d_time_sliced_nonzero",
@@ -760,7 +731,8 @@
         ]
       ],
       "status": "ok",
-      "transform": "tzyx"
+      "transform": "tzyx",
+      "xfail_reason": "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and nothing when the slice misses the data (they clamped before)"
     }
   },
   "drivable": {

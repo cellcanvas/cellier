@@ -8,6 +8,7 @@ a :class:`Residency` that stores arrived data and decides what to draw.
 from cellier.render.scheduling._core import (
     ALL_SCENES,
     BACKSTOP_LANE,
+    COMPUTE_LANE,
     SHARED_LANE,
     ReadOutcome,
     SchedulerCore,
@@ -17,6 +18,8 @@ from cellier.render.scheduling._core import (
 from cellier.render.scheduling._registry import DEAD, CacheRegistry
 from cellier.render.scheduling._scheduler import ChunkScheduler
 from cellier.render.scheduling._types import (
+    DEFAULT_CACHE_POLICY,
+    CachePolicy,
     CacheProgress,
     ChunkClass,
     ChunkedVisual,
@@ -33,8 +36,11 @@ from cellier.render.scheduling._types import (
 __all__ = [
     "ALL_SCENES",
     "BACKSTOP_LANE",
+    "COMPUTE_LANE",
     "DEAD",
+    "DEFAULT_CACHE_POLICY",
     "SHARED_LANE",
+    "CachePolicy",
     "CacheProgress",
     "CacheRegistry",
     "ChunkClass",

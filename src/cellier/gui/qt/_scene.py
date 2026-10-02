@@ -43,6 +43,7 @@ from uuid import uuid4
 from psygnal import Signal
 from qtpy.QtCore import QEvent, QObject, Qt, QTimer
 from qtpy.QtWidgets import (
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -68,11 +69,16 @@ from cellier.gui._axis_values import (
 )
 from cellier.gui._constants import DIMS_SLIDER_THROTTLE_MS
 from cellier.gui._dims import initial_slice_indices as seed_slice_indices
+from cellier.gui._dims import thickness_axes
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Collection, Mapping
 
     from cellier.gui._axis_values import AxisValues
+
+#: Decimals a thickness box shows on a discrete axis, which has no
+#: ``decimals`` of its own.
+THICKNESS_DECIMALS: int = 3
 
 #: Styles the continuous sliders only.  A styled groove stops Qt drawing
 #: native tick marks, and a discrete axis's integer slider relies on those
@@ -237,6 +243,14 @@ class QtDimsControl:
         The world axes that get a slider when not displayed; typically
         ``scene.slider_axes``.  ``None`` (the default) gives every axis in
         *axis_values* one.  Kept current by ``SliderAxesChangedEvent``.
+    thickness_axes :
+        The axes whose slider row gets a half-thickness box ("+/-", world
+        units, minimum 0), bound to the scene's per-axis thickness.  ``None``
+        (the default) gives every axis in *axis_values* one; a scene passes
+        its axes that are not channel axes.
+    initial_thickness :
+        Starting half-thicknesses; typically
+        ``scene.dims.selection.thickness``.  An axis absent from it is 0.
     axes_2d :
         Axis indices to display when toggling to 2D, or ``None`` to omit the
         toggle button entirely (e.g. a scene with fewer than 3 axes).
@@ -259,6 +273,8 @@ class QtDimsControl:
         initial_slice_indices: dict[int, float] | None = None,
         initial_displayed_axes: tuple[int, ...] = (),
         slider_axes: tuple[int, ...] | None = None,
+        thickness_axes: Collection[int] | None = None,
+        initial_thickness: Mapping[int, float] | None = None,
         debounce_ms: int | None = None,
         axes_2d: tuple[int, ...] | None = None,
         axes_3d: tuple[int, ...] | None = None,
@@ -309,13 +325,27 @@ class QtDimsControl:
         self._sliders: dict[int, QLabeledDoubleSlider | QSlider] = {}
         self._rows: dict[int, QWidget] = {}
         self._readouts: dict[int, QLabel] = {}
+        # The half-thickness box of each axis that has one.
+        self._thickness_boxes: dict[int, QDoubleSpinBox] = {}
         self._displayed_axes: tuple[int, ...] = initial_displayed_axes
         _initial = initial_slice_indices or {}
+        _thickness = initial_thickness or {}
+        _thickness_axes = (
+            set(self._axis_values) if thickness_axes is None else set(thickness_axes)
+        )
 
         for axis, spec in self._axis_values.items():
             if isinstance(spec, DiscreteAxisValues):
                 row = self._build_discrete_row(axis, spec)
                 self._set_value(axis, _initial.get(axis, spec.values[0]))
+                if axis in _thickness_axes:
+                    self._add_thickness_box(
+                        row.layout(),
+                        axis,
+                        THICKNESS_DECIMALS,
+                        1.0,
+                        _thickness.get(axis, 0.0),
+                    )
             else:
                 sld = QLabeledDoubleSlider(Qt.Orientation.Horizontal)
                 # Display only; before setValue so the first position is not
@@ -338,6 +368,18 @@ class QtDimsControl:
                 sld.findChild(QSlider).installEventFilter(_ContinuousSliderKeys(sld))
                 self._sliders[axis] = sld
                 row = sld
+                if axis in _thickness_axes:
+                    row = QWidget()
+                    row_layout = QHBoxLayout(row)
+                    row_layout.setContentsMargins(0, 0, 0, 0)
+                    row_layout.addWidget(sld, stretch=1)
+                    self._add_thickness_box(
+                        row_layout,
+                        axis,
+                        spec.decimals,
+                        spec.step_size,
+                        _thickness.get(axis, 0.0),
+                    )
             layout.addRow(axis_labels.get(axis, str(axis)), row)
             self._rows[axis] = row
 
@@ -428,6 +470,11 @@ class QtDimsControl:
                 value = event.slice_indices.get(axis)
                 if value is not None:
                     self._set_value(axis, value)
+            thickness = getattr(sel, "thickness", None) or {}
+            for axis, box in self._thickness_boxes.items():
+                box.blockSignals(True)
+                box.setValue(float(thickness.get(axis, 0.0)))
+                box.blockSignals(False)
 
         # The displayed axes are applied even from our own echo: the event is
         # the model's state, and applying it twice is harmless.
@@ -505,6 +552,45 @@ class QtDimsControl:
                 displayed_axes=None,
                 # A slider move is a scrub tick (interaction tracker 4.8).
                 interactive=True,
+            )
+        )
+
+    # ── Thickness ────────────────────────────────────────────────────────────
+
+    def _add_thickness_box(
+        self, row_layout, axis: int, decimals: int, step: float, value: float
+    ) -> None:
+        """Append a "+/-" half-thickness box for *axis* to its slider row.
+
+        World units, minimum 0.  The scene's thickness is the only thickness
+        in the slicing path, so this box is how much depth every visual
+        shows along the axis.
+        """
+        box = QDoubleSpinBox()
+        box.setDecimals(decimals)
+        box.setRange(0.0, 1e9)
+        box.setSingleStep(step)
+        box.setValue(float(value))
+        # A value typed in is submitted once, when editing finishes.
+        box.setKeyboardTracking(False)
+        box.setToolTip(
+            "Half-thickness of the slice along this axis, in world units. 0 is a plane."
+        )
+        box.valueChanged.connect(
+            lambda value, ax=axis: self._on_thickness_changed(ax, value)
+        )
+        row_layout.addWidget(QLabel("+/-"))
+        row_layout.addWidget(box)
+        self._thickness_boxes[axis] = box
+
+    def _on_thickness_changed(self, axis: int, value: float) -> None:
+        self.changed.emit(
+            DimsUpdateEvent(
+                source_id=self._id,
+                scene_id=self._scene_id,
+                slice_indices=None,
+                displayed_axes=None,
+                thickness={axis: float(value)},
             )
         )
 
@@ -741,6 +827,8 @@ class QtCanvasWidget:
             initial_slice_indices=initial_slice_indices,
             initial_displayed_axes=initial_displayed_axes,
             slider_axes=scene.slider_axes,
+            thickness_axes=thickness_axes(scene),
+            initial_thickness=getattr(selection, "thickness", None),
             axes_2d=axes_2d,
             axes_3d=axes_3d,
             parent=parent,

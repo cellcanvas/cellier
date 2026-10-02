@@ -24,6 +24,7 @@ from cellier.render.visuals._image_memory import (
     _rect_wireframe_positions,
 )
 from cellier.render.visuals._pick import memory_image_data_coordinate
+from cellier.render.visuals._slicing import image_plane_selection
 
 if TYPE_CHECKING:
     from cellier._state import DimsState
@@ -60,6 +61,10 @@ class GFXLabelMemoryVisual:
     """
 
     cancellable: bool = True
+    #: The one-plane slicing rule decides when a slice misses the data, so
+    #: the scene manager must not skip this visual on its own extent check.
+    decides_empty_slices: bool = True
+    _slice_empty: bool = False
 
     def __init__(
         self,
@@ -299,11 +304,14 @@ class GFXLabelMemoryVisual:
 
     def _axis_selections(
         self, dims_state: DimsState, selection: RegionSelection | None
-    ) -> tuple[int | tuple[int, int], ...]:
+    ) -> tuple[int | tuple[int, int], ...] | None:
         """Plan one request's per-axis selection, and record where it collapsed.
 
         The ``RegionSelection`` the controller built is the only path
-        (design 3.7).
+        (design 3.7).  Labels draw one plane within a slab, as images do
+        (``image_plane_selection``): a thickness never becomes a range of
+        planes.  ``None`` when a sliced axis has no sample in its slab; the
+        data nodes are hidden until a later plan lands in the data.
         """
         shape = self._data_store.shape
         if selection is None or self._spaces is None:
@@ -313,8 +321,17 @@ class GFXLabelMemoryVisual:
                 "selection.  Until v1 was retired this fell back to reading "
                 "``dims_state.slice_indices`` as world positions."
             )
+        planned = image_plane_selection(
+            selection, self._transform, self._spaces, tuple(shape)
+        )
+        self._slice_empty = planned is None
+        for inner in (self._inner_node_2d, self._inner_node_3d):
+            if inner is not None:
+                inner.visible = not self._slice_empty
+        if planned is None:
+            return None
         axis_selections, collapsed = _plan_from_region(
-            selection, self._transform, self._spaces.world, shape
+            planned, self._transform, self._spaces.world, shape
         )
         self._collapsed_indices = collapsed
         return axis_selections
@@ -336,6 +353,8 @@ class GFXLabelMemoryVisual:
         axis_selections = self._axis_selections(dims_state, selection)
         if displayed != self._last_displayed_axes:
             self._update_node_matrix(displayed)
+        if axis_selections is None:
+            return []
         return [
             ChunkRequest(
                 chunk_request_id=uuid4(),
@@ -366,6 +385,8 @@ class GFXLabelMemoryVisual:
             axis_selections = self._axis_selections(dims_state, selection)
             if displayed != self._last_displayed_axes:
                 self._update_node_matrix(displayed)
+            if axis_selections is None:
+                return []
         return [
             ChunkRequest(
                 chunk_request_id=uuid4(),

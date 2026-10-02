@@ -28,7 +28,12 @@ import numpy as np
 from transformnd.transforms.affine import Affine
 
 from cellier._rounding import round_half_up
-from cellier.transform import AffineTransform, BaseTransform, ConvexRegion
+from cellier.transform import (
+    AffineTransform,
+    AxisAlignedBoundingBox,
+    BaseTransform,
+    ConvexRegion,
+)
 from cellier.transform._geometry_ops import NonAffineTransformError
 from cellier.transform._region import half_spaces_from_arrays
 
@@ -613,77 +618,6 @@ def node_matrix(
     )
 
 
-def _extent_along(region: ConvexRegion, index: int) -> float:
-    """The region's extent along one half-space's normal.
-
-    Half-spaces come in opposed pairs from every constructor that bounds
-    something -- ``from_axis_slabs`` emits ``+e`` / ``-e`` per axis and
-    ``from_plane_slab`` emits ``+n`` / ``-n`` -- so the extent is read off the
-    pair.  An unpaired half-space bounds one side only and there is nothing to
-    widen, so it reports ``inf``.
-    """
-    normals, offsets = region.normals, region.offsets
-    normal = normals[index]
-    length = float(np.linalg.norm(normal))
-    if length == 0.0:
-        return float("inf")
-    for other in range(len(normals)):
-        if other != index and np.allclose(normals[other], -normal):
-            return float(offsets[index] + offsets[other]) / length
-    return float("inf")
-
-
-def with_minimum_thickness(
-    region: ConvexRegion, minimum_half_thickness: float
-) -> ConvexRegion:
-    """Grow a region so it has at least the given half-thickness everywhere.
-
-    A geometry visual draws **points**, which have no extent.  ``contains``
-    on a measure-zero region is float-exact and so effectively always
-    ``False`` (D42), which means a zero-thickness plane -- what the dims
-    editor emits for an axis nobody gave a thickness -- would select nothing
-    at all.  So the geometry families give the selection a floor.
-
-    This is a per-family policy on top of the region, not a different
-    mechanism: the images want the plane, because they draw one.
-
-    A half-space ``n . p <= d`` is offset outward to ``n . p <= d + s|n|``,
-    which is the Minkowski sum with a ball -- exact for an axis slab and for
-    an oblique one alike.  A direction the region already has enough extent
-    along is left alone, so a thickness the user actually asked for is theirs.
-
-    Parameters
-    ----------
-    region : ConvexRegion
-        The region, in any coordinate system.
-    minimum_half_thickness : float
-        The floor, in that system's units.
-
-    Returns
-    -------
-    ConvexRegion
-        The region, grown where it was too thin.
-    """
-    if minimum_half_thickness <= 0.0 or not region.half_spaces:
-        return region
-    normals, offsets = region.normals, region.offsets
-    grown = np.asarray(offsets, dtype=float).copy()
-    changed = False
-    for index in range(len(normals)):
-        extent = _extent_along(region, index)
-        shortfall = minimum_half_thickness - extent / 2.0
-        if shortfall > 0.0:
-            grown[index] += shortfall * float(np.linalg.norm(normals[index]))
-            changed = True
-    if not changed:
-        return region
-    return ConvexRegion(
-        coordinate_system=region.coordinate_system,
-        ndim=region.ndim,
-        half_spaces=half_spaces_from_arrays(normals, grown),
-    )
-
-
 def snap_discrete_positions(
     positions: Mapping[int, float],
     data_coordinate_system: DataCoordinateSystem,
@@ -816,19 +750,245 @@ def visual_covers_position(
     return True
 
 
+#: Relative widening of a slab edge on a discrete axis, in data units.  A
+#: pulled-back edge that should land on a whole sample can miss it by a few
+#: units in the last place; without this, a window of 0.3 on a 0.1-spaced
+#: axis keeps 5 samples instead of 7.
+_DISCRETE_EDGE_RTOL = 1e-9
+
+
+def widen_discrete_edges(low: float, high: float) -> tuple[float, float]:
+    """Widen a data-unit window on a discrete axis by a relative epsilon.
+
+    Each edge moves outward by ``1e-9 * max(1, abs(edge))``, so a sample
+    sitting on the edge is inside whatever the rounding of the pull-back.
+    """
+    return (
+        low - _DISCRETE_EDGE_RTOL * max(1.0, abs(low)),
+        high + _DISCRETE_EDGE_RTOL * max(1.0, abs(high)),
+    )
+
+
+def window_half_extents(
+    transform: BaseTransform,
+    world: WorldCoordinateSystem,
+    positions: Mapping[int, float],
+    axis: int,
+    before: float,
+    after: float,
+) -> tuple[float, float]:
+    """Pull a world-unit window's endpoints back into data-unit half-extents.
+
+    With ``w`` the slice position in world units and ``p`` the same position
+    already pulled back (which ``data_slice_positions`` supplies)::
+
+        before_data = p - imap(w - before)
+        after_data = imap(w + after) - p
+
+    **The window's two endpoints are pulled back, rather than its width
+    divided by a scale.**  On a non-uniform axis there is no single
+    world-units-per-data-unit for a division to use; pulling the endpoints
+    through the transform is exact for any monotonic axis and is
+    algebraically ``before / scale`` on an affine one.  It also produces the
+    right shape: a symmetric world window around an unevenly sampled position
+    gives asymmetric data extents.
+
+    The pull-back goes through ``imap_bounding_box`` -- interval semantics --
+    and not ``imap_coordinates``.  A window legitimately reaches off the
+    start of an axis, and it must clamp to the first sample there rather than
+    report no preimage.
+
+    Parameters
+    ----------
+    transform : BaseTransform
+        The visual's ``data -> world`` transform.
+    world : WorldCoordinateSystem
+        Its output system.
+    positions : Mapping[int, float]
+        ``{collapsed data axis: data position}``.
+    axis : int
+        The data axis to convert for.
+    before : float
+        How far back the window reaches, in world units.
+    after : float
+        How far forward, in world units.
+
+    Returns
+    -------
+    tuple[float, float]
+        ``(before, after)`` half-extents in data units.  Never negative: a
+        window clipped by the end of the axis contributes nothing on that
+        side rather than a negative extent.
+    """
+    position = float(positions.get(axis, 0.0))
+    world_axis = axis_correspondence(transform).get(axis)
+    if world_axis is None:
+        # Broadcast: the visual has no extent along this world axis, so
+        # there is no conversion to do and the window is already data-unit.
+        return (float(before), float(after))
+
+    data_point = np.zeros(transform.input_ndim, dtype=np.float64)
+    for data_axis, value in positions.items():
+        if 0 <= data_axis < data_point.size:
+            data_point[data_axis] = float(value)
+    centre_world = float(np.asarray(transform.map_coordinates(data_point))[world_axis])
+    if not np.isfinite(centre_world):
+        # Belt and braces.  The position is confined to samples that exist
+        # before it gets here, so this should be unreachable -- but a nan
+        # reaching the bounding box below surfaces as a pydantic validation
+        # error several frames deep.  A zero window selects nothing, which is
+        # the honest result when there is no position to centre one on.
+        return (0.0, 0.0)
+
+    lower = np.full(transform.output_ndim, -np.inf)
+    upper = np.full(transform.output_ndim, np.inf)
+    lower[world_axis] = centre_world - float(before)
+    upper[world_axis] = centre_world + float(after)
+    pulled = transform.imap_bounding_box(
+        AxisAlignedBoundingBox(
+            coordinate_system=world.id,
+            min_coordinate=lower,
+            max_coordinate=upper,
+        )
+    )
+    low = float(pulled.min_coordinate[axis])
+    high = float(pulled.max_coordinate[axis])
+    if not (np.isfinite(low) and np.isfinite(high)):
+        return (float(before), float(after))
+    return (max(0.0, position - low), max(0.0, high - position))
+
+
+def world_half_thickness(region: ConvexRegion) -> dict[int, float]:
+    """The half-thickness a world region asks for, per world axis it bounds.
+
+    Read off the region's bounding box, so it is the scene's own thickness
+    for an axis-aligned selection.  Axes the region leaves unbounded, or
+    bounds on one side only, are absent.
+    """
+    box = region.bounding_box()
+    result: dict[int, float] = {}
+    for axis in range(box.ndim):
+        low = float(box.min_coordinate[axis])
+        high = float(box.max_coordinate[axis])
+        if np.isfinite(low) and np.isfinite(high):
+            result[axis] = (high - low) / 2.0
+    return result
+
+
+def _anchor_discrete_axes(
+    pulled: ConvexRegion,
+    selection: RegionSelection,
+    data_to_world: BaseTransform,
+    world: WorldCoordinateSystem,
+    data: DataCoordinateSystem,
+) -> ConvexRegion:
+    """Re-centre a pulled-back region on the selected sample of discrete axes.
+
+    For every data axis declared ``sampling="discrete"`` that the region
+    bounds on both sides with constraints along that axis alone:
+
+    1. the slice position is snapped to the sample the slider selects
+       (:func:`snap_discrete_positions`, the rule images use);
+    2. the scene's thickness on the matching world axis is applied around
+       that sample's world position and its two endpoints are pulled back
+       (:func:`window_half_extents`);
+    3. each edge is widened by a relative epsilon
+       (:func:`widen_discrete_edges`).
+
+    The comparison is then between whole samples in data units, which is
+    exact at thickness 0: a world-space plane pulled back misses samples
+    whenever the slider value was rounded.
+
+    An axis that shares a constraint with another (a shear) is left as the
+    pull-back gave it.
+    """
+    discrete = [
+        axis
+        for axis, entry in enumerate(data.axes)
+        if entry.sampling == "discrete" and axis < pulled.ndim
+    ]
+    if not discrete or not pulled.half_spaces:
+        return pulled
+    normals = np.asarray(pulled.normals, dtype=float)
+    offsets = np.asarray(pulled.offsets, dtype=float)
+    nonzero = normals != 0.0
+    box = pulled.bounding_box()
+    correspondence = axis_correspondence(data_to_world)
+    thickness = world_half_thickness(selection.region)
+    positions: dict[int, float] | None = None
+
+    keep = np.ones(len(normals), dtype=bool)
+    added_normals: list[np.ndarray] = []
+    added_offsets: list[float] = []
+    for axis in discrete:
+        low = float(box.min_coordinate[axis])
+        high = float(box.max_coordinate[axis])
+        if not (np.isfinite(low) and np.isfinite(high)):
+            continue
+        on_axis = nonzero[:, axis]
+        alone = on_axis & (nonzero.sum(axis=1) == 1)
+        if not on_axis.any() or (on_axis & ~alone).any():
+            continue
+        world_axis = correspondence.get(axis)
+        if world_axis is None:
+            continue
+        if positions is None:
+            positions = snap_discrete_positions(
+                {
+                    a: (float(box.min_coordinate[a]) + float(box.max_coordinate[a]))
+                    / 2.0
+                    for a in range(box.ndim)
+                    if np.isfinite(box.min_coordinate[a])
+                    and np.isfinite(box.max_coordinate[a])
+                },
+                data,
+                data_to_world,
+            )
+        sample = positions[axis]
+        half = float(thickness.get(world_axis, 0.0))
+        before, after = window_half_extents(
+            data_to_world, world, positions, axis, half, half
+        )
+        new_low, new_high = widen_discrete_edges(sample - before, sample + after)
+        keep &= ~alone
+        unit = np.zeros(pulled.ndim)
+        unit[axis] = 1.0
+        added_normals.extend([unit, -unit])
+        added_offsets.extend([new_high, -new_low])
+    if not added_normals:
+        return pulled
+    return ConvexRegion(
+        coordinate_system=pulled.coordinate_system,
+        ndim=pulled.ndim,
+        half_spaces=half_spaces_from_arrays(
+            np.vstack([normals[keep], np.asarray(added_normals)]),
+            np.concatenate([offsets[keep], np.asarray(added_offsets)]),
+        ),
+    )
+
+
 def geometry_data_region(
     selection: RegionSelection,
     data_to_world: AffineTransform,
     world: WorldCoordinateSystem,
-    minimum_half_thickness: float,
+    data: DataCoordinateSystem | None = None,
 ) -> ConvexRegion:
-    """The selected region in **data** coordinates, with a thickness floor.
+    """The selected region in **data** coordinates.
 
     Design 3.12.  ``imap_region`` is ``A^T`` on the normals and needs no
     inverse (D39), so a geometry visual whose transform is a non-invertible
     embedding still slices -- which is the ``tzyx`` points in a ``TCZYX``
     world of 3.13, where D8 additionally drops the channel constraint the
     dataset has no extent along.
+
+    **The scene's thickness is the only thickness.**  An axis the user gave
+    no thickness is a plane, and a continuous axis keeps pure containment:
+    only what lies on the plane is selected.  There is no floor.
+
+    **A discrete axis is anchored at the sample the slider selects**, so
+    thickness 0 selects exactly the current sample and the geometry changes
+    frame at the same instant an image does (see
+    :func:`_anchor_discrete_axes`).
 
     Parameters
     ----------
@@ -838,18 +998,19 @@ def geometry_data_region(
         The visual's own transform.
     world : WorldCoordinateSystem
         Its output system, needed to resolve ``broadcast_axes``.
-    minimum_half_thickness : float
-        The world-unit floor applied before the pull-back, so that the
-        thickness a user states and the thickness a family needs are both
-        expressed in the space they were stated in.
+    data : DataCoordinateSystem or None
+        The visual's data system, which carries the per-axis ``sampling``.
+        ``None`` applies no discrete-axis rule.
 
     Returns
     -------
     ConvexRegion
         The region in the visual's data coordinates.
     """
-    widened = with_minimum_thickness(selection.region, minimum_half_thickness)
-    return data_to_world.imap_region(widened, world).simplify()
+    pulled = data_to_world.imap_region(selection.region, world).simplify()
+    if data is None:
+        return pulled
+    return _anchor_discrete_axes(pulled, selection, data_to_world, world, data)
 
 
 def axis_scales(data_to_world: AffineTransform) -> dict[int, float]:

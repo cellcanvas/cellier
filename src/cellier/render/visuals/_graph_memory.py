@@ -11,10 +11,12 @@ import pygfx as gfx
 from cellier.data.graph._graph_requests import GraphSliceRequest
 from cellier.render._spaces import (
     RenderSpaces,
-    axis_correspondence,
     data_slice_positions,
     node_matrix,
     snap_discrete_positions,
+    widen_discrete_edges,
+    window_half_extents,
+    world_half_thickness,
 )
 from cellier.render.shaders._alpha_modulated import (
     AlphaLineSegmentMaterial,
@@ -24,8 +26,6 @@ from cellier.render.visuals._aabb import (
     make_aabb_line,
     refresh_aabb_line,
 )
-from cellier.scene.dims import DEFAULT_HALF_THICKNESS
-from cellier.transform import AxisAlignedBoundingBox
 
 if TYPE_CHECKING:
     from cellier._state import DimsState
@@ -47,95 +47,9 @@ if TYPE_CHECKING:
 _PLACEHOLDER_NODE_POSITIONS = np.zeros((1, 3), dtype=np.float32)
 _PLACEHOLDER_EDGE_POSITIONS = np.zeros((2, 3), dtype=np.float32)
 
-#: Half-extent used for a sliced axis carrying no TrailConfig.  Matches the
-#: hardcoded thickness in the points and lines request builders, so a graph
-#: with no trail slices identically to them.
-_DEFAULT_EXTENT = (0.5, 0.5)
-
-
-def _window_half_extents(
-    transform,
-    world,
-    positions: dict[int, float],
-    axis: int,
-    before: float,
-    after: float,
-) -> tuple[float, float]:
-    """Pull a world-unit window's endpoints back into data-unit half-extents.
-
-    With ``w`` the slice position in world units and ``p`` the same position
-    already pulled back (which ``data_slice_positions`` supplies)::
-
-        before_data = p - imap(w - before)
-        after_data = imap(w + after) - p
-
-    Exact for any monotonic axis, and algebraically ``before / scale`` on an
-    affine one -- which is the property that keeps existing scenes identical
-    and is asserted directly in the tests.
-
-    ``GraphSliceRequest`` is unchanged: it still carries ``(before, after)``
-    half-extents in data units around ``slice_positions[axis]``, so the store
-    needs no change at all.  Only the computation of these two numbers moved.
-
-    Parameters
-    ----------
-    transform : BaseTransform
-        The visual's ``data -> world`` transform.
-    world : WorldCoordinateSystem
-        Its output system.
-    positions : dict[int, float]
-        ``{collapsed data axis: data position}``.
-    axis : int
-        The data axis to convert for.
-    before : float
-        How far back the window reaches, in world units.
-    after : float
-        How far forward, in world units.
-
-    Returns
-    -------
-    tuple[float, float]
-        ``(before, after)`` half-extents in data units.  Never negative: a
-        window clipped by the end of the axis contributes nothing on that
-        side rather than a negative extent.
-    """
-    position = float(positions.get(axis, 0.0))
-    world_axis = axis_correspondence(transform).get(axis)
-    if world_axis is None:
-        # Broadcast: the visual has no extent along this world axis, so
-        # there is no conversion to do and the window is already data-unit.
-        return (float(before), float(after))
-
-    data_point = np.zeros(transform.input_ndim, dtype=np.float64)
-    for data_axis, value in positions.items():
-        if 0 <= data_axis < data_point.size:
-            data_point[data_axis] = float(value)
-    centre_world = float(np.asarray(transform.map_coordinates(data_point))[world_axis])
-    if not np.isfinite(centre_world):
-        # Belt and braces.  The position is confined to samples that exist
-        # before it gets here, so this should be unreachable -- but a nan
-        # reaching the bounding box below surfaces as a pydantic validation
-        # error several frames deep, which is a poor way to learn that an
-        # axis had no answer.  A zero window selects nothing, which is the
-        # honest result when there is no position to centre one on.
-        return (0.0, 0.0)
-
-    lower = np.full(transform.output_ndim, -np.inf)
-    upper = np.full(transform.output_ndim, np.inf)
-    lower[world_axis] = centre_world - float(before)
-    upper[world_axis] = centre_world + float(after)
-    pulled = transform.imap_bounding_box(
-        AxisAlignedBoundingBox(
-            coordinate_system=world.id,
-            min_coordinate=lower,
-            max_coordinate=upper,
-        )
-    )
-    low = float(pulled.min_coordinate[axis])
-    high = float(pulled.max_coordinate[axis])
-    if not (np.isfinite(low) and np.isfinite(high)):
-        return (float(before), float(after))
-    return (max(0.0, position - low), max(0.0, high - position))
+#: The pull-back of a world window, shared with the other geometry
+#: families; kept under this name for the callers that grew up here.
+_window_half_extents = window_half_extents
 
 
 def _node_id_for_row(data_store, row: int):
@@ -584,26 +498,14 @@ class GFXGraphMemoryVisual:
         def _half_extents(
             axis: int, before: float, after: float
         ) -> tuple[float, float]:
-            """Convert a world-unit window into data-unit half-extents.
+            """A world-unit window as data-unit half-extents.
 
-            **The window's two endpoints are pulled back, rather than its
-            width divided by a scale.**  On a non-uniform axis there is no
-            single world-units-per-data-unit for a division to use, so
-            ``axis_scales`` has no answer to give there; pulling the
-            endpoints through the transform is exact for any monotonic axis
-            and is algebraically identical to ``value / scale`` on an affine
-            one, which is what keeps every existing scene unchanged.
-
-            It also produces the right *shape*: a symmetric world window
-            around an unevenly sampled position gives **asymmetric** data
-            extents, which a scalar scale cannot express at all.
-
-            The pull-back goes through ``imap_bounding_box`` -- interval
-            semantics -- and not ``imap_coordinates``.  A trail window
-            legitimately reaches off the start of an axis, and it must clamp
-            to the first sample there rather than report no preimage.
+            The window's two endpoints are pulled back, rather than its width
+            divided by a scale (see ``window_half_extents``).  On a discrete
+            axis each edge is then widened by a relative epsilon, so a sample
+            on the edge is inside.
             """
-            return _window_half_extents(
+            before_data, after_data = window_half_extents(
                 self._transform,
                 self._spaces.world,
                 positions,
@@ -611,15 +513,35 @@ class GFXGraphMemoryVisual:
                 before,
                 after,
             )
+            if axis in discrete:
+                position = float(positions.get(axis, 0.0))
+                low, high = widen_discrete_edges(
+                    position - before_data, position + after_data
+                )
+                before_data, after_data = position - low, high - position
+            return (before_data, after_data)
+
+        # The scene's own thickness, per data axis.  It is the whole window
+        # of an axis with no trail, and the least a trail's window can be: a
+        # trail widens the slab and never narrows it.
+        world_thickness = world_half_thickness(selection.region)
+        data_to_world_axes = self._spaces.data_to_world_axes
+        axes = self._spaces.data.axes
+        discrete = {
+            axis
+            for axis in sliced
+            if 0 <= axis < len(axes) and axes[axis].sampling == "discrete"
+        }
 
         for axis in sliced:
+            slab = float(world_thickness.get(data_to_world_axes.get(axis), 0.0))
             config = self._trail.get(axis)
             if config is None:
-                extents[axis] = _half_extents(
-                    axis, DEFAULT_HALF_THICKNESS, DEFAULT_HALF_THICKNESS
-                )
+                extents[axis] = _half_extents(axis, slab, slab)
                 continue
-            extents[axis] = _half_extents(axis, config.before, config.after)
+            extents[axis] = _half_extents(
+                axis, max(slab, config.before), max(slab, config.after)
+            )
             if config.fade:
                 fade_before, fade_after = _half_extents(
                     axis, config.resolved_fade_before, config.resolved_fade_after

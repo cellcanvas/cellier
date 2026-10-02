@@ -228,7 +228,7 @@ async def test_remove_mid_flight_drops_the_reads() -> None:
     scheduler.remove(1)
     await scheduler.drain()
     assert residency.writes == []
-    assert scheduler.core.in_flight == [0, 0]
+    assert scheduler.core.in_flight == [0, 0, 0]
     scheduler.close()
 
 

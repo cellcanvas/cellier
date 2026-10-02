@@ -15,9 +15,8 @@ async def test_slab_equivalence_with_points_store(make_request):
     """A trail-free graph selects the same node set as the points store.
 
     The regression anchor for D5's generalization of the scalar
-    ``thickness`` into a per-axis ``(before, after)`` extent: with no trail
-    configured the extents default to (0.5, 0.5), which is exactly the slab
-    points and lines use.
+    ``thickness`` into a per-axis ``(before, after)`` extent: given the same
+    slab, the graph selects what points and lines select.
     """
     rng = np.random.default_rng(0)
     positions = (rng.random((200, 3)) * 10).astype(np.float32)
@@ -25,7 +24,7 @@ async def test_slab_equivalence_with_points_store(make_request):
     graph = GraphMemoryStore.from_arrays(positions, np.zeros((0, 2), dtype=np.int32))
     points = PointsMemoryStore(positions=positions)
 
-    request = make_request(displayed=(1, 2), sliced={0: 5})
+    request = make_request(displayed=(1, 2), sliced={0: 5}, extents={0: (0.5, 0.5)})
     graph_data = await graph.get_data(request)
 
     points_request = PointsSliceRequest(
@@ -40,6 +39,15 @@ async def test_slab_equivalence_with_points_store(make_request):
 
     assert np.array_equal(graph_data.original_node_rows, points_data.original_indices)
     assert np.allclose(graph_data.node_positions, points_data.positions)
+
+
+async def test_an_axis_with_no_extent_is_a_plane(make_request):
+    """The store adds no window of its own: a sliced axis the request gives
+    no extent for selects only the nodes on the plane."""
+    positions = np.array([[5.0, 0, 0], [5.4, 1, 1], [4.6, 2, 2]], dtype=np.float32)
+    store = GraphMemoryStore.from_arrays(positions, np.zeros((0, 2), dtype=np.int32))
+    data = await store.get_data(make_request(displayed=(1, 2), sliced={0: 5}))
+    assert data.original_node_rows.tolist() == [0]
 
 
 async def test_either_endpoint_rule(make_request):

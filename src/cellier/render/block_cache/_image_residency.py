@@ -39,6 +39,7 @@ from cellier.render._level_mapping import level_to_data
 from cellier.render.block_cache._tile_manager_2d import BlockKey2D
 from cellier.render.block_cache._tile_manager_2d import TileSlot as TileSlot2D
 from cellier.render.block_cache._tile_manager_3d import BlockKey3D, TileSlot
+from cellier.render.scheduling._types import DEFAULT_CACHE_POLICY, CachePolicy
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -203,6 +204,9 @@ class _AtlasResidency:
     """
 
     _NDIM: int = 3
+
+    #: An atlas's reads are I/O with no cap of their own: the default.
+    policy: CachePolicy = DEFAULT_CACHE_POLICY
 
     def __init__(
         self,

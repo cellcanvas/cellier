@@ -70,6 +70,11 @@ def main() -> None:
         render_modes={"2d", "3d"},
     )
 
+    # A slice with no thickness is a plane: only what lies exactly on it is
+    # drawn.  Give the sliced z axis a slab, so the 2D view shows the points
+    # within half a unit of the slice.
+    controller.update_thickness(scene.id, {0: 0.5})
+
     appearance = PointsMarkerAppearance(
         color=(0.2, 0.8, 1.0, 1.0),
         size=6.0,

@@ -42,10 +42,10 @@ _PLACEHOLDER_N_EDGE_VERTICES = 2
 #: Guard against a zero falloff distance in the trail-fade divide.
 _FALLOFF_EPS = 1e-6
 
-#: Slab half-extent used for a sliced axis carrying no TrailConfig.  Matches
-#: the hardcoded thickness in the points and lines request builders, so a
-#: graph with no trail slices identically to them.
-_DEFAULT_EXTENT = (0.5, 0.5)
+#: Half-extent of a sliced axis the request gives no extent for: a plane.
+#: The render visual always sends one, from the scene's thickness and the
+#: trail.
+_NO_EXTENT = (0.0, 0.0)
 
 _GRAPH_EXTRA_MSG = (
     "requires the 'graph' extra: pip install 'cellier[graph]' "
@@ -839,7 +839,7 @@ class GraphMemoryStore(BaseDataStore):
         """Boolean (n_nodes,) mask of nodes inside the slab on every axis."""
         mask = np.ones(self.n_nodes, dtype=bool)
         for axis, idx in request.slice_positions.items():
-            before, after = request.extents.get(axis, _DEFAULT_EXTENT)
+            before, after = request.extents.get(axis, _NO_EXTENT)
             coord = self.positions[:, axis]
             mask &= (coord >= idx - before) & (coord <= idx + after)
         return mask
@@ -890,7 +890,7 @@ class GraphMemoryStore(BaseDataStore):
         roi_min = np.full(self.ndim, -np.inf, dtype=dtype)
         roi_max = np.full(self.ndim, np.inf, dtype=dtype)
         for axis, idx in request.slice_positions.items():
-            before, after = request.extents.get(axis, _DEFAULT_EXTENT)
+            before, after = request.extents.get(axis, _NO_EXTENT)
             roi_min[axis] = idx - before
             roi_max[axis] = idx + after
         roi = np.stack([roi_min, roi_max])
@@ -917,7 +917,7 @@ class GraphMemoryStore(BaseDataStore):
         """Slab test for a set of node rows -- the ROI refinement, O(k)."""
         keep = np.ones(rows.shape[0], dtype=bool)
         for axis, idx in request.slice_positions.items():
-            before, after = request.extents.get(axis, _DEFAULT_EXTENT)
+            before, after = request.extents.get(axis, _NO_EXTENT)
             coord = self.positions[rows, axis]
             keep &= (coord >= idx - before) & (coord <= idx + after)
         return keep

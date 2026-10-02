@@ -246,7 +246,15 @@ class ChunkScheduler:
         """
         if self._closed:
             return []
-        return self.core.commit_round(scene)
+        touched = self.core.commit_round(scene)
+        # A cache with a target cap holds its target read while a backstop
+        # arrival waits for this round, so the round has to pump.  After
+        # every round, not only one that committed: a round that discards an
+        # arrival frees the hold without touching the cache.  For a cache
+        # with the default policy a round changes neither what is queued nor
+        # any capacity, so this issues nothing.
+        self._pump()
+        return touched
 
     def _arm_fallback(self) -> None:
         if self._fallback_handle is not None or self._closed:
@@ -268,7 +276,7 @@ class ChunkScheduler:
         # A round scoped to one scene resets only that scene's wait, so
         # re-check: fire only once an arrival has waited the full interval.
         if self.core.now() - oldest >= self.config.commit_fallback_s * 0.999:
-            self._draw_caches(self.core.commit_round(ALL_SCENES))
+            self._draw_caches(self.commit_round(ALL_SCENES))
         self._arm_fallback()
 
     def _draw_caches(self, cache_ids: Iterable[int]) -> None:

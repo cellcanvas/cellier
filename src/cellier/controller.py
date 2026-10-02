@@ -6361,6 +6361,14 @@ class CellierController:
             self.update_displayed_axes(
                 event.scene_id, event.displayed_axes, source_id=event.source_id
             )
+        if event.thickness is not None:
+            # Merged: a spin box names only its own axis.
+            current = self._model.scenes[event.scene_id].dims.selection.thickness
+            self.update_thickness(
+                event.scene_id,
+                {**current, **event.thickness},
+                source_id=event.source_id,
+            )
 
     def _on_dims_interaction_update(self, event: DimsInteractionUpdateEvent) -> None:
         if event.phase == "begin":

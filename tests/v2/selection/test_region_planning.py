@@ -102,20 +102,13 @@ async def test_the_region_collapses_to_the_rounded_plane(kind, slice_position):
     assert _plan(controller, scene, visual) == [(expected, (0, 20), (0, 30), (0, 40))]
 
 
+@pytest.mark.parametrize("kind", ["image", "labels"])
 @pytest.mark.parametrize("slice_position", [9.5, 99.0, -0.6])
-async def test_labels_clamp_a_slice_outside_the_data(slice_position):
-    """Labels keep the clamping assembler (design 3.2)."""
-    controller, scene, visual = _viewer("labels")
-    controller.update_slice_indices(scene.id, {0: slice_position})
-    expected = round_world_to_voxel(slice_position, _SHAPE[0])
-    assert _plan(controller, scene, visual) == [(expected, (0, 20), (0, 30), (0, 40))]
-
-
-@pytest.mark.parametrize("slice_position", [9.5, 99.0, -0.6])
-async def test_an_image_draws_nothing_for_a_slice_outside_the_data(slice_position):
-    """``[-0.5, size - 0.5)`` is the data's extent; outside it an image plans no
-    request and hides its data node (design 3.2)."""
-    controller, scene, visual = _viewer("image")
+async def test_a_slice_outside_the_data_draws_nothing(kind, slice_position):
+    """``[-0.5, size - 0.5)`` is the data's extent; outside it an image or a
+    labels visual plans no request and hides its data node (design 3.2).
+    Labels clamped to the end plane until they took the image rule."""
+    controller, scene, visual = _viewer(kind)
     gfx = controller._render_manager._scenes[scene.id].get_visual(visual.id)
     controller.update_slice_indices(scene.id, {0: slice_position})
     assert _plan(controller, scene, visual) == []
@@ -161,34 +154,27 @@ async def test_planning_without_a_region_is_now_an_error(kind):
         _plan(controller, scene, visual, with_region=False)
 
 
-async def test_a_thickness_on_the_collapsed_axis_fetches_a_slab_for_labels():
-    """The extension design 3.7 promises: everything downstream of the region
-    is untouched, and only the editor's thickness moves."""
-    controller, scene, visual = _viewer("labels")
-    controller.update_slice_indices(scene.id, {0: 4.0})
-    scene.dims.selection.thickness = {0: 1.5}
-    assert _plan(controller, scene, visual, with_region=True) == [
-        ((3, 7), (0, 20), (0, 30), (0, 40))
-    ]
-
-
+@pytest.mark.parametrize("kind", ["image", "labels"])
 @pytest.mark.parametrize(
     "slice_position, half_thickness, expected",
     [(4.0, 1.5, 4), (4.4, 1.5, 4), (11.0, 2.0, 9), (-2.0, 1.5, 0)],
 )
-async def test_a_thickness_on_an_image_draws_the_nearest_plane_in_it(
-    slice_position, half_thickness, expected
+async def test_a_thickness_draws_the_nearest_plane_in_it(
+    kind, slice_position, half_thickness, expected
 ):
-    """An image draws one plane per sliced axis: the sample nearest the slice
-    position whose extent overlaps the band (design 3.2)."""
-    controller, scene, visual = _viewer("image")
+    """An image-like visual draws one plane per sliced axis: the sample
+    nearest the slice position whose extent overlaps the band (design 3.2).
+    Labels planned the whole range of planes until they took this rule, which
+    a 2D tile cannot hold."""
+    controller, scene, visual = _viewer(kind)
     controller.update_slice_indices(scene.id, {0: slice_position})
     scene.dims.selection.thickness = {0: half_thickness}
     assert _plan(controller, scene, visual) == [(expected, (0, 20), (0, 30), (0, 40))]
 
 
-async def test_a_thickness_too_thin_to_reach_the_data_draws_nothing_for_an_image():
-    controller, scene, visual = _viewer("image")
+@pytest.mark.parametrize("kind", ["image", "labels"])
+async def test_a_thickness_too_thin_to_reach_the_data_draws_nothing(kind):
+    controller, scene, visual = _viewer(kind)
     controller.update_slice_indices(scene.id, {0: 11.0})
     scene.dims.selection.thickness = {0: 1.0}
     assert _plan(controller, scene, visual) == []

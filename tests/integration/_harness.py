@@ -364,6 +364,15 @@ XFAIL_GROUPS: dict[str, str] = {
         "design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit "
         "half-thickness in phase 6"
     ),
+    "explicit_thickness": (
+        "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an "
+        "axis with no thickness is a plane, and a discrete axis selects the "
+        "sample the slider is on"
+    ),
+    "labels_one_plane": (
+        "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and "
+        "nothing when the slice misses the data (they clamped before)"
+    ),
     "node_matrix_non_block_diagonal": (
         "design 3.6 site E -- the node matrix stops being select_axes in "
         "phase 3; identical for block-diagonal transforms, changes for "
@@ -1023,6 +1032,10 @@ def _mesh_store(ndim: int):
 # ---------------------------------------------------------------------------
 
 
+#: Groups whose change reaches identity transforms as well.
+_EVERY_TRANSFORM_GROUPS = frozenset({"explicit_thickness", "labels_one_plane"})
+
+
 @dataclass(frozen=True)
 class Family:
     name: str
@@ -1034,7 +1047,13 @@ class Family:
 
 FAMILIES: list[Family] = [
     Family("GFXImageMemoryVisual", "image", _make_image_memory_visual, _image_store),
-    Family("GFXLabelMemoryVisual", "image", _make_label_memory_visual, _label_store),
+    Family(
+        "GFXLabelMemoryVisual",
+        "image",
+        _make_label_memory_visual,
+        _label_store,
+        xfail_groups=("labels_one_plane",),
+    ),
     Family(
         "GFXMultichannelImageMemoryVisual",
         "image",
@@ -1046,28 +1065,28 @@ FAMILIES: list[Family] = [
         "geometry",
         _make_points_visual,
         _points_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness"),
+        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXLinesMemoryVisual",
         "geometry",
         _make_lines_visual,
         _lines_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness"),
+        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXGraphMemoryVisual",
         "geometry",
         _make_graph_visual,
         _graph_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness"),
+        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXMeshMemoryVisual",
         "geometry",
         _make_mesh_visual,
         _mesh_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness"),
+        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXMultiscaleImageVisual",
@@ -1135,14 +1154,17 @@ def iter_cases():
         ):
             for tname, tspec in transforms.items():
                 for dname, dspec in dims.items():
-                    is_xfail = bool(family.xfail_groups) and tname not in (
-                        "identity",
-                        "identity4",
-                    )
+                    # Most groups change non-identity transforms only; the
+                    # ones in _EVERY_TRANSFORM_GROUPS change identity too.
+                    identity = tname in ("identity", "identity4")
+                    groups = [
+                        g
+                        for g in family.xfail_groups
+                        if not identity or g in _EVERY_TRANSFORM_GROUPS
+                    ]
+                    is_xfail = bool(groups)
                     reason = (
-                        "; ".join(XFAIL_GROUPS[g] for g in family.xfail_groups)
-                        if is_xfail
-                        else None
+                        "; ".join(XFAIL_GROUPS[g] for g in groups) if is_xfail else None
                     )
                     yield Case(
                         family,

@@ -23,7 +23,7 @@ from cellier.gui._axis_values import (
     nearest_value_index,
 )
 from cellier.gui._constants import DIMS_SLIDER_THROTTLE_MS
-from cellier.gui._dims import initial_slice_indices
+from cellier.gui._dims import initial_slice_indices, thickness_axes
 from cellier.gui.anywidget._teardown import close_aux_widgets
 
 if TYPE_CHECKING:
@@ -79,6 +79,16 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
     ``SliderAxesChangedEvent``.
     """
 
+    thickness = traitlets.Dict().tag(sync=True)
+    """Axis index (str) to that axis's half-thickness, in world units.
+
+    One entry per axis that has a thickness box; 0 is a plane.  The scene's
+    thickness is the only thickness in the slicing path.
+    """
+
+    thickness_axes = traitlets.List().tag(sync=True)
+    """World axes whose slider row gets a "+/-" half-thickness box."""
+
     throttle_ms = traitlets.Int(DIMS_SLIDER_THROTTLE_MS).tag(sync=True)
     """How often a slider drag reaches the bus, in ms.
 
@@ -106,6 +116,8 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         slice_indices: dict,
         displayed_axes: list | tuple = (),
         slider_axes: list | tuple | None = None,
+        thickness_axes: list | tuple | None = None,
+        thickness: Mapping[int, float] | None = None,
         axes_2d: tuple[int, ...] | None = None,
         axes_3d: tuple[int, ...] | None = None,
         **kwargs,
@@ -114,7 +126,16 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         is_3d = len(displayed_axes) == 3
         coerced = coerce_axis_values(axis_values)
         slices = {str(k): float(v) for k, v in slice_indices.items()}
+        # ``None`` gives every axis a box, as a panel built by hand expects.
+        boxed = (
+            [int(a) for a in coerced]
+            if thickness_axes is None
+            else [int(a) for a in thickness_axes if int(a) in coerced]
+        )
+        given = {int(k): float(v) for k, v in (thickness or {}).items()}
         super().__init__(
+            thickness={str(a): given.get(a, 0.0) for a in boxed},
+            thickness_axes=boxed,
             slice_indices=slices,
             axis_labels={str(k): str(v) for k, v in axis_labels.items()},
             axis_values={
@@ -138,6 +159,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         self._model_displayed_during_toggle: tuple[int, ...] | None = None
 
         self.observe(self._on_slice_indices, names="slice_indices")
+        self.observe(self._on_thickness, names="thickness")
         self.observe(self._on_toggle_click, names="_clicks")
         self.on_msg(self._on_custom_message)
 
@@ -182,6 +204,8 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
             slice_indices=initial_slice_indices(selection, axis_values),
             displayed_axes=getattr(selection, "displayed_axes", ()),
             slider_axes=scene.slider_axes,
+            thickness_axes=thickness_axes(scene),
+            thickness=getattr(selection, "thickness", None),
             axes_2d=axes_2d,
             axes_3d=axes_3d,
         )
@@ -234,6 +258,14 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
             for axis, value in event.slice_indices.items():
                 new_slices[str(axis)] = float(value)
             self._set_field("slice_indices", new_slices)
+            model_thickness = getattr(selection, "thickness", None) or {}
+            self._set_field(
+                "thickness",
+                {
+                    str(axis): float(model_thickness.get(int(axis), 0.0))
+                    for axis in self.thickness_axes
+                },
+            )
         # The displayed axes are applied even from our own echo: the event is
         # the model's state, and applying it twice is harmless.
         self._apply_displayed(tuple(selection.displayed_axes))
@@ -282,6 +314,29 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
                 displayed_axes=None,
                 # A slider move is a scrub tick (interaction tracker 4.8).
                 interactive=True,
+            )
+        )
+
+    def _on_thickness(self, change) -> None:
+        """Submit the half-thicknesses a box in the browser changed."""
+        if self._applying:
+            return
+        old = change.get("old") or {}
+        # Only the axes that changed: the controller merges.
+        updates = {
+            int(axis): float(value)
+            for axis, value in (change.get("new") or {}).items()
+            if axis not in old or float(old[axis]) != float(value)
+        }
+        if not updates:
+            return
+        self.changed.emit(
+            DimsUpdateEvent(
+                source_id=self._id,
+                scene_id=self._scene_id,
+                slice_indices=None,
+                displayed_axes=None,
+                thickness=updates,
             )
         )
 

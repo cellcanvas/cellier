@@ -19,10 +19,28 @@ The table below describes the core objects and data types used to orchestrate sl
 | **`AsyncSlicer`** | Generic cancellable batch-fetch service. One asyncio.Task per `slice_request_id` (the shared `ChunkRequest` ID, *not* `ReslicingRequest.request_id`); data source injected per-submit as `fetch_fn`. `submit` returns the `slice_request_id`, which `SliceCoordinator` stores keyed by `(scene, canvas, visual)` and later passes to `cancel`. |
 | **`SliceCoordinator`** | Orchestrator: per-`(scene,canvas,visual)` cancellation, planning dispatch, reslice-start/complete events. Routes multiscale visuals (2D and 3D) to the chunk scheduler. |
 | **`ChunkScheduler`** (`cellier.render.scheduling`) | Loads multiscale visuals, 2D and 3D. A persistent registry per atlas that each reslice *re-prioritises* instead of cancelling: one global in-flight budget, nearest bricks first, slots chosen at commit time, and only unwanted (`RECENT`) bricks evicted. |
+| **`CachePolicy`** | How the scheduler treats one cache's reads, declared by its `Residency` and read once at registration: a cap on target reads in flight (`max_target_fetching`; a backstop read is never held by it, and a capped cache starts its backstop and target reads of one plan together, holding the target only while a backstop result waits to be committed), the resource a read occupies (`"io"`, or `"compute"` for work done in an executor, which counts against `SchedulerConfig.compute_budget` and takes no I/O slot), and what a failure costs (`retry_max_attempts`, `retry_on_pass`). The default is what an image or labels atlas wants. |
 | **`Residency`** / `ImageResidency3D` / `ImageResidency2D` | The scheduler's adapter for one atlas: writes a brick (tile) into the slot the scheduler chose, turns keys back into store requests, and repaints the LUT. |
 | **GPU brick/tile cache** (multiscale) | Fixed-slot texture atlas. `write_brick` / `write_tile` upload into a slot. |
 | **`TileManager2D` / `TileManager3D`** | The atlas's slot geometry and a read-only `tilemap` view of what the LUT draws.  Which brick lives in which slot is the scheduler's registry. |
 | **LUT indirection texture** | Maps virtual brick-grid coordinates → physical atlas slot + level; the shader walks it to sample resident bricks. Painted coarsest→finest so finer bricks cover coarser fallbacks; bricks from earlier views are painted underneath (oldest first) until the current view is complete. The writer and the shaders share one cell → brick rule; see [Multiscale brick lookup](multiscale_brick_lookup.md). |
+
+## Slice thickness
+
+A sliced axis has a position and a **half-thickness**, both in world units. The thickness lives on the scene (`scene.dims.selection.thickness`, set with `controller.update_thickness(scene_id, {axis: half_thickness})` or the "+/-" box next to each slider) and it is the only thickness in the slicing path. An axis with no entry has thickness 0: a plane. No visual adds a thickness of its own.
+
+What each kind of visual draws from that slab:
+
+| Visual | Draws |
+|---|---|
+| Image, labels (in-memory and multiscale) | **One plane**: the sample nearest the slice position whose extent overlaps the slab. Nothing when no sample does (a slice past the data). |
+| Points, lines, mesh | What lies **inside** the slab. At thickness 0, only what lies exactly on the plane. |
+| Graph | What lies inside the slab, widened by the trail on axes that have one. A trail widens the slab and never narrows it. |
+
+On an axis whose data axis is declared `sampling="discrete"` (a frame index), a geometry visual anchors the slab at the **sample the slider selects**, with the same round-half-up rule an image uses. So thickness 0 on a time axis draws exactly the current frame, and geometry changes frame at the same instant an image does.
+
+!!! note "Geometry on a continuous axis needs a thickness"
+    Points, lines and meshes have no extent, so a plane on a continuous axis (a spatial `z`) draws only what sits exactly on it, which is usually nothing. Give the axis a thickness to see the geometry near the slice.
 
 ## Slicing flow
 
@@ -62,7 +80,7 @@ From the perspective of slicing, there are two main flavors of visuals: in-memor
 
 **Fetch** (async)
 
-5. The scheduler issues reads, nearest first, up to `SchedulerConfig.max_in_flight` across every visual and channel, round robin between atlases.  `Residency.build_request` turns a key into a `ChunkRequest`.  Reads are never aborted.
+5. The scheduler issues reads, nearest first, up to `SchedulerConfig.max_in_flight` across every visual and channel, round robin between atlases.  `Residency.build_request` turns a key into a `ChunkRequest`.  Reads are never aborted.  A cache whose policy is `resource="compute"` uses a separate budget, `SchedulerConfig.compute_budget`: a full compute lane never delays an I/O read, and the other way round.
 
 **Commit** (main thread, once per drawn frame)
 
