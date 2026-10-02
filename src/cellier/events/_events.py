@@ -226,6 +226,27 @@ class AABBChangedEvent(NamedTuple):
     new_value: Any
 
 
+class MeshSectionChangedEvent(NamedTuple):
+    """A field of a mesh visual's ``section`` config changed.
+
+    Attributes
+    ----------
+    source_id : UUID
+        Who made the change, for echo filtering.
+    visual_id : UUID
+        The mesh visual.
+    field_name : str
+        ``"mode"``, ``"outline"``, ``"fill"`` or ``"outline_width"``.
+    new_value : Any
+        The field's new value.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    field_name: str
+    new_value: Any
+
+
 class VisualVisibilityChangedEvent(NamedTuple):
     source_id: UUID
     visual_id: UUID
@@ -776,9 +797,26 @@ class ImagePickInfo(NamedTuple):
 
 
 class MeshPickInfo(NamedTuple):
-    """Element-level pick result for a mesh visual (stub; filled in a later phase)."""
+    """Element-level pick result for a mesh visual: what was drawn there.
 
-    face_index: int
+    Attributes
+    ----------
+    face_index : int or None
+        The face under the cursor, in the numbering of the level that was
+        drawn (the store's faces for a single-level mesh).  ``None`` for
+        ``part="fill"``: the area a section's loop encloses is no face.
+    part : {"face", "outline", "fill"}
+        ``"face"``: a face of the mesh (a 3D view, or a face lying in the
+        slice plane of a 2D view).  ``"outline"``: the section's outline;
+        ``face_index`` is the face the plane crosses there.  ``"fill"``: the
+        section's fill.
+    level : int
+        The level that was drawn, 0 the finest.
+    """
+
+    face_index: int | None
+    part: Literal["face", "outline", "fill"] = "face"
+    level: int = 0
 
 
 class LabelsPickInfo(NamedTuple):

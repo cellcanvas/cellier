@@ -34,13 +34,34 @@ What each kind of visual draws from that slab:
 | Visual | Draws |
 |---|---|
 | Image, labels (in-memory and multiscale) | **One plane**: the sample nearest the slice position whose extent overlaps the slab. Nothing when no sample does (a slice past the data). |
-| Points, lines, mesh | What lies **inside** the slab. At thickness 0, only what lies exactly on the plane. |
+| Points, lines | What lies **inside** the slab. At thickness 0, only what lies exactly on the plane. |
+| Mesh, 3D view | Faces that lie wholly **inside** the slab. |
+| Mesh, 2D view | Its **cross-section** at the slice plane: an outline where the surface crosses the plane, and a fill where the outline closes. The thickness on the cut axis is ignored unless the mesh's section mode is `"slab"`. See [A mesh in a 2D view](#a-mesh-in-a-2d-view). |
 | Graph | What lies inside the slab, widened by the trail on axes that have one. A trail widens the slab and never narrows it. |
 
 On an axis whose data axis is declared `sampling="discrete"` (a frame index), a geometry visual anchors the slab at the **sample the slider selects**, with the same round-half-up rule an image uses. So thickness 0 on a time axis draws exactly the current frame, and geometry changes frame at the same instant an image does.
 
-!!! note "Geometry on a continuous axis needs a thickness"
-    Points, lines and meshes have no extent, so a plane on a continuous axis (a spatial `z`) draws only what sits exactly on it, which is usually nothing. Give the axis a thickness to see the geometry near the slice.
+!!! note "Points and lines on a continuous axis need a thickness"
+    Points and lines have no extent, so a plane on a continuous axis (a spatial `z`) draws only what sits exactly on it, which is usually nothing. Give the axis a thickness to see the geometry near the slice. A mesh needs none: a 2D view cuts it.
+
+### A mesh in a 2D view
+
+A 2D view cuts a mesh with the slice plane and draws the cut. How is set per mesh, on its `section` config (`MeshSectionConfig`), in `add_mesh(..., section=...)`, with `controller.update_section_field(visual_id, field, value)`, or in the "2D section" control group (`MeshControlsConfig(section_controls=True)`), which is shown only while the scene displays two dimensions:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `outline` | `True` | Draw the curve where the surface crosses the plane. |
+| `fill` | `True` | Fill the area closed loops enclose. See the fill rule below. |
+| `outline_width` | `2.0` | Outline thickness in screen pixels. Applies at once; the other fields read the mesh again. |
+| `mode` | `"cut"` | `"cut"`: the cut by the slice plane; the scene's thickness on that axis is ignored. `"slab"`: what lies inside the scene's slab: the surface between its two faces, flattened, with a cap at each face and both cuts as the outline. |
+
+- **Only spatial, continuous axes are cut.** Along any other sliced axis (time, a channel, an axis declared `sampling="discrete"`) the mesh is filtered face by face, as in 3D. A `tzyx` series in a `yx` view is filtered by `t` and cut at `z`.
+- **A mesh with no extent along the sliced axis is not cut.** A `yx` mesh in a `zyx` world is drawn whole, at every `z`.
+- **Faces lying in the plane are drawn as themselves**, with their border as the outline. A flat mesh at one `z` shows on that plane and nowhere else.
+- **The fill follows the faces' winding.** A loop whose faces point out of it is the boundary of a solid; one whose faces point into it, of a cavity. A region is filled where the solids around it are not cancelled by cavities. So an object inside another object is filled with it, and a cavity inside an object is a hole. A mesh wound inside out is filled the same. When loops nest and the faces along one of them disagree, that nest is filled even-odd instead: a loop inside another is a hole.
+- **An open surface has no fill where its cut does not close.** `dataset_info` reports whether a mesh is closed, once it has been cut the first time.
+- **Outline and fill share the mesh's colour and opacity.** With both on, the outline is visible only where the fill is not opaque over it.
+- **Picks say what was drawn**: `MeshPickInfo.part` is `"outline"` (with the face the plane crosses there), `"fill"` (no face) or `"face"` (a face lying in the plane, or any face in 3D).
 
 ## Slicing flow
 
@@ -201,6 +222,24 @@ In the ortho viewer, `OrthoDimsController` mirrors positions to the other panels
 
 A transition detected inside a draw (a camera tick, the controller's scope closing) must not plan there. Its reslice is queued as a task on the event loop, one per scene. `CellierController._deferred_reslice_tasks` reports those tasks and both kinds of stillness timers, so a drain (`convenience.capture`, the test helpers) waits for a reslice that is still to come.
 
+## How a mesh loads
+
+A mesh (`GFXMeshVisual`) loads through the chunk scheduler, like a multiscale image, and not through `AsyncSlicer`. What it loads is a whole level of the mesh at one request, not bricks.
+
+- **The read runs off the event loop.** `MeshMemoryStore.get_data` slices in an executor thread and returns arrays ready to upload. At most `SchedulerConfig.compute_budget` such reads run at once, over all meshes.
+- **One read at a time per mesh, and the newest request wins.** A read cannot be cancelled, so while one runs the next waits; a request the slider has since left is dropped before it starts.
+- **An unchanged request reads nothing.** A request is identified by the region it selects in the mesh's own data coordinates. A slider the mesh does not depend on, a camera move, an appearance change, and a transform change that leaves the region where it was all leave the request as it was.
+- **A mesh never draws a position other than the slider's.** When the request changes, the mesh stops being drawn in the next frame and returns when the new position has loaded. A read that lands for a position the slider has left is never drawn. During a scrub faster than the reads, the mesh is absent and returns when the slider rests.
+- **A canvas waits a moment for a read before it draws the gap.** After a dims change, while a mesh is hidden for a read, the canvas skips frames and keeps its last picture, for at most `RenderManagerConfig.draw_hold_ms` (default 50 ms). A read that lands in that time is drawn with no blank frame before it; a slower one leaves the mesh absent until it loads, as above. The picture kept is of the position just left. Camera input ends the wait at once, and 0 turns it off. Only visuals that hide while they load are waited for: an in-memory image or points keep their old picture until the new data arrives, and a multiscale image fills in as chunks land.
+- **Nothing is kept for a revisit.** A position the slider leaves is released at once; coming back reads it again.
+- **A hidden mesh loads nothing.** Shown again at the same position it reads nothing; at another position it loads.
+- **A read that raises is tried once.** The error is logged and counted as failed in the visual's loading progress; the same request is not tried again until the store changes.
+- **Only a store change invalidates.** Reassigning the store's arrays drops what was read; a read in flight for the old arrays is discarded when it lands.
+
+The first read of a mesh builds what later reads share: an index of the faces along each sliced axis, and the vertex normals for a 3D view. That costs once per mesh and is paid again after the store changes. A mesh whose arrays are reassigned many times a second is not what this is built for.
+
+The mesh's bounding box and the camera fit use the store's whole extent (every timepoint of a series), not the faces of the current slice, so neither changes while the mesh loads.
+
 ## Canceling requests
 
 During interactive use the dims and camera models change faster than data loads complete, so a new reslice usually *supersedes* an in-flight one. Canceling the superseded load stops wasted reads from the data store and prevents stale data from committing to the GPU after the view has already moved on.
@@ -219,7 +258,8 @@ There are four actions/events that cancel an in-flight fetch:
 Whether a visual's in-flight load is canceled is gated by its `cancellable` property:
 
 - The image and label visuals -- both in-memory (`GFXImageMemoryVisual`, `GFXLabelMemoryVisual`) and multiscale (`GFXMultiscaleImageVisual`, `GFXMultiscaleLabelVisual`) -- default to `cancellable = True`, so a superseding reslice cancels their in-flight reads.
-- The static-geometry in-memory visuals (mesh, points, lines) are `cancellable = False`. Their tasks always run to completion so every intermediate slice position reaches the GPU. This is because these tend to be very fast to slice and thus there isn’t a need to cancel.
+- The in-memory points and lines visuals are `cancellable = False`. Their tasks always run to completion so every intermediate slice position reaches the GPU. This is because these tend to be very fast to slice and thus there isn’t a need to cancel.
+- The mesh has no `cancellable` flag: it loads through the chunk scheduler, which never cancels (see [How a mesh loads](#how-a-mesh-loads)).
 
 `SliceCoordinator.submit` checks this flag for each visual it is about to re-submit and only cancels the ones marked cancellable.
 

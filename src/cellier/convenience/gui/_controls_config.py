@@ -380,6 +380,13 @@ class MeshControlsConfig(BaseControlsConfig):
     ----------
     appearance : list[AppearanceField] or bool
         Appearance fields.  ``True`` shows every field this class drives.
+    section_controls : bool
+        Show the "2D section" group: how the mesh is drawn in a 2D view
+        (outline, fill, outline width, and whether the cut is the slice
+        plane or the scene's slab; see
+        :class:`~cellier.visuals.MeshSectionConfig`).  ``False`` (default)
+        omits it.  Like ``outline_controls`` it adds to the appearance
+        panel, so it needs ``appearance`` to be ``True`` or a field list.
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
@@ -391,6 +398,8 @@ class MeshControlsConfig(BaseControlsConfig):
         "shininess": "shininess",
         "flat_shading": "flat_shading",
     }
+
+    section_controls: bool = False
 
 
 @dataclass

@@ -42,6 +42,7 @@ from cellier.gui.qt.visuals._loading_config import QtLoadingConfigControls
 from cellier.gui.qt.visuals._lod_bias import QtLodBiasSlider
 from cellier.gui.qt.visuals._mesh import (
     QtFlatShadingToggle,
+    QtMeshSectionControls,
     QtShininessSpin,
     QtSideCombo,
     QtWireframeThicknessSpin,
@@ -74,6 +75,7 @@ __all__ = [
     "QtLoadingConfigControls",
     "QtLoadingIndicator",
     "QtLodBiasSlider",
+    "QtMeshSectionControls",
     "QtNodeColorPicker",
     "QtNodeSizeSpaceCombo",
     "QtNodeSizeSpin",

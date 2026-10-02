@@ -121,6 +121,27 @@ class SliderOverrideUpdateEvent(NamedTuple):
     value: bool | None
 
 
+class MeshSectionUpdateEvent(NamedTuple):
+    """Request to set one field of a mesh visual's ``section`` config.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``MeshSectionChangedEvent``.
+    visual_id :
+        Target mesh visual.
+    field :
+        Attribute name on ``MeshSectionConfig``, e.g. ``"outline"``.
+    value :
+        New value for the field.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    field: str
+    value: Any
+
+
 class AABBUpdateEvent(NamedTuple):
     """Request to set one AABB parameter field on a visual.
 

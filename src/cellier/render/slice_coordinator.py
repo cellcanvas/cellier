@@ -39,7 +39,7 @@ class SliceCoordinator:
     other visuals — and other canvases — in the same scene running.
 
     **Chunked visuals** (``is_chunked_visual``: the multiscale image and
-    labels) take a different path, 2D and 3D (``plans/progressive_loading_
+    labels, and the mesh) take a different path, 2D and 3D (``plans/progressive_loading_
     design_v3.md`` 4.2): they are planned into desired sets and handed to the
     shared :class:`~cellier.render.scheduling.ChunkScheduler`, which never
     cancels.  The coordinator keeps the scheduler's cache registrations in
@@ -105,7 +105,8 @@ class SliceCoordinator:
         to each visual's ``cancellable`` property.  Visuals with
         ``cancellable = False`` are never cancelled; their tasks run to
         completion so every intermediate position reaches the GPU.  This is the
-        case for the static-geometry in-memory visuals (mesh, lines, points).
+        case for the in-memory lines and points visuals.  The mesh is not
+        among them: it is a chunked visual, loaded by the scheduler.
         The image and label visuals -- both in-memory
         (``GFXImageMemoryVisual``, ``GFXLabelMemoryVisual``) and multiscale
         (``GFXMultiscaleImageVisual``, ``GFXMultiscaleLabelVisual``) -- default

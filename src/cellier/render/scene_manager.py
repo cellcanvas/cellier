@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from cellier.render.visuals._image import GFXMultiscaleImageVisual
     from cellier.render.visuals._image_memory import GFXImageMemoryVisual
     from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
-    from cellier.render.visuals._mesh_memory import GFXMeshMemoryVisual
+    from cellier.render.visuals._mesh import GFXMeshVisual
     from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
     from cellier.render.visuals._scene_overlay import GFXSceneOverlay
 
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
         | GFXImageMemoryVisual
         | GFXPointsMemoryVisual
         | GFXLinesMemoryVisual
-        | GFXMeshMemoryVisual
+        | GFXMeshVisual
         | GFXGraphMemoryVisual
     )
 

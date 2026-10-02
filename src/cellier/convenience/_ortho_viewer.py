@@ -89,7 +89,11 @@ if TYPE_CHECKING:
     )
     from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
     from cellier.visuals._loading import ProgressiveLoadingConfig
-    from cellier.visuals._mesh_memory import MeshAppearance, MeshVisual
+    from cellier.visuals._mesh_memory import (
+        MeshAppearance,
+        MeshSectionConfig,
+        MeshVisual,
+    )
     from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 
 _T = TypeVar("_T", bound="BaseDataStore")
@@ -1122,6 +1126,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         controls: MeshControlsConfig | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
+        section: MeshSectionConfig | None = None,
     ) -> dict[str, MeshVisual]:
         """Add a mesh to every panel from a single data store.
 
@@ -1150,6 +1155,12 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Whether this visual receives ambient occlusion.  ``None``
             (default) is automatic: excluded while it renders in a
             MIP-family mode, included otherwise.
+        section : MeshSectionConfig or None
+            How the mesh is drawn in a 2D view: the outline and fill of its
+            cross-section, and whether the cut is the slice plane
+            (``mode="cut"``) or the scene's slab (``mode="slab"``).
+            ``None`` (default) is an outline and a fill of the cut.  Each
+            panel's visual gets its own copy.
 
         Returns
         -------
@@ -1165,6 +1176,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 transform,
                 outline=outline,
                 ambient_occlusion=ambient_occlusion,
+                section=None if section is None else section.model_copy(),
             )
         )
         self._record_controls(visuals, controls, name)

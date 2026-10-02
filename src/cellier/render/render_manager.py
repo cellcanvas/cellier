@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from cellier.render.visuals._image import GFXMultiscaleImageVisual
     from cellier.render.visuals._image_memory import GFXImageMemoryVisual
     from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
-    from cellier.render.visuals._mesh_memory import GFXMeshMemoryVisual
+    from cellier.render.visuals._mesh import GFXMeshVisual
     from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
     from cellier.render.visuals._scene_overlay import GFXSceneOverlay
     from cellier.scene._background import BackgroundAppearance
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
         | GFXImageMemoryVisual
         | GFXPointsMemoryVisual
         | GFXLinesMemoryVisual
-        | GFXMeshMemoryVisual
+        | GFXMeshVisual
     )
 
 
@@ -248,6 +248,33 @@ class RenderManager:
                 canvas_view = self._canvases.get(canvas_id)
                 if canvas_view is not None:
                     canvas_view.request_draw()
+
+    def hold_draws(self, scene_id: UUID) -> None:
+        """Let the canvases of *scene_id* keep their picture while a read lands.
+
+        Called after a dims change has been planned.  Each canvas holds its
+        frame for up to ``config.draw_hold_ms`` while a visual of the scene
+        that hides until its data loads (one with ``awaits_data``) is still
+        waiting.  Visuals that keep their old picture, or fill in as chunks
+        arrive, are not waited for.
+        """
+        seconds = self._config.draw_hold_ms / 1000.0
+        if seconds <= 0.0:
+            return
+
+        def waiting() -> bool:
+            sm = self._scenes.get(scene_id)
+            if sm is None:
+                return False
+            return any(
+                getattr(sm.get_visual(vid), "awaits_data", False)
+                for vid in sm.visual_ids
+            )
+
+        if not waiting():
+            return
+        for canvas_view in self._find_canvases_for_scene(scene_id):
+            canvas_view.hold_draws(seconds, waiting)
 
     def invalidate_store(
         self, store_id: UUID, regions: tuple | None = None
@@ -982,7 +1009,7 @@ class RenderManager:
         if self._config.outline.enabled:
             self._warn_if_outline_unavailable()
         # Wire up per-frame tick for visuals (e.g. jitter seed advance).
-        canvas_view._tick_visuals_fn = self._make_tick_fn(scene_id)
+        canvas_view._tick_visuals_fn = self._make_tick_fn(scene_id, canvas_view)
         # Commit what the chunk scheduler has received just before each frame
         # of this canvas is drawn, scoped to its scene (design 5.7).  Every
         # canvas of the scene is hooked, including capture canvases.
@@ -1055,6 +1082,12 @@ class RenderManager:
         self._scenes[scene_id].set_axis_extents(
             visual_id, _slice_check_extents(data_store)
         )
+        # A visual that sizes itself from the store's extent (the mesh's
+        # bounding box and placeholders) adopts the new one.
+        visual = self._scenes[scene_id].get_visual(visual_id)
+        adopt = getattr(visual, "set_axis_extents", None)
+        if adopt is not None:
+            adopt(getattr(data_store, "axis_extents", None))
 
     def add_canvas_overlay(
         self,
@@ -1354,7 +1387,6 @@ class RenderManager:
         """
         from cellier.events._events import (
             LinesPickInfo,
-            MeshPickInfo,
             PointsPickInfo,
         )
         from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
@@ -1363,7 +1395,7 @@ class RenderManager:
         from cellier.render.visuals._label_memory import GFXLabelMemoryVisual
         from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
         from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
-        from cellier.render.visuals._mesh_memory import GFXMeshMemoryVisual
+        from cellier.render.visuals._mesh import GFXMeshVisual
         from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
 
         scene_manager = self._scenes[scene_id]
@@ -1387,11 +1419,9 @@ class RenderManager:
             return LinesPickInfo(
                 edge_index=gfx_visual.edge_index_for_vertex(int(index))
             )
-        if isinstance(gfx_visual, GFXMeshMemoryVisual):
-            index = pick_info.get("face_index")
-            if index is None:
-                return None
-            return MeshPickInfo(face_index=gfx_visual.face_index_for_pick(int(index)))
+        if isinstance(gfx_visual, GFXMeshVisual):
+            # The visual tells its level children apart and maps the face.
+            return gfx_visual.decode_pick(hit_object, pick_info)
         if isinstance(gfx_visual, GFXGraphMemoryVisual):
             # The compound visual discriminates on which child was hit, so
             # the branch delegates rather than reading vertex_index here.
@@ -1502,11 +1532,20 @@ class RenderManager:
         KeyError
             If ``canvas_id`` is not registered.
         """
-        self._canvas_to_scene.pop(canvas_id)
+        scene_id = self._canvas_to_scene.pop(canvas_id)
         self._unhook_canvas(canvas_id)
         self._canvases.pop(canvas_id).close()
         self._active_gestures.pop(canvas_id, None)
         self._pick_details_enabled.pop(canvas_id, None)
+        # Visuals that remember what each canvas drew (``prepare_draw``).
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is not None:
+            for visual_id in scene_manager.visual_ids:
+                forget = getattr(
+                    scene_manager.get_visual(visual_id), "forget_canvas", None
+                )
+                if forget is not None:
+                    forget(canvas_id)
 
     def _unhook_canvas(self, canvas_id: UUID) -> None:
         """Remove the canvas's commit hook (see ``add_canvas``)."""
@@ -1579,16 +1618,33 @@ class RenderManager:
             if reset is not None:
                 reset()
 
-    def _make_tick_fn(self, scene_id: UUID):
-        """Return a callable that ticks all visuals in *scene_id*."""
+    def _make_tick_fn(self, scene_id: UUID, canvas_view: CanvasView):
+        """Return one canvas's per-frame hook over the visuals of *scene_id*.
+
+        Called in that canvas's frame, just before it renders.  Each visual
+        is ticked, and a visual with ``prepare_draw`` chooses what this
+        canvas draws of it (``plans/mesh_refactor_v3.md`` L3): the scene
+        graph is shared by every canvas of the scene, and canvases render
+        one after another, so the choice is made per canvas, per frame.
+        When a visual reports that what it draws changed, the canvas
+        discards its accumulation history in the same frame.
+        """
+        canvas_id = canvas_view.canvas_id
 
         def _tick():
             sm = self._scenes.get(scene_id)
             if sm is None:
                 return
+            changed = False
             for vid in sm.visual_ids:
                 vis = sm.get_visual(vid)
                 vis.tick()
+                prepare_draw = getattr(vis, "prepare_draw", None)
+                if prepare_draw is not None:
+                    # Phase 7 supplies dims_scrubbing, Phase 8 camera_moving.
+                    changed |= bool(prepare_draw(canvas_id, False, False))
+            if changed:
+                canvas_view._accum_pass.reset()
 
         return _tick
 

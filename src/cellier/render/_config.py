@@ -346,6 +346,16 @@ class RenderManagerConfig(BaseModel):
         Screen-space ambient occlusion settings.  Disabled by default.
         The pass that implements it is still called SSAO -- that is the
         algorithm's name -- but the setting is named for what it does.
+    draw_hold_ms : float
+        After a dims change, how long a canvas may skip frames, keeping its
+        last picture, while a visual that hides until its data loads (a
+        mesh) waits for its read.  A read that lands within this time is
+        drawn with no blank frame before it; after it the canvas draws as
+        usual, the visual hidden until it loads.  The picture kept is of
+        the position just left, and this is the most the hold delays a
+        frame.  A canvas draws about every 33 ms, so a value under that
+        skips one frame at most.  0 turns the hold off.  Camera input ends
+        a hold at once.
 
     Examples
     --------
@@ -370,3 +380,4 @@ class RenderManagerConfig(BaseModel):
     ambient_occlusion: AmbientOcclusionConfig = Field(
         default_factory=AmbientOcclusionConfig
     )
+    draw_hold_ms: float = Field(default=50.0, ge=0.0)

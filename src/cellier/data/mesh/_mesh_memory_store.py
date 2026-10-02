@@ -1,11 +1,16 @@
 # src/cellier/v2/data/mesh/_mesh_memory_store.py
 from __future__ import annotations
 
-import asyncio
 from typing import Any, ClassVar, Literal
 
 import numpy as np
-from pydantic import ConfigDict, field_serializer, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    PrivateAttr,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from cellier.data._base_data_store import BaseDataStore, geometry_axis_extents
 from cellier.data._dataset_info import (
@@ -14,43 +19,22 @@ from cellier.data._dataset_info import (
     array_extent_row,
     format_bytes,
 )
-from cellier.data.mesh._mesh_requests import MeshData, MeshSliceRequest
+from cellier.data.mesh._mesh_requests import (  # noqa: TC001
+    MeshData,
+    MeshSliceRequest,
+)
+from cellier.data.mesh._mesh_slicing import (
+    PLACEHOLDER_INDICES,
+    LevelCache,
+    MeshLevelArrays,
+    closure_text,
+    compute_vertex_normals,
+    run_slice,
+)
 
-# Single degenerate triangle used when the slab contains no surviving faces.
-_PLACEHOLDER_INDICES = np.array([[0, 1, 2]], dtype=np.int32)
-
-
-def _compute_vertex_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
-    """Compute area-weighted per-vertex normals from triangle soup.
-
-    Parameters
-    ----------
-    positions : np.ndarray
-        (n_vertices, 3) float32 vertex positions.
-    indices : np.ndarray
-        (n_faces, 3) int32 triangle face indices.
-
-    Returns
-    -------
-    np.ndarray
-        (n_vertices, 3) float32 unit normals.  Degenerate vertices
-        (zero accumulated normal) get [0, 0, 1].
-    """
-    e1 = positions[indices[:, 1]] - positions[indices[:, 0]]
-    e2 = positions[indices[:, 2]] - positions[indices[:, 0]]
-    face_normals = np.cross(e1, e2)  # area-weighted, (n_faces, 3)
-
-    vertex_normals = np.zeros_like(positions)
-    np.add.at(vertex_normals, indices[:, 0], face_normals)
-    np.add.at(vertex_normals, indices[:, 1], face_normals)
-    np.add.at(vertex_normals, indices[:, 2], face_normals)
-
-    norms = np.linalg.norm(vertex_normals, axis=1, keepdims=True)
-    safe = norms > 0
-    vertex_normals = np.where(
-        safe, vertex_normals / np.where(safe, norms, 1.0), [0.0, 0.0, 1.0]
-    )
-    return vertex_normals.astype(np.float32)
+# Kept under their old names for callers that import them from here.
+_PLACEHOLDER_INDICES = PLACEHOLDER_INDICES
+_compute_vertex_normals = compute_vertex_normals
 
 
 class MeshMemoryStore(BaseDataStore):
@@ -113,6 +97,9 @@ class MeshMemoryStore(BaseDataStore):
     indices: np.ndarray
     colors: np.ndarray | None = None
     colors_layout: Literal["vertex", "face"] | None = None
+
+    # Normals and bounds indexes, shared by every read; replaced on a change.
+    _level_cache: LevelCache = PrivateAttr(default_factory=LevelCache)
 
     # validate_assignment so `store.colors = ...` re-runs the layout check.
     # Without it the invariant only holds at construction, and assigning
@@ -247,6 +234,11 @@ class MeshMemoryStore(BaseDataStore):
 
         ``colors_mode`` is deliberately absent: it describes how the mesh is
         drawn, not what the store holds.
+
+        ``Closed`` says whether the surface is watertight, which decides
+        whether a 2D section of it can be filled: an open surface draws its
+        outline only.  It is worked out by the first 2D section read, so it
+        reads "not computed" before one.
         """
         rows = [
             *self._identity_rows(),
@@ -255,128 +247,63 @@ class MeshMemoryStore(BaseDataStore):
             ("Dimensions", str(self.ndim)),
             *array_extent_row(self.positions),
             ("Memory", format_bytes(self.positions.nbytes + self.indices.nbytes)),
+            ("Closed", closure_text(self._level_cache.peek(("closure",)))),
         ]
         return DatasetInfo(sections=[RowSection(None, rows)])
 
     # ------------------------------------------------------------------
-    # Async data access — three checkpoints for cancellability
+    # Data access
     # ------------------------------------------------------------------
 
+    def _invalidate_caches(self, kind) -> None:
+        """Drop the slicing cache with any change to the mesh."""
+        super()._invalidate_caches(kind)
+        self._level_cache = LevelCache()
+
+    def level_arrays(self, level: int = 0) -> MeshLevelArrays:
+        """The arrays of *level*; this store has level 0 only."""
+        if level != 0:
+            raise ValueError(
+                f"MeshMemoryStore has one level (0); level {level} was asked for."
+            )
+        return MeshLevelArrays(
+            positions=self.positions,
+            indices=self.indices,
+            colors=self.colors,
+            colors_layout=self.colors_layout,
+        )
+
+    def level_cache(self, level: int = 0) -> LevelCache:
+        """What the reads of *level* share (normals, bounds indexes)."""
+        return self._level_cache
+
     async def get_data(self, request: MeshSliceRequest) -> MeshData:
-        """Return slab-filtered, reindexed mesh data for *request*.
+        """Return slab-filtered, reindexed, upload-ready mesh data.
 
-        Checkpoints
-        -----------
-        A  After Phase 1 (slab mask built, no reindexing yet).
-           Fires if slider moved before reindexing begins.
-        B  After Phase 2 (reindex complete, before projection).
-           Fires if slider moved before projection.
-
-        If CancelledError fires at either checkpoint the callback is
-        never called, preventing stale geometry from reaching the GPU.
+        The work runs in an executor thread
+        (:func:`~cellier.data.mesh._mesh_slicing.slice_mesh`), so the event
+        loop stays free.  There are no cancellation checkpoints: the chunk
+        scheduler, which issues these reads, never cancels one.
 
         Inclusion rule
         -------------
-        A face survives only when **all** of its vertices satisfy
-        ``slice_index - thickness <= coord <= slice_index + thickness``
-        on every sliced axis.  This is the mesh analogue of the lines
-        store's "both endpoints must pass" rule and avoids projecting
-        off-slice vertices onto the slice plane with the wrong colors.
+        A face survives only when **all** of its vertices are inside the
+        request's region.  This is the mesh analogue of the lines store's
+        "both endpoints must pass" rule and avoids projecting off-slice
+        vertices onto the slice plane with the wrong colors.
 
         Parameters
         ----------
         request : MeshSliceRequest
-            Built by GFXMeshMemoryVisual.build_slice_request[_2d].
+            Built by ``GFXMeshVisual``.
 
         Returns
         -------
         MeshData
             Filtered, reindexed, projected mesh ready for GPU upload.
-            Normals are computed from the projected geometry.
             ``is_empty=True`` when the slab contained no faces.
         """
-        positions = self.positions  # (n_vertices, N)
-        indices = self.indices  # (n_faces, 3)
-        colors = self.colors
-        n_vertices = positions.shape[0]
-        # Ascending: the uploaded vertex buffer's axis order is the data's,
-        # and a display permutation lives in the node matrix (design 3.14).
-        # ``retained_axes`` is read off the visual's ``data -> world``
-        # transform and is the right answer whenever the controller has placed
-        # the visual.  ``displayed_axes`` indexes the **world**, so using it
-        # here raises on a store of lower rank than the world and silently
-        # uploads the wrong columns on a transform that permutes its axes; it
-        # remains the fallback for a headlessly constructed visual, which has
-        # no transform to read.
-        displayed = list(request.retained_axes)
-        n_display = len(displayed)
-
-        # ── Phase 1: build slab mask ─────────────────────────────────
-        # The region is the filter (design 3.12).  A face survives when all
-        # three of its vertices do, which is the rule the per-axis loop
-        # applied one axis at a time.
-        face_mask = request.region.contains(positions)[indices].all(axis=1)
-
-        # ── Checkpoint A ─────────────────────────────────────────────
-        await asyncio.sleep(0)
-
-        # ── Phase 2: reindex surviving faces ─────────────────────────
-        surviving = indices[face_mask]  # (n_surv, 3)
-        surviving_faces = np.where(face_mask)[0]  # original face index per row
-
-        if surviving.shape[0] == 0:
-            # Empty slab — return placeholder so the node stays valid.
-            ph_pos = np.zeros((3, n_display), dtype=np.float32)
-            ph_nor = np.zeros((3, n_display), dtype=np.float32)
-            return MeshData(
-                request_id=request.slice_request_id,
-                positions=ph_pos,
-                indices=_PLACEHOLDER_INDICES,
-                normals=ph_nor,
-                colors=None,
-                color_mode="vertex",
-                is_empty=True,
-            )
-
-        unique_old = np.unique(surviving.ravel())
-        remap = np.full(n_vertices, -1, dtype=np.int32)
-        remap[unique_old] = np.arange(len(unique_old), dtype=np.int32)
-
-        new_positions = positions[unique_old]  # (n_surv_v, N)
-        new_indices = remap[surviving]  # (n_surv_f, 3)
-
-        if colors is not None:
-            if self.colors_mode == "face":
-                new_colors = colors[face_mask]  # (n_surv_f, 4)
-                color_mode = "face"
-            else:
-                new_colors = colors[unique_old]  # (n_surv_v, 4)
-                color_mode = "vertex"
-        else:
-            new_colors = None
-            color_mode = "vertex"
-
-        # ── Checkpoint B ─────────────────────────────────────────────
-        await asyncio.sleep(0)
-
-        # ── Phase 3: project onto displayed axes ─────────────────────
-        proj_positions = new_positions[:, displayed]  # (n_surv_v, n_display)
-
-        # Normals are computed from the projected geometry so they are
-        # always valid in the display space regardless of world dimension.
-        # In 2D the material is unlit so normals are unused; emit zeros.
-        if n_display == 3:
-            proj_normals = _compute_vertex_normals(proj_positions, new_indices)
-        else:
-            proj_normals = np.zeros_like(proj_positions)
-
-        return MeshData(
-            request_id=request.slice_request_id,
-            positions=proj_positions,
-            indices=new_indices,
-            normals=proj_normals,
-            colors=new_colors,
-            color_mode=color_mode,
-            is_empty=False,
-            original_face_indices=surviving_faces,
+        level = int(request.scale_index)
+        return await run_slice(
+            self.level_arrays(level), request, self.level_cache(level)
         )

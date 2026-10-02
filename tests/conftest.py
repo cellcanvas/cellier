@@ -95,6 +95,11 @@ def _drain_qt_events() -> None:
         return
     app = widgets_module.QApplication.instance()
     if app is not None:
+        # ``deleteLater`` (what closing through ``qtbot`` does) is acted on
+        # only by a running event loop; ``processEvents`` alone leaves the
+        # widget alive.  Deliver those deletions too.
+        core_module = sys.modules["PySide6.QtCore"]
+        app.sendPostedEvents(None, core_module.QEvent.Type.DeferredDelete)
         app.processEvents()
 
 

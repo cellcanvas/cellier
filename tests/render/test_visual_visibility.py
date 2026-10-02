@@ -60,13 +60,16 @@ def _mesh_scene(controller, *, with_second_visual: bool = False):
 
 @pytest.mark.asyncio
 async def test_hiding_removes_the_visual_and_showing_restores_it_exactly(
-    controller, reslice, render_scene
+    controller, reslice, render_scene, drive_reslice
 ):
     """The scene-graph round trip is exact, so nothing is stuck or lost.
 
     Compared against a frame rendered while hidden from the start rather than
     against a fixed colour count: the scene carries a background, so "empty"
     is whatever the background paints, not a single colour.
+
+    A mesh hidden from the start loads nothing, so its first showing waits
+    for a read; after that, hiding and showing read nothing.
     """
     scene, visual = _mesh_scene(controller)
     controller.update_appearance_field(visual.id, "visible", False)
@@ -74,6 +77,7 @@ async def test_hiding_removes_the_visual_and_showing_restores_it_exactly(
     never_shown = render_scene(controller, scene.id)
 
     controller.update_appearance_field(visual.id, "visible", True)
+    await drive_reslice(controller)
     shown = render_scene(controller, scene.id)
     assert not np.array_equal(shown, never_shown), "sanity: the visual renders"
 

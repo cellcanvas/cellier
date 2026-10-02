@@ -152,7 +152,24 @@ async def test_colour_and_width_reach_the_line(controller, reslice, kind):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", list(ADDERS))
+async def test_the_mesh_box_is_the_store_extent_before_any_data(controller):
+    """A mesh sizes its box from the store's extent, not from loaded faces.
+
+    So the box is there while the mesh loads, and does not blink with it
+    (``plans/mesh_refactor_v3.md`` M5).
+    """
+    scene, visual = _scene_with(controller, "mesh")
+    controller.update_aabb_field(visual.id, "enabled", True)
+
+    line = _gfx(controller, scene.id, visual.id)._aabb_line
+    assert line.visible is True
+    corners = np.asarray(line.geometry.positions.data)
+    assert np.allclose(sorted(corners.min(axis=0)), [1.0, 1.0, 1.0])
+    assert np.allclose(sorted(corners.max(axis=0)), [5.0, 5.0, 5.0])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", [kind for kind in ADDERS if kind != "mesh"])
 async def test_the_box_stays_hidden_before_any_data(controller, kind):
     """A box around no data would be a box around the origin.
 

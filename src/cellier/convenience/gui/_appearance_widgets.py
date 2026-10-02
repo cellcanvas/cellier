@@ -66,6 +66,19 @@ def _any_loading_config(spec: ControlSpec, visual_ids, controller=None):
     )
 
 
+def _any_mesh_section(spec: ControlSpec, visual_ids, controller=None):
+    from cellier.gui._mesh_section import section_display_seed
+    from cellier.gui.anywidget.visuals import AnywidgetMeshSectionControls
+
+    # Seeded now and then followed: DimsChangedEvent fires only on a change.
+    return AnywidgetMeshSectionControls(
+        visual_ids,
+        section=spec.values["section"],
+        title=spec.title,
+        displayed_dimensions=section_display_seed(controller, visual_ids),
+    )
+
+
 def _any_aabb(spec: ControlSpec, visual_ids, controller=None):
     from cellier.gui.anywidget.visuals import AnywidgetAABBWidget
 
@@ -150,6 +163,7 @@ ANYWIDGET_BUILDERS = {
     "aabb": _any_aabb,
     "loading": _any_loading,
     "loading_config": _any_loading_config,
+    "mesh_section": _any_mesh_section,
     "visual_outline": _any_visual_outline,
     "labels_outline": _any_labels_outline,
     "visual_occlusion": _any_visual_occlusion,

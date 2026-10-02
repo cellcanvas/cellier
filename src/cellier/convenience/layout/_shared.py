@@ -8,6 +8,7 @@ from typing import NamedTuple
 from uuid import UUID
 
 from cellier.gui._loading import LOADING_CONFIG_TITLE, LOADING_TITLE
+from cellier.gui._mesh_section import MESH_SECTION_TITLE
 from cellier.gui._render_controls import VISUAL_RENDER_TITLES
 
 # ── Appearance controls: the toolkit-neutral decision layer ──────────────────
@@ -29,8 +30,8 @@ class ControlSpec:
     ----------
     kind : str
         Which control to build: ``color_map``, ``clim``, ``render``,
-        ``lod_bias``, ``aabb``, ``loading``, ``loading_config`` or
-        ``dataset_info``.  A renderer with no
+        ``lod_bias``, ``aabb``, ``loading``, ``loading_config``,
+        ``mesh_section`` or ``dataset_info``.  A renderer with no
         builder for a kind skips it.
     title : str
         What the control is called, e.g. ``"Contrast limits"``.  Both front
@@ -76,6 +77,7 @@ _CONTROL_TITLES = {
     "trail": "Trail",
     "loading": LOADING_TITLE,
     "loading_config": LOADING_CONFIG_TITLE,
+    "mesh_section": MESH_SECTION_TITLE,
     # Read rather than restated: the per-visual groups name themselves in
     # the shared control spec, beside the controls they hold.
     **VISUAL_RENDER_TITLES,
@@ -303,6 +305,19 @@ def appearance_specs(
                     "initial_line_width": aabb.line_width,
                     "initial_color": aabb.color,
                 },
+            )
+        )
+
+    # A mesh's 2D section: outline, fill, outline width, mode.  Opt-in, like
+    # the outline controls: a mesh that is only ever shown in 3D has no use
+    # for the group.
+    section = getattr(visual, "section", None)
+    if section is not None and getattr(config, "section_controls", False):
+        specs.append(
+            ControlSpec(
+                "mesh_section",
+                _CONTROL_TITLES["mesh_section"],
+                {"section": section.model_dump()},
             )
         )
 

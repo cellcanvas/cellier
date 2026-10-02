@@ -41,6 +41,7 @@ from cellier.gui.anywidget.visuals._loading_config import AnywidgetLoadingConfig
 from cellier.gui.anywidget.visuals._lod_bias import AnywidgetLodBiasSlider
 from cellier.gui.anywidget.visuals._mesh import (
     AnywidgetFlatShadingToggle,
+    AnywidgetMeshSectionControls,
     AnywidgetShininessSpin,
     AnywidgetSideCombo,
     AnywidgetWireframeThicknessSpin,
@@ -73,6 +74,7 @@ __all__ = [
     "AnywidgetLoadingConfigControls",
     "AnywidgetLoadingIndicator",
     "AnywidgetLodBiasSlider",
+    "AnywidgetMeshSectionControls",
     "AnywidgetNodeColorPicker",
     "AnywidgetNodeSizeSpaceCombo",
     "AnywidgetNodeSizeSpin",

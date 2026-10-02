@@ -34,6 +34,7 @@ classifiers = [
 dependencies = [
     "cmap>=0.6.0",
     "einops>=0.8.1",
+    "mapbox-earcut>=2.0",
     "numpy<2.5.0",
     "psygnal",
     "pyarrow>=25.0.1",

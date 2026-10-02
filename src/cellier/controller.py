@@ -52,6 +52,8 @@ from cellier.events import (
     LoadingConfigChangedEvent,
     LoadingConfigUpdateEvent,
     LoadingProgress,
+    MeshSectionChangedEvent,
+    MeshSectionUpdateEvent,
     OverlayChangedEvent,
     OverlayUpdateEvent,
     PickWriteChangedEvent,
@@ -129,7 +131,7 @@ from cellier.render.visuals._image_memory import GFXImageMemoryVisual
 from cellier.render.visuals._label_memory import GFXLabelMemoryVisual
 from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
 from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
-from cellier.render.visuals._mesh_memory import GFXMeshMemoryVisual
+from cellier.render.visuals._mesh import GFXMeshVisual
 from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
 from cellier.render.visuals._scene_overlay import GFXSceneBoundingBox
 from cellier.scene._background import BackgroundAppearance
@@ -198,8 +200,11 @@ from cellier.visuals._labels import (
 from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
 from cellier.visuals._loading import ProgressiveLoadingConfig
 from cellier.visuals._mesh_memory import (
+    SECTION_RESLICE_FIELDS,
+    BaseMeshVisual,
     MeshAppearance,
     MeshPhongAppearance,
+    MeshSectionConfig,
     MeshVisual,
 )
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
@@ -234,7 +239,12 @@ if TYPE_CHECKING:
 _RESLICE_FIELDS: frozenset[str] = frozenset({"lod_bias", "force_level", "frustum_cull"})
 
 #: Visuals that load nothing while they draw nothing; showing one reslices it.
-_SKIP_WHEN_HIDDEN = (BaseImageVisual,)
+#: The scheduled ones are retired while hidden: their reads stop.
+_SKIP_WHEN_HIDDEN = (BaseImageVisual, MeshVisual)
+
+#: Visuals the chunk scheduler loads.  A ``"contents"`` store change needs no
+#: new plan for them: invalidation already requeued what they want.
+_SCHEDULED_VISUALS = (MultiscaleImageVisual, MultiscaleLabelVisual, MeshVisual)
 
 
 #: The pick event for each render-layer pick detail that is complete as
@@ -330,8 +340,9 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
     VisualRenderConfig
         LOD settings from a multiscale visual's appearance, its backstop
         settings (``render_config.loading``), and
-        ``slicing_enabled=False`` for an image visual that draws nothing:
-        hidden, or composite with no drawn channel (unified image design 3.3).
+        ``slicing_enabled=False`` for an image or mesh visual that draws
+        nothing: hidden, or a composite image with no drawn channel (unified
+        image design 3.3).
     """
     slicing_enabled = not (
         isinstance(visual, _SKIP_WHEN_HIDDEN) and visual.draws_nothing()
@@ -352,6 +363,11 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
 # Default None means the bridge falls back to the controller's own ID.
 _source_id_override: contextvars.ContextVar[UUID | None] = contextvars.ContextVar(
     "_source_id_override", default=None
+)
+
+# Parallel context variable for update_section_field / _make_section_handler.
+_section_source_id_override: contextvars.ContextVar[UUID | None] = (
+    contextvars.ContextVar("_section_source_id_override", default=None)
 )
 
 # Parallel context variable for update_aabb_field / _make_aabb_handler.
@@ -927,6 +943,11 @@ class CellierController:
             owner_id=self._id,
         )
         self._incoming_events.subscribe(
+            MeshSectionUpdateEvent,
+            self._on_section_update,
+            owner_id=self._id,
+        )
+        self._incoming_events.subscribe(
             ChannelAppearanceUpdateEvent,
             self._on_channel_appearance_update,
             owner_id=self._id,
@@ -1342,11 +1363,12 @@ class CellierController:
     def _reslice_store_readers(self, store_id: UUID) -> None:
         """Reslice the visuals reading *store_id* after a change.
 
-        A multiscale visual needs no new plan for a ``"contents"`` change:
-        invalidation already requeued the chunks it wants, and the scheduler
-        refetches them.  Only an ``"extent"`` change, which can change what
-        should be planned, replans it.  Every other visual loads whole
-        slices and is resliced for either kind.
+        A visual the chunk scheduler loads (multiscale image and labels, the
+        mesh) needs no new plan for a ``"contents"`` change: invalidation
+        already requeued what it wants, and the scheduler reads it again.
+        Only an ``"extent"`` change, which can change what should be planned,
+        replans it.  Every other visual loads whole slices and is resliced
+        for either kind.
         """
         extent = self._store_reslice_extent.pop(store_id, False)
         try:
@@ -1359,8 +1381,7 @@ class CellierController:
             "extent" if extent else "contents",
         )
         for _scene_id, visual in self._store_readers(store_id):
-            chunked = isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual))
-            if chunked and not extent:
+            if isinstance(visual, _SCHEDULED_VISUALS) and not extent:
                 continue
             self.reslice_visual(visual.id)
 
@@ -1649,6 +1670,7 @@ class CellierController:
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
+        section: MeshSectionConfig | None = None,
     ) -> MeshVisual:
         """Add a mesh visual to a scene.
 
@@ -1684,6 +1706,11 @@ class CellierController:
             derived from the pick buffer, so turning it off stops them on
             this visual; asking for an outline as well turns it back on,
             with a warning.
+        section : MeshSectionConfig or None
+            How the mesh is drawn in a 2D view: the outline and fill of its
+            cross-section, and whether the cut is the slice plane
+            (``mode="cut"``) or the scene's slab (``mode="slab"``).
+            ``None`` (default) is an outline and a fill of the cut.
 
         Returns
         -------
@@ -1695,6 +1722,7 @@ class CellierController:
             data_store_id=str(data.id),
             appearance=appearance,
             transform=resolved_transform,
+            **({} if section is None else {"section": section}),
         )
         _apply_render_settings(
             visual_model,
@@ -2278,6 +2306,8 @@ class CellierController:
         if isinstance(visual_model, GraphVisual):
             self._wire_trail(visual_model)
         self._wire_aabb(visual_model)
+        if isinstance(visual_model, BaseMeshVisual):
+            self._wire_section(visual_model)
         self._wire_transform(visual_model, scene_id)
         self._wire_render_config(visual_model)
         self._wire_pick_write(visual_model)
@@ -2297,6 +2327,7 @@ class CellierController:
             (SingleAppearanceChangedEvent, "on_single_appearance_changed"),
             (ImageCompositeChangedEvent, "on_image_composite_changed"),
             (AABBChangedEvent, "on_aabb_changed"),
+            (MeshSectionChangedEvent, "on_section_changed"),
             (VisualVisibilityChangedEvent, "on_visibility_changed"),
             (TrailChangedEvent, "on_trail_changed"),
             (TransformChangedEvent, "on_transform_changed"),
@@ -2587,10 +2618,11 @@ class CellierController:
         render_modes = self._scene_render_modes.get(
             scene_id, {"3d"} if len(displayed_axes) == 3 else {"2d"}
         )
-        gfx_visual = GFXMeshMemoryVisual(
+        gfx_visual = GFXMeshVisual(
             visual_model=visual_model,
             render_modes=render_modes,
             transform=visual_model.transform,
+            axis_extents=data_store.axis_extents,
         )
         self._register_visual(
             scene_id, visual_model, gfx_visual, data_store, displayed_axes
@@ -4690,6 +4722,42 @@ class CellierController:
 
         return _on_aabb_psygnal
 
+    def _wire_section(self, visual: BaseMeshVisual) -> None:
+        """Subscribe to all field changes on a mesh visual's section config."""
+        handler = self._make_section_handler(visual.id)
+        visual.section.events.connect(handler)
+        self._visual_psygnal_handlers.setdefault(visual.id, []).append(
+            (visual.section.events, handler)
+        )
+
+    def _make_section_handler(self, visual_id: UUID) -> Callable:
+        """Return a psygnal catch-all handler for a mesh's section config.
+
+        ``mode``, ``outline`` and ``fill`` are part of what the mesh reads
+        (the request key), so a change reslices the visual; the mesh is not
+        drawn until the new section has loaded.  ``outline_width`` is a
+        material setting and only asks for a frame.
+        """
+
+        def _on_section_psygnal(info: EmissionInfo) -> None:
+            field_name: str = info.signal.name
+            new_value = info.args[0]
+            resolved_source_id = _section_source_id_override.get() or self._id
+            self._outgoing_events.emit(
+                MeshSectionChangedEvent(
+                    source_id=resolved_source_id,
+                    visual_id=visual_id,
+                    field_name=field_name,
+                    new_value=new_value,
+                )
+            )
+            if field_name in SECTION_RESLICE_FIELDS:
+                if visual_id in self._visual_to_scene:
+                    self.reslice_visual(visual_id)
+            self._request_draw_for_visual(visual_id)
+
+        return _on_section_psygnal
+
     def _wire_visual_render(self, visual: BaseVisual) -> None:
         """Bridge a visual's screen-space render settings to bus and renderer.
 
@@ -5482,6 +5550,8 @@ class CellierController:
         elif not tracked:
             self._dims_driver.tick(scene_id, event.source_id, interactive=False)
         self.reslice_scene(scene_id)
+        # A read that lands within the hold is drawn with no blank frame.
+        self._render_manager.hold_draws(scene_id)
         if not tracked:
             self._dims_driver.settle_without_loop(scene_id)
 
@@ -6235,6 +6305,51 @@ class CellierController:
         for visual_id in visual_ids:
             self.set_image_composite(visual_id, composite, source_id=source_id)
 
+    def update_section_field(
+        self,
+        visual_id: UUID,
+        field: str,
+        value: Any,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Set one field of a mesh visual's 2D section config.
+
+        ``mode``, ``outline`` and ``fill`` change what the mesh reads, so
+        the mesh loads again and is not drawn until it has;
+        ``outline_width`` applies at once.
+
+        Parameters
+        ----------
+        visual_id :
+            Target mesh visual.
+        field :
+            Attribute name on ``MeshSectionConfig``: ``"mode"``,
+            ``"outline"``, ``"fill"`` or ``"outline_width"``.
+        value :
+            New value for the field.
+        source_id :
+            UUID to stamp on the emitted ``MeshSectionChangedEvent``, so a
+            GUI widget can ignore its own echo.  Defaults to the
+            controller's own ID.
+
+        Raises
+        ------
+        TypeError
+            If the visual is not a mesh.
+        """
+        visual = self.get_visual_model(visual_id)
+        if not isinstance(visual, BaseMeshVisual):
+            raise TypeError(
+                f"Visual {visual_id} is a {type(visual).__name__}; only a mesh "
+                "visual has a section config."
+            )
+        token = _section_source_id_override.set(source_id)
+        try:
+            setattr(visual.section, field, value)
+        finally:
+            _section_source_id_override.reset(token)
+
     def update_aabb_field(
         self,
         visual_id: UUID,
@@ -6379,6 +6494,11 @@ class CellierController:
     def _on_slider_override_update(self, event: SliderOverrideUpdateEvent) -> None:
         self.set_slider_override(
             event.scene_id, event.axis, event.value, source_id=event.source_id
+        )
+
+    def _on_section_update(self, event: MeshSectionUpdateEvent) -> None:
+        self.update_section_field(
+            event.visual_id, event.field, event.value, source_id=event.source_id
         )
 
     def _on_aabb_update(self, event: AABBUpdateEvent) -> None:
@@ -9013,6 +9133,40 @@ class CellierController:
         # reachable through them.
         self._outgoing_events.clear()
         self._incoming_events.clear()
+
+    def on_section_changed(
+        self,
+        visual_id: UUID,
+        callback: Callable[[MeshSectionChangedEvent], None],
+        *,
+        owner_id: UUID,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired when a mesh's section config changes.
+
+        Parameters
+        ----------
+        visual_id :
+            The mesh visual to watch.
+        callback :
+            Called with the ``MeshSectionChangedEvent``: ``source_id`` for
+            echo filtering, ``field_name`` and ``new_value``.
+        owner_id :
+            UUID under which this subscription is registered.
+        weak :
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+        """
+        return self._outgoing_events.subscribe(
+            MeshSectionChangedEvent,
+            callback,
+            entity_id=visual_id,
+            owner_id=owner_id,
+            weak=weak,
+        )
 
     def on_aabb_changed(
         self,

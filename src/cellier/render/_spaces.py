@@ -1013,6 +1013,179 @@ def geometry_data_region(
     return _anchor_discrete_axes(pulled, selection, data_to_world, world, data)
 
 
+@dataclass(frozen=True)
+class SectionPlanes:
+    """Where a 2D view cuts a visual's geometry, in **data** coordinates.
+
+    ``plans/mesh_refactor_v3.md`` X1.  The planes are ``normal . p = c`` for
+    ``c`` in ``position`` (the slice plane itself) and ``low`` / ``high``
+    (the faces of the scene's slab around it).
+
+    Attributes
+    ----------
+    normal : tuple[float, ...]
+        One entry per data axis; any magnitude.
+    position : float
+        The slice plane: where the slider is.  It does not move when the
+        scene's thickness changes.
+    low, high : float
+        The slab's two faces; both equal ``position`` with no thickness.
+    """
+
+    normal: tuple[float, ...]
+    position: float
+    low: float
+    high: float
+
+
+def geometry_section_region(
+    selection: RegionSelection,
+    data_to_world: BaseTransform,
+    world: WorldCoordinateSystem,
+    data: DataCoordinateSystem,
+) -> tuple[ConvexRegion, SectionPlanes | None]:
+    """Split a selection into the part that filters and the part that cuts.
+
+    A constraint **cuts** when it lies along world axes that are spatial and
+    that the visual's data has as spatial, continuous axes: there the
+    geometry is a surface in space, and the slice plane crosses it.  Every
+    other constraint **filters** (a time axis, a channel, a discrete axis):
+    a face is in or out as a whole (:func:`geometry_data_region`, with its
+    discrete-axis rule).
+
+    Parameters
+    ----------
+    selection : RegionSelection
+        The canvas's selection, whose region is in world coordinates.
+    data_to_world : BaseTransform
+        The visual's own transform.
+    world : WorldCoordinateSystem
+        Its output system.
+    data : DataCoordinateSystem
+        The visual's data system, with each axis's type and sampling.
+
+    Returns
+    -------
+    filter_region : ConvexRegion
+        The filtering constraints, in data coordinates.  Infeasible (nothing
+        passes) when the visual has no extent along the cut and sits outside
+        the slab.
+    planes : SectionPlanes or None
+        The cut, in data coordinates.  ``None`` when nothing cuts: a 3D
+        view, a visual with no extent along the sliced spatial axis (it is
+        drawn whole, or not at all).
+
+    Raises
+    ------
+    ValueError
+        If the cutting constraints are not one slab (two section axes).
+    """
+    region = selection.region
+    world_of = axis_correspondence(data_to_world)
+    data_of = {world_axis: data_axis for data_axis, world_axis in world_of.items()}
+
+    def cuts(world_axis: int) -> bool:
+        if world.axes[world_axis].axis_type != "space":
+            return False
+        data_axis = data_of.get(world_axis)
+        if data_axis is None:
+            # No data axis: no extent to filter by either, so the constraint
+            # is the cut's to resolve (it pulls back to a zero normal).
+            return True
+        axis = data.axes[data_axis]
+        return axis.axis_type == "space" and axis.sampling == "continuous"
+
+    cutting, filtering = [], []
+    for half_space in region.half_spaces:
+        along = np.flatnonzero(half_space.normal)
+        if len(along) and all(cuts(int(axis)) for axis in along):
+            cutting.append(half_space)
+        else:
+            filtering.append(half_space)
+
+    filter_selection = selection.model_copy(
+        update={
+            "region": ConvexRegion(
+                coordinate_system=region.coordinate_system,
+                ndim=region.ndim,
+                half_spaces=tuple(filtering),
+            )
+        }
+    )
+    filter_region = geometry_data_region(filter_selection, data_to_world, world, data)
+    if not cutting:
+        return filter_region, None
+
+    # One slab: every cutting constraint is along one direction.
+    direction = np.asarray(cutting[0].normal, dtype=np.float64)
+    pivot = int(np.flatnonzero(direction)[0])
+    low, high = -np.inf, np.inf
+    for half_space in cutting:
+        normal = np.asarray(half_space.normal, dtype=np.float64)
+        factor = normal[pivot] / direction[pivot]
+        if factor == 0.0 or not np.allclose(normal, factor * direction):
+            raise ValueError(
+                "A mesh section needs one slice plane: this view constrains "
+                "more than one spatial direction of the visual."
+            )
+        bound = float(half_space.offset) / factor
+        if factor > 0:
+            high = min(high, bound)
+        else:
+            low = max(low, bound)
+    # The slice position: the rendered origin, embedded in the world.
+    origin = np.zeros(selection.transform.input_ndim, dtype=np.float64)
+    centre = np.asarray(selection.transform.map_coordinates(origin), dtype=np.float64)
+    position = float(direction @ centre)
+    low = position if not np.isfinite(low) else low
+    high = position if not np.isfinite(high) else high
+
+    def pulled(offset: float) -> tuple[np.ndarray, float] | None:
+        plane = data_to_world.imap_region(
+            ConvexRegion(
+                coordinate_system=region.coordinate_system,
+                ndim=region.ndim,
+                half_spaces=half_spaces_from_arrays(
+                    direction[None, :], np.array([offset])
+                ),
+            ),
+            world,
+        )
+        if not plane.half_spaces:
+            return None  # a broadcast axis: the constraint does not apply
+        only = plane.half_spaces[0]
+        return np.asarray(only.normal, dtype=np.float64), float(only.offset)
+
+    at_position, at_low, at_high = pulled(position), pulled(low), pulled(high)
+    if at_position is None:
+        return filter_region, None
+    normal = at_position[0]
+    if not np.any(normal != 0.0):
+        # The visual has no extent along the cut: it sits at one depth.  The
+        # pulled-back offsets are the signed distances of the slab's faces
+        # from it, so it is inside when low <= 0 <= high.
+        slack = _DISCRETE_EDGE_RTOL * max(1.0, abs(position))
+        if at_low[1] <= slack and at_high[1] >= -slack:
+            return filter_region, None
+        nothing = half_spaces_from_arrays(
+            np.zeros((1, filter_region.ndim)), np.array([-1.0])
+        )
+        return (
+            ConvexRegion(
+                coordinate_system=filter_region.coordinate_system,
+                ndim=filter_region.ndim,
+                half_spaces=(*filter_region.half_spaces, *nothing),
+            ),
+            None,
+        )
+    return filter_region, SectionPlanes(
+        normal=tuple(float(value) for value in normal),
+        position=at_position[1],
+        low=at_low[1],
+        high=at_high[1],
+    )
+
+
 def axis_scales(data_to_world: AffineTransform) -> dict[int, float]:
     """World units per data unit, keyed by **data** axis.
 

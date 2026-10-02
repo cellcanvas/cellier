@@ -18,14 +18,37 @@ from tests.render.conftest import drain_loading
 from tests.render.scheduling.test_backstop_integration import _add
 
 _SERIALS = itertools.count()
+_QTBOT: list = []
+
+
+@pytest.fixture(autouse=True)
+def _own_qt_controls(qtbot):
+    """Give every Qt control a test builds to ``qtbot``, which closes it."""
+    _QTBOT.append(qtbot)
+    yield
+    _QTBOT.clear()
+
+
+def _owned(control):
+    """Register a Qt control's widget for closing; anywidgets pass through.
+
+    A control built outside a layout is a parentless Qt widget: nothing
+    closes or deletes it when the test ends unless ``qtbot`` is told of it.
+    (The anywidget ones are closed by the ``_close_cellier_objects`` fixture.)
+    """
+    if not hasattr(control, "comm"):
+        _QTBOT[-1].addWidget(control.widget)
+    return control
 
 
 def _make(toolkit, visual_ids, loading, n_levels=2):
     if toolkit == "qt":
         from cellier.gui.qt.visuals import QtLoadingConfigControls
 
-        return QtLoadingConfigControls(
-            visual_ids, loading=loading.model_dump(), n_levels=n_levels
+        return _owned(
+            QtLoadingConfigControls(
+                visual_ids, loading=loading.model_dump(), n_levels=n_levels
+            )
         )
     from cellier.gui.anywidget.visuals import AnywidgetLoadingConfigControls
 

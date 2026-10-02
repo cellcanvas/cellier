@@ -299,10 +299,12 @@ def _controller_with_mesh():
 def test_extract_mesh_pick_details():
     controller, scene_id, visual_id = _controller_with_mesh()
     rm = controller._render_manager
-    node = rm._scenes[scene_id].get_active_node(visual_id)
+    # A pick names the leaf that was drawn: the level's mesh, under the
+    # visual's node.
+    leaf = rm._scenes[scene_id].get_visual(visual_id)._levels[0].mesh_3d
 
-    details = rm._extract_pick_details(scene_id, node, {"face_index": 1})
-    assert details == MeshPickInfo(face_index=1)
+    details = rm._extract_pick_details(scene_id, leaf, {"face_index": 1})
+    assert details == MeshPickInfo(face_index=1, part="face", level=0)
 
 
 def test_extract_mesh_missing_index_returns_none():

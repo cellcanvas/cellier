@@ -83,7 +83,11 @@ if TYPE_CHECKING:
     )
     from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
     from cellier.visuals._loading import ProgressiveLoadingConfig
-    from cellier.visuals._mesh_memory import MeshAppearance, MeshVisual
+    from cellier.visuals._mesh_memory import (
+        MeshAppearance,
+        MeshSectionConfig,
+        MeshVisual,
+    )
     from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 
 _T = TypeVar("_T", bound="BaseDataStore")
@@ -128,6 +132,10 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         ``"offscreen"`` viewers have no embeddable widget, so the layout
         builders (``build_canvas_widget``, ``launch``, ``show``, ``display``)
         reject them.
+    lighting : "none" or "default"
+        Lights in the scene.  ``"default"`` adds an ambient and a
+        directional light, which a mesh with ``MeshPhongAppearance`` needs
+        (without lights it renders black).  ``"none"`` (default) adds none.
     """
 
     def __init__(
@@ -138,6 +146,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         render_modes: set[str] | None = None,
         render_config: RenderManagerConfig | None = None,
         gui: Literal["qt", "anywidget", "offscreen"] = "qt",
+        lighting: Literal["none", "default"] = "none",
     ) -> None:
         resolved_render_modes = (
             render_modes if render_modes is not None else {"2d", "3d"}
@@ -149,6 +158,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             coordinate_system=world_coordinate_system(axes),
             render_modes=resolved_render_modes,
             background=viewer_background(),
+            lighting=lighting,
         )
         # Callbacks fired once the scene's startup data is on the GPU; consumed
         # by the launcher (see convenience._launch._init_view).
@@ -1250,6 +1260,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
+        section: MeshSectionConfig | None = None,
     ) -> MeshVisual:
         """Add a mesh visual.
 
@@ -1283,6 +1294,11 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             derived from the pick buffer, so turning it off stops them on
             this visual; asking for an outline as well turns it back on,
             with a warning.
+        section : MeshSectionConfig or None
+            How the mesh is drawn in a 2D view: the outline and fill of its
+            cross-section, and whether the cut is the slice plane
+            (``mode="cut"``) or the scene's slab (``mode="slab"``).
+            ``None`` (default) is an outline and a fill of the cut.
 
         Returns
         -------
@@ -1297,6 +1313,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline=outline,
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
+            section=section,
         )
         self._store_controls([visual.id], controls)
         return visual

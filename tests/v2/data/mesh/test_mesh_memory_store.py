@@ -37,6 +37,7 @@ def _req(displayed=(1, 2), sliced=None, thickness=0.5, ndim=3):
         region=data_region(
             ndim, {axis: (position, thickness) for axis, position in sliced.items()}
         ),
+        output_axes=tuple(sorted(displayed, reverse=True)),
     )
 
 
@@ -54,6 +55,7 @@ def test_normals_in_3d_get_data_result():
         displayed_axes=(0, 1, 2),
         retained_axes=(0, 1, 2),
         region=data_region(3),
+        output_axes=(2, 1, 0),
     )
     result = asyncio.run(store.get_data(req))
     assert result.normals is not None
@@ -61,13 +63,12 @@ def test_normals_in_3d_get_data_result():
     assert result.normals.dtype == np.float32
 
 
-def test_normals_zeros_for_2d_display():
-    """2-D display emits zero normals (material is unlit; normals unused)."""
+def test_no_normals_for_2d_display():
+    """A 2-D result carries no normals: it is drawn unlit."""
     store = _simple_store()
     result = asyncio.run(store.get_data(_req(displayed=(1, 2), sliced={0: 0})))
     assert not result.is_empty
-    assert result.normals.shape == (result.positions.shape[0], 2)
-    assert result.normals.dtype == np.float32
+    assert result.normals is None
 
 
 def test_int64_indices_coerced_to_int32():
@@ -217,11 +218,17 @@ def test_get_data_3d_returns_all_faces():
         displayed_axes=(0, 1, 2),
         retained_axes=(0, 1, 2),
         region=data_region(3),
+        output_axes=(2, 1, 0),
     )
     result = asyncio.run(store.get_data(req))
     assert result.is_empty is False
     assert result.indices.shape[0] == store.n_faces
-    assert result.positions.shape[1] == 3  # all 3 axes displayed
+    # Upload-ready: the columns are the output axes, (x, y, z).
+    np.testing.assert_array_equal(result.positions, store.positions[:, ::-1])
+    assert result.positions.flags.c_contiguous
+    assert result.positions.dtype == np.float32
+    np.testing.assert_allclose(result.bounds, [[0, 0, 0], [1, 1, 1]])
+    assert result.level == 0
 
 
 # ── get_data — 2D (slab filter) ──────────────────────────────────────────────
@@ -244,8 +251,12 @@ def test_get_data_2d_positions_projected():
     # All-vertices rule: only face [0,2,3] has every vertex in the slab.
     result = asyncio.run(store.get_data(_req(sliced={0: 0}, thickness=0.5)))
     assert not result.is_empty
-    # Projected positions have only 2 columns (y, x).
-    assert result.positions.shape[1] == 2
+    # Upload-ready: (x, y) of the two retained axes, and a zero third column.
+    assert result.positions.shape[1] == 3
+    np.testing.assert_array_equal(result.positions[:, 2], 0.0)
+    np.testing.assert_array_equal(
+        result.positions[:, :2], store.positions[[0, 2, 3]][:, [2, 1]]
+    )
     # Exactly one face survives — the one whose vertices are all on the slice.
     assert result.indices.shape == (1, 3)
     # Exactly three vertices survive.
@@ -316,10 +327,11 @@ def _stacked_faces_store() -> MeshMemoryStore:
 
 
 def test_original_face_indices_identity_in_3d():
-    """A full 3-D view keeps every face, so the map is the identity arange."""
+    """A full 3-D view keeps every face: no map, and the store's own faces."""
     store = _stacked_faces_store()
     result = asyncio.run(store.get_data(_req(displayed=(0, 1, 2), sliced={})))
-    assert list(result.original_face_indices) == [0, 1, 2]
+    assert result.original_face_indices is None
+    assert result.indices is store.indices
 
 
 def test_original_face_indices_track_surviving_subset_in_2d():
@@ -337,41 +349,54 @@ def test_original_face_indices_track_surviving_subset_in_2d():
     assert list(result.original_face_indices) == [1]
 
 
-# ── Checkpoint cancellation ───────────────────────────────────────────────────
+# ── The read runs off the event loop ──────────────────────────────────────────
 
 
-def test_get_data_cancellable():
-    """CancelledError fires at checkpoint A before reindexing begins.
+def test_get_data_runs_in_an_executor_thread():
+    """The slicing work is not done on the event loop's thread."""
+    import threading
 
-    Uses a large mesh so Phase 1 is not instant.  Cancel immediately
-    after task creation; the task must not complete.
-    """
-    n = 50_000
-    positions = np.random.rand(n * 3, 3).astype(np.float32) * 100
-    indices = np.arange(n * 3, dtype=np.int32).reshape(n, 3)
-    store = MeshMemoryStore(positions=positions, indices=indices)
+    from cellier.data.mesh import _mesh_slicing
 
-    sid = uuid4()
-    req = MeshSliceRequest(
-        slice_request_id=sid,
-        chunk_request_id=sid,
-        scale_index=0,
-        displayed_axes=(1, 2),
-        retained_axes=(1, 2),
-        region=data_region(3, {0: (50, 0.5)}),
-    )
+    store = _simple_store()
+    seen: list[int] = []
+    inner = _mesh_slicing.slice_mesh
 
-    async def _run():
-        task = asyncio.create_task(store.get_data(req))
-        task.cancel()
+    def recording(arrays, request, cache):
+        seen.append(threading.get_ident())
+        return inner(arrays, request, cache)
+
+    async def run():
+        loop_thread = threading.get_ident()
+        _mesh_slicing.slice_mesh = recording
         try:
-            await task
-            return "completed"
-        except asyncio.CancelledError:
-            return "cancelled"
+            await store.get_data(_req(sliced={0: 0}))
+        finally:
+            _mesh_slicing.slice_mesh = inner
+        return loop_thread
 
-    result = asyncio.run(_run())
-    assert result == "cancelled", (
-        "get_data completed despite immediate cancel — checkpoints may "
-        "not be firing.  Increase mesh size or verify await placement."
-    )
+    loop_thread = asyncio.run(run())
+    assert seen and seen[0] != loop_thread
+
+
+def test_a_store_change_drops_the_slicing_cache():
+    store = _stacked_faces_store()
+    asyncio.run(store.get_data(_req(displayed=(1, 2), sliced={0: 10})))
+    before = store.level_cache()
+    assert before.peek(("index", 0)) is not None
+    store.positions = store.positions + 1.0
+    assert store.level_cache() is not before
+    assert store.level_cache().peek(("index", 0)) is None
+
+
+def test_a_copied_store_gets_its_own_cache():
+    store = _stacked_faces_store()
+    asyncio.run(store.get_data(_req(displayed=(1, 2), sliced={0: 10})))
+    copy = store.model_copy(deep=True)
+    assert copy.level_cache() is not store.level_cache()
+    assert copy.level_cache().peek(("index", 0)) is None
+
+
+def test_only_level_zero_exists():
+    with pytest.raises(ValueError, match="one level"):
+        _simple_store().level_arrays(1)

@@ -45,6 +45,7 @@ from cellier.visuals._mesh_memory import (
     MeshAppearance,
     MeshFlatAppearance,
     MeshPhongAppearance,
+    MeshSectionConfig,
     MeshVisual,
 )
 from cellier.visuals._overlay_types import CanvasOverlayType, SceneOverlayType
@@ -79,6 +80,7 @@ __all__ = [
     "MeshAppearance",
     "MeshFlatAppearance",
     "MeshPhongAppearance",
+    "MeshSectionConfig",
     "MeshVisual",
     "MultiscaleImageAppearance",
     "MultiscaleImageChannelAppearance",

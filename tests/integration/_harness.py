@@ -45,7 +45,7 @@ from cellier.transform import (
 )
 from cellier.visuals import InMemoryImageSingleAppearance
 from tests._gpu_budget import BUDGET_2D, BUDGET_3D, SMALL_BUDGETS
-from tests._planning import planned_requests_3d
+from tests._planning import planned_requests_2d, planned_requests_3d
 from tests._v2 import level_transforms
 
 # ---------------------------------------------------------------------------
@@ -369,6 +369,12 @@ XFAIL_GROUPS: dict[str, str] = {
         "axis with no thickness is a plane, and a discrete axis selects the "
         "sample the slider is on"
     ),
+    "mesh_section": (
+        "mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: "
+        "the constraint along a spatial, continuous axis leaves the filter "
+        "region and becomes the request's section, and the read returns the "
+        "faces the plane crosses or that lie in it"
+    ),
     "labels_one_plane": (
         "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and "
         "nothing when the slice misses the data (they clamped before)"
@@ -436,7 +442,8 @@ def _drive_slice_requests(
             selection=selection,
         )
     else:
-        reqs = visual.build_slice_request_2d(
+        reqs = planned_requests_2d(
+            visual,
             camera_pos_world=np.array([0.0, 0.0, 0.0]),
             viewport_width_px=100.0,
             world_width=10.0,
@@ -458,13 +465,20 @@ def _drive_slice_requests(
                 ]
             )
         else:  # geometry SliceRequest
-            selections.append(
-                {
-                    "displayed_axes": list(req.displayed_axes),
-                    "retained_axes": list(req.retained_axes),
-                    "region": _region_bounds(req),
+            entry = {
+                "displayed_axes": list(req.displayed_axes),
+                "retained_axes": list(req.retained_axes),
+                "region": _region_bounds(req),
+            }
+            section = getattr(req, "section", None)
+            if section is not None:
+                # A mesh in a 2D view: the plane it is cut with.
+                entry["section"] = {
+                    "normal": [_canon_scalar(v) for v in section.normal],
+                    "offsets": [_canon_scalar(v) for v in section.offsets],
+                    "mode": section.mode,
                 }
-            )
+            selections.append(entry)
     return selection_key(selections), scale_indices
 
 
@@ -640,7 +654,7 @@ def _make_graph_visual(store, transform):
 
 
 def _make_mesh_visual(store, transform):
-    from cellier.render.visuals._mesh_memory import GFXMeshMemoryVisual
+    from cellier.render.visuals._mesh import GFXMeshVisual
     from cellier.visuals._mesh_memory import MeshPhongAppearance, MeshVisual
 
     model = MeshVisual(
@@ -648,7 +662,7 @@ def _make_mesh_visual(store, transform):
         data_store_id=str(store.id),
         appearance=MeshPhongAppearance(),
     )
-    return GFXMeshMemoryVisual(
+    return GFXMeshVisual(
         visual_model=model,
         render_modes={"2d", "3d"},
         transform=transform,
@@ -685,7 +699,8 @@ def _geometry_case(
             selection=ctx.selection,
         )
     else:
-        reqs = visual.build_slice_request_2d(
+        reqs = planned_requests_2d(
+            visual,
             camera_pos_world=np.zeros(3),
             viewport_width_px=100.0,
             world_width=10.0,
@@ -722,6 +737,16 @@ def _extract_surviving_indices(data: Any) -> Any:
         val = getattr(data, attr, None)
         if val is not None:
             return canon(np.asarray(val).tolist())
+    if hasattr(data, "outline_face_ids"):
+        # A mesh section: the faces the plane crosses or that lie in it.
+        faces = np.concatenate(
+            [data.outline_face_ids, data.fill_face_ids[data.fill_face_ids >= 0]]
+        )
+        return canon(sorted({int(face) for face in faces}))
+    if hasattr(data, "original_face_indices") and not data.is_empty:
+        # A mesh whose faces all pass reports no list (the rows are the
+        # store's faces, in order); the baseline records the list.
+        return canon(list(range(len(data.indices))))
     return None
 
 
@@ -1033,7 +1058,9 @@ def _mesh_store(ndim: int):
 
 
 #: Groups whose change reaches identity transforms as well.
-_EVERY_TRANSFORM_GROUPS = frozenset({"explicit_thickness", "labels_one_plane"})
+_EVERY_TRANSFORM_GROUPS = frozenset(
+    {"explicit_thickness", "labels_one_plane", "mesh_section"}
+)
 
 
 @dataclass(frozen=True)
@@ -1086,7 +1113,12 @@ FAMILIES: list[Family] = [
         "geometry",
         _make_mesh_visual,
         _mesh_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
+        xfail_groups=(
+            "geometry_slicing",
+            "geometry_thickness",
+            "explicit_thickness",
+            "mesh_section",
+        ),
     ),
     Family(
         "GFXMultiscaleImageVisual",

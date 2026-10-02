@@ -285,6 +285,11 @@ class CanvasView:
 
         self._last_camera_state: CameraState = self.capture_camera_state()
         self._overlays: list[GFXCanvasOverlay] = []
+        # A hold on drawing (see ``hold_draws``): how long, its test, and
+        # the deadline set by the first frame skipped.
+        self._hold_seconds: float = 0.0
+        self._hold_waiting: Callable[[], bool] | None = None
+        self._hold_deadline: float | None = None
         self._canvas.request_draw(self._draw_frame)
 
     def _create_canvas(
@@ -796,6 +801,8 @@ class CanvasView:
             return
         if event.type == "pointer_move" and not event.buttons:
             return
+        # The camera is about to move: draw it now, whatever is loading.
+        self.release_hold()
         self.request_frame()
 
     def accept_camera_state(self) -> bool:
@@ -1037,10 +1044,55 @@ class CanvasView:
                 depth_range=depth_range,
             )
 
+    def hold_draws(self, seconds: float, waiting: Callable[[], bool]) -> None:
+        """Let the next frames be skipped while *waiting* is true.
+
+        A frame that comes while *waiting* returns ``True`` is not rendered,
+        so the canvas keeps showing what it last drew.  The first frame
+        skipped starts the clock: frames are skipped for at most *seconds*
+        from it, then one is drawn whatever *waiting* says.  The hold ends
+        with the first frame drawn, or on camera input.  Asking again while
+        frames are being skipped does not restart the clock, so no frame is
+        delayed by more than *seconds*.
+
+        Parameters
+        ----------
+        seconds : float
+            The longest a frame is delayed; 0 or less does nothing.
+        waiting : Callable[[], bool]
+            Whether there is still something to wait for.
+        """
+        if seconds <= 0.0:
+            return
+        self._hold_seconds = seconds
+        self._hold_waiting = waiting
+
+    def release_hold(self) -> None:
+        """End a hold: the next frame is drawn."""
+        self._hold_seconds = 0.0
+        self._hold_waiting = None
+        self._hold_deadline = None
+
+    def _holding(self) -> bool:
+        if self._hold_waiting is None:
+            return False
+        now = time.perf_counter()
+        if self._hold_deadline is None:
+            self._hold_deadline = now + self._hold_seconds
+        if now < self._hold_deadline and self._hold_waiting():
+            return True
+        self.release_hold()
+        return False
+
     def _draw_frame(self) -> None:
         # A draw already queued with the backend can still arrive after close();
         # rendering it would touch a released surface.
         if self._closed:
+            return
+        if self._holding():
+            # Nothing is rendered, so the canvas keeps its last picture.
+            # An on-demand canvas needs asking for the frame that ends this.
+            self._canvas.request_draw()
             return
         self._drawing = True
         try:

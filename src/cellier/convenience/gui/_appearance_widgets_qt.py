@@ -67,6 +67,19 @@ def _qt_loading_config(spec, visual_ids, controller):
     )
 
 
+def _qt_mesh_section(spec, visual_ids, controller):
+    from cellier.gui._mesh_section import section_display_seed
+    from cellier.gui.qt.visuals import QtMeshSectionControls
+
+    # Seeded now and then followed: DimsChangedEvent fires only on a change.
+    return QtMeshSectionControls(
+        visual_ids,
+        section=spec.values["section"],
+        title=spec.title,
+        displayed_dimensions=section_display_seed(controller, visual_ids),
+    )
+
+
 def _qt_aabb(spec, visual_ids, controller):
     from cellier.gui.qt.visuals import QtAABBWidget
 
@@ -165,6 +178,7 @@ QT_BUILDERS = {
     "aabb": _qt_aabb,
     "loading": _qt_loading,
     "loading_config": _qt_loading_config,
+    "mesh_section": _qt_mesh_section,
     "visual_outline": _qt_visual_outline,
     "labels_outline": _qt_labels_outline,
     "visual_occlusion": _qt_visual_occlusion,

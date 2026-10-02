@@ -31,8 +31,9 @@ from cellier.transform import (
 )
 from cellier.visuals._graph_memory import GraphAppearance, TrailConfig
 from cellier.visuals._lines_memory import LinesMemoryAppearance
-from cellier.visuals._mesh_memory import MeshFlatAppearance
+from cellier.visuals._mesh_memory import MeshFlatAppearance, MeshSectionConfig
 from cellier.visuals._points_memory import PointsMarkerAppearance
+from tests._planning import planned_requests_2d
 
 # z of each element; y and x are irrelevant to the slice.
 _Z = (1.0, 2.0, 2.4, 3.0, 5.0)
@@ -54,7 +55,8 @@ def _viewer():
 def _request_2d(controller, scene, visual):
     gfx = controller._render_manager._scenes[scene.id].get_visual(visual.id)
     canvas_id = controller.get_canvas_ids(scene.id)[0]
-    return gfx.build_slice_request_2d(
+    return planned_requests_2d(
+        gfx,
         camera_pos_world=np.zeros(3),
         viewport_width_px=100.0,
         world_width=10.0,
@@ -89,7 +91,7 @@ async def _lines_selected(controller, scene) -> list[int]:
     return np.unique(np.asarray(data.original_edge_indices)).tolist()
 
 
-async def _mesh_selected(controller, scene) -> list[int]:
+async def _mesh_selected(controller, scene, mode: str = "cut") -> list[int]:
     # One flat triangle per z.
     base = _points_positions()
     positions = np.repeat(base, 3, axis=0)
@@ -98,11 +100,23 @@ async def _mesh_selected(controller, scene) -> list[int]:
     indices = np.arange(len(positions), dtype=np.int32).reshape(-1, 3)
     store = MeshMemoryStore(positions=positions, indices=indices, name="mesh")
     visual = controller.add_mesh(
-        data=store, scene_id=scene.id, appearance=MeshFlatAppearance()
+        data=store,
+        scene_id=scene.id,
+        appearance=MeshFlatAppearance(),
+        section=MeshSectionConfig(mode=mode),
     )
     data = await store.get_data(_request_2d(controller, scene, visual))
-    if data.is_empty or data.original_face_indices is None:
+    if data.is_empty:
         return []
+    if hasattr(data, "fill_face_ids"):
+        # A 2D view cuts the mesh: the faces lying in the plane, or crossed.
+        faces = np.concatenate(
+            [data.fill_face_ids[data.fill_face_ids >= 0], data.outline_face_ids]
+        )
+        return sorted({int(face) for face in faces})
+    if data.original_face_indices is None:
+        # Every face passed: the rows are the store's faces, in order.
+        return list(range(len(data.indices)))
     return np.asarray(data.original_face_indices).tolist()
 
 
@@ -143,13 +157,29 @@ async def test_a_plane_between_elements_draws_nothing(family):
     assert await _FAMILIES[family](controller, scene) == []
 
 
-@pytest.mark.parametrize("family", sorted(_FAMILIES))
+@pytest.mark.parametrize("family", sorted(set(_FAMILIES) - {"mesh"}))
 async def test_a_thickness_draws_the_band(family):
     controller, scene = _viewer()
     controller.update_slice_indices(scene.id, {0: 2.0})
     controller.update_thickness(scene.id, {0: 1.0})
     # z in [1, 3]: both edges are inside.
     assert await _FAMILIES[family](controller, scene) == [0, 1, 2, 3]
+
+
+async def test_a_thickness_does_not_change_a_cut_mode_mesh():
+    """A mesh in a 2D view is cut by the slice plane, whatever the slab."""
+    controller, scene = _viewer()
+    controller.update_slice_indices(scene.id, {0: 2.0})
+    controller.update_thickness(scene.id, {0: 1.0})
+    assert await _mesh_selected(controller, scene) == [1]
+
+
+async def test_a_thickness_draws_the_band_of_a_slab_mode_mesh():
+    controller, scene = _viewer()
+    controller.update_slice_indices(scene.id, {0: 2.0})
+    controller.update_thickness(scene.id, {0: 1.0})
+    # z in [1, 3]: both edges are inside.
+    assert await _mesh_selected(controller, scene, mode="slab") == [0, 1, 2, 3]
 
 
 # ---------------------------------------------------------------------------

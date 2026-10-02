@@ -512,6 +512,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         AnywidgetLoadingConfigControls,
         AnywidgetLoadingIndicator,
         AnywidgetLodBiasSlider,
+        AnywidgetMeshSectionControls,
         AnywidgetTrailControls,
     )
     from cellier.gui.qt import QtDatasetInfo
@@ -527,6 +528,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         QtLoadingConfigControls,
         QtLoadingIndicator,
         QtLodBiasSlider,
+        QtMeshSectionControls,
         QtTrailControls,
     )
 
@@ -537,6 +539,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         "trail": (QtTrailControls, AnywidgetTrailControls),
         "loading": (QtLoadingIndicator, AnywidgetLoadingIndicator),
         "loading_config": (QtLoadingConfigControls, AnywidgetLoadingConfigControls),
+        "mesh_section": (QtMeshSectionControls, AnywidgetMeshSectionControls),
         "visual_outline": (QtVisualOutlineControls, AnywidgetVisualOutlineControls),
         "labels_outline": (QtLabelsOutlineControls, AnywidgetLabelsOutlineControls),
         "visual_occlusion": (

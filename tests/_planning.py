@@ -1,4 +1,4 @@
-"""What a 3D multiscale plan would fetch, for tests that inspect requests.
+"""What a scheduled visual's plan would fetch, for tests that inspect requests.
 
 Multiscale visuals no longer build store requests while planning: ``plan()``
 returns desired sets of packed keys, and the chunk scheduler builds requests
@@ -101,3 +101,50 @@ def planned_requests_3d(
         desired = visual.plan(request, config)
     groups = [ds.build_request(ds.keys) for ds in desired if ds is not None]
     return [r for group in zip_longest(*groups) for r in group if r is not None]
+
+
+def planned_requests_2d(
+    visual: Any,
+    camera_pos_world: np.ndarray,
+    viewport_width_px: float,
+    world_width: float,
+    view_min_world: np.ndarray | None,
+    view_max_world: np.ndarray | None,
+    dims_state: Any,
+    selection: Any = None,
+) -> list[Any]:
+    """Every store request a 2D plan of *visual* wants, in load order.
+
+    A chunked mesh (``GFXMeshVisual``) is planned with ``plan()``, as the
+    scene manager plans it; any other geometry visual's own
+    ``build_slice_request_2d`` answers.  The arguments are
+    ``build_slice_request_2d``'s.
+    """
+    from cellier.render.scheduling import is_chunked_visual
+
+    if not is_chunked_visual(visual):
+        return visual.build_slice_request_2d(
+            camera_pos_world=camera_pos_world,
+            viewport_width_px=viewport_width_px,
+            world_width=world_width,
+            view_min_world=view_min_world,
+            view_max_world=view_max_world,
+            dims_state=dims_state,
+            selection=selection,
+        )
+    request = ReslicingRequest(
+        camera_type="orthographic",
+        camera_pos=np.asarray(camera_pos_world),
+        frustum_corners=np.zeros((2, 4, 3)),
+        fov_y_rad=0.0,
+        screen_size_px=(viewport_width_px, viewport_width_px),
+        world_extent=(world_width, world_width),
+        dims_state=dims_state,
+        selection=selection,
+        request_id=uuid4(),
+        scene_id=uuid4(),
+        canvas_id=uuid4(),
+        target_visual_ids=None,
+    )
+    desired = visual.plan(request, VisualRenderConfig())
+    return [r for ds in desired for r in ds.build_request(ds.keys)]
