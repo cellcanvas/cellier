@@ -173,6 +173,9 @@ filterwarnings = [
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# A test still running after this many seconds dumps every thread's stack to
+# stderr (it is not stopped).
+faulthandler_timeout = 300
 
 # https://coverage.readthedocs.io/
 [tool.coverage.report]

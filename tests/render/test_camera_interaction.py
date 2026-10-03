@@ -220,6 +220,32 @@ class Rig:
             await self.run(1)
         return x
 
+    def press_and_move_now(
+        self, moves: int = 3, *, canvas: int = 0, tail: bool = False
+    ) -> float:
+        """Press and move without yielding to the event loop.
+
+        For tests with a short real-time settle threshold.  The stillness
+        timer is a task on the loop, so it cannot fire between two of these
+        frames however long they take; with ``await``-ed frames a slow
+        machine settles the motion mid-gesture.  With *tail* the damped
+        motion is drawn to its end too.  The timer runs from the last
+        camera change once the caller awaits.
+        """
+        self.submit("pointer_down", canvas=canvas, button=1, buttons=(1,))
+        self.step()
+        x = 100.0
+        for _ in range(moves):
+            x += 6.0
+            self.submit("pointer_move", canvas=canvas, x=x, buttons=(1,))
+            self.step()
+        idle = 0
+        for _ in range(400 if tail else 0):
+            idle = 0 if any(self.step()) else idle + 1
+            if idle >= 5:
+                break
+        return x
+
     async def release(self, x: float, *, canvas: int = 0) -> None:
         self.submit("pointer_up", canvas=canvas, x=x, button=1, buttons=())
         await self.run_until_idle()
@@ -396,12 +422,11 @@ async def test_a_wheel_zoom_is_a_motion_that_ends_on_release(make_rig):
 async def test_a_drag_held_still_settles_and_moving_again_starts_again(make_rig):
     rig = make_rig(settle_s=0.05)
     await rig.settle_first_frames()
-    await rig.press()
-    x = await rig.move(3)
+    # Held still, the button down: the damped motion finishes, then stillness.
+    x = rig.press_and_move_now(3, tail=True)
     assert rig.events == [(0, "start", None)]
 
-    # Held still, the button down: let the damped motion finish, then wait.
-    for _ in range(100):
+    for _ in range(400):
         await rig.run(1)
         if rig.events[-1][1] == "end":
             break
@@ -426,12 +451,15 @@ async def test_a_drag_held_still_settles_and_moving_again_starts_again(make_rig)
 async def test_a_settle_end_on_a_canvas_that_is_not_drawing_requests_a_draw(make_rig):
     rig = make_rig(settle_s=0.05)
     await rig.settle_first_frames()
-    await rig.press()
-    await rig.move(3)
+    rig.press_and_move_now(3)
     # The canvas stops drawing (a hidden output): requests go unanswered.
-    await rig.run(3, draw=False)
+    for _ in range(3):
+        rig.step(draw=False)
     rig.requested[0] = False
-    await asyncio.sleep(0.15)
+    for _ in range(400):
+        if rig.events[-1][1] == "end":
+            break
+        await asyncio.sleep(0.005)
     assert rig.events == [(0, "start", None), (0, "end", "settle")]
     # Without the request a visual with no camera reslice would keep its
     # moving picture until the next input.
@@ -446,8 +474,7 @@ async def test_a_settle_end_on_a_canvas_that_is_not_drawing_requests_a_draw(make
 async def test_a_pending_camera_end_is_a_deferred_reslice_task(make_rig):
     rig = make_rig(settle_s=0.05)
     await rig.settle_first_frames()
-    await rig.press()
-    await rig.move(3)
+    rig.press_and_move_now(3)
     (task,) = rig.controller._deferred_reslice_tasks()
     assert not task.done()
     # A drain waits for it instead of calling the scene idle.

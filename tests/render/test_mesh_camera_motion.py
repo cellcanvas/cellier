@@ -138,11 +138,11 @@ async def test_an_orbit_draws_coarse_while_it_moves_and_fine_after(make_rig, rea
 async def test_a_drag_held_still_shows_fine_after_the_settle_time(make_rig, reads):
     rig = make_rig(settle_s=0.05)
     _mesh, drawn = await _loaded(rig, reads)
-    await rig.press()
-    x = await rig.move(3)
+    # Frames drawn without yielding, so a slow machine cannot settle early.
+    x = rig.press_and_move_now(3, tail=True)
     assert drawn.levels()[-1] == 1
 
-    for _ in range(100):
+    for _ in range(400):
         await rig.run(1)
         if rig.events and rig.events[-1][1] == "end":
             break

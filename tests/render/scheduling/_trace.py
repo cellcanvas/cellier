@@ -67,10 +67,12 @@ def trace_digest(seed: int, steps: int) -> tuple[str, int]:
     env.core.trace = on_trace
     if seed % 2 == 1:
         env.prefill()
+    # No ``env.check()`` per step: it asserts the invariants and changes
+    # nothing the digest covers, and ``test_property`` runs it on the same
+    # environment.  It was 80% of the guard's time.
     for step in range(steps):
         action = env.act()
         _feed(digest, ("act", action, round(env.clock, 9)))
-        env.check()
         if step % 300 == 299:
             env.quiesce()
     env.quiesce()

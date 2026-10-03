@@ -93,7 +93,7 @@ jobs:
           python -c "from pygfx.renderers.wgpu import get_shared; print('adapter:', get_shared().device.adapter.summary)"
 
       - name: 🧪 Run Tests
-        run: pytest --color=yes --cov --cov-report=xml --cov-report=term-missing
+        run: pytest --color=yes --durations=25 --cov --cov-report=xml --cov-report=term-missing
 
       - name: Coverage
         uses: codecov/codecov-action@v7

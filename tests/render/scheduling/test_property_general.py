@@ -267,9 +267,14 @@ def _run(seed: int, steps: int, core_class=SchedulerCore) -> Counter[str]:
     return env.stats + actions
 
 
-@pytest.mark.parametrize("seed", range(12))
+#: Seeds of the parametrised runs, and what each did, for the reach test.
+SEEDS = range(12)
+_RUN_STATS: dict[int, Counter[str]] = {}
+
+
+@pytest.mark.parametrize("seed", SEEDS)
 def test_invariants_hold_with_random_policies(seed: int) -> None:
-    stats = _run(seed, STEPS)
+    stats = _RUN_STATS[seed] = _run(seed, STEPS)
     assert stats["trace_commit"] > 0
     assert stats["trace_issue"] > 0
 
@@ -296,9 +301,11 @@ REACH = (
 
 
 def test_the_traces_reach_every_rule() -> None:
+    """Read off the parametrised runs above; a seed they did not run is run now."""
     total: Counter[str] = Counter()
-    for seed in range(12, 36):
-        total += _run(seed, 300)
+    for seed in SEEDS:
+        stats = _RUN_STATS.get(seed)
+        total += stats if stats is not None else _run(seed, STEPS)
     for name in REACH:
         assert total[name] > 0, f"no {name} in the traces: {dict(total)}"
 
@@ -393,14 +400,13 @@ MUTANTS = (
 
 @pytest.mark.parametrize("mutant", MUTANTS, ids=lambda cls: cls.__name__.strip("_"))
 def test_a_mutant_core_is_caught(mutant) -> None:
-    caught = 0
     seeds = range(20)
     for seed in seeds:
         try:
             _run(seed, 300, core_class=mutant)
         except AssertionError:
-            caught += 1
-    assert caught > 0, f"{mutant.__name__} passed every invariant on {len(seeds)} seeds"
+            return  # caught: one seed is enough
+    pytest.fail(f"{mutant.__name__} passed every invariant on {len(seeds)} seeds")
 
 
 def test_random_policies_draw_from_the_same_stream_each_run() -> None:
