@@ -14,6 +14,7 @@ from psygnal import Signal
 from cellier.gui._appearance_fields import VisualIdGroup
 from cellier.gui._clipping_planes import (
     CLIPPING_PLANES_TITLE,
+    GIZMO_TOOLTIP,
     ClippingPlanesEditor,
 )
 
@@ -62,6 +63,14 @@ class _PlaneRow:
         self.enabled.setToolTip("Whether this plane clips. It stays in the list.")
         self.enabled.toggled.connect(lambda v: editor.set_enabled(self.index, v))
 
+        # Drawn from what the controller says, not from the click: one
+        # canvas has one gizmo, so switching one on switches another off.
+        self.gizmo = QPushButton("Gizmo", self.widget)
+        self.gizmo.setCheckable(True)
+        self.gizmo.setToolTip(GIZMO_TOOLTIP)
+        self.gizmo.setVisible(editor.has_gizmo)
+        self.gizmo.clicked.connect(lambda on: editor.set_gizmo(self.index, on))
+
         self.flip = QPushButton("Flip", self.widget)
         self.flip.setToolTip("Keep the other side of the plane.")
         self.flip.clicked.connect(lambda: editor.flip(self.index))
@@ -72,6 +81,7 @@ class _PlaneRow:
         header = QHBoxLayout()
         header.addWidget(self.enabled)
         header.addStretch(1)
+        header.addWidget(self.gizmo)
         header.addWidget(self.flip)
         header.addWidget(self.remove)
         grid.addLayout(header, 0, 0, 1, n_axes + 1)
@@ -177,6 +187,10 @@ class _PlaneRow:
             self.slider.setValue(int(min(max(step, 0), _SLIDER_STEPS)))
             self.position.setSingleStep(max(span / 200.0, 0.01))
             self.position.setValue(float(row["position"]))
+            blocked = str(row.get("gizmo_blocked", ""))
+            self.gizmo.setChecked(bool(row.get("gizmo", False)))
+            self.gizmo.setEnabled(not blocked)
+            self.gizmo.setToolTip(blocked or GIZMO_TOOLTIP)
         finally:
             for widget in self._inputs:
                 widget.blockSignals(False)
@@ -190,7 +204,9 @@ class QtClippingPlanesControls(VisualIdGroup):
     column per data axis: two buttons named after the axis as the store's
     coordinate system gives it (``+z`` and ``-z``) that face the plane
     along the axis, and under them the normal's entry on it.  Values are in the visual's
-    data coordinates.  An edit is sent as ``ClippingPlanesUpdateEvent`` with the
+    data coordinates.  Given *gizmo*, a row also has a "Gizmo" toggle that
+    puts a gizmo on its plane in the 3D canvas; one plane of a canvas has
+    it at a time.  An edit is sent as ``ClippingPlanesUpdateEvent`` with the
     whole new tuple.  A moved plane updates its row in place, so a slider is
     not destroyed while it is dragged.
 
@@ -221,6 +237,10 @@ class QtClippingPlanesControls(VisualIdGroup):
         Reads the store's current ``(low, high)`` per axis.  Given with
         *data_store_id*, the position ranges follow the store's extent;
         without it they stay at *bounds*.
+    gizmo, gizmo_plane, gizmo_blocked :
+        Where a plane's gizmo is drawn, the plane that has it now, and why
+        a plane cannot have one: ``gizmo_seed(controller, visual_ids)``.
+        Without *gizmo* the rows have no gizmo toggle.
     title :
         The group's name.  Defaults to :data:`DEFAULT_TITLE`.
     parent :
@@ -243,6 +263,9 @@ class QtClippingPlanesControls(VisualIdGroup):
         planes: Sequence[Mapping[str, Any]] = (),
         data_store_id: UUID | str | None = None,
         bounds_source: Callable[[], Sequence[Sequence[float]]] | None = None,
+        gizmo: Mapping[str, Any] | None = None,
+        gizmo_plane: str | None = None,
+        gizmo_blocked: Callable[[str], str] | None = None,
         title: str | None = None,
         parent=None,
     ) -> None:
@@ -285,6 +308,9 @@ class QtClippingPlanesControls(VisualIdGroup):
             self._show,
             data_store_id=data_store_id,
             bounds_source=bounds_source,
+            gizmo=gizmo,
+            gizmo_plane=gizmo_plane,
+            gizmo_blocked=gizmo_blocked,
         )
         self._add.clicked.connect(lambda: self._editor.add())
         self._show(self._editor.rows, "")

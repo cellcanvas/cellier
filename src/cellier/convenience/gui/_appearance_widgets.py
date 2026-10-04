@@ -93,13 +93,14 @@ def _any_mesh_section(spec: ControlSpec, visual_ids, controller=None):
 
 
 def _any_clipping_planes(spec: ControlSpec, visual_ids, controller=None):
-    from cellier.gui._clipping_planes import seed_bounds_source
+    from cellier.gui._clipping_planes import gizmo_seed, seed_bounds_source
     from cellier.gui.anywidget.visuals import AnywidgetClippingPlanesControls
 
     return AnywidgetClippingPlanesControls(
         visual_ids,
         title=spec.title,
         bounds_source=seed_bounds_source(controller, spec.values),
+        **gizmo_seed(controller, visual_ids),
         **spec.values,
     )
 

@@ -91,6 +91,9 @@ def _act(widget, action, index=None, value=None) -> None:
         row.remove.click()
     elif action == "flip":
         row.flip.click()
+    elif action == "gizmo":
+        assert row.gizmo.isChecked() != value
+        row.gizmo.click()
     elif action == "enabled":
         row.enabled.setChecked(value)
     elif action == "facing":
@@ -116,14 +119,28 @@ def _n_rows(widget) -> int:
 
 def test_rows_and_planes_convert_both_ways():
     system = uuid4()
+    first, second = str(uuid4()), str(uuid4())
     rows = [
-        {"enabled": True, "normal": [0.0, 0.0, 2.0], "position": 12.0},
-        {"enabled": False, "normal": [1.0, 1.0, 0.0], "position": -3.0},
+        {"id": first, "enabled": True, "normal": [0.0, 0.0, 2.0], "position": 12.0},
+        {"id": second, "enabled": False, "normal": [1.0, 1.0, 0.0], "position": -3.0},
     ]
     planes = planes_from_rows(rows, system)
     assert planes[0].plane.offset == 24.0  # position times the normal's length
     assert planes[1].enabled is False
-    assert rows_from_planes(planes) == pytest.approx(rows)
+    assert [str(plane.id) for plane in planes] == [first, second]
+    back = rows_from_planes(planes)
+    for row, expected in zip(back, rows):
+        assert row["id"] == expected["id"]
+        assert row["enabled"] == expected["enabled"]
+        assert row["normal"] == expected["normal"]
+        assert row["position"] == pytest.approx(expected["position"])
+
+
+def test_a_row_without_an_id_makes_a_plane_with_a_new_one():
+    rows = [{"enabled": True, "normal": [0.0, 0.0, 1.0], "position": 1.0}]
+    first = planes_from_rows(rows, uuid4())
+    second = planes_from_rows(rows, first[0].plane.coordinate_system)
+    assert first[0].id != second[0].id
 
 
 def test_the_position_range_is_the_box_projected_on_the_normal():
@@ -163,16 +180,20 @@ def test_it_adds_moves_toggles_and_removes_planes(controller, toolkit):
 
     _act(widget, "add")
     # Across the last axis, through the middle of the data.
-    assert visual.clipping_planes == (
-        ClippingPlane.from_point_normal(system, (0, 0, 20), (0, 0, 1)),
-    )
+    (added,) = visual.clipping_planes
+    expected = ClippingPlane.from_point_normal(system, (0, 0, 20), (0, 0, 1))
+    assert added.plane == expected.plane
+    assert added.enabled is True
+    plane_id = added.id
     _act(widget, "position", 0, 5.0)
     assert visual.clipping_planes[0].plane.offset == 5.0
+    assert visual.clipping_planes[0].id == plane_id  # an edit keeps the id
     _act(widget, "flip", 0)
     np.testing.assert_array_equal(visual.clipping_planes[0].plane.normal, [0, 0, -1])
     assert visual.clipping_planes[0].plane.offset == -5.0  # the same plane
     _act(widget, "enabled", 0, False)
     assert visual.clipping_planes[0].enabled is False
+    assert visual.clipping_planes[0].id == plane_id
     assert _n_rows(widget) == 1  # a disabled plane stays in the list
 
     _act(widget, "add")
@@ -186,8 +207,11 @@ def test_it_adds_moves_toggles_and_removes_planes(controller, toolkit):
         _act(widget, "component", 1, [axis, entry])
     np.testing.assert_array_equal(visual.clipping_planes[1].plane.normal, [0, 1, 1])
 
+    second_id = visual.clipping_planes[1].id
+    assert second_id != plane_id
     _act(widget, "remove", 0)
     assert len(visual.clipping_planes) == 1
+    assert visual.clipping_planes[0].id == second_id
     assert _n_rows(widget) == 1
     assert widget.error == ""
     widget.close()
@@ -305,11 +329,12 @@ def test_the_anywidget_ignores_a_malformed_edit(controller):
 
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
-def test_the_position_range_follows_the_stores_extent(controller, toolkit):
+async def test_the_position_range_follows_the_stores_extent(controller, toolkit):
     from cellier.convenience import PointsControlsConfig
     from cellier.convenience.layout._shared import appearance_specs
 
     visual, store = _add_points(controller)
+    controller.add_canvas(scene_id=controller.get_visual_scene_id(visual.id))
     config = PointsControlsConfig(appearance=True, clipping_controls=True)
     spec = next(
         spec
@@ -463,6 +488,7 @@ def test_the_panel_builders_make_the_control(controller, toolkit):
     from cellier.convenience.layout._shared import appearance_specs
 
     visual, store = _add_points(controller)
+    controller.add_canvas(scene_id=controller.get_visual_scene_id(visual.id))
     visual.clipping_planes = (
         ClippingPlane.from_point_normal(
             store.data_coordinate_system, (0, 0, 9), (0, 0, 1)
@@ -485,3 +511,224 @@ def test_the_panel_builders_make_the_control(controller, toolkit):
         widget = ANYWIDGET_BUILDERS["clipping_planes"](spec, [visual.id], controller)
     assert _n_rows(widget) == 1
     assert widget.editor.rows[0]["position"] == 9.0
+
+
+# -- the gizmo toggle (clipping plane gizmo design v2, 7) -----------------------
+
+
+def _gizmo_scene(controller, names="zyx"):
+    """A points visual with two planes in a scene that has a 3D canvas."""
+    visual, store = _add_points(controller, names)
+    scene_id = controller.get_visual_scene_id(visual.id)
+    controller.add_canvas(scene_id=scene_id)
+    system = store.data_coordinate_system
+    point, normal = [0.0] * len(names), [0.0] * len(names)
+    normal[-1] = 1.0
+    planes = []
+    for x in (9.0, 20.0):
+        point[-1] = x
+        planes.append(ClippingPlane.from_point_normal(system, point, normal))
+    visual.clipping_planes = tuple(planes)
+    return visual, store, controller.get_canvas_ids(scene_id)[0]
+
+
+def _make_wired(toolkit, controller, visual, store):
+    """The control as a panel builds it, wired to the controller."""
+    from cellier.gui._clipping_planes import gizmo_seed
+
+    seed = {**clipping_planes_seed(visual, store), **gizmo_seed(controller, visual.id)}
+    if toolkit == "qt":
+        from cellier.gui.qt.visuals import QtClippingPlanesControls
+
+        control = QtClippingPlanesControls(visual.id, **seed)
+        _QTBOT[-1].addWidget(control.widget)
+    else:
+        from cellier.gui.anywidget.visuals import AnywidgetClippingPlanesControls
+
+        control = AnywidgetClippingPlanesControls(visual.id, **seed)
+    controller.connect_widget(control, subscription_specs=control.subscription_specs())
+    return control
+
+
+def _gizmo_states(widget) -> list[tuple[bool, str]]:
+    """``(on, why blocked)`` of each row's toggle, as drawn."""
+    if hasattr(widget, "comm"):
+        return [(row["gizmo"], row["gizmo_blocked"]) for row in widget.rows]
+    return [
+        (
+            row.gizmo.isChecked(),
+            "" if row.gizmo.isEnabled() else row.gizmo.toolTip(),
+        )
+        for row in widget._rows
+    ]
+
+
+def test_a_gizmo_toggle_needs_the_canvas_built_first(controller):
+    from cellier.gui._clipping_planes import gizmo_seed
+
+    visual, _store = _add_points(controller)  # a 3D scene with no canvas
+    with pytest.raises(ValueError, match="Build the canvas before"):
+        gizmo_seed(controller, visual.id)
+    controller.add_canvas(scene_id=controller.get_visual_scene_id(visual.id))
+    assert gizmo_seed(controller, visual.id)["gizmo"]["visual_id"] == str(visual.id)
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_a_control_given_no_gizmo_draws_no_toggle(controller, toolkit):
+    """A control built with no gizmo arguments: one with no controller, or
+    whose scene never shows 3D."""
+    from cellier.gui._clipping_planes import gizmo_seed
+
+    visual, store = _add_points(controller)
+    assert gizmo_seed(None, visual.id) == {}
+    flat = controller.add_scene(dim="2d", name="flat", render_modes={"2d"})
+    flat_visual = controller.add_points(data=store, scene_id=flat.id, name="flat")
+    assert gizmo_seed(controller, flat_visual.id) == {}
+
+    widget = _make(toolkit, visual.id, visual, store)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    _act(widget, "add")
+    assert not widget.editor.has_gizmo
+    if toolkit == "qt":
+        assert widget.row(0).gizmo.isHidden()
+    else:
+        assert "gizmo" not in widget.rows[0]
+        _act(widget, "gizmo", 0, True)  # ignored
+    assert controller._clipping_gizmos == {}
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_the_toggle_puts_the_gizmo_on_one_plane_at_a_time(controller, toolkit):
+    visual, store, canvas_id = _gizmo_scene(controller)
+    widget = _make_wired(toolkit, controller, visual, store)
+    first, second = visual.clipping_planes
+    assert _gizmo_states(widget) == [(False, ""), (False, "")]
+
+    _act(widget, "gizmo", 0, True)
+    assert controller.get_clipping_plane_gizmo(canvas_id).plane_id == first.id
+    assert _gizmo_states(widget) == [(True, ""), (False, "")]
+
+    # The other row: the canvas's one gizmo moves there.
+    _act(widget, "gizmo", 1, True)
+    assert controller.get_clipping_plane_gizmo(canvas_id).plane_id == second.id
+    assert _gizmo_states(widget) == [(False, ""), (True, "")]
+
+    _act(widget, "gizmo", 1, False)
+    assert controller.get_clipping_plane_gizmo(canvas_id) is None
+    assert _gizmo_states(widget) == [(False, ""), (False, "")]
+    assert widget.error == ""
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_the_toggle_follows_a_gizmo_opened_and_closed_elsewhere(controller, toolkit):
+    visual, store, canvas_id = _gizmo_scene(controller)
+    widget = _make_wired(toolkit, controller, visual, store)
+    first, second = visual.clipping_planes
+
+    session = controller.add_clipping_plane_gizmo(visual.id, canvas_id, second.id)
+    assert _gizmo_states(widget) == [(False, ""), (True, "")]
+    # A control built now starts from the gizmo there is.
+    late = _make_wired(toolkit, controller, visual, store)
+    assert _gizmo_states(late) == [(False, ""), (True, "")]
+
+    # Its plane is removed: the session ends itself and the toggle clears.
+    _act(widget, "remove", 1)
+    assert session.closed
+    assert _gizmo_states(widget) == [(False, "")]
+    assert _gizmo_states(late) == [(False, "")]
+
+    # A disabled plane can have one, and keeps it when toggled.
+    _act(widget, "enabled", 0, False)
+    _act(widget, "gizmo", 0, True)
+    _act(widget, "enabled", 0, True)
+    assert controller.get_clipping_plane_gizmo(canvas_id).plane_id == first.id
+    assert _gizmo_states(widget) == [(True, "")]
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_two_controls_on_one_canvas_share_the_gizmo(controller, toolkit):
+    visual, store, canvas_id = _gizmo_scene(controller)
+    scene_id = controller.get_visual_scene_id(visual.id)
+    other = controller.add_points(data=store, scene_id=scene_id, name="other")
+    other.clipping_planes = (
+        ClippingPlane.from_point_normal(
+            store.data_coordinate_system, (0, 0, 30), (0, 0, 1)
+        ),
+    )
+    a = _make_wired(toolkit, controller, visual, store)
+    b = _make_wired(toolkit, controller, other, store)
+
+    _act(a, "gizmo", 0, True)
+    _act(b, "gizmo", 0, True)
+    assert controller.get_clipping_plane_gizmo(canvas_id).visual_id == other.id
+    assert _gizmo_states(a) == [(False, ""), (False, "")]
+    assert _gizmo_states(b) == [(True, "")]
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+async def test_the_toggle_is_blocked_in_2d_with_the_reason(controller, toolkit):
+    visual, store, canvas_id = _gizmo_scene(controller)
+    widget = _make_wired(toolkit, controller, visual, store)
+    scene = controller.get_scene(controller.get_visual_scene_id(visual.id))
+    _act(widget, "gizmo", 0, True)
+
+    scene.dims.selection.displayed_axes = (1, 2)
+    assert controller.get_clipping_plane_gizmo(canvas_id) is None
+    states = _gizmo_states(widget)
+    assert [on for on, _ in states] == [False, False]
+    assert all("2D" in why for _, why in states)
+
+    scene.dims.selection.displayed_axes = (0, 1, 2)
+    assert _gizmo_states(widget) == [(False, ""), (False, "")]
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_a_plane_tilted_on_a_hidden_axis_is_blocked(controller, toolkit):
+    visual, store, _canvas_id = _gizmo_scene(controller, "tzyx")
+    widget = _make_wired(toolkit, controller, visual, store)
+    assert _gizmo_states(widget) == [(False, ""), (False, "")]
+    _act(widget, "component", 0, [0, 0.5])  # a component on t
+    (on, why), untouched = _gizmo_states(widget)
+    assert not on
+    assert "component on t" in why
+    assert untouched == (False, "")
+
+
+async def test_a_refused_request_shows_its_reason_and_leaves_the_toggle_off(controller):
+    visual, store, canvas_id = _gizmo_scene(controller)
+    widget = _make_wired("anywidget", controller, visual, store)
+    scene = controller.get_scene(controller.get_visual_scene_id(visual.id))
+    # The front end has not drawn the block yet and sends the click anyway.
+    scene.dims.selection.displayed_axes = (1, 2)
+    _act(widget, "gizmo", 0, True)
+    assert controller.get_clipping_plane_gizmo(canvas_id) is None
+    assert "3D canvas" in widget.error
+    assert not widget.rows[0]["gizmo"]
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_the_panel_builders_give_the_control_its_gizmo(controller, toolkit):
+    from cellier.convenience import PointsControlsConfig
+    from cellier.convenience.layout._shared import appearance_specs
+
+    visual, store, canvas_id = _gizmo_scene(controller)
+    config = PointsControlsConfig(appearance=True, clipping_controls=True)
+    spec = next(
+        spec
+        for spec in appearance_specs(visual, config, store).specs
+        if spec.kind == "clipping_planes"
+    )
+    if toolkit == "qt":
+        from cellier.convenience.gui._appearance_widgets_qt import QT_BUILDERS
+
+        widget = QT_BUILDERS["clipping_planes"](spec, [visual.id], controller)
+        _QTBOT[-1].addWidget(widget.widget)
+    else:
+        from cellier.convenience.gui._appearance_widgets import ANYWIDGET_BUILDERS
+
+        widget = ANYWIDGET_BUILDERS["clipping_planes"](spec, [visual.id], controller)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    assert widget.editor.has_gizmo
+    _act(widget, "gizmo", 1, True)
+    assert controller.get_clipping_plane_gizmo(canvas_id) is not None
+    assert _gizmo_states(widget) == [(False, ""), (True, "")]

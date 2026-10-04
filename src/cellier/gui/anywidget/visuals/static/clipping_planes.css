@@ -75,6 +75,12 @@
   padding: 1px 5px;
 }
 
+.cellier-clipping-planes button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.cellier-clipping-planes-header > button.cellier-clipping-planes-on,
 .cellier-clipping-planes-facing > button.cellier-clipping-planes-on {
   background: var(--jp-brand-color1, #3b82f6);
   border-color: var(--jp-brand-color1, #3b82f6);

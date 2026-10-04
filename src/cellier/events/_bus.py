@@ -24,6 +24,8 @@ from cellier.events._events import (
     CanvasMouseRelease2DEvent,
     CanvasMouseRelease3DEvent,
     ChannelAppearanceChangedEvent,
+    ClippingInteractionEvent,
+    ClippingPlaneGizmoChangedEvent,
     ClippingPlanesChangedEvent,
     DataStoreContentsChangedEvent,
     DataStoreMetadataChangedEvent,
@@ -41,6 +43,7 @@ from cellier.events._events import (
     MeshSectionChangedEvent,
     OverlayChangedEvent,
     PickWriteChangedEvent,
+    PlaneGizmoMovedEvent,
     PointsPickEvent,
     ResliceCancelledEvent,
     ResliceCompletedEvent,
@@ -83,6 +86,9 @@ _ENTITY_FIELD: dict[type, str] = {
     LoadingConfigChangedEvent: "visual_id",
     LodConfigChangedEvent: "visual_id",
     ClippingPlanesChangedEvent: "visual_id",
+    ClippingInteractionEvent: "visual_id",
+    ClippingPlaneGizmoChangedEvent: "canvas_id",
+    PlaneGizmoMovedEvent: "gizmo_id",
     ResliceCancelledEvent: "visual_id",
     FrameRenderedEvent: "canvas_id",
     CanvasConnectedEvent: "canvas_id",
@@ -501,12 +507,16 @@ class EventBus:
               ``LoadingConfigChangedEvent``,
               ``LodConfigChangedEvent``,
               ``ClippingPlanesChangedEvent``,
+              ``ClippingInteractionEvent``,
               ``ResliceCancelledEvent``
             - Canvas (keyed by ``canvas_id``) — ``FrameRenderedEvent``,
-              ``CanvasConnectedEvent``
+              ``CanvasConnectedEvent``,
+              ``ClippingPlaneGizmoChangedEvent``
             - Data store (keyed by ``data_store_id``) —
               ``DataStoreMetadataChangedEvent``,
               ``DataStoreContentsChangedEvent``
+            - Plane gizmo (keyed by ``gizmo_id``) —
+              ``PlaneGizmoMovedEvent``
 
             Subscribing with ``entity_id=some_scene_id`` means the
             callback only fires for events whose ``scene_id`` matches.

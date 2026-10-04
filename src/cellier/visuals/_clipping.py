@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, TypeAdapter
+from pydantic import UUID4, BaseModel, ConfigDict, Field, TypeAdapter
 
 from cellier.transform import Plane
 
@@ -35,10 +36,17 @@ class ClippingPlane(BaseModel):
     every timepoint.
 
     The model is frozen.  Moving a plane means assigning a new tuple to
-    ``visual.clipping_planes``.
+    ``visual.clipping_planes``.  Build the moved plane with
+    ``item.model_copy(update={"plane": new_plane})`` so it keeps its ``id``:
+    the id is what names a plane across replacements of the tuple.  Two
+    planes built from scratch have different ids and are not equal, even
+    with the same ``plane``.
 
     Parameters
     ----------
+    id : UUID4
+        Names this plane.  Unique within a visual's ``clipping_planes``.
+        Generated when not given.
     plane : Plane
         The plane, in the visual's level-0 data coordinates.
     enabled : bool
@@ -48,6 +56,7 @@ class ClippingPlane(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    id: UUID4 = Field(default_factory=uuid4)
     plane: Plane
     enabled: bool = True
 

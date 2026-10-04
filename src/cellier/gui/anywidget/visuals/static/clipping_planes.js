@@ -7,6 +7,8 @@
 // destroyed while it is dragged.  Rows are only added or removed when the
 // number of planes changes.
 
+const GIZMO_TOOLTIP = "Drag a gizmo in the 3D view to move and tilt this plane.";
+
 // A normal's entry as the number input shows it: at most three decimals.
 function shown(value) {
   return String(Number(Number(value).toFixed(3)));
@@ -65,6 +67,15 @@ function render({ model, el }) {
     enabled.addEventListener("change", () => send("enabled", index, enabled.checked));
     enabledLabel.append(enabled, ` Plane ${index + 1}`);
 
+    // Drawn from `rows`, not from the click: one canvas has one gizmo, so
+    // switching one on switches another off.  Hidden when the row has no
+    // `gizmo` entry (no 3D canvas to draw one in).
+    const gizmo = document.createElement("button");
+    gizmo.textContent = "Gizmo";
+    gizmo.dataset.role = "gizmo";
+    let gizmoOn = false;
+    gizmo.addEventListener("click", () => send("gizmo", index, !gizmoOn));
+
     const flip = document.createElement("button");
     flip.textContent = "Flip";
     flip.title = "Keep the other side of the plane.";
@@ -78,7 +89,7 @@ function render({ model, el }) {
 
     const spacer = document.createElement("span");
     spacer.className = "cellier-clipping-planes-spacer";
-    header.append(enabledLabel, spacer, flip, remove);
+    header.append(enabledLabel, spacer, gizmo, flip, remove);
 
     // -- normal: one column per data axis, two buttons over an entry
     const normal = document.createElement("div");
@@ -168,6 +179,12 @@ function render({ model, el }) {
 
     function apply(row) {
       enabled.checked = Boolean(row.enabled);
+      gizmo.style.display = row.gizmo === undefined ? "none" : "";
+      gizmoOn = Boolean(row.gizmo);
+      gizmo.classList.toggle("cellier-clipping-planes-on", gizmoOn);
+      gizmo.setAttribute("aria-pressed", String(gizmoOn));
+      gizmo.disabled = Boolean(row.gizmo_blocked);
+      gizmo.title = row.gizmo_blocked || GIZMO_TOOLTIP;
       current = row.normal.map(Number);
       for (const { axis, sign, button } of facing) {
         const on = Boolean(row.facing) && row.facing[0] === axis && row.facing[1] === sign;

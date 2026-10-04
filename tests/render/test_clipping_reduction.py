@@ -15,6 +15,7 @@ from cellier.data import PointsMemoryStore
 from cellier.render._clipping import (
     KEEP_EVERYTHING,
     data_half_space_rows,
+    expand_rendered_plane,
     reduce_clipping_planes,
 )
 from cellier.render._spaces import node_matrix
@@ -189,3 +190,85 @@ def test_culling_rows_are_in_data_space_in_pygfx_order(controller):
     # 2D: z pinned at 7, so it moves into the constant.
     rows = data_half_space_rows(planes, (1, 2), {0: 7.0})
     np.testing.assert_allclose(rows, [[6, 5, 0, -(32 - 4 * 7)]])
+
+
+# ---------------------------------------------------------------------------
+# The inverse: a rendered pose back to a data plane (gizmo design v2, 5.3)
+# ---------------------------------------------------------------------------
+
+
+def _constants(system, constants):
+    return {system.resolve(name): value for name, value in constants.items()}
+
+
+@pytest.mark.parametrize(
+    ("world", "data", "constants"),
+    [
+        ("zyx", "zyx", {}),
+        ("tzyx", "tzyx", {"t": 9.0}),
+        ("tzyx", "zyx", {}),
+    ],
+)
+def test_a_reduced_plane_expands_back_to_the_data_plane(
+    controller, world, data, constants
+):
+    """Anisotropic and shifted: reduce, read a pose off it, expand."""
+    visual, system, spaces = _points_visual(
+        controller, world, data, "zyx", SCALE, SHIFT
+    )
+    constants = _constants(system, constants)
+    plane = ClippingPlane.from_point_normal(
+        system, (40, 30, 20), (1.0, 0.4, -0.7), axes=("z", "y", "x")
+    )
+    a, b, c, d = reduce_clipping_planes(spaces, visual.transform, constants, [plane])[0]
+    abc = np.array([a, b, c])
+    # A gizmo holds a unit normal and a point on the plane.
+    unit = abc / np.linalg.norm(abc)
+    point = unit * (d / np.linalg.norm(abc)) + np.cross(unit, [0.3, -1.0, 2.0])
+    normal, offset = expand_rendered_plane(
+        spaces, visual.transform, constants, point, unit
+    )
+    # The same plane up to the scale the unit normal took out.
+    scale = np.linalg.norm(abc)
+    np.testing.assert_allclose(normal * scale, plane.plane.normal, atol=1e-9)
+    assert offset * scale == pytest.approx(plane.plane.offset, abs=1e-9)
+    for axis in constants:
+        assert normal[axis] == 0.0
+
+
+def test_an_expanded_plane_reduces_to_the_pose_it_came_from(controller):
+    visual, system, spaces = _points_visual(
+        controller, "tzyx", "tzyx", "zyx", SCALE, SHIFT
+    )
+    constants = _constants(system, {"t": 9.0})
+    point = np.array([12.0, -7.5, 30.25])
+    unit = np.array([0.36, -0.48, 0.8])
+    normal, offset = expand_rendered_plane(
+        spaces, visual.transform, constants, point, unit
+    )
+    from cellier.transform import Plane
+
+    plane = ClippingPlane(
+        plane=Plane(coordinate_system=system.id, normal=normal, offset=offset)
+    )
+    abcd = reduce_clipping_planes(spaces, visual.transform, constants, [plane])[0]
+    np.testing.assert_allclose(abcd[:3], unit, atol=1e-12)
+    assert abcd[3] == pytest.approx(float(unit @ point), abs=1e-9)
+    # 32-bit node matrix against a 64-bit reduction.
+    assert _residual(spaces, visual.transform, constants, plane, abcd) < 1e-5
+
+
+def test_expanding_needs_a_3d_view(controller):
+    visual, _system, spaces = _points_visual(
+        controller, "zyx", "zyx", "yx", SCALE, SHIFT
+    )
+    with pytest.raises(ValueError, match="3D view"):
+        expand_rendered_plane(spaces, visual.transform, {0: 17.0}, (0, 0, 0), (1, 0, 0))
+
+
+def test_expanding_refuses_a_zero_normal(controller):
+    visual, _system, spaces = _points_visual(
+        controller, "zyx", "zyx", "zyx", SCALE, SHIFT
+    )
+    with pytest.raises(ValueError, match="all zero"):
+        expand_rendered_plane(spaces, visual.transform, {}, (0, 0, 0), (0, 0, 0))

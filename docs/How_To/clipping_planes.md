@@ -103,6 +103,13 @@ once).
 `controller.set_clipping_planes(visual_id, planes, source_id=...)` does the
 same with a `source_id` on the resulting `ClippingPlanesChangedEvent`.
 
+Each plane has an `id` that survives a move, so a plane can be followed
+through replaced tuples. To move one plane and leave the others:
+
+```python
+controller.set_clipping_plane(visual.id, plane.id, new_plane)  # a transform Plane
+```
+
 ## What a cut looks like
 
 | Visual | In a 3D view | In a 2D view |
@@ -163,5 +170,58 @@ of `normal`. The axis names come from the store's data coordinate system
 The position slider's range is the data's bounding box along the normal, and
 follows the store when its extent changes.
 
-See `examples/clipping_planes/clipping_planes_viewer.py` and, for multiscale
+## The gizmo
+
+A gizmo in a 3D view moves and tilts one plane by dragging:
+
+```python
+gizmo = viewer.add_clipping_plane_gizmo(visual, visual.clipping_planes[0])
+...
+gizmo.close()            # or viewer.remove_clipping_plane_gizmo()
+```
+
+On an `OrthoViewer` the gizmo is drawn in the 3D panel and the 2D panels
+follow. Without a viewer:
+`controller.add_clipping_plane_gizmo(visual_id, canvas_id, plane_id)`.
+
+- The arrow along the normal slides the plane. The two rings that tilt the
+  normal turn it about the gizmo.
+- The other handles (the two in-plane arrows, the in-plane square, the ring
+  about the normal) move the gizmo on the plane and leave the plane where
+  it is. Use them to bring the gizmo to the part you are looking at.
+- A plane changed any other way (the slider, an assignment) moves the gizmo.
+- A view has one gizmo at a time. Adding one on another plane closes the
+  one it had.
+- The gizmo closes itself when its plane or its visual is removed, when the
+  view switches to 2D, and when the plane is given a component on an axis
+  the view does not show (a plane tilted in time). Such a plane cannot have
+  one.
+- A disabled plane can have a gizmo: place it, then switch it on.
+
+It first appears on the plane at the point nearest the one the camera
+orbits about. If the plane does not pass through the view, the gizmo is off
+screen until the camera or the plane moves.
+
+In the control, each row has a "Gizmo" toggle that does the same. The
+toggles of every control of a view act as one set: switching one on
+switches the others off. A toggle is greyed out, with the reason as its
+tooltip, where a gizmo is not possible. The toggle is for the canvas that
+exists when the control is built, so build the canvas first: the layout
+flows do, and a control built by hand before its canvas raises.
+
+A drag is announced by `ClippingInteractionEvent` (`controller.
+on_clipping_interaction`): one start and one end, with the plane changes
+between them. A script can group its own changes the same way with
+`with controller.clipping_interaction(visual.id): ...`. The plane a view's
+gizmo is on is announced by `ClippingPlaneGizmoChangedEvent`
+(`controller.on_clipping_plane_gizmo_changed`).
+
+A plane change during a drag costs the same as any other. On a multiscale
+volume of about a million level-0 bricks that is 13 to 38 ms a frame.
+
+Known limit: with outlines enabled, a handle over an outlined visual gets a
+thin contour in that visual's outline colour.
+
+See `examples/clipping_planes/clipping_planes_viewer.py`,
+`examples/clipping_planes/clipping_plane_gizmo.py` and, for multiscale
 visuals, `examples/clipping_planes/multiscale_clipping_planes_viewer.py`.

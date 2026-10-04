@@ -40,7 +40,9 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
     column per data axis: two buttons named after the axis as the store's
     coordinate system gives it (``+z`` and ``-z``) that face the plane
     along the axis, and under them the normal's entry on it.  Values are in
-    the visual's data coordinates.
+    the visual's data coordinates.  Given *gizmo*, a row also has a "Gizmo"
+    toggle that puts a gizmo on its plane in the 3D canvas; one plane of a
+    canvas has it at a time.
 
     The front end reports an action by setting ``edit`` to
     ``{"action", "index", "value", "serial"}``; the Python side applies it
@@ -76,6 +78,10 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
         Reads the store's current ``(low, high)`` per axis.  Given with
         *data_store_id*, the position ranges follow the store's extent;
         without it they stay at *bounds*.
+    gizmo, gizmo_plane, gizmo_blocked :
+        Where a plane's gizmo is drawn, the plane that has it now, and why
+        a plane cannot have one: ``gizmo_seed(controller, visual_ids)``.
+        Without *gizmo* the rows have no gizmo toggle.
     """
 
     _esm = _STATIC / "clipping_planes.js"
@@ -90,7 +96,8 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
     title = traitlets.Unicode(DEFAULT_TITLE).tag(sync=True)
     #: The data axis names, in the order of a normal's entries.
     axis_names = traitlets.List([]).tag(sync=True)
-    #: One entry per plane: enabled, normal, position, facing, low, high.
+    #: One entry per plane: id, enabled, normal, position, facing, low, high;
+    #: with a gizmo toggle, also gizmo and gizmo_blocked.
     rows = traitlets.List([]).tag(sync=True)
     #: The reason the last edit was refused, or "".
     error = traitlets.Unicode("").tag(sync=True)
@@ -107,6 +114,9 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
         planes: Sequence[Mapping[str, Any]] = (),
         data_store_id: UUID | str | None = None,
         bounds_source: Callable[[], Sequence[Sequence[float]]] | None = None,
+        gizmo: Mapping[str, Any] | None = None,
+        gizmo_plane: str | None = None,
+        gizmo_blocked: Callable[[str], str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(axis_names=[*map(str, axis_names)], **kwargs)
@@ -123,6 +133,9 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
             self._show,
             data_store_id=data_store_id,
             bounds_source=bounds_source,
+            gizmo=gizmo,
+            gizmo_plane=gizmo_plane,
+            gizmo_blocked=gizmo_blocked,
         )
         self._shown_error = ""
         self._show(self._editor.rows, "")
@@ -172,6 +185,8 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
             editor.set_position(index, float(value))
         elif action == "flip":
             editor.flip(index)
+        elif action == "gizmo":
+            editor.set_gizmo(index, bool(value))
         elif action in ("facing", "component"):
             # ``[axis index, sign]`` or ``[axis index, entry]``.
             if not isinstance(value, (list, tuple)) or len(value) != 2:

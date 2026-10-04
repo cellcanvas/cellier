@@ -188,6 +188,51 @@ def test_a_plane_of_the_wrong_rank_is_refused(controller):
         controller.set_clipping_planes(visual.id, [short])
 
 
+def test_two_planes_with_one_id_are_refused(controller):
+    store = _points_store()
+    system = store.data_coordinate_systems[0]
+    scene = controller.add_scene(dim="3d", name="s")
+    visual = controller.add_points(data=store, scene_id=scene.id)
+    plane = _plane(system)
+    twin = plane.model_copy(update={"enabled": False})
+    with pytest.raises(ValueError, match="share an id"):
+        controller.set_clipping_planes(visual.id, [plane, twin])
+    assert visual.clipping_planes == ()
+
+
+def test_one_plane_is_read_and_moved_by_its_id(controller):
+    store = _points_store()
+    system = store.data_coordinate_systems[0]
+    scene = controller.add_scene(dim="3d", name="s")
+    visual = controller.add_points(data=store, scene_id=scene.id)
+    first, second = _plane(system), _plane(system, x=20.0, enabled=False)
+    controller.set_clipping_planes(visual.id, [first, second])
+    assert controller.get_clipping_plane(visual.id, second.id) == second
+
+    events: list = []
+    controller.on_clipping_planes_changed(visual.id, events.append, owner_id=uuid4())
+    source = uuid4()
+    new_plane = second.plane.model_copy(update={"offset": second.plane.offset + 3.0})
+    moved = controller.set_clipping_plane(
+        visual.id, second.id, new_plane, source_id=source
+    )
+    # The plane moved; its id, its place and its flag did not.
+    assert visual.clipping_planes == (first, moved)
+    assert moved.id == second.id
+    assert moved.enabled is False
+    assert moved.plane == new_plane
+    assert [event.source_id for event in events] == [source]
+
+    # The same plane again changes nothing and announces nothing.
+    controller.set_clipping_plane(visual.id, second.id, new_plane, source_id=source)
+    assert len(events) == 1
+
+    with pytest.raises(KeyError):
+        controller.get_clipping_plane(visual.id, uuid4())
+    with pytest.raises(KeyError):
+        controller.set_clipping_plane(visual.id, uuid4(), new_plane)
+
+
 # ---------------------------------------------------------------------------
 # Planes survive every material change (design 4.6)
 # ---------------------------------------------------------------------------

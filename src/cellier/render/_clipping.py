@@ -96,6 +96,74 @@ def reduce_clipping_planes(
     return out
 
 
+def expand_rendered_plane(
+    spaces: RenderSpaces,
+    data_to_world: BaseTransform,
+    constants: Mapping[int, float],
+    point: Sequence[float],
+    normal: Sequence[float],
+) -> tuple[np.ndarray, float]:
+    """Turn a plane of a 3D view's rendered space into a data-space plane.
+
+    The inverse of :func:`reduce_clipping_planes` for one plane, for a pose
+    a gizmo reports: the plane through *point* that keeps the side *normal*
+    points to.  With ``r = L x + tau``: ``n_retained = L^T n'`` and
+    ``d = n' . point - n' . tau``.  The components on the collapsed axes
+    are zero, so the plane holds at every position of those axes.
+
+    The data-space normal is not rescaled: on anisotropic data a unit
+    rendered normal gives a data normal of another length, and the offset
+    is in the same scale.
+
+    Parameters
+    ----------
+    spaces : RenderSpaces
+        The systems the visual is placed with.
+    data_to_world : BaseTransform
+        The visual's own transform.
+    constants : Mapping[int, float]
+        ``{collapsed data axis: data position}``, as for
+        :func:`reduce_clipping_planes`.
+    point : Sequence[float]
+        A point on the plane, in rendered space, pygfx ``(x, y, z)`` order.
+    normal : Sequence[float]
+        The normal there, in the same order.  It points into the kept
+        half-space.
+
+    Returns
+    -------
+    tuple[np.ndarray, float]
+        The normal, one entry per data axis, and the offset: the plane
+        ``normal . p >= offset`` in level-0 data coordinates.
+
+    Raises
+    ------
+    ValueError
+        If the view does not keep three data axes, or *normal* is zero.
+    """
+    rendered = affine_for_node(data_to_world, constants).then(
+        spaces.world_to_rendered, spaces.world, spaces.rendered
+    )
+    ndim = rendered.linear.shape[1]
+    retained = [axis for axis in range(ndim) if axis not in constants]
+    if len(retained) != 3:
+        raise ValueError(
+            "A rendered plane can be expanded for a 3D view only; this view "
+            f"keeps {len(retained)} data axes."
+        )
+    linear = np.asarray(rendered.linear, dtype=np.float64)[:, retained]
+    tau = np.asarray(rendered.translation, dtype=np.float64)
+    xyz = np.asarray(normal, dtype=np.float64)
+    if not np.any(xyz):
+        raise ValueError("A plane's normal must not be all zero.")
+    # Rendered order is pygfx order reversed, as in the reduction.
+    reduced = xyz[::-1]
+    expanded = np.zeros(ndim, dtype=np.float64)
+    expanded[retained] = linear.T @ reduced
+    offset = float(xyz @ np.asarray(point, dtype=np.float64)) - float(reduced @ tau)
+    return expanded, offset
+
+
 def data_half_space_rows(
     planes: Sequence[Any],
     retained_axes: Sequence[int],
@@ -193,6 +261,25 @@ class ClippingPlanesMixin:
     def on_clipping_planes_changed(self, event: Any) -> None:
         """Bus handler for ``ClippingPlanesChangedEvent``."""
         self.set_clipping_planes(event.clipping_planes)
+
+    def clip_frame(self) -> tuple[Any, Any, dict[int, float]] | None:
+        """What a plane of this visual is reduced with, for the view drawn.
+
+        Returns
+        -------
+        tuple or None
+            ``(spaces, data_to_world, constants)`` as
+            :func:`reduce_clipping_planes` takes them, with the constants of
+            the first group :meth:`_clip_targets` yields.  ``None`` for a
+            visual that has not been placed.
+        """
+        spaces = getattr(self, "_spaces", None)
+        transform = getattr(self, "_transform", None)
+        if spaces is None or transform is None:
+            return None
+        for _materials, constants in self._clip_targets():
+            return spaces, transform, dict(constants)
+        return None
 
     def _clip_targets(self) -> Iterable[tuple[Iterable[Any], Mapping[int, float]]]:
         """Yield ``(materials, constants)`` groups.

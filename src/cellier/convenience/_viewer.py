@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
 
     from cellier._state import CameraState
+    from cellier.clipping import ClippingPlaneGizmoController
     from cellier.convenience.gui._controls_config import (
         GraphControlsConfig,
         InMemoryImageControlsConfig,
@@ -657,6 +658,59 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The visual's config after the call.
         """
         return self._controller.set_lod_config(_visual_id(visual), **fields)
+
+    def add_clipping_plane_gizmo(
+        self,
+        visual: object,
+        plane: ClippingPlane | UUID,
+        *,
+        canvas: UUID | None = None,
+    ) -> ClippingPlaneGizmoController:
+        """Put a gizmo on one clipping plane of a visual, in the 3D view.
+
+        Dragging the gizmo moves and tilts the plane.  Mirrors
+        :meth:`CellierController.add_clipping_plane_gizmo`: a canvas has
+        one gizmo at a time, and the gizmo closes itself when its plane or
+        its visual is removed or the view leaves 3D.
+
+        Parameters
+        ----------
+        visual : visual model or UUID
+            The visual the plane belongs to.
+        plane : ClippingPlane or UUID
+            One of ``visual.clipping_planes``, or its ``id``.
+        canvas : UUID or None
+            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            single canvas.
+
+        Returns
+        -------
+        ClippingPlaneGizmoController
+            The session.  ``close()`` ends it.
+
+        Raises
+        ------
+        KeyError
+            If the visual has no plane with that id.
+        ValueError
+            If the view is in 2D, the plane has a component on an axis the
+            view does not show, or *canvas* is omitted while the viewer
+            does not have exactly one canvas.
+        """
+        return self._controller.add_clipping_plane_gizmo(
+            _visual_id(visual), self._camera_canvas(canvas), getattr(plane, "id", plane)
+        )
+
+    def remove_clipping_plane_gizmo(self, *, canvas: UUID | None = None) -> None:
+        """Close a canvas's clipping plane gizmo; nothing if it has none.
+
+        Parameters
+        ----------
+        canvas : UUID or None
+            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            single canvas.
+        """
+        self._controller.remove_clipping_plane_gizmo(self._camera_canvas(canvas))
 
     # ------------------------------------------------------------------
     # Capture

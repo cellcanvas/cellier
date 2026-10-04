@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     import numpy as np
 
     from cellier._state import CameraState
+    from cellier.clipping import ClippingPlaneGizmoController
     from cellier.convenience.gui._controls_config import (
         BaseControlsConfig,
         GraphControlsConfig,
@@ -1893,6 +1894,47 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         for vid in group[1:]:
             self._controller.set_lod_config(vid, **fields)
         return result
+
+    def add_clipping_plane_gizmo(
+        self, visual: object, plane: ClippingPlane | UUID
+    ) -> ClippingPlaneGizmoController:
+        """Put a gizmo on one clipping plane of a visual, in the 3D panel.
+
+        Dragging the gizmo moves and tilts the plane.  The panels' planes
+        are linked, so the 2D panels follow.  Mirrors
+        :meth:`CellierController.add_clipping_plane_gizmo`: the 3D panel
+        has one gizmo at a time.
+
+        Parameters
+        ----------
+        visual : UUID, visual model, or dict
+            Any panel's visual, or the dict an ``add_*`` method returned.
+        plane : ClippingPlane or UUID
+            One of the visual's ``clipping_planes``, or its ``id``.
+
+        Returns
+        -------
+        ClippingPlaneGizmoController
+            The session.  ``close()`` ends it.
+
+        Raises
+        ------
+        KeyError
+            If the visual has no plane with that id.
+        ValueError
+            If the 3D panel has no canvas yet, or the plane has a component
+            on an axis the 3D panel does not show.
+        """
+        group = self.image_group(visual)
+        return self._controller.add_clipping_plane_gizmo(
+            group[_PANEL_KEYS.index("vol")],
+            self._panel_canvas("vol"),
+            getattr(plane, "id", plane),
+        )
+
+    def remove_clipping_plane_gizmo(self) -> None:
+        """Close the 3D panel's clipping plane gizmo; nothing if it has none."""
+        self._controller.remove_clipping_plane_gizmo(self._panel_canvas("vol"))
 
     def set_image_composite(self, visual: object, composite: bool) -> None:
         """Switch every panel's image between single and composite mode.

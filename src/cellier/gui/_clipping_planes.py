@@ -10,12 +10,19 @@ button; an add button appends a plane.  This module holds the rows, turns
 them into planes and back, and carries edits to the bus and model changes
 back.
 
+A row can also carry a "Gizmo" toggle, which puts a gizmo on that plane in
+the viewer's 3D canvas.  A canvas has one gizmo, so the toggles of every
+control that names the canvas behave as one set of radio buttons: the
+controller says which plane has it (``ClippingPlaneGizmoChangedEvent``) and
+each control draws that.
+
 A row is plain data, so the anywidget control syncs the whole list in one
 trait and constructs nothing when a plane is added::
 
-    {"enabled": True, "normal": [0.0, 0.0, 1.0], "position": 12.0}
+    {"id": "0f6c...", "enabled": True, "normal": [0.0, 0.0, 1.0], "position": 12.0}
 
-``normal`` has one entry per data axis.  ``position`` is where the plane
+``id`` is the plane's id, which an edit keeps: whatever follows a plane (a
+gizmo) keeps following it.  ``normal`` has one entry per data axis.  ``position`` is where the plane
 sits along its unit normal: the plane is ``normal . p == position *
 |normal|``.  Values are in data units (voxels for an image).
 
@@ -26,14 +33,18 @@ from __future__ import annotations
 
 import math
 from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from cellier.events import (
+    ClippingPlaneGizmoChangedEvent,
+    ClippingPlaneGizmoUpdateEvent,
     ClippingPlanesChangedEvent,
     ClippingPlanesUpdateEvent,
     DataStoreMetadataChangedEvent,
+    DimsChangedEvent,
     SubscriptionSpec,
 )
+from cellier.gui._appearance_fields import normalize_visual_ids
 from cellier.gui._loading import error_message
 
 if TYPE_CHECKING:
@@ -56,6 +67,7 @@ def rows_from_planes(planes: Iterable[Any]) -> list[Row]:
         normal = [float(v) for v in item.plane.normal]
         rows.append(
             {
+                "id": str(item.id),
                 "enabled": bool(item.enabled),
                 "normal": normal,
                 "position": float(item.plane.offset) / _length(normal),
@@ -78,8 +90,10 @@ def planes_from_rows(rows: Iterable[Mapping[str, Any]], coordinate_system: UUID)
     planes = []
     for row in rows:
         normal = [float(v) for v in row["normal"]]
+        identity = {"id": UUID(str(row["id"]))} if row.get("id") else {}
         planes.append(
             ClippingPlane(
+                **identity,
                 plane=Plane(
                     coordinate_system=coordinate_system,
                     normal=normal,
@@ -92,9 +106,13 @@ def planes_from_rows(rows: Iterable[Mapping[str, Any]], coordinate_system: UUID)
 
 
 def normalized_rows(rows: Iterable[Mapping[str, Any]]) -> list[Row]:
-    """Rows as plain Python values, so two lists compare by value."""
+    """Rows as plain Python values, so two lists compare by value.
+
+    A row with no ``id`` is given a new one.
+    """
     return [
         {
+            "id": str(row.get("id") or uuid4()),
             "enabled": bool(row.get("enabled", True)),
             "normal": [float(v) for v in row["normal"]],
             "position": float(row["position"]),
@@ -158,7 +176,12 @@ def new_row(axis_names: Sequence[str], bounds: Sequence[Sequence[float]]) -> Row
     normal = [0.0] * len(axis_names)
     normal[-1] = 1.0
     low, high = position_range(normal, bounds)
-    return {"enabled": True, "normal": normal, "position": 0.5 * (low + high)}
+    return {
+        "id": str(uuid4()),
+        "enabled": True,
+        "normal": normal,
+        "position": 0.5 * (low + high),
+    }
 
 
 def store_bounds(store: Any, ndim: int) -> list[list[float]]:
@@ -226,6 +249,78 @@ def seed_bounds_source(
     return lambda: store_bounds(controller.get_data_store(store_id), ndim)
 
 
+GIZMO_TOOLTIP = "Drag a gizmo in the 3D view to move and tilt this plane."
+"""The gizmo toggle's tooltip while it can be used."""
+
+
+def gizmo_seed(controller: Any, visual_ids: Iterable[UUID]) -> dict[str, Any]:
+    """The gizmo arguments of a clipping planes control, read off a controller.
+
+    The gizmo of a control's planes is drawn in the first canvas of the
+    first of *visual_ids* whose scene can be shown in 3D (for an
+    ``OrthoViewer`` group, its 3D panel).  That canvas must exist: build
+    the canvas before the control.
+
+    Parameters
+    ----------
+    controller : CellierController or None
+        The controller the control is wired to.
+    visual_ids : Iterable[UUID]
+        The visuals the control edits together.
+
+    Returns
+    -------
+    dict[str, Any]
+        ``gizmo`` (``visual_id``, ``canvas_id`` and ``scene_id``, as
+        strings), ``gizmo_plane`` (the id of the plane that has the
+        canvas's gizmo now, or ``None``) and ``gizmo_blocked`` (a reader of
+        why a plane cannot have one).  Empty without a controller, or when
+        none of the visuals is in a scene that can show 3D: the control
+        then draws no toggle.
+
+    Raises
+    ------
+    ValueError
+        If the scene that can show 3D has no canvas yet.
+    """
+    if controller is None:
+        return {}
+    for visual_id in normalize_visual_ids(visual_ids):
+        try:
+            scene_id = controller.get_visual_scene_id(visual_id)
+        except KeyError:
+            continue
+        scene = controller.get_scene(scene_id)
+        if "3d" not in scene.render_modes:
+            continue
+        canvases = controller.get_canvas_ids(scene_id)
+        if not canvases:
+            raise ValueError(
+                f"Scene {scene.name!r} has no canvas to draw a clipping plane "
+                "gizmo in.  Build the canvas before the clipping planes "
+                "control."
+            )
+        canvas_id = canvases[0]
+        session = controller.get_clipping_plane_gizmo(canvas_id)
+        on_this = session is not None and session.visual_id == visual_id
+
+        def blocked(plane_id: str, _visual=visual_id, _canvas=canvas_id) -> str:
+            return controller.clipping_plane_gizmo_blocked(
+                _visual, _canvas, UUID(str(plane_id))
+            )
+
+        return {
+            "gizmo": {
+                "visual_id": str(visual_id),
+                "canvas_id": str(canvas_id),
+                "scene_id": str(scene_id),
+            },
+            "gizmo_plane": str(session.plane_id) if on_this else None,
+            "gizmo_blocked": blocked,
+        }
+    return {}
+
+
 class ClippingPlanesEditor:
     """The toolkit-neutral half of a clipping planes control.
 
@@ -258,6 +353,15 @@ class ClippingPlanesEditor:
     bounds_source : Callable[[], Sequence[Sequence[float]]] or None
         Reads the store's current ``(low, high)`` per axis.  ``None`` keeps
         *bounds* for the life of the control.
+    gizmo : Mapping[str, Any] or None
+        Where a plane's gizmo is drawn: ``visual_id`` (the one of the
+        visuals the gizmo edits), ``canvas_id`` and ``scene_id``.  ``None``
+        gives the rows no gizmo toggle.  See :func:`gizmo_seed`.
+    gizmo_plane : str or None
+        The id of the plane that has the canvas's gizmo now.
+    gizmo_blocked : Callable[[str], str] or None
+        Given a plane's id, why it cannot have a gizmo now, or ``""``.
+        ``None`` means never blocked.
     """
 
     def __init__(
@@ -272,6 +376,9 @@ class ClippingPlanesEditor:
         show: Callable[[list[Row], str], None],
         data_store_id: UUID | str | None = None,
         bounds_source: Callable[[], Sequence[Sequence[float]]] | None = None,
+        gizmo: Mapping[str, Any] | None = None,
+        gizmo_plane: str | None = None,
+        gizmo_blocked: Callable[[str], str] | None = None,
     ) -> None:
         self._visual_ids = tuple(visual_ids)
         self._coordinate_system = UUID(str(coordinate_system))
@@ -285,12 +392,33 @@ class ClippingPlanesEditor:
             None if data_store_id is None else UUID(str(data_store_id))
         )
         self._bounds_source = bounds_source
+        #: (visual, canvas, scene) of the gizmo, or ``None`` for no toggle.
+        self._gizmo: tuple[UUID, UUID, UUID] | None = (
+            None
+            if gizmo is None
+            else (
+                UUID(str(gizmo["visual_id"])),
+                UUID(str(gizmo["canvas_id"])),
+                UUID(str(gizmo["scene_id"])),
+            )
+        )
+        #: The id of the plane that has the canvas's gizmo, if it is one of
+        #: this control's.
+        self.gizmo_plane: str | None = None if gizmo_plane is None else str(gizmo_plane)
+        self._gizmo_blocked = gizmo_blocked
+
+    @property
+    def has_gizmo(self) -> bool:
+        """Whether the rows have a gizmo toggle."""
+        return self._gizmo is not None
 
     def subscription_specs(self) -> list[SubscriptionSpec]:
         """One ``ClippingPlanesChangedEvent`` subscription per visual.
 
         And the store's ``DataStoreMetadataChangedEvent``, when the control
-        was given a way to read the store's bounds.
+        was given a way to read the store's bounds.  With a gizmo toggle:
+        the canvas's ``ClippingPlaneGizmoChangedEvent`` and the scene's
+        ``DimsChangedEvent``.
         """
         specs = [
             SubscriptionSpec(
@@ -304,6 +432,20 @@ class ClippingPlanesEditor:
                     DataStoreMetadataChangedEvent,
                     self.on_store_changed,
                     entity_id=self._data_store_id,
+                )
+            )
+        if self._gizmo is not None:
+            _visual_id, canvas_id, scene_id = self._gizmo
+            specs.append(
+                SubscriptionSpec(
+                    ClippingPlaneGizmoChangedEvent,
+                    self.on_gizmo_changed,
+                    entity_id=canvas_id,
+                )
+            )
+            specs.append(
+                SubscriptionSpec(
+                    DimsChangedEvent, self.on_dims_changed, entity_id=scene_id
                 )
             )
         return specs
@@ -410,6 +552,31 @@ class ClippingPlanesEditor:
         normal[axis] = float(value)
         self.set_normal(index, normal)
 
+    def set_gizmo(self, index: int, enabled: bool) -> None:
+        """Put the canvas's gizmo on plane *index*, or take it off.
+
+        Sends a ``ClippingPlaneGizmoUpdateEvent``.  The toggle is drawn from
+        what the controller answers (:meth:`on_gizmo_changed`), not from the
+        click: a refused request leaves it off, with the reason shown.
+        """
+        if self._gizmo is None:
+            return
+        visual_id, canvas_id, _scene_id = self._gizmo
+        error = ""
+        try:
+            self._emit(
+                ClippingPlaneGizmoUpdateEvent(
+                    source_id=self._source_id,
+                    visual_id=visual_id,
+                    plane_id=UUID(self.rows[index]["id"]),
+                    canvas_id=canvas_id,
+                    enabled=bool(enabled),
+                )
+            )
+        except Exception as refused:
+            error = error_message(refused)
+        self._show(list(self.rows), error)
+
     # -- model -> widget -----------------------------------------------------
 
     def on_changed(self, event: ClippingPlanesChangedEvent) -> None:
@@ -419,6 +586,22 @@ class ClippingPlanesEditor:
             return
         self.rows = rows
         self._show(list(self.rows), "")
+
+    def on_gizmo_changed(self, event: ClippingPlaneGizmoChangedEvent) -> None:
+        """The canvas's gizmo moved to another plane, or closed: show it."""
+        if self._gizmo is None:
+            return
+        on_this = event.visual_id == self._gizmo[0] and event.plane_id is not None
+        plane = str(event.plane_id) if on_this else None
+        if plane == self.gizmo_plane:
+            return
+        self.gizmo_plane = plane
+        self._show(list(self.rows), "")
+
+    def on_dims_changed(self, event: DimsChangedEvent) -> None:
+        """The view changed between 2D and 3D: a gizmo may be blocked now."""
+        if event.displayed_axes_changed:
+            self._show(list(self.rows), "")
 
     def on_store_changed(self, event: DataStoreMetadataChangedEvent) -> None:
         """The store's extent changed: the position ranges follow it."""
@@ -434,17 +617,25 @@ class ClippingPlanesEditor:
         """The rows with what a front end needs to draw each one.
 
         Adds ``facing`` (:func:`facing_of`) and the slider's ``low`` /
-        ``high``.
+        ``high``.  With a gizmo toggle, also ``gizmo`` (whether this plane
+        has the canvas's gizmo) and ``gizmo_blocked`` (why it cannot have
+        one, or ``""``); without, neither key.
         """
         described = []
         for row in self.rows:
             low, high = position_range(row["normal"], self.bounds)
-            described.append(
-                {
-                    **row,
-                    "facing": facing_of(row["normal"]),
-                    "low": min(low, row["position"]),
-                    "high": max(high, row["position"]),
-                }
-            )
+            entry = {
+                **row,
+                "facing": facing_of(row["normal"]),
+                "low": min(low, row["position"]),
+                "high": max(high, row["position"]),
+            }
+            if self._gizmo is not None:
+                entry["gizmo"] = row["id"] == self.gizmo_plane
+                entry["gizmo_blocked"] = (
+                    ""
+                    if self._gizmo_blocked is None
+                    else self._gizmo_blocked(row["id"])
+                )
+            described.append(entry)
         return described
