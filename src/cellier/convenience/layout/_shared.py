@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from typing import NamedTuple
 from uuid import UUID
 
-from cellier.gui._clipping_planes import CLIPPING_PLANES_TITLE, clipping_planes_seed
+from cellier.gui._clipping_planes import (
+    CLIPPING_PLANES_TITLE,
+    get_clipping_planes_data_from_visual,
+)
 from cellier.gui._loading import LOADING_CONFIG_TITLE, LOADING_TITLE
 from cellier.gui._lod import LOD_CONFIG_TITLE
 from cellier.gui._mesh_section import MESH_SECTION_TITLE
@@ -333,7 +336,7 @@ def appearance_specs(
             ControlSpec(
                 "clipping_planes",
                 _CONTROL_TITLES["clipping_planes"],
-                clipping_planes_seed(visual, store),
+                get_clipping_planes_data_from_visual(visual, store),
             )
         )
 

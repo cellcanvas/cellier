@@ -212,7 +212,7 @@ class QtClippingPlanesControls(VisualIdGroup):
 
     Wire to the controller after construction::
 
-        seed = clipping_planes_seed(visual, store)
+        seed = get_clipping_planes_data_from_visual(visual, store)
         controls = QtClippingPlanesControls(visual.id, **seed)
         controller.connect_widget(
             controls, subscription_specs=controls.subscription_specs()

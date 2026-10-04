@@ -195,7 +195,7 @@ def store_bounds(store: Any, ndim: int) -> list[list[float]]:
     return [[float(low), float(high)] for low, high in extents]
 
 
-def clipping_planes_seed(visual: Any, store: Any) -> dict[str, Any]:
+def get_clipping_planes_data_from_visual(visual: Any, store: Any) -> dict[str, Any]:
     """What a clipping planes control is built with, read off the models.
 
     Parameters
@@ -234,7 +234,7 @@ def seed_bounds_source(
     controller : CellierController or None
         Looks the store up by id each time, so the reader holds no store.
     seed : Mapping[str, Any]
-        From :func:`clipping_planes_seed`.
+        From :func:`get_clipping_planes_data_from_visual`.
 
     Returns
     -------

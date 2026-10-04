@@ -1,45 +1,57 @@
-"""Combined 2D/3D viewer with automatic camera-settle redraw.
+"""Large OME-Zarr viewer with a clipping plane, for testing clipping at scale.
 
-This is a variant of example_combined.py that replaces the manual "Update"
-button with automatic redraw triggered when the camera has been still for a
-configurable threshold duration (default 300 ms).
+Opens a multiscale OME-Zarr store (by default ``ExpA_VIP_ASLM_on.zarr`` next to
+this script, a ~1937 x 2048 x 2048 uint16 light-sheet volume) as one multiscale
+image.  A clipping plane is attached through the middle of the volume, and a
+gizmo is put on it once the first data is drawn.
 
-A spinbox in the sidebar lets the user adjust the settle threshold at runtime.
+- Switch the render mode to ``iso`` or ``smooth_iso`` to use the threshold.
+- The "Clipping planes" control adds, enables and moves planes.
+- Drag the arrow of the gizmo to slide the plane, the rings to tilt it.
+- The 2D / 3D toggle is part of the dims control under the canvas.
+- Slicing follows the camera and dims on its own once they settle.
+
+Run::
+
+    .venv/bin/python scripts/v2/integration_2d_3d/example_combined_camera_redraw.py
+
+Options: ``--zarr-path PATH``, ``--debug-log [SPEC]``.
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
+import json
 import pathlib
 import sys
-from typing import ClassVar
+from uuid import uuid4
 
-import numpy as np
-import pygfx as gfx
-import PySide6.QtAsyncio as QtAsyncio
-from PySide6.QtWidgets import (
-    QApplication,
-    QButtonGroup,
-    QCheckBox,
-    QDoubleSpinBox,
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QMainWindow,
-    QPushButton,
-    QRadioButton,
-    QSpinBox,
-    QVBoxLayout,
-    QWidget,
+from cellier.convenience import (
+    AppearanceControls,
+    Layout,
+    MultiscaleImageControlsConfig,
+    Viewer,
+    axis_values_from_viewer,
+    run,
+)
+from cellier.convenience.gui import build_canvas_widget
+from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
+from cellier.scene.dims import spatial_axes
+from cellier.transform import AffineTransform, Axis, DataCoordinateSystem
+from cellier.visuals import (
+    ClippingPlane,
+    MultiscaleImageAppearance,
+    MultiscaleImageRenderConfig,
+    MultiscaleImageSingleAppearance,
 )
 
-from cellier.controller import CellierController
-from cellier.data import MultiscaleZarrDataStore
-from cellier.render._config import RenderManagerConfig, SlicingConfig
-from cellier.scene.dims import CoordinateSystem
-from cellier.visuals import MultiscaleImageAppearance
+AXES = ("z", "y", "x")
+BLOCK_SIZE = 32
+GPU_BUDGET = 1024 * 1024**2  # 1 GiB brick / tile cache
+LOD_BIAS = 1.0
+
+ZARR_PATH = pathlib.Path(__file__).parent / "ExpA_VIP_ASLM_on.zarr"
+
 
 # ---------------------------------------------------------------------------
 # Debug-logging CLI helper (power-user per-category:level syntax)
@@ -62,569 +74,84 @@ def _setup_debug_logging(spec: str) -> None:
 
     from cellier.logging import _CATEGORY_MAP, enable_debug_logging
 
-    _LEVEL_NAMES = {
+    level_names = {
         "debug": _logging.DEBUG,
         "info": _logging.INFO,
         "warning": _logging.WARNING,
     }
 
-    # Parse spec into {category: level_int} pairs.
     overrides: dict[str, int] = {}
-    all_cats = tuple(_CATEGORY_MAP.keys())
     default_level = _logging.DEBUG
 
     if spec in ("", "all"):
-        # All categories at DEBUG — no overrides needed.
         pass
     elif spec.startswith("all:"):
         level_str = spec.split(":", 1)[1].strip().lower()
-        default_level = _LEVEL_NAMES.get(level_str, _logging.DEBUG)
+        default_level = level_names.get(level_str, _logging.DEBUG)
     else:
         for token in spec.split(","):
             token = token.strip()
             if ":" in token:
                 cat, level_str = token.split(":", 1)
-                overrides[cat.strip()] = _LEVEL_NAMES.get(
+                overrides[cat.strip()] = level_names.get(
                     level_str.strip().lower(), _logging.DEBUG
                 )
             else:
                 overrides[token] = _logging.DEBUG
 
-    # Determine which categories to enable.
-    if overrides:
-        cats = tuple(overrides.keys())
-    else:
-        cats = all_cats
-
-    # Step 1: enable handler + set all requested categories to DEBUG.
+    cats = tuple(overrides) if overrides else tuple(_CATEGORY_MAP)
     enable_debug_logging(categories=cats)
-
-    # Step 2: apply per-category level overrides (or global default).
     for cat in cats:
-        target_level = overrides.get(cat, default_level)
         logger = _CATEGORY_MAP.get(cat)
         if logger is not None:
-            logger.setLevel(target_level)
+            logger.setLevel(overrides.get(cat, default_level))
 
 
 # ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-BLOCK_SIZE = 32
-GPU_BUDGET_2D = 64 * 1024**2  # 64 MiB for 2D tile cache
-GPU_BUDGET_3D = 512 * 1024**2  # 512 MiB for 3D brick cache
-LOD_BIAS = 1.0
-
-ZARR_PATH = pathlib.Path(__file__).parent / "multiscale_blobs.zarr"
-ZARR_SCALE_NAMES = ["s0", "s1", "s2"]
-
-FRUSTUM_COLOR = "#00cc44"
-AABB_COLOR = "#ff00ff"
-
-# ---------------------------------------------------------------------------
-# Scene helpers
+# Data store
 # ---------------------------------------------------------------------------
 
 
-def _make_frustum_wireframe(corners: np.ndarray, color: str = "#00cc44") -> gfx.Line:
-    """Build a wireframe from 8 frustum corners (shape 2x4x3)."""
-    edge_indices = [
-        ((0, 0), (0, 1)),
-        ((0, 1), (0, 2)),
-        ((0, 2), (0, 3)),
-        ((0, 3), (0, 0)),
-        ((1, 0), (1, 1)),
-        ((1, 1), (1, 2)),
-        ((1, 2), (1, 3)),
-        ((1, 3), (1, 0)),
-        ((0, 0), (1, 0)),
-        ((0, 1), (1, 1)),
-        ((0, 2), (1, 2)),
-        ((0, 3), (1, 3)),
-    ]
-    positions = np.array(
-        [[corners[a], corners[b]] for (a, b) in edge_indices],
-        dtype=np.float32,
-    ).reshape(-1, 3)
-    return gfx.Line(
-        gfx.Geometry(positions=positions),
-        gfx.LineSegmentMaterial(color=color, thickness=1.5),
-    )
+def open_ome_zarr(zarr_path: pathlib.Path) -> tuple[MultiscaleZarrDataStore, tuple]:
+    """Open an OME-Zarr multiscale group as a ``MultiscaleZarrDataStore``.
 
-
-def _make_separator() -> QFrame:
-    """Horizontal separator line for the side panel."""
-    sep = QFrame()
-    sep.setFrameShape(QFrame.Shape.HLine)
-    sep.setFrameShadow(QFrame.Shadow.Sunken)
-    return sep
-
-
-# ---------------------------------------------------------------------------
-# ViewerModel builder
-# ---------------------------------------------------------------------------
-
-
-def _build_viewer_model(data_store: MultiscaleZarrDataStore, z_depth: int):
-    """Construct the ViewerModel for the combined 2D/3D viewer (no render layer).
-
-    Parameters
-    ----------
-    data_store : MultiscaleZarrDataStore
-        The opened multiscale Zarr data store.
-    z_depth : int
-        Number of Z voxels at level 0; used to set the initial 2D slice index.
+    The store's level-0 coordinates are voxel indices.  The OME physical scale
+    of level 0 is returned separately, to be applied as the visual's transform.
 
     Returns
     -------
-    viewer_model : ViewerModel
-        Fully assembled model, ready for CellierController.from_model.
-    visual_2d : MultiscaleImageVisual
-        The 2D image visual, for post-construction access.
-    visual_3d : MultiscaleImageVisual
-        The 3D image visual, for post-construction access.
+    store : MultiscaleZarrDataStore
+    voxel_size : tuple of float
+        Level-0 physical size of a voxel along each of ``AXES``.
     """
-    from cellier.scene import Canvas
-    from cellier.scene.cameras import OrbitCameraController, PerspectiveCamera
-    from cellier.scene.dims import AxisAlignedSelection, DimsManager
-    from cellier.scene.scene import Scene
-    from cellier.viewer_model import DataManager, ViewerModel
-    from cellier.visuals import (
-        MultiscaleImageRenderConfig,
-        MultiscaleImageVisual,
-    )
+    meta = json.loads((zarr_path / "zarr.json").read_text())
+    datasets = meta["attributes"]["ome"]["multiscales"][0]["datasets"]
+    names = [d["path"] for d in datasets]
+    scales = [
+        next(t["scale"] for t in d["coordinateTransformations"] if t["type"] == "scale")
+        for d in datasets
+    ]
+    voxel_size = tuple(scales[0])
+    # Level-k scale relative to level 0, in level-0 voxels.
+    level_scales = [tuple(s / s0 for s, s0 in zip(sc, voxel_size)) for sc in scales]
+    # A level-k voxel centre sits at (scale - 1) / 2 level-0 voxels.
+    level_translations = [tuple((f - 1.0) / 2.0 for f in sc) for sc in level_scales]
 
-    cs = CoordinateSystem(name="world", axis_labels=("z", "y", "x"))
-
-    # ── 2D scene ──────────────────────────────────────────────────────
-    visual_2d = MultiscaleImageVisual(
-        name="image_2d",
-        data_store_id=str(data_store.id),
-        level_transforms=data_store.level_transforms,
-        appearance=MultiscaleImageAppearance(
-            color_map="viridis",
-            clim=(0.0, 1.0),
-            lod_bias=LOD_BIAS,
-            force_level=None,
-            frustum_cull=True,
-        ),
-        render_config=MultiscaleImageRenderConfig(
-            block_size=BLOCK_SIZE,
-            gpu_budget_bytes=GPU_BUDGET_2D,
-        ),
-    )
-    scene_2d = Scene(
-        name="scene_2d",
-        dims=DimsManager(
-            coordinate_system=cs,
-            selection=AxisAlignedSelection(
-                displayed_axes=(1, 2),
-                slice_indices={0: z_depth // 2},
+    store = MultiscaleZarrDataStore.from_scale_and_translation(
+        zarr_path=str(zarr_path),
+        scale_names=names,
+        level_scales=level_scales,
+        level_translations=level_translations,
+        data_coordinate_system=DataCoordinateSystem(
+            name="ome_zarr",
+            datastore_id=uuid4(),
+            axes=tuple(
+                Axis(name=n, axis_type="space", sampling="discrete") for n in AXES
             ),
         ),
-        render_modes={"2d"},
-        lighting="none",
-        visuals=[visual_2d],
-        canvases={},
+        name=zarr_path.stem,
     )
-    canvas_2d = Canvas(
-        cameras={
-            "2d": PerspectiveCamera(
-                fov=70.0,
-                near_clipping_plane=1.0,
-                far_clipping_plane=10000.0,
-                controller=OrbitCameraController(enabled=True),
-            )
-        }
-    )
-    scene_2d.canvases[canvas_2d.id] = canvas_2d
-
-    # ── 3D scene ──────────────────────────────────────────────────────
-    visual_3d = MultiscaleImageVisual(
-        name="volume_3d",
-        data_store_id=str(data_store.id),
-        level_transforms=data_store.level_transforms,
-        appearance=MultiscaleImageAppearance(
-            color_map="viridis",
-            clim=(0.0, 1.0),
-            lod_bias=LOD_BIAS,
-            force_level=None,
-            frustum_cull=True,
-            iso_threshold=0.2,
-        ),
-        render_config=MultiscaleImageRenderConfig(
-            block_size=BLOCK_SIZE,
-            gpu_budget_bytes=GPU_BUDGET_3D,
-        ),
-    )
-    scene_3d = Scene(
-        name="scene_3d",
-        dims=DimsManager(
-            coordinate_system=cs,
-            selection=AxisAlignedSelection(
-                displayed_axes=(0, 1, 2),
-                slice_indices={},
-            ),
-        ),
-        render_modes={"3d"},
-        lighting="none",
-        visuals=[visual_3d],
-        canvases={},
-    )
-    canvas_3d = Canvas(
-        cameras={
-            "3d": PerspectiveCamera(
-                fov=70.0,
-                near_clipping_plane=1.0,
-                far_clipping_plane=10000.0,
-                controller=OrbitCameraController(enabled=True),
-            )
-        }
-    )
-    scene_3d.canvases[canvas_3d.id] = canvas_3d
-
-    # ── Assemble ViewerModel ──────────────────────────────────────────
-    viewer_model = ViewerModel(
-        data=DataManager(stores={data_store.id: data_store}),
-        scenes={
-            scene_2d.id: scene_2d,
-            scene_3d.id: scene_3d,
-        },
-    )
-
-    return viewer_model, visual_2d, visual_3d
-
-
-# ---------------------------------------------------------------------------
-# Main window
-# ---------------------------------------------------------------------------
-
-
-class CombinedApp(QMainWindow):
-    """Single-window viewer toggling between 2D and 3D cellier scenes."""
-
-    _COLORMAPS: ClassVar[list[str]] = ["viridis", "gray"]
-
-    def __init__(self, data_store: MultiscaleZarrDataStore) -> None:
-        super().__init__()
-        self._force_level: int | None = None
-        self._colormap_index: int = 0
-        self._active_mode: str = "2d"
-        self._frustum_line: gfx.Line | None = None
-
-        z_depth = data_store.level_shapes[0][0]
-        self._z_max = z_depth - 1
-
-        # ── Build ViewerModel (no render layer) ───────────────────────
-        viewer_model, self._visual_2d, self._visual_3d = _build_viewer_model(
-            data_store, z_depth
-        )
-
-        # ── Construct controller from model ───────────────────────────
-        self._controller = CellierController.from_model(
-            viewer_model,
-            render_config=RenderManagerConfig(slicing=SlicingConfig(batch_size=128)),
-            widget_parent=self,
-        )
-
-        # ── Retrieve scenes by name ───────────────────────────────────
-        self._scene_2d = self._controller.get_scene_by_name("scene_2d")
-        self._scene_3d = self._controller.get_scene_by_name("scene_3d")
-
-        # ── Get raw canvas widgets ────────────────────────────────────
-        _canvas_id_2d = self._controller.get_canvas_ids(self._scene_2d.id)[0]
-        self._canvas_widget_2d = self._controller.get_canvas_view(_canvas_id_2d).widget
-        self._canvas_id_3d = self._controller.get_canvas_ids(self._scene_3d.id)[0]
-        _canvas_view_3d = self._controller.get_canvas_view(self._canvas_id_3d)
-        self._canvas_widget_3d = _canvas_view_3d.widget
-
-        # ── Post-construction: set AABB colors ────────────────────────
-        self._visual_2d.aabb.color = AABB_COLOR
-        self._visual_3d.aabb.color = AABB_COLOR
-
-        self._setup_ui()
-
-    # ── Render-layer visual accessors ─────────────────────────────────
-
-    def _get_gfx_visual_2d(self):
-        return self._controller._render_manager._scenes[self._scene_2d.id]._visuals[
-            self._visual_2d.id
-        ]
-
-    def _get_gfx_visual_3d(self):
-        return self._controller._render_manager._scenes[self._scene_3d.id]._visuals[
-            self._visual_3d.id
-        ]
-
-    # ── UI setup ──────────────────────────────────────────────────────
-
-    def _setup_ui(self) -> None:
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QHBoxLayout(central)
-        root.setContentsMargins(0, 0, 0, 0)
-
-        panel = QWidget()
-        panel.setFixedWidth(230)
-        pl = QVBoxLayout(panel)
-        pl.setContentsMargins(8, 8, 8, 8)
-
-        # ── Shared controls ───────────────────────────────────────────
-        self._toggle_btn = QPushButton("Toggle 2D / 3D")
-        self._toggle_btn.clicked.connect(self._on_toggle_clicked)
-        pl.addWidget(self._toggle_btn)
-
-        # Auto-redraw toggle
-        self._auto_redraw_cb = QCheckBox("Auto-redraw on camera move")
-        self._auto_redraw_cb.setChecked(True)
-        self._auto_redraw_cb.toggled.connect(self._on_auto_redraw_toggled)
-        pl.addWidget(self._auto_redraw_cb)
-
-        # Settle threshold — only meaningful when auto-redraw is on
-        pl.addWidget(QLabel("Settle threshold (ms):"))
-        self._settle_sb = QDoubleSpinBox()
-        self._settle_sb.setRange(50.0, 5000.0)
-        self._settle_sb.setSingleStep(50.0)
-        self._settle_sb.setDecimals(0)
-        self._settle_sb.setValue(300.0)
-        self._settle_sb.valueChanged.connect(self._on_settle_threshold_changed)
-        pl.addWidget(self._settle_sb)
-
-        self._colormap_btn = QPushButton(
-            f"Colormap: {self._COLORMAPS[self._colormap_index]}"
-        )
-        self._colormap_btn.clicked.connect(self._on_toggle_colormap)
-        pl.addWidget(self._colormap_btn)
-
-        self._mode_label = QLabel("Mode: 2D")
-        pl.addWidget(self._mode_label)
-
-        pl.addWidget(_make_separator())
-
-        # ── 2D-only controls ─────────────────────────────────────────
-        self._widget_2d: list[QWidget] = []
-
-        lbl_z = QLabel("Z-slice:")
-        pl.addWidget(lbl_z)
-        self._widget_2d.append(lbl_z)
-
-        self._z_slice_sb = QSpinBox()
-        self._z_slice_sb.setRange(0, self._z_max)
-        self._z_slice_sb.setValue(self._scene_2d.dims.selection.slice_indices[0])
-        self._z_slice_sb.valueChanged.connect(self._on_z_slice_changed)
-        pl.addWidget(self._z_slice_sb)
-        self._widget_2d.append(self._z_slice_sb)
-
-        self._viewport_cull_cb = QCheckBox("Viewport cull")
-        self._viewport_cull_cb.setChecked(True)
-        pl.addWidget(self._viewport_cull_cb)
-        self._widget_2d.append(self._viewport_cull_cb)
-
-        _sep_2d = _make_separator()
-        pl.addWidget(_sep_2d)
-        self._widget_2d.append(_sep_2d)
-
-        # ── 3D-only controls ─────────────────────────────────────────
-        self._widget_3d: list[QWidget] = []
-
-        self._frustum_cull_cb = QCheckBox("Frustum cull")
-        self._frustum_cull_cb.setChecked(True)
-        pl.addWidget(self._frustum_cull_cb)
-        self._widget_3d.append(self._frustum_cull_cb)
-
-        self._show_frustum_cb = QCheckBox("Show frustum")
-        self._show_frustum_cb.setChecked(False)
-        self._show_frustum_cb.toggled.connect(self._on_show_frustum_toggled)
-        pl.addWidget(self._show_frustum_cb)
-        self._widget_3d.append(self._show_frustum_cb)
-
-        lbl_far = QLabel("Far plane:")
-        pl.addWidget(lbl_far)
-        self._widget_3d.append(lbl_far)
-
-        self._far_plane_sb = QDoubleSpinBox()
-        self._far_plane_sb.setRange(100.0, 200_000.0)
-        self._far_plane_sb.setSingleStep(500.0)
-        self._far_plane_sb.setDecimals(0)
-        self._far_plane_sb.setValue(8000.0)
-        self._far_plane_sb.valueChanged.connect(self._on_far_plane_changed)
-        pl.addWidget(self._far_plane_sb)
-        self._widget_3d.append(self._far_plane_sb)
-
-        _sep_3d = _make_separator()
-        pl.addWidget(_sep_3d)
-        self._widget_3d.append(_sep_3d)
-
-        # ── Shared LOD controls ──────────────────────────────────────
-        pl.addWidget(QLabel("Force level:"))
-        self._level_group = QButtonGroup(self)
-        for label, value in [("Auto", None), ("1", 1), ("2", 2), ("3", 3)]:
-            rb = QRadioButton(label)
-            if value is None:
-                rb.setChecked(True)
-            self._level_group.addButton(rb)
-            rb.setProperty("force_level", value)
-            pl.addWidget(rb)
-        self._level_group.buttonClicked.connect(self._on_level_radio_clicked)
-
-        pl.addWidget(QLabel("LOD bias:"))
-        self._lod_bias_sb = QDoubleSpinBox()
-        self._lod_bias_sb.setRange(0.1, 10.0)
-        self._lod_bias_sb.setSingleStep(0.1)
-        self._lod_bias_sb.setDecimals(2)
-        self._lod_bias_sb.setValue(LOD_BIAS)
-        pl.addWidget(self._lod_bias_sb)
-
-        pl.addWidget(_make_separator())
-
-        # ── Shared: bounding box ─────────────────────────────────────
-        aabb_group = QGroupBox("Bounding box")
-        aabb_layout = QVBoxLayout(aabb_group)
-        self._show_aabb_cb = QCheckBox("Show bounding box")
-        self._show_aabb_cb.setChecked(False)
-        self._show_aabb_cb.toggled.connect(self._on_show_aabb_toggled)
-        aabb_layout.addWidget(self._show_aabb_cb)
-        lw_row = QHBoxLayout()
-        lw_row.addWidget(QLabel("Line width (px):"))
-        self._aabb_lw_sb = QSpinBox()
-        self._aabb_lw_sb.setRange(1, 20)
-        self._aabb_lw_sb.setValue(int(self._visual_3d.aabb.line_width))
-        self._aabb_lw_sb.valueChanged.connect(self._on_aabb_line_width_changed)
-        lw_row.addWidget(self._aabb_lw_sb)
-        aabb_layout.addLayout(lw_row)
-        pl.addWidget(aabb_group)
-
-        pl.addStretch()
-
-        self._status_label = QLabel("Auto-redraw active — move camera to update")
-        self._status_label.setWordWrap(True)
-        pl.addWidget(self._status_label)
-
-        # Start with 3D widgets hidden (2D is active).
-        for w in self._widget_3d:
-            w.setVisible(False)
-
-        # Canvas container — holds both canvas widgets, only one visible.
-        self._canvas_container = QWidget()
-        canvas_layout = QVBoxLayout(self._canvas_container)
-        canvas_layout.setContentsMargins(0, 0, 0, 0)
-        canvas_layout.addWidget(self._canvas_widget_2d)
-        canvas_layout.addWidget(self._canvas_widget_3d)
-        self._canvas_widget_3d.setVisible(False)
-
-        root.addWidget(panel)
-        root.addWidget(self._canvas_container, stretch=1)
-
-    # ── Toggle button ─────────────────────────────────────────────────
-
-    def _on_toggle_clicked(self) -> None:
-        # Cancel in-flight slicing requests for the scene we are leaving.
-        if self._active_mode == "2d":
-            self._controller.cancel_pending_slices(self._scene_2d.id)
-            self._active_mode = "3d"
-            self._canvas_widget_2d.setVisible(False)
-            self._canvas_widget_3d.setVisible(True)
-            self._mode_label.setText("Mode: 3D")
-            for w in self._widget_2d:
-                w.setVisible(False)
-            for w in self._widget_3d:
-                w.setVisible(True)
-        else:
-            self._controller.cancel_pending_slices(self._scene_3d.id)
-            self._active_mode = "2d"
-            self._canvas_widget_3d.setVisible(False)
-            self._canvas_widget_2d.setVisible(True)
-            self._mode_label.setText("Mode: 2D")
-            for w in self._widget_3d:
-                w.setVisible(False)
-            for w in self._widget_2d:
-                w.setVisible(True)
-
-        self._status_label.setText("Auto-redraw active — move camera to update")
-
-    # ── UI callbacks ──────────────────────────────────────────────────
-
-    def _on_auto_redraw_toggled(self, checked: bool) -> None:
-        """Enable or disable camera-settle reslicing from the checkbox."""
-        self._controller.camera_reslice_enabled = checked
-        self._settle_sb.setEnabled(checked)
-
-    def _on_settle_threshold_changed(self, value_ms: float) -> None:
-        """Update the controller's settle threshold from the spinbox."""
-        self._controller.camera_settle_threshold_s = value_ms / 1000.0
-
-    def _on_toggle_colormap(self) -> None:
-        self._colormap_index = (self._colormap_index + 1) % len(self._COLORMAPS)
-        new_cmap = self._COLORMAPS[self._colormap_index]
-        self._controller.update_appearance_field(
-            self._visual_2d.id, "color_map", new_cmap
-        )
-        self._controller.update_appearance_field(
-            self._visual_3d.id, "color_map", new_cmap
-        )
-        self._colormap_btn.setText(f"Colormap: {new_cmap}")
-        print(f"[colormap] switched to '{new_cmap}'")
-
-    def _on_level_radio_clicked(self, button: QRadioButton) -> None:
-        self._force_level = button.property("force_level")
-
-    def _on_z_slice_changed(self, value: int) -> None:
-        # Clear stale tiles before updating dims so the auto-triggered reslice
-        # starts with an empty cache for the new z-plane.
-        gfx_visual = self._get_gfx_visual_2d()
-        gfx_visual._block_cache_2d.tile_manager.clear()
-        gfx_visual._lut_manager_2d.rebuild(gfx_visual._block_cache_2d.tile_manager)
-        # update_slice_indices emits DimsChangedEvent which triggers reslice.
-        self._controller.update_slice_indices(self._scene_2d.id, {0: value})
-
-    def _on_show_frustum_toggled(self, checked: bool) -> None:
-        if self._frustum_line is not None:
-            self._frustum_line.visible = checked
-
-    def _on_show_aabb_toggled(self, checked: bool) -> None:
-        self._controller.update_aabb_field(self._visual_2d.id, "enabled", checked)
-        self._controller.update_aabb_field(self._visual_3d.id, "enabled", checked)
-
-    def _on_aabb_line_width_changed(self, value: int) -> None:
-        self._controller.update_aabb_field(
-            self._visual_2d.id, "line_width", float(value)
-        )
-        self._controller.update_aabb_field(
-            self._visual_3d.id, "line_width", float(value)
-        )
-
-    def _on_far_plane_changed(self, value: float) -> None:
-        self._controller.set_camera_depth_range(
-            canvas_id=self._canvas_id_3d,
-            depth_range=(1.0, value),
-        )
-
-    def _rebuild_frustum_wireframe(self, corners: np.ndarray) -> None:
-        gfx_scene = self._controller._render_manager.get_scene(self._scene_3d.id)
-        if self._frustum_line is not None:
-            gfx_scene.remove(self._frustum_line)
-        self._frustum_line = _make_frustum_wireframe(corners, color=FRUSTUM_COLOR)
-        self._frustum_line.visible = self._show_frustum_cb.isChecked()
-        gfx_scene.add(self._frustum_line)
-
-
-# ---------------------------------------------------------------------------
-# Async entry point
-# ---------------------------------------------------------------------------
-
-
-async def async_main(data_store: MultiscaleZarrDataStore) -> None:
-    """Create the main window and run the Qt event loop."""
-    app = QApplication.instance()
-    window = CombinedApp(data_store)
-    window.resize(1280, 800)
-    window.setWindowTitle("Combined 2D / 3D — auto camera-settle redraw")
-    window.show()
-
-    close_event = asyncio.Event()
-    app.aboutToQuit.connect(close_event.set)
-    await close_event.wait()
+    return store, voxel_size
 
 
 # ---------------------------------------------------------------------------
@@ -633,15 +160,15 @@ async def async_main(data_store: MultiscaleZarrDataStore) -> None:
 
 
 def main() -> None:
-    """Parse CLI args, build the data store, and launch the viewer."""
+    """Parse CLI args, build the viewer and show it."""
     parser = argparse.ArgumentParser(
-        description="Combined 2D/3D viewer with automatic camera-settle redraw"
+        description="Large OME-Zarr viewer with a clipping plane"
     )
     parser.add_argument(
         "--zarr-path",
         type=pathlib.Path,
         default=ZARR_PATH,
-        help="Path to the multiscale zarr store.",
+        help="Path to the OME-Zarr multiscale group.",
     )
     parser.add_argument(
         "--debug-log",
@@ -650,46 +177,99 @@ def main() -> None:
         const="all",
         nargs="?",
         help=(
-            "Enable debug logging. Comma-separated list of categories "
-            "(perf, gpu, cache, slicer). "
-            "Omit value or use 'all' for all categories at DEBUG level. "
-            "Power-user: append :LEVEL to set per-category levels. "
-            "Examples:\n"
-            "  --debug-log                    (all at DEBUG)\n"
-            "  --debug-log perf,cache         (perf+cache at DEBUG)\n"
-            "  --debug-log all:info           (all at INFO — summaries only)\n"
-            "  --debug-log perf:info,cache:debug,slicer:info"
+            "Enable debug logging: comma-separated categories "
+            "(perf, gpu, cache, slicer), optionally with :LEVEL, e.g. "
+            "'perf:info,cache:debug'.  Omit the value for all at DEBUG."
         ),
     )
     args = parser.parse_args()
 
-    if not args.zarr_path.exists():
-        print(f"Error: zarr store not found at '{args.zarr_path}'")
-        print("Run example.py with --make-files first:")
-        print("    uv run example.py --make-files")
+    if not (args.zarr_path / "zarr.json").exists():
+        print(f"Error: OME-Zarr group not found at '{args.zarr_path}'")
+        print("Fetch it with scripts/v2/integration_2d_3d/download_ome_zarr.py")
         sys.exit(1)
 
     if args.debug_log is not None:
         _setup_debug_logging(args.debug_log)
 
     print("Opening tensorstore stores via MultiscaleZarrDataStore ...")
-    data_store = MultiscaleZarrDataStore.from_scale_and_translation(
-        zarr_path=str(args.zarr_path),
-        scale_names=ZARR_SCALE_NAMES,
-        level_scales=[(1, 1, 1), (2, 2, 2), (4, 4, 4)],
-        level_translations=[(0, 0, 0), (0.5, 0.5, 0.5), (1.5, 1.5, 1.5)],
-    )
-    print(f"  {data_store.n_levels} levels opened.")
-    for i, shape in enumerate(data_store.level_shapes):
-        print(f"  s{i}: shape={shape}")
-    print()
-    print(
-        "Move the camera to trigger automatic redraw after the settle threshold.\n"
-        "Adjust the settle threshold with the spinbox in the sidebar.\n"
+    store, voxel_size = open_ome_zarr(args.zarr_path)
+    print(f"  {store.n_levels} levels opened.")
+    for i, shape in enumerate(store.level_shapes):
+        print(f"  level {i}: shape={shape}")
+
+    viewer = Viewer(spatial_axes(*AXES), dim="3d")
+
+    # Voxel indices -> physical units, so the anisotropic volume is not squashed.
+    transform = AffineTransform.from_axis_map(
+        store.data_coordinate_systems[0],
+        viewer.scene.dims.world_coordinate_system,
+        axis_map={name: name for name in AXES},
+        scale=dict(zip(AXES, voxel_size)),
     )
 
-    _app = QApplication([sys.argv[0]])
-    QtAsyncio.run(async_main(data_store), handle_sigint=True)
+    # A plane through the middle of the volume, keeping the +x half.  It is
+    # written in the store's level-0 (voxel) coordinates.
+    shape0 = store.level_shapes[0]
+    centre = tuple(n / 2.0 for n in shape0)
+    plane = ClippingPlane.from_point_normal(
+        store.data_coordinate_systems[0], centre, (0, 0, 1), axes=AXES
+    )
+
+    visual = viewer.add_image_multiscale(
+        store,
+        appearance=MultiscaleImageAppearance(lod_bias=LOD_BIAS),
+        single=MultiscaleImageSingleAppearance(
+            color_map="viridis",
+            clim=(0.0, 1500.0),
+            render_mode="mip",
+            iso_threshold=500.0,
+        ),
+        render_config=MultiscaleImageRenderConfig(
+            block_size=BLOCK_SIZE, gpu_budget_bytes=GPU_BUDGET
+        ),
+        name="ExpA_VIP_ASLM_on",
+        transform=transform,
+        clipping_planes=(plane,),
+        controls=MultiscaleImageControlsConfig(
+            appearance=[
+                "visible",
+                "color_map",
+                "clim",
+                "render_mode",
+                "iso_threshold",
+                "lod_bias",
+            ],
+            clim_range=(0.0, 4000.0),
+            clipping_controls=True,
+            # How much of the plan is loaded: watch it while the plane moves.
+            loading_indicator=True,
+            dataset_info=True,
+        ),
+    )
+    visual.aabb.enabled = True
+
+    # The canvas default depth ranges (3D 1..8000, 2D -500..500) assume a small
+    # scene.  Size them from the world extent of the volume instead: the far
+    # plane must clear the camera distance plus the whole scene.
+    extent = [n * v for n, v in zip(shape0, voxel_size)]
+    diagonal = float(sum(e * e for e in extent) ** 0.5)
+    canvas_widget = build_canvas_widget(
+        viewer,
+        axis_values_from_viewer(viewer),
+        depth_range_3d=(diagonal / 1000.0, diagonal * 4.0),
+        depth_range_2d=(-diagonal, diagonal),
+    )
+    layout = Layout(
+        center=canvas_widget,
+        right_dock=AppearanceControls(),
+        right_dock_min_width=360,
+    )
+
+    # The gizmo needs the plane on screen: add it once the first data is drawn.
+    viewer.on_ready(lambda: viewer.add_clipping_plane_gizmo(visual, plane))
+
+    run(viewer, layout, fit="ready")
 
 
 if __name__ == "__main__":

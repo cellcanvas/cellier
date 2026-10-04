@@ -16,8 +16,8 @@ from cellier.controller import CellierController
 from cellier.data import PointsMemoryStore
 from cellier.gui._clipping_planes import (
     CLIPPING_PLANES_TITLE,
-    clipping_planes_seed,
     facing_of,
+    get_clipping_planes_data_from_visual,
     planes_from_rows,
     position_range,
     rows_from_planes,
@@ -61,7 +61,7 @@ def _add_points(controller, names="zyx", name="points"):
 
 
 def _make(toolkit, visual_ids, visual, store):
-    seed = clipping_planes_seed(visual, store)
+    seed = get_clipping_planes_data_from_visual(visual, store)
     if toolkit == "qt":
         from cellier.gui.qt.visuals import QtClippingPlanesControls
 
@@ -160,7 +160,7 @@ def test_the_facing_of_a_normal():
 
 def test_the_seed_is_read_off_the_store(controller):
     visual, store = _add_points(controller)
-    seed = clipping_planes_seed(visual, store)
+    seed = get_clipping_planes_data_from_visual(visual, store)
     assert seed["axis_names"] == ["z", "y", "x"]
     assert seed["bounds"] == [[0.0, 10.0], [0.0, 20.0], [0.0, 40.0]]
     assert seed["coordinate_system"] == str(store.data_coordinate_system.id)
@@ -479,7 +479,7 @@ def test_the_panel_offers_it_only_when_asked(controller):
         if spec.kind == "clipping_planes"
     )
     assert spec.title == "Clipping planes"
-    assert spec.values == clipping_planes_seed(visual, store)
+    assert spec.values == get_clipping_planes_data_from_visual(visual, store)
 
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
@@ -536,7 +536,10 @@ def _make_wired(toolkit, controller, visual, store):
     """The control as a panel builds it, wired to the controller."""
     from cellier.gui._clipping_planes import gizmo_seed
 
-    seed = {**clipping_planes_seed(visual, store), **gizmo_seed(controller, visual.id)}
+    seed = {
+        **get_clipping_planes_data_from_visual(visual, store),
+        **gizmo_seed(controller, visual.id),
+    }
     if toolkit == "qt":
         from cellier.gui.qt.visuals import QtClippingPlanesControls
 
