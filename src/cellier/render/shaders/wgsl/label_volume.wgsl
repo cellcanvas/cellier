@@ -113,6 +113,8 @@ fn intersect_aabb(
 }
 
 // ── Vertex shader ─────────────────────────────────────────────────────────
+{$ include 'cellier.box_winding.wgsl' $}
+
 struct VertexInput { @builtin(vertex_index) vertex_index: u32 };
 
 @vertex
@@ -133,7 +135,8 @@ fn vs_main(in: VertexInput) -> Varyings {
         vec3<f32>(lo.x, hi.y, hi.z),
         vec3<f32>(hi.x, hi.y, hi.z),
     );
-    // 12 triangles (36 indices), cull_mode = none.
+    // 12 triangles (36 indices), outward faces counter-clockwise.  The
+    // pipeline culls front faces (cellier.box_winding.wgsl).
     let face_idx = array<u32, 36>(
         0u,2u,1u, 1u,2u,3u,
         4u,5u,6u, 5u,7u,6u,
@@ -143,17 +146,15 @@ fn vs_main(in: VertexInput) -> Varyings {
         1u,3u,5u, 3u,7u,5u,
     );
 
-    let local_pos = corners[face_idx[in.vertex_index]];
+    let local_pos = corners[face_idx[box_winding_index(in.vertex_index)]];
     let world_pos = u_wobject.world_transform * vec4<f32>(local_pos, 1.0);
     let ndc_pos   = u_stdinfo.projection_transform * u_stdinfo.cam_transform * world_pos;
 
     // Pass near/far clip-plane positions in local space for ray reconstruction.
     let ndc_to_local  = u_wobject.world_transform_inv * u_stdinfo.cam_transform_inv * u_stdinfo.projection_transform_inv;
-    let cam_sign = sign(
-        u_stdinfo.cam_transform[0][0] *
-        u_stdinfo.cam_transform[1][1] *
-        u_stdinfo.cam_transform[2][2]
-    );
+    // The determinant, not the product of the diagonal: that product is
+    // negative or zero for some pure rotations, which reverses the ray.
+    let cam_sign = sign(determinant(u_stdinfo.cam_transform));
 
     var varyings: Varyings;
     varyings.position      = vec4<f32>(ndc_pos);

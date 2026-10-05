@@ -591,7 +591,11 @@ class MultiscaleVolumeBrickShader(BaseVolumeShader):
     def get_pipeline_info(self, wobject, shared):
         return {
             "primitive_topology": wgpu.PrimitiveTopology.triangle_list,
-            "cull_mode": wgpu.CullMode.none,
+            # One face per pixel: both faces would march the same ray, and a
+            # material that does not write depth would blend it twice.  The
+            # back faces are the ones kept, as in pygfx's volume shader, so
+            # the box still draws with the camera inside it.
+            "cull_mode": wgpu.CullMode.front,
         }
 
     def get_render_info(self, wobject, shared):
