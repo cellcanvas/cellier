@@ -68,6 +68,14 @@ to composite mode (one appearance per channel index).
 ::: cellier.visuals.CenteredAxes2DAppearance
 ::: cellier.visuals.CanvasOverlayType
 
+## Clipping planes
+
+Every visual has a `clipping_planes` tuple, in the level-0 data coordinates
+of the store it reads.  See [Clip a visual with
+planes](../How_To/clipping_planes.md).
+
+::: cellier.visuals.ClippingPlane
+
 ## Common
 
 ::: cellier.visuals.AABBParams

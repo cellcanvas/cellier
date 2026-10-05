@@ -34,6 +34,7 @@ from cellier.data._bounds_index import AxisBoundsIndex
 from cellier.data.mesh._mesh_requests import MeshData, MeshSectionData
 from cellier.data.mesh._section import (
     SectionParts,
+    clip_parts,
     closure_report,
     section_cut,
     section_slab,
@@ -611,6 +612,16 @@ def slice_section(
         )
     elif slab:
         parts = section_slab(points, indices, normal, low, high, tol, **options)
+        if request.clip_planes:
+            # Clipping planes, on the kernel's three columns.  After the
+            # slab, not in its face filter: the cut edge must be exact.
+            parts = clip_parts(
+                parts,
+                [
+                    (tuple(plane_normal[axis] for axis in columns), offset)
+                    for plane_normal, offset in request.clip_planes
+                ],
+            )
     else:
         parts = section_cut(points, indices, normal, low, tol, **options)
 

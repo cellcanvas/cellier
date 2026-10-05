@@ -38,9 +38,24 @@ class ControlsRegistryMixin:
     ``_controls_labels`` holds an explicit dock label for a group that was
     given one; a group without one is named from its visuals.
     ``_controls_changed`` is emitted after every change.
+
+    A flag of a config says which visuals get controls; a dock node of the
+    layout says where they go.  ``_rendered_dock_nodes`` holds the names of
+    the dock nodes of the layout the viewer was last rendered with (``None``
+    until it is rendered; :meth:`_record_rendered_layout`), and a flag with
+    no node for it is an error: when
+    the layout is rendered (:meth:`_check_rendered_layout`) and when a
+    visual is added afterwards (:meth:`_check_controls_docks`).  A node with
+    no flag is not an error: the dock shows its placeholder.
     """
 
     _controls_changed = Signal()
+
+    #: The dock node that shows clipping planes controls: the appearance
+    #: dock on a ``Viewer``; an ``OrthoViewer`` overrides it.
+    _CLIPPING_DOCK_NODE = "AppearanceControls"
+    #: Dock node names of the last rendered layout; ``None`` if not rendered.
+    _rendered_dock_nodes: frozenset[str] | None = None
 
     _controller: CellierController
     _controls_configs: dict[UUID, BaseControlsConfig]
@@ -80,6 +95,77 @@ class ControlsRegistryMixin:
         if label is not None:
             self._controls_labels[rep_id] = label
         self._controls_changed.emit()
+
+    def _check_controls_docks(
+        self,
+        controls: BaseControlsConfig | None,
+        name: str,
+        nodes: frozenset[str] | None = None,
+    ) -> None:
+        """Refuse a controls flag that the rendered layout has no dock node for.
+
+        Called by every ``add_*`` before anything is added.  A viewer that
+        has not been rendered with a layout is not checked: an offscreen
+        capture or a hand-built Qt layout records flags and builds no dock.
+
+        Parameters
+        ----------
+        controls : BaseControlsConfig or None
+            The config passed as ``controls=``.
+        name : str
+            What the visual is called, for the message.
+        nodes : frozenset[str] or None
+            Dock node names to check against.  Defaults to those of the
+            layout last rendered.
+
+        Raises
+        ------
+        ValueError
+            Naming the visual, the flag and the dock node to add.
+        """
+        nodes = self._rendered_dock_nodes if nodes is None else nodes
+        if controls is None or nodes is None:
+            return
+        from cellier.convenience.layout._shared import missing_dock_node
+
+        problem = missing_dock_node(
+            controls, nodes, clipping_node=self._CLIPPING_DOCK_NODE
+        )
+        if problem is not None:
+            raise ValueError(f"{name!r} was added with {problem}")
+
+    def _check_rendered_layout(self, nodes: frozenset[str]) -> None:
+        """Check every recorded config against a layout about to be rendered.
+
+        Called by the layout walk before it builds anything, with the names
+        of the layout's dock nodes.  It records nothing: the walk calls
+        :meth:`_record_rendered_layout` once the layout is built.
+
+        Raises
+        ------
+        ValueError
+            For the first visual with a flag the layout has no dock node for.
+        """
+        from cellier.convenience.layout._shared import _group_name
+
+        for rep_id, config in self._controls_configs.items():
+            try:
+                visual = self._controller.get_visual_model(rep_id)
+            except KeyError:
+                continue
+            name = _group_name(
+                self._controller, visual, self._visual_groups.get(rep_id, [rep_id])
+            )
+            self._check_controls_docks(config, name, nodes)
+
+    def _record_rendered_layout(self, nodes: frozenset[str]) -> None:
+        """Keep the dock node names of a layout that was just rendered.
+
+        Called by the layout walk after the whole layout is built, so a
+        render that raises leaves the viewer as it was.  The names are what
+        the ``add_*`` calls that follow are checked against.
+        """
+        self._rendered_dock_nodes = frozenset(nodes)
 
     def _forget_removed_visual(self, event: VisualRemovedEvent) -> None:
         """Drop a removed visual from the record, emitting if anything changed.

@@ -379,6 +379,54 @@ class LodConfigUpdateEvent(NamedTuple):
     value: Any
 
 
+class ClippingPlanesUpdateEvent(NamedTuple):
+    """Request to replace a visual's clipping planes.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing
+        ``ClippingPlanesChangedEvent`` so the caller can echo-filter on its
+        own subscription.
+    visual_id :
+        Target visual.
+    clipping_planes :
+        The complete new tuple of ``ClippingPlane``.  The whole tuple
+        rather than one plane, so adding, removing, moving and toggling are
+        one kind of request.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    clipping_planes: Any
+
+
+class ClippingPlaneGizmoUpdateEvent(NamedTuple):
+    """Request to put a canvas's clipping plane gizmo on a plane, or close it.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing
+        ``ClippingPlaneGizmoChangedEvent``.
+    visual_id :
+        The visual the plane belongs to.
+    plane_id :
+        The ``id`` of the ``ClippingPlane``.
+    canvas_id :
+        The 3D canvas to draw the gizmo in.
+    enabled :
+        ``True`` opens a gizmo on the plane, replacing the canvas's current
+        one.  ``False`` closes the canvas's gizmo if it is on this plane.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    plane_id: UUID
+    canvas_id: UUID
+    enabled: bool = True
+
+
 class TrailUpdateEvent(NamedTuple):
     """Request to set or clear the trail window on one axis of a graph visual.
 
@@ -419,6 +467,8 @@ CellierUpdateEventTypes = (
     | VisualRenderUpdateEvent
     | LoadingConfigUpdateEvent
     | LodConfigUpdateEvent
+    | ClippingPlanesUpdateEvent
+    | ClippingPlaneGizmoUpdateEvent
     | TrailUpdateEvent
 )
 

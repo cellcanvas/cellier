@@ -128,6 +128,11 @@ class BaseControlsConfig:
         Either flag also brings in the picking checkbox: both features are
         derived from the pick buffer, so ``pick_write`` decides whether they
         work, and choosing an outline slot turns it on with a warning.
+    clipping_controls : bool
+        Show this visual's clipping planes control: a row per plane (on or
+        off, the normal, a position slider along it) and a button to add
+        one.  ``False`` (default) omits it.  Values are in the visual's data
+        coordinates.
     dataset_info : bool or DatasetInfo or Sequence[tuple[str, str]]
         The read-only dataset-info block, appended last in the panel.
 
@@ -175,6 +180,7 @@ class BaseControlsConfig:
     dataset_info: bool | DatasetInfo | Sequence[tuple[str, str]] = False
     outline_controls: bool = False
     ambient_occlusion_controls: bool = False
+    clipping_controls: bool = False
 
     @classmethod
     def default_appearance_fields(cls) -> tuple[str, ...]:

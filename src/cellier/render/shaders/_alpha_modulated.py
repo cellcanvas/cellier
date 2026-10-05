@@ -129,7 +129,7 @@ class AlphaPointsMaterial(gfx.PointsMaterial):
 
 @register_wgpu_render_function(gfx.Points, AlphaPointsMaterial)
 class AlphaPointsShader(PointsShader):
-    """Points shader with one extra storage binding and two substitutions."""
+    """Points shader with one extra storage binding and three substitutions."""
 
     type = "render"
 
@@ -146,9 +146,20 @@ class AlphaPointsShader(PointsShader):
             "    var face_color = vec4<f32>(sampled_face_color.rgb, "
             "clamp(sampled_face_color.a, 0.0, 1.0) * face_alpha);"
         )
+        anchor_world_pos = (
+            "    varyings.world_pos = vec3<f32>(ndc_to_world_pos(the_pos_n));"
+        )
         return _substitute(
             super().get_code(),
             [
+                # Clipping planes test ``world_pos``.  Give every vertex of a
+                # marker's quad the world position of the marker's centre,
+                # so a marker is drawn whole or not at all instead of being
+                # cut in half (clipping planes design 4.4).
+                (
+                    anchor_world_pos,
+                    "    varyings.world_pos = vec3<f32>(ndc_to_world_pos(pos_n));",
+                ),
                 (
                     anchor_vertex,
                     anchor_vertex

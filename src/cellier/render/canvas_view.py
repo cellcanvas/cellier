@@ -15,6 +15,7 @@ from cellier.events._events import (
     CanvasConnectedEvent,
     CanvasSizeChangedEvent,
     FrameRenderedEvent,
+    PlaneGizmoMovedEvent,
     _CameraControllerEvent,
 )
 from cellier.logging import _CAMERA_LOGGER
@@ -29,6 +30,7 @@ from cellier.render._pick_buffer import enable_pick_texture_binding
 from cellier.render._requests import DimsState, ReslicingRequest
 from cellier.render._ssao import SSAOPass
 from cellier.render._temporal_accumulation import TemporalAccumulationPass
+from cellier.render.visuals._plane_gizmo import GFXPlaneGizmo, drop_stale_gizmo_capture
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -288,6 +290,19 @@ class CanvasView:
 
         self._last_camera_state: CameraState = self.capture_camera_state()
         self._overlays: list[GFXCanvasOverlay] = []
+        # Plane gizmos (gizmo design v2, 5.1), and the ones whose proxy moved
+        # since the last frame.  The handlers are kept as attributes because
+        # the canvas removes a handler by identity.
+        self._plane_gizmos: dict[UUID, GFXPlaneGizmo] = {}
+        self._gizmo_moves_pending: set[UUID] = set()
+        self._gizmo_before_draw_handler = self._report_gizmo_moves
+        self._gizmo_press_handler = self._on_canvas_press
+        # Ahead of the renderer's own handler: while another canvas holds a
+        # stale gizmo capture, pygfx drops the press before any handler of
+        # the renderer runs.
+        self._canvas.add_event_handler(
+            self._gizmo_press_handler, "pointer_down", order=-10
+        )
         # A hold on drawing (see ``hold_draws``): how long, its test, and
         # the deadline set by the first frame skipped.
         self._hold_seconds: float = 0.0
@@ -532,6 +547,9 @@ class CanvasView:
             return
         self._closed = True
         self._overlays.clear()
+        for gizmo_id in list(self._plane_gizmos):
+            self.remove_plane_gizmo(gizmo_id)
+        self._canvas.remove_event_handler(self._gizmo_press_handler, "pointer_down")
 
         # Break the canvas -> view/renderer references before closing it.  The
         # canvas holds this view's draw callback and, through its event
@@ -755,6 +773,179 @@ class CanvasView:
         if overlay in self._overlays:
             self._overlays.remove(overlay)
 
+    # -- plane gizmos (gizmo design v2, 5.1) ----------------------------------
+
+    def add_plane_gizmo(
+        self, gizmo_id: UUID, point, normal, *, screen_size: float = 100.0
+    ) -> GFXPlaneGizmo:
+        """Add a plane gizmo to this canvas, placed at a pose.
+
+        The gizmo is drawn in 3D only, after the scene and under the canvas
+        overlays.  Its drags are reported as ``PlaneGizmoMovedEvent``.
+
+        Parameters
+        ----------
+        gizmo_id : UUID
+            Names the gizmo on its events.
+        point, normal : array-like
+            Where to place it, in rendered ``(x, y, z)``: a point on the
+            plane and the plane's normal.
+        screen_size : float
+            The gizmo's size on screen, in logical pixels.
+
+        Returns
+        -------
+        GFXPlaneGizmo
+
+        Raises
+        ------
+        ValueError
+            If the canvas already has a gizmo with that id.
+        """
+        if gizmo_id in self._plane_gizmos:
+            raise ValueError(f"Canvas {self._canvas_id} already has gizmo {gizmo_id}.")
+        gizmo = GFXPlaneGizmo(
+            gizmo_id,
+            self._renderer,
+            self._camera_3d,
+            on_grab=self._on_gizmo_grab,
+            on_move=self._on_gizmo_move,
+            on_release=self._on_gizmo_release,
+            screen_size=screen_size,
+        )
+        gizmo.set_pose(point, normal)
+        if not self._plane_gizmos:
+            # Ahead of the scheduler's commit hook on the same event, so a
+            # frame plans, then commits, then draws.
+            self._canvas.add_event_handler(
+                self._gizmo_before_draw_handler, "before_draw", order=-10
+            )
+        self._plane_gizmos[gizmo_id] = gizmo
+        self.request_draw()
+        return gizmo
+
+    def remove_plane_gizmo(self, gizmo_id: UUID) -> None:
+        """Remove a plane gizmo; a drag in progress is ended and reported.
+
+        A gizmo this canvas does not have is ignored.
+        """
+        gizmo = self._plane_gizmos.get(gizmo_id)
+        if gizmo is None:
+            return
+        gizmo.cancel_drag()
+        del self._plane_gizmos[gizmo_id]
+        self._gizmo_moves_pending.discard(gizmo_id)
+        gizmo.close()
+        if not self._plane_gizmos:
+            self._canvas.remove_event_handler(
+                self._gizmo_before_draw_handler, "before_draw"
+            )
+        if not self._closed:
+            self.request_draw()
+
+    def get_plane_gizmo(self, gizmo_id: UUID) -> GFXPlaneGizmo:
+        """The plane gizmo with that id.
+
+        Raises
+        ------
+        KeyError
+            If this canvas has no such gizmo.
+        """
+        return self._plane_gizmos[gizmo_id]
+
+    @property
+    def dim(self) -> str:
+        """``"2d"`` or ``"3d"``: which camera this canvas draws with."""
+        return self._dim
+
+    def orbit_point(self) -> tuple[float, float, float] | None:
+        """The point the 3D camera orbits about, in rendered ``(x, y, z)``.
+
+        ``None`` in 2D.  With no custom target, pygfx's
+        ``OrbitController.target`` is the offset from the camera, so the
+        camera's position is added (gizmo design v2, V5).
+        """
+        if self._dim != "3d":
+            return None
+        controller = self._controller_3d
+        target = np.asarray(controller.target, dtype=np.float64)
+        if controller._custom_target is None:
+            target = target + np.asarray(
+                self._camera_3d.world.position, dtype=np.float64
+            )
+        return float(target[0]), float(target[1]), float(target[2])
+
+    def plane_gizmo_object_ids(self) -> set[int]:
+        """The pygfx ids of every element of this canvas's plane gizmos."""
+        ids: set[int] = set()
+        for gizmo in self._plane_gizmos.values():
+            ids |= gizmo.object_ids()
+        return ids
+
+    def _emit_gizmo(self, gizmo: GFXPlaneGizmo, phase: str) -> None:
+        if self._event_bus is None:
+            return
+        point, normal = gizmo.pose()
+        self._event_bus.emit(
+            PlaneGizmoMovedEvent(
+                source_id=self._canvas_id,
+                canvas_id=self._canvas_id,
+                gizmo_id=gizmo.gizmo_id,
+                point=point,
+                normal=normal,
+                phase=phase,
+                handle_kind=gizmo.handle_kind,
+                handle_axis=gizmo.handle_axis,
+            )
+        )
+
+    def _gizmo_changed(self) -> None:
+        """The gizmo's pixels changed: draw it now, with no stale blend."""
+        if self._closed:
+            return
+        # The user is dragging a handle and should see it follow, whatever
+        # is loading: as for camera input.
+        self.release_hold()
+        self.request_draw()
+
+    def _on_gizmo_grab(self, gizmo: GFXPlaneGizmo) -> None:
+        self._emit_gizmo(gizmo, "start")
+        self._gizmo_changed()
+
+    def _on_gizmo_move(self, gizmo: GFXPlaneGizmo) -> None:
+        # Several pointer moves arrive per frame and each report costs a
+        # plan: the pose is reported once, ahead of the next draw.
+        self._gizmo_moves_pending.add(gizmo.gizmo_id)
+        self._gizmo_changed()
+
+    def _on_gizmo_release(self, gizmo: GFXPlaneGizmo) -> None:
+        # The last pose of a drag is never dropped, and does not wait for a
+        # frame.
+        if gizmo.gizmo_id in self._gizmo_moves_pending:
+            self._gizmo_moves_pending.discard(gizmo.gizmo_id)
+            self._emit_gizmo(gizmo, "move")
+        self._emit_gizmo(gizmo, "end")
+        self._gizmo_changed()
+
+    def _report_gizmo_moves(self, _event=None) -> None:
+        """Report each gizmo that moved since the last frame, once.
+
+        A handler of the canvas's ``before_draw`` event: ahead of the draw
+        callback, so the plan a report causes runs outside the draw and the
+        accumulation reset it asks for lands in the frame about to be drawn.
+        """
+        if not self._gizmo_moves_pending:
+            return
+        pending, self._gizmo_moves_pending = self._gizmo_moves_pending, set()
+        for gizmo_id in pending:
+            gizmo = self._plane_gizmos.get(gizmo_id)
+            if gizmo is not None:
+                self._emit_gizmo(gizmo, "move")
+
+    def _on_canvas_press(self, event) -> None:
+        """A press in this canvas: drop a gizmo capture whose release was lost."""
+        drop_stale_gizmo_capture(event)
+
     def invalidate_accumulation(self) -> None:
         """Discard the temporal accumulation history before the next frame.
 
@@ -910,6 +1101,9 @@ class CanvasView:
             return False
         self._controller.enabled = False
         if new_dim == "2d":
+            # Gizmos are not drawn in 2D, so a handle cannot be released.
+            for gizmo in self._plane_gizmos.values():
+                gizmo.cancel_drag()
             self._camera = self._camera_2d
             self._controller = self._controller_2d
             self._accum_pass.enabled = False
@@ -1179,22 +1373,34 @@ class CanvasView:
 
         scene = self._get_scene_fn(self._scene_id)
 
+        # Plane gizmos are drawn in 3D only, after the scene and before the
+        # overlays: with no depth test a gizmo drawn last would paint over
+        # them.
+        gizmos = (
+            [gizmo for gizmo in self._plane_gizmos.values() if gizmo.visible]
+            if self._dim == "3d"
+            else []
+        )
         t_frame = time.perf_counter()
-        if self._overlays:
+        if gizmos or self._overlays:
             canvas_width, canvas_height = self._canvas.get_logical_size()
             # First pass: main scene. flush=False keeps the colour and depth
-            # buffers open for the subsequent overlay passes.
+            # buffers open for the subsequent passes.
             self._renderer.render(scene, self._camera, flush=False)
-            for index, overlay in enumerate(self._overlays):
+            remaining = len(gizmos) + len(self._overlays)
+            for gizmo in gizmos:
+                remaining -= 1
+                self._renderer.render(gizmo.scene, self._camera, flush=remaining == 0)
+            for overlay in self._overlays:
                 overlay.on_frame(canvas_width, canvas_height)
-                is_last = index == len(self._overlays) - 1
+                remaining -= 1
                 self._renderer.render(
                     overlay.overlay_scene,
                     overlay.overlay_camera,
-                    flush=is_last,
+                    flush=remaining == 0,
                 )
         else:
-            # Fast path — no overlays; single render call as before.
+            # Fast path — no extra passes; single render call as before.
             self._renderer.render(scene, self._camera)
         frame_time_ms = (time.perf_counter() - t_frame) * 1000.0
 

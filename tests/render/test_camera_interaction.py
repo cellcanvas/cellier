@@ -456,10 +456,11 @@ async def test_a_settle_end_on_a_canvas_that_is_not_drawing_requests_a_draw(make
     for _ in range(3):
         rig.step(draw=False)
     rig.requested[0] = False
-    for _ in range(400):
-        if rig.events[-1][1] == "end":
-            break
-        await asyncio.sleep(0.005)
+    # Wait on the stillness timer itself: a count of short sleeps is not a
+    # length of time on a loop with a coarse clock (Windows, Python 3.12).
+    timers = rig.controller._camera_driver.tasks()
+    assert len(timers) == 1
+    await asyncio.wait_for(asyncio.gather(*timers), timeout=30.0)
     assert rig.events == [(0, "start", None), (0, "end", "settle")]
     # Without the request a visual with no camera reslice would keep its
     # moving picture until the next input.

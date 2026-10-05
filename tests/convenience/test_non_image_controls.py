@@ -508,6 +508,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
     )
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
+        AnywidgetClippingPlanesControls,
         AnywidgetImageControls,
         AnywidgetLoadingConfigControls,
         AnywidgetLoadingIndicator,
@@ -525,6 +526,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
     )
     from cellier.gui.qt.visuals import (
         QtAABBWidget,
+        QtClippingPlanesControls,
         QtImageControls,
         QtLoadingConfigControls,
         QtLoadingIndicator,
@@ -542,6 +544,10 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         "loading": (QtLoadingIndicator, AnywidgetLoadingIndicator),
         "loading_config": (QtLoadingConfigControls, AnywidgetLoadingConfigControls),
         "mesh_section": (QtMeshSectionControls, AnywidgetMeshSectionControls),
+        "clipping_planes": (
+            QtClippingPlanesControls,
+            AnywidgetClippingPlanesControls,
+        ),
         "lod_config": (QtLodConfigControls, AnywidgetLodConfigControls),
         "visual_outline": (QtVisualOutlineControls, AnywidgetVisualOutlineControls),
         "labels_outline": (QtLabelsOutlineControls, AnywidgetLabelsOutlineControls),

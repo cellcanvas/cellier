@@ -9,6 +9,7 @@ import numpy as np
 import pygfx as gfx
 
 from cellier.data.graph._graph_requests import GraphSliceRequest
+from cellier.render._clipping import GeometryClippingMixin
 from cellier.render._spaces import (
     RenderSpaces,
     data_slice_positions,
@@ -104,7 +105,7 @@ def _build_edge_material(appearance: GraphAppearance) -> AlphaLineSegmentMateria
     return material
 
 
-class GFXGraphMemoryVisual:
+class GFXGraphMemoryVisual(GeometryClippingMixin):
     """Render-layer visual for one GraphVisual: a pygfx compound (D1).
 
     A ``gfx.Group`` holds a ``gfx.Points`` (nodes) and a ``gfx.Line`` with
@@ -333,6 +334,20 @@ class GFXGraphMemoryVisual:
         self.node.local.matrix = node_matrix(
             self._spaces, self._transform, self._collapsed_origin()
         )
+        self._apply_clipping_planes()
+
+    def _clip_targets(self):
+        """Every material, at the slice the node is drawn at (design 4.6)."""
+        constants = self._collapsed_origin() if self._spaces is not None else {}
+        yield (
+            (
+                self._node_material,
+                self._edge_material,
+                self._empty_node_material,
+                self._empty_edge_material,
+            ),
+            constants,
+        )
 
     def _collapsed_origin(self) -> dict[int, float]:
         """Where the dropped data axes sit, for the node matrix (design 3.9).
@@ -489,6 +504,10 @@ class GFXGraphMemoryVisual:
             positions, self._spaces.data, self._transform
         )
         self._last_data_positions = positions
+        # The clip line follows the slice (clipping planes design 4.1).  When
+        # the view flattens an axis a plane has a component on, the read
+        # clips instead (design 5.2).
+        clip_planes = self._begin_request_clipping()
         sliced = self._spaces.collapsed_axes
         displayed = set(dims_state.selection.displayed_axes)
 
@@ -570,6 +589,7 @@ class GFXGraphMemoryVisual:
             slice_positions={axis: float(positions.get(axis, 0.0)) for axis in sliced},
             extents=extents,
             fades=fades,
+            clip_planes=clip_planes,
         )
 
     def build_slice_request(

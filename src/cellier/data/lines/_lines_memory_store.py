@@ -14,6 +14,7 @@ from cellier.data._dataset_info import (
     array_extent_row,
     format_bytes,
 )
+from cellier.data._plane_clip import clip_segments
 from cellier.data.lines._lines_requests import LinesData, LinesSliceRequest
 
 
@@ -254,8 +255,38 @@ class LinesMemoryStore(BaseDataStore):
                 is_empty=True,
             )
 
-        proj_positions = surviving_positions[:, displayed]
         proj_colors = colors[vertex_mask] if colors is not None else None
+        if request.clip_planes:
+            # Cut each surviving segment at the clipping planes, by its true
+            # position on every axis.  The slab filter above keeps whole
+            # segments only, so the planes are not part of it: they would
+            # leave a jagged edge (clipping planes design 5.2).
+            pairs = surviving_positions.reshape(-1, 2, surviving_positions.shape[1])
+            start, end = pairs[:, 0], pairs[:, 1]
+            width = start.shape[1]
+            if proj_colors is not None:
+                color_pairs = proj_colors.reshape(-1, 2, proj_colors.shape[1])
+                start = np.concatenate([start, color_pairs[:, 0]], axis=1)
+                end = np.concatenate([end, color_pairs[:, 1]], axis=1)
+            start, end, kept = clip_segments(start, end, request.clip_planes, width)
+            if len(kept) == 0:
+                return LinesData(
+                    request_id=request.slice_request_id,
+                    positions=_placeholder_positions(len(displayed)),
+                    colors=None,
+                    color_mode="uniform",
+                    is_empty=True,
+                )
+            cut = np.stack([start, end], axis=1).reshape(-1, start.shape[1])
+            surviving_positions = np.ascontiguousarray(
+                cut[:, :width], dtype=positions.dtype
+            )
+            if proj_colors is not None:
+                proj_colors = np.ascontiguousarray(
+                    cut[:, width:], dtype=proj_colors.dtype
+                )
+            surviving_edges = surviving_edges[kept]
+        proj_positions = surviving_positions[:, displayed]
 
         return LinesData(
             request_id=request.slice_request_id,

@@ -92,6 +92,30 @@ def _any_mesh_section(spec: ControlSpec, visual_ids, controller=None):
     )
 
 
+def _any_clipping_planes(spec: ControlSpec, visual_ids, controller=None, gizmo=None):
+    """The clipping planes control.
+
+    *gizmo* is the ``(visual_id, canvas_id)`` the viewer named for the
+    control's gizmo toggle, or ``None`` for a control with no toggle.
+    """
+    from cellier.gui._clipping_planes import (
+        get_axis_bounds_from_store,
+        get_clipping_plane_gizmo_data,
+    )
+    from cellier.gui.anywidget.visuals import AnywidgetClippingPlanesControls
+
+    gizmo_data = (
+        {} if gizmo is None else get_clipping_plane_gizmo_data(controller, *gizmo)
+    )
+    return AnywidgetClippingPlanesControls(
+        visual_ids,
+        title=spec.title,
+        bounds_source=get_axis_bounds_from_store(controller, spec.values),
+        **gizmo_data,
+        **spec.values,
+    )
+
+
 def _any_aabb(spec: ControlSpec, visual_ids, controller=None):
     from cellier.gui.anywidget.visuals import AnywidgetAABBWidget
 
@@ -177,6 +201,7 @@ ANYWIDGET_BUILDERS = {
     "loading": _any_loading,
     "loading_config": _any_loading_config,
     "mesh_section": _any_mesh_section,
+    "clipping_planes": _any_clipping_planes,
     "lod_config": _any_lod_config,
     "visual_outline": _any_visual_outline,
     "labels_outline": _any_labels_outline,

@@ -36,8 +36,10 @@ class LiveSlot(Protocol):
         """Show *widgets* top to bottom, replacing what was shown.
 
         *widgets* are backend widgets (not host leaves); the slot composes them
-        itself.  With no widgets, *placeholder* is shown instead.  The slot does
-        not close the widgets it stops showing.
+        itself.  *placeholder*, when given, is shown as text: a caller passes it
+        when it has nothing to show (a dock with no visual passes no widgets; the
+        ortho clipping widget passes its selector alone).  The slot does not
+        close the widgets it stops showing.
         """
         ...
 
@@ -381,10 +383,10 @@ class _QtLiveSlot:
     def set(self, widgets: Sequence[object], *, placeholder: str | None = None) -> None:
         leaves = [self._host.leaf(widget) for widget in widgets]
         shown = list(leaves)
-        if not leaves and placeholder:
+        if placeholder:
             from qtpy.QtWidgets import QLabel
 
-            leaves = [QLabel(placeholder)]
+            leaves = [*leaves, QLabel(placeholder)]
         # Built before the old content goes: ``addWidget`` reparents a widget
         # carried over from the old column (the selector, or controls kept
         # across a relabel), so deleting the old column cannot take it along.
@@ -429,7 +431,7 @@ class _AnywidgetLiveSlot:
     def set(self, widgets: Sequence[object], *, placeholder: str | None = None) -> None:
         children = [getattr(widget, "widget", widget) for widget in widgets]
         with self._slot.hold_sync():
-            self._slot.title = "" if children else (placeholder or "")
+            self._slot.title = placeholder or ""
             self._slot.children = children
 
     def close(self) -> None:

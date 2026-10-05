@@ -9,6 +9,7 @@ import numpy as np
 import pygfx as gfx
 
 from cellier.logging import _PERF_LOGGER
+from cellier.render._clipping import ClippingPlanesMixin, drawn_materials
 from cellier.render._frustum import (
     bricks_in_frustum_arr,
     frustum_planes_from_corners,
@@ -21,6 +22,7 @@ from cellier.render._level_of_detail import (
     sort_arr_by_distance,
 )
 from cellier.render._level_of_detail_2d import (
+    half_plane_cull_2d,
     select_lod_2d,
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
@@ -128,7 +130,7 @@ _LABELS_SAMPLING_MARGIN_3D = 1.0
 _LABELS_SAMPLING_MARGIN_2D = 0.0
 
 
-class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
+class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
     """Render-layer wrapper for one logical multiscale label visual.
 
     Owns GPU resources (int32 brick caches, LUT textures, label colormap
@@ -159,6 +161,10 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
     gpu_budget_bytes_2d : int
         Maximum GPU memory for the 2D tile cache.
     """
+
+    #: Clipped bricks and tiles are not fetched, so a change of planes
+    #: changes the plan (clipping planes design 5.1).
+    clipping_planes_affect_request: bool = True
 
     #: 3D loads go through the chunk scheduler (``plan`` / ``residencies``).
     chunked: bool = True
@@ -815,6 +821,14 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
                 self.node_3d.local.matrix = plain
         if self.node_2d is not None:
             self.node_2d.local.matrix = plain
+        self._apply_clipping_planes()
+
+    def _clip_targets(self):
+        """Both materials, at the planes last planned (design 4.1, 4.6)."""
+        collapsed = () if self._spaces is None else self._spaces.collapsed_axes
+        planned = self.pick_collapsed_indices() or {}
+        constants = {axis: float(planned.get(axis, 0.0)) for axis in collapsed}
+        yield drawn_materials(self.node_3d, self.node_2d), constants
 
     # ── 3D planning helpers ───────────────────────────────────────────────
 
@@ -915,6 +929,15 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         cull_timings: dict = {}
         n_culled = 0
         frustum_cull_ms = 0.0
+        # The clipping planes are further half-spaces, with or without a
+        # frustum: a clipped brick is never drawn (clipping planes 5.1).
+        clip_rows = self._clip_rows()
+        if clip_rows is not None:
+            frustum_planes = (
+                clip_rows
+                if frustum_planes is None
+                else np.concatenate([frustum_planes, clip_rows])
+            )
         if frustum_planes is not None:
             t0 = time.perf_counter()
             brick_arr, cull_timings = bricks_in_frustum_arr(
@@ -1057,6 +1080,8 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
         plane).
         """
         self._begin_plane_planning(selection)
+        # The clip follows the slice (clipping planes design 4.1).
+        self._apply_clipping_planes()
 
     def _finish_plan(self, residency, arr, backstop, loading) -> list[DesiredSet]:
         """The planner tail shared by both modes: one desired set, and stats."""
@@ -1264,6 +1289,17 @@ class GFXMultiscaleLabelVisual(MultiscaleRegionPlanner):
                 level_translation_arr_shader=geo2d._translation_arr_shader,
             )
             cull_ms = (time.perf_counter() - t0) * 1000
+        # Tiles wholly on the clipped side of a clip line are not fetched.
+        clip_rows = self._clip_rows()
+        if clip_rows is not None:
+            tile_arr, n_clipped = half_plane_cull_2d(
+                tile_arr,
+                block_size,
+                clip_rows,
+                level_scale_arr_shader=geo2d._scale_arr_shader,
+                level_translation_arr_shader=geo2d._translation_arr_shader,
+            )
+            n_culled += n_clipped
 
         # Truncation to the atlas's budget happens in the planner tail,
         # after the backstop has taken its share (design 5.3).

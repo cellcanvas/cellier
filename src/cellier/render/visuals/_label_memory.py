@@ -10,6 +10,7 @@ import pygfx as gfx
 # Import the shader modules to trigger @register_wgpu_render_function.
 import cellier.render.shaders._label_volume  # noqa: F401
 from cellier.data.image._image_requests import ChunkRequest
+from cellier.render._clipping import ClippingPlanesMixin
 from cellier.render._spaces import RenderSpaces, node_matrix
 from cellier.render.shaders._label_colormap import (
     build_direct_lut_textures,
@@ -44,7 +45,7 @@ def _make_placeholder_label_params() -> gfx.Buffer:
     return build_label_params_buffer(background_label=0, salt=0, n_entries=0)
 
 
-class GFXLabelMemoryVisual:
+class GFXLabelMemoryVisual(ClippingPlanesMixin):
     """Render-layer visual for a LabelMemoryVisual backed by LabelMemoryStore.
 
     Owns gfx.Image (2D) and/or gfx.Volume (3D) nodes with custom label shaders.
@@ -263,6 +264,24 @@ class GFXLabelMemoryVisual:
             self.node_3d.local.matrix = m
         if self.node_2d is not None:
             self.node_2d.local.matrix = m
+        self._apply_clipping_planes()
+
+    def _clip_targets(self):
+        """Both materials, at the slice the nodes are drawn at (design 4.6)."""
+        if self._spaces is None:
+            constants: dict[int, float] = {}
+        else:
+            constants = {
+                axis: float(self._collapsed_indices.get(axis, 0.0))
+                for axis in self._spaces.collapsed_axes
+            }
+        yield (
+            (
+                getattr(self._inner_node_2d, "material", None),
+                getattr(self._inner_node_3d, "material", None),
+            ),
+            constants,
+        )
 
     # ------------------------------------------------------------------
     # Node selection
@@ -334,6 +353,8 @@ class GFXLabelMemoryVisual:
             planned, self._transform, self._spaces.world, shape
         )
         self._collapsed_indices = collapsed
+        # The clip line follows the slice (clipping planes design 4.1).
+        self._apply_clipping_planes()
         return axis_selections
 
     def build_slice_request_2d(

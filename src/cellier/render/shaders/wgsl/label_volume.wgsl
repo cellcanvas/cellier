@@ -164,6 +164,8 @@ fn vs_main(in: VertexInput) -> Varyings {
 }
 
 // ── Fragment shader ───────────────────────────────────────────────────────
+{$ include 'cellier.ray_clip.wgsl' $}
+
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
     let vol_dims  = vec3<i32>(textureDimensions(t_img));
@@ -181,11 +183,18 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let inv_dir     = 1.0 / safe_dir;
     let t_hit       = intersect_aabb(near_pos, inv_dir, lo, hi);
     if (t_hit.t_near > t_hit.t_far) { discard; }
-    let t_start = max(t_hit.t_near, 0.0);
-    let t_end   = t_hit.t_far;
+    var t_start = max(t_hit.t_near, 0.0);
+    var t_end   = t_hit.t_far;
+    let t_box_start = t_start;
+    // Clipping planes cut the ray's interval (cellier.ray_clip.wgsl).
+    let clipped = clip_ray_interval(near_pos, ray_dir, t_start, t_end);
+    t_start = clipped.x;
+    t_end = clipped.y;
+    if (t_start >= t_end) { discard; }
     // True when the ray entered through a box face (vs. the near clip plane
     // sitting inside the volume, which clamps t_near < 0 to t_start = 0).
-    let entered_box_face = t_hit.t_near >= 0.0;
+    // A ray that starts on a clipping plane did not enter through one either.
+    let entered_box_face = t_hit.t_near >= 0.0 && t_start <= t_box_start;
 
     // ── Grid-anchored DDA (Amanatides-Woo) ───────────────────────────────
     // Walk the voxel grid cell-by-cell rather than sampling at a fixed cadence
@@ -265,7 +274,11 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
             obj_normal = unit_axis(t_hit.entry_axis);
         } else {
             // Near plane slices the block interior: face the camera.
-            obj_normal = normalize(-ray_dir);
+            // A first-sample hit on a clipping plane's cut face takes the
+            // plane's normal; otherwise face the camera.
+            let cut_n = clip_start_normal_local();
+            obj_normal = select(normalize(-ray_dir), cut_n,
+                t_start > t_box_start && dot(cut_n, cut_n) > 0.0);
         }
         $$ endif
     } else {

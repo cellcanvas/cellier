@@ -178,6 +178,9 @@ fn vs_main(in: VertexInput) -> Varyings {
 
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
+    // In a 2D view a clipping plane is the line where it meets the slice.
+    {$ include 'pygfx.clipping_planes.wgsl' $}
+
     var label_id: i32 = sample_im_lut(varyings.texcoord);
 
     // Paint overlay: substitute the painted label ID if this voxel has been

@@ -238,6 +238,40 @@ async def test_a_mode_switch_does_not_refetch_a_slot_that_holds_the_slice():
     assert gfx._drawn == {1: slot_for_one}
 
 
+@pytest.mark.parametrize("dim", ["2d", "3d"])
+@pytest.mark.parametrize("composite", [False, True])
+async def test_new_store_data_of_the_same_shape_is_fetched_again(dim, composite):
+    """A slot holding the planned selection still refetches after a store change."""
+    controller, scene, visual = _setup(composite=composite, dim=dim)
+    gfx = _gfx(controller, scene, visual)
+    store = gfx._data_store
+    plane = (4, 8, 8) if dim == "3d" else (8, 8)
+    ready = gfx.on_data_ready if dim == "3d" else gfx.on_data_ready_2d
+    requests = _plan(controller, scene, visual)
+    ready([(request, np.ones(plane, dtype=np.float32)) for request in requests])
+    assert _plan(controller, scene, visual) == []
+
+    store.data = np.zeros(store.data.shape, dtype=np.float32)
+
+    assert len(_plan(controller, scene, visual)) == len(requests)
+
+
+async def test_a_read_in_flight_at_a_store_change_is_not_recorded_as_held():
+    controller, scene, visual = _setup(composite=True)
+    gfx = _gfx(controller, scene, visual)
+    requests = _plan(controller, scene, visual)
+
+    # Straight to the handler: a change announced by the store also reslices,
+    # which would replace the pending plan this test is about.
+    gfx.on_data_store_contents_changed(None)
+    gfx.on_data_ready_2d(
+        [(request, np.ones((8, 8), dtype=np.float32)) for request in requests]
+    )
+
+    assert all(slot.loaded["2d"] is None for slot in gfx.slots)
+    assert len(_plan(controller, scene, visual)) == len(requests)
+
+
 async def test_a_direct_composite_assignment_behaves_like_set_image_composite():
     controller, _scene, visual = _setup()
     composite_events: list = []

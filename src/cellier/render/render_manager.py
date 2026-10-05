@@ -9,6 +9,7 @@ from uuid import uuid4
 import numpy as np
 
 from cellier.events._events import AABBChangedEvent, ViewRay, _CanvasRawPointerEvent
+from cellier.render._clipping import expand_rendered_plane, reduce_clipping_planes
 from cellier.render._config import RenderManagerConfig
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render._visual_lut import (
@@ -834,6 +835,16 @@ class RenderManager:
             for object_id in excluded_ids:
                 entries[object_id] = entries.get(object_id, 0) | AO_EXCLUDED_BIT
                 n_excluded += 1
+
+        # A plane gizmo is not a lit surface: its handles get no occlusion.
+        # Their ids belong to no visual, so they are added here (gizmo
+        # design v2, G-P4).  The count matters as much as the entries: the
+        # pass compiles its lookup away while nothing is excluded.
+        if ssao_on:
+            for canvas in self._canvases.values():
+                for object_id in canvas.plane_gizmo_object_ids():
+                    entries[object_id] = entries.get(object_id, 0) | AO_EXCLUDED_BIT
+                    n_excluded += 1
 
         get_shared_visual_lut().apply(entries)
         for canvas in self._canvases.values():
@@ -1799,6 +1810,195 @@ class RenderManager:
         set_lod = getattr(scene_manager.get_visual(visual_id), "set_lod", None)
         if set_lod is not None:
             set_lod(lod)
+
+    def set_visual_clipping_planes(self, visual_id: UUID, planes: Any) -> None:
+        """Hand a visual its clipping planes; ignored if it takes none."""
+        scene_id = self._visual_to_scene.get(visual_id)
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is None:
+            return
+        setter = getattr(
+            scene_manager.get_visual(visual_id), "set_clipping_planes", None
+        )
+        if setter is not None:
+            setter(planes)
+
+    def clipping_planes_affect_request(self, visual_id: UUID) -> bool:
+        """Whether a change of planes changes what *visual_id* reads."""
+        scene_id = self._visual_to_scene.get(visual_id)
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is None:
+            return False
+        return bool(
+            getattr(
+                scene_manager.get_visual(visual_id),
+                "clipping_planes_affect_request",
+                False,
+            )
+        )
+
+    # -- plane gizmos (gizmo design v2, 5.1 to 5.4) ---------------------------
+
+    def _clip_frame(self, visual_id: UUID) -> tuple[Any, Any, dict[int, float]]:
+        """``(spaces, data_to_world, constants)`` of a visual in a 3D view.
+
+        Raises
+        ------
+        ValueError
+            If the visual is not placed, takes no clipping planes, or its
+            view does not keep three data axes.
+        """
+        scene_manager = self._scenes.get(self._visual_to_scene.get(visual_id))
+        gfx_visual = (
+            None if scene_manager is None else scene_manager.get_visual(visual_id)
+        )
+        frame = getattr(gfx_visual, "clip_frame", lambda: None)()
+        if frame is None:
+            raise ValueError(f"Visual {visual_id} is not placed in a view.")
+        spaces, _transform, constants = frame
+        if spaces.data.ndim - len(constants) != 3:
+            raise ValueError(
+                f"Visual {visual_id} is not drawn in 3D: a plane gizmo needs a 3D view."
+            )
+        return frame
+
+    def clipping_plane_hidden_axes(self, visual_id: UUID, item: Any) -> list[int]:
+        """The data axes a plane has a component on that the 3D view hides.
+
+        A plane gizmo cannot express such a plane.
+
+        Raises
+        ------
+        ValueError
+            If the visual is not drawn in 3D.
+        """
+        _spaces, _transform, constants = self._clip_frame(visual_id)
+        return [axis for axis in constants if float(item.plane.normal[axis]) != 0.0]
+
+    def reduce_clipping_plane(
+        self, visual_id: UUID, item: Any
+    ) -> tuple[tuple[float, float, float], float]:
+        """One plane of a visual in its 3D view's rendered space.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual the plane belongs to.
+        item : ClippingPlane
+            The plane.  Its ``enabled`` flag is not looked at.
+
+        Returns
+        -------
+        tuple[tuple[float, float, float], float]
+            ``(normal, offset)`` in pygfx ``(x, y, z)`` order: the plane
+            keeps ``normal . r >= offset``.
+
+        Raises
+        ------
+        ValueError
+            If the visual is not drawn in 3D.
+        """
+        spaces, transform, constants = self._clip_frame(visual_id)
+        shown = item if item.enabled else item.model_copy(update={"enabled": True})
+        a, b, c, d = reduce_clipping_planes(spaces, transform, constants, [shown])[0]
+        return (a, b, c), d
+
+    def expand_rendered_plane(
+        self, visual_id: UUID, point: Any, normal: Any
+    ) -> tuple[np.ndarray, float]:
+        """A rendered-space plane in a visual's level-0 data coordinates.
+
+        The inverse of :meth:`reduce_clipping_plane`.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual whose data coordinates to use.
+        point, normal : array-like
+            A point on the plane and its normal, in rendered ``(x, y, z)``.
+
+        Returns
+        -------
+        tuple[np.ndarray, float]
+            The normal, one entry per data axis, and the offset.
+
+        Raises
+        ------
+        ValueError
+            If the visual is not drawn in 3D, or *normal* is zero.
+        """
+        spaces, transform, constants = self._clip_frame(visual_id)
+        return expand_rendered_plane(spaces, transform, constants, point, normal)
+
+    def visual_rendered_bounds(self, visual_id: UUID) -> np.ndarray | None:
+        """The bounding box of a visual's 3D node, in rendered ``(x, y, z)``.
+
+        Returns
+        -------
+        np.ndarray or None
+            ``[[low x, low y, low z], [high x, high y, high z]]``; ``None``
+            when the node has no bounds (nothing drawn yet).
+        """
+        scene_manager = self._scenes.get(self._visual_to_scene.get(visual_id))
+        if scene_manager is None:
+            return None
+        node = scene_manager.get_visual(visual_id).get_node("3d")
+        bounds = None if node is None else node.get_world_bounding_box()
+        if bounds is None or not np.all(np.isfinite(bounds)):
+            return None
+        return np.asarray(bounds, dtype=np.float64)
+
+    def canvas_dim(self, canvas_id: UUID) -> str:
+        """``"2d"`` or ``"3d"``: which camera a canvas draws with."""
+        return self._canvases[canvas_id].dim
+
+    def canvas_orbit_point(self, canvas_id: UUID) -> tuple[float, float, float] | None:
+        """The point a canvas's 3D camera orbits about; ``None`` in 2D."""
+        return self._canvases[canvas_id].orbit_point()
+
+    def add_plane_gizmo(
+        self,
+        canvas_id: UUID,
+        gizmo_id: UUID,
+        point: Any,
+        normal: Any,
+        *,
+        screen_size: float = 100.0,
+    ) -> None:
+        """Draw a plane gizmo in a canvas, placed at a rendered-space pose.
+
+        Its drags are reported as ``PlaneGizmoMovedEvent`` with *gizmo_id*.
+
+        Raises
+        ------
+        KeyError
+            If *canvas_id* is not registered.
+        ValueError
+            If the canvas already has a gizmo with that id.
+        """
+        self._canvases[canvas_id].add_plane_gizmo(
+            gizmo_id, point, normal, screen_size=screen_size
+        )
+        # The handles take no ambient occlusion: their ids join the table.
+        self._sync_visual_lut()
+
+    def set_plane_gizmo_pose(
+        self, canvas_id: UUID, gizmo_id: UUID, point: Any, normal: Any
+    ) -> None:
+        """Move a plane gizmo; a canvas or gizmo that is gone is ignored."""
+        canvas = self._canvases.get(canvas_id)
+        if canvas is None or gizmo_id not in canvas._plane_gizmos:
+            return
+        canvas.get_plane_gizmo(gizmo_id).set_pose(point, normal)
+        canvas.request_draw()
+
+    def remove_plane_gizmo(self, canvas_id: UUID, gizmo_id: UUID) -> None:
+        """Remove a plane gizmo; a canvas or gizmo that is gone is ignored."""
+        canvas = self._canvases.get(canvas_id)
+        if canvas is None:
+            return
+        canvas.remove_plane_gizmo(gizmo_id)
+        self._sync_visual_lut()
 
     def set_camera_moving(self, canvas_id: UUID, moving: bool) -> None:
         """Record whether a canvas's camera is in motion.

@@ -8,6 +8,7 @@ import numpy as np
 import pygfx as gfx
 
 from cellier.data.lines._lines_requests import LinesSliceRequest
+from cellier.render._clipping import GeometryClippingMixin
 from cellier.render._spaces import (
     RenderSpaces,
     data_slice_positions,
@@ -60,7 +61,7 @@ def _build_material(appearance: LinesMemoryAppearance) -> AlphaLineSegmentMateri
     return mat
 
 
-class GFXLinesMemoryVisual:
+class GFXLinesMemoryVisual(GeometryClippingMixin):
     """Render-layer visual for one LinesVisual backed by in-memory lines data.
 
     Uses a single ``gfx.Line`` node with ``gfx.LineSegmentMaterial`` for
@@ -285,6 +286,12 @@ class GFXLinesMemoryVisual:
         self.node.local.matrix = node_matrix(
             self._spaces, self._transform, self._collapsed_origin()
         )
+        self._apply_clipping_planes()
+
+    def _clip_targets(self):
+        """Every material, at the slice the node is drawn at (design 4.6)."""
+        constants = self._collapsed_origin() if self._spaces is not None else {}
+        yield (self._material, self._empty_material), constants
 
     def _data_region(self, selection):
         """The selection in this visual's data coordinates (design 3.12).
@@ -336,6 +343,10 @@ class GFXLinesMemoryVisual:
         self._last_data_positions = data_slice_positions(
             selection.region, self._transform, self._spaces.world
         )
+        # The clip line follows the slice (clipping planes design 4.1).  When
+        # the view flattens an axis a plane has a component on, the read
+        # cuts the segments instead (design 5.2).
+        clip_planes = self._begin_request_clipping()
         shared_id = uuid4()
         return LinesSliceRequest(
             slice_request_id=shared_id,
@@ -344,6 +355,7 @@ class GFXLinesMemoryVisual:
             displayed_axes=dims_state.selection.displayed_axes,
             retained_axes=self._spaces.retained_axes,
             region=region,
+            clip_planes=clip_planes,
         )
 
     def build_slice_request(

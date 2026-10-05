@@ -16,6 +16,7 @@ from cellier.gui.qt.visuals._base import (
     QtToggle,
 )
 from cellier.gui.qt.visuals._chrome import labelled_row, titled_group
+from cellier.gui.qt.visuals._clipping import QtClippingPlanesControls
 from cellier.gui.qt.visuals._color import QtUniformColorPicker
 from cellier.gui.qt.visuals._graph import (
     QtEdgeColorPicker,
@@ -63,6 +64,7 @@ __all__ = [
     "QtBackgroundLabelSpin",
     "QtBoundedSlider",
     "QtChoice",
+    "QtClippingPlanesControls",
     "QtColorPicker",
     "QtEdgeColorPicker",
     "QtEdgeThicknessSpaceCombo",

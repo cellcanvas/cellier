@@ -67,6 +67,12 @@ class GraphSliceRequest(NamedTuple):
         Axis -> ``(fade_before, fade_after, min_alpha)``.  Carries entries
         only for trail axes with ``fade=True``.  Empty means no fade is
         computed and ``GraphData.node_alpha`` / ``edge_alpha`` are None.
+    clip_planes : tuple[tuple[tuple[float, ...], float], ...]
+        Clipping planes the read applies on the CPU, as ``(normal, offset)``
+        pairs in data coordinates, kept where ``normal . p >= offset``.
+        Set only where the shader cannot clip: geometry flattened along an
+        axis a plane has a component on (clipping planes design 5.2).
+        Empty otherwise.
     """
 
     slice_request_id: UUID
@@ -77,6 +83,7 @@ class GraphSliceRequest(NamedTuple):
     extents: dict[int, tuple[float, float]]
     fades: dict[int, tuple[float, float, float]]
     retained_axes: tuple[int, ...]
+    clip_planes: tuple = ()
 
 
 @dataclass(frozen=True)

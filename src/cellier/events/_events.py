@@ -418,6 +418,132 @@ class LoadingConfigChangedEvent(NamedTuple):
     loading: Any
 
 
+class PlaneGizmoMovedEvent(NamedTuple):
+    """A plane gizmo in a canvas was grabbed, moved or released.
+
+    Emitted by the canvas that draws the gizmo.  A drag is one ``"start"``,
+    then at most one ``"move"`` per frame the canvas draws, then one
+    ``"end"``.  The last pose of a drag is always reported as a ``"move"``
+    before the ``"end"``.
+
+    The pose is in the scene's rendered space, in ``(x, y, z)`` order.  It
+    holds no render-layer types.
+
+    Parameters
+    ----------
+    source_id : UUID
+        The canvas.
+    canvas_id : UUID
+        The canvas the gizmo is drawn in.
+    gizmo_id : UUID
+        The gizmo.  The routing key.
+    point : tuple[float, float, float]
+        The gizmo's position: a point on the plane.
+    normal : tuple[float, float, float]
+        The plane's unit normal there.  It points into the kept half-space.
+    phase : str
+        ``"start"``, ``"move"`` or ``"end"``.
+    handle_kind : str
+        ``"translate"`` or ``"rotate"``: the handle being dragged.
+    handle_axis : int or tuple[int, int]
+        The axis of the handle in the gizmo's own frame, where axis 0 is
+        the normal: the axis a one-axis handle moves along or turns about,
+        or the pair of axes a two-axis translate handle moves in.
+    """
+
+    source_id: UUID
+    canvas_id: UUID
+    gizmo_id: UUID
+    point: tuple[float, float, float]
+    normal: tuple[float, float, float]
+    phase: str
+    handle_kind: str
+    handle_axis: Any
+
+
+class ClippingPlanesChangedEvent(NamedTuple):
+    """A visual's ``clipping_planes`` changed.
+
+    Emitted for every change, whether it came from
+    ``CellierController.set_clipping_planes`` (or a
+    ``ClippingPlanesUpdateEvent``) or from assigning
+    ``visual.clipping_planes`` directly.
+
+    Parameters
+    ----------
+    source_id : UUID
+        Who asked for the change: the widget's id for a GUI edit, otherwise
+        the controller's.
+    visual_id : UUID
+        The visual.  The routing key.
+    clipping_planes : tuple[ClippingPlane, ...]
+        The complete tuple after the change.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    clipping_planes: Any
+
+
+class ClippingInteractionEvent(NamedTuple):
+    """A clipping plane drag started or ended on a visual.
+
+    A drag is a run of ``clipping_planes`` changes made inside
+    ``CellierController.clipping_interaction`` (a gizmo opens one for the
+    length of a drag).  The start is emitted with the first change, ahead
+    of its ``ClippingPlanesChangedEvent``.  No event is emitted per change.
+
+    It announces only: a plane change plans the same way inside a drag as
+    outside one.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The source of the change or scope that caused the transition.
+    visual_id : UUID
+        The visual whose planes are dragged.  The routing key.
+    phase : {"start", "end"}
+        Which transition this is.
+    reason : {"release", "settle", "jump", "cancel"} or None
+        Why the drag ended: the last scope closed, the planes were still
+        for ``SchedulerConfig.dims_settle_s``, or a change arrived after
+        the scopes had closed.  ``None`` for a start.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    phase: Literal["start", "end"]
+    reason: Literal["release", "settle", "jump", "cancel"] | None = None
+
+
+class ClippingPlaneGizmoChangedEvent(NamedTuple):
+    """The plane a canvas's clipping plane gizmo edits changed.
+
+    A canvas has at most one clipping plane gizmo.  Emitted when one is
+    added, when it is replaced by one on another plane, and when it is
+    closed, by its owner or by itself (its plane or visual was removed, the
+    canvas left 3D).
+
+    Parameters
+    ----------
+    source_id : UUID
+        Who asked: the widget's id for a GUI toggle, otherwise the
+        controller's.
+    canvas_id : UUID
+        The canvas.  The routing key.
+    visual_id : UUID or None
+        The visual whose plane the gizmo edits; ``None`` when the canvas
+        has no gizmo.
+    plane_id : UUID or None
+        That plane's id; ``None`` when the canvas has no gizmo.
+    """
+
+    source_id: UUID
+    canvas_id: UUID
+    visual_id: UUID | None = None
+    plane_id: UUID | None = None
+
+
 class LodConfigChangedEvent(NamedTuple):
     """A multiscale mesh's ``lod`` config changed.
 
@@ -1442,6 +1568,10 @@ CellierEventTypes = (
     | BackstopCompleteEvent
     | LoadingConfigChangedEvent
     | LodConfigChangedEvent
+    | ClippingPlanesChangedEvent
+    | ClippingInteractionEvent
+    | ClippingPlaneGizmoChangedEvent
+    | PlaneGizmoMovedEvent
     | ResliceCancelledEvent
     | FrameRenderedEvent
     | VisualAddedEvent

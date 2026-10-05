@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from typing import NamedTuple
 from uuid import UUID
 
+from cellier.gui._clipping_planes import (
+    CLIPPING_PLANES_TITLE,
+    get_clipping_planes_data_from_visual,
+)
 from cellier.gui._loading import LOADING_CONFIG_TITLE, LOADING_TITLE
 from cellier.gui._lod import LOD_CONFIG_TITLE
 from cellier.gui._mesh_section import MESH_SECTION_TITLE
@@ -32,7 +36,8 @@ class ControlSpec:
     kind : str
         Which control to build: ``color_map``, ``clim``, ``render``,
         ``lod_bias``, ``aabb``, ``loading``, ``loading_config``,
-        ``mesh_section``, ``lod_config`` or ``dataset_info``.  A renderer with no
+        ``mesh_section``, ``clipping_planes``, ``lod_config`` or
+        ``dataset_info``.  A renderer with no
         builder for a kind skips it.
     title : str
         What the control is called, e.g. ``"Contrast limits"``.  Both front
@@ -79,6 +84,7 @@ _CONTROL_TITLES = {
     "loading": LOADING_TITLE,
     "loading_config": LOADING_CONFIG_TITLE,
     "mesh_section": MESH_SECTION_TITLE,
+    "clipping_planes": CLIPPING_PLANES_TITLE,
     "lod_config": LOD_CONFIG_TITLE,
     # Read rather than restated: the per-visual groups name themselves in
     # the shared control spec, beside the controls they hold.
@@ -320,6 +326,17 @@ def appearance_specs(
                 "mesh_section",
                 _CONTROL_TITLES["mesh_section"],
                 {"section": section.model_dump()},
+            )
+        )
+
+    # The visual's clipping planes: a row per plane.  Opt-in.  Every visual
+    # type has them; they are edited in the store's data coordinates.
+    if getattr(config, "clipping_controls", False) and store is not None:
+        specs.append(
+            ControlSpec(
+                "clipping_planes",
+                _CONTROL_TITLES["clipping_planes"],
+                get_clipping_planes_data_from_visual(visual, store),
             )
         )
 
@@ -832,6 +849,85 @@ def render_panel_kwargs(section: str, controller: object) -> dict:
     return {}
 
 
+def dock_node_names(layout: object) -> frozenset[str]:
+    """The class names of every dock node of *layout*, stacks walked through.
+
+    What a viewer checks its controls flags against
+    (``plans/clipping_planes_linking_design.md`` section 6.5).
+    """
+    names: set[str] = set()
+
+    def walk(node: object) -> None:
+        if node is None:
+            return
+        items = getattr(node, "items", None)
+        if isinstance(items, list):
+            for item in items:
+                walk(item)
+        else:
+            names.add(type(node).__name__)
+
+    for side in ("left", "right", "top", "bottom"):
+        walk(getattr(layout, f"{side}_dock", None))
+    return frozenset(names)
+
+
+def missing_dock_node(
+    config: object, nodes: frozenset[str], *, clipping_node: str
+) -> str | None:
+    """What is wrong with *config* for a layout with dock *nodes*, if anything.
+
+    A flag says which visuals get controls; a dock node says where they go.
+    A flag with no node for it would build nothing and say nothing, so it is
+    an error.  (A node with no flag is not: the dock shows its placeholder.)
+
+    Parameters
+    ----------
+    config : BaseControlsConfig
+        The ``controls=`` of one visual.
+    nodes : frozenset[str]
+        From :func:`dock_node_names`.
+    clipping_node : str
+        The node that shows clipping planes controls on this viewer:
+        ``"AppearanceControls"`` on a ``Viewer``, where the control is part
+        of the appearance dock, and ``"OrthoClippingControls"`` on an
+        ``OrthoViewer``.
+
+    Returns
+    -------
+    str or None
+        The rest of a sentence that starts with the visual's name and
+        "was added with", or ``None`` when every flag has its node.
+    """
+    appearance = bool(getattr(config, "appearance", False))
+    if appearance and "AppearanceControls" not in nodes:
+        return (
+            "appearance controls (appearance=), but the layout has no "
+            "AppearanceControls() dock to show them in. Add "
+            "AppearanceControls() to a dock of the Layout, or pass "
+            "appearance=False."
+        )
+    if not getattr(config, "clipping_controls", False):
+        return None
+    if clipping_node == "AppearanceControls":
+        if not appearance:
+            return (
+                "clipping_controls=True and no appearance controls. On a "
+                "Viewer the clipping planes control is part of the appearance "
+                "dock: pass appearance=True (or a list of fields) as well, "
+                "and give the Layout an AppearanceControls() dock."
+            )
+        return None
+    if clipping_node not in nodes:
+        return (
+            f"clipping_controls=True, but the layout has no {clipping_node}() "
+            f"dock to show its clipping planes controls in. Add "
+            f"{clipping_node}() to a dock of the Layout, or pass "
+            "clipping_controls=False."
+        )
+    return None
+
+
 def unsupported_dock_node(spec: object) -> TypeError:
     """The error for a spec node no dock can render.
 
@@ -847,8 +943,9 @@ def unsupported_dock_node(spec: object) -> TypeError:
     """
     return TypeError(
         f"Cannot render {type(spec).__name__!r} in a dock. Docks accept "
-        "AppearanceControls, OverlayControls, RenderControls, or an HStack / "
-        "VStack of those. Grid is a center-only node."
+        "AppearanceControls, OverlayControls, RenderControls, "
+        "OrthoClippingControls, or an HStack / VStack of those. Grid is a "
+        "center-only node."
     )
 
 

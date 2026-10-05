@@ -7,6 +7,7 @@ from pydantic import UUID4, AfterValidator, ConfigDict, Field
 
 from cellier.render._config import MAX_OUTLINE_SLOT
 from cellier.transform import TransformType
+from cellier.visuals._clipping import ClippingPlane, validate_clipping_planes
 
 
 class AABBParams(EventedModel):
@@ -148,6 +149,12 @@ class BaseVisual(EventedModel):
         mode, which writes the depth of an extremum sample rather than of a
         surface, and included otherwise.  ``True`` and ``False`` are
         explicit and survive a render-mode change.
+    clipping_planes : tuple[ClippingPlane, ...]
+        The visual is drawn only on the kept side of every enabled plane
+        (their intersection).  The planes are in the visual's level-0 data
+        coordinates; see :class:`~cellier.visuals.ClippingPlane`.  Assign a
+        new tuple to change them: one assignment is one event.  Default
+        empty.
     id : UUID4
         Unique identifier for the visual. Auto-generated; do not set manually.
 
@@ -166,11 +173,23 @@ class BaseVisual(EventedModel):
     aabb: AABBParams = Field(default_factory=AABBParams)
     outline: VisualOutline = Field(default_factory=VisualOutline)
     ambient_occlusion: bool | None = None
+    clipping_planes: tuple[ClippingPlane, ...] = ()
 
     # store a UUID to identify this specific visual
     id: UUID4 | Annotated[str, AfterValidator(lambda x: uuid.UUID(x, version=4))] = (
         Field(frozen=True, default_factory=lambda: uuid4())
     )
+
+    def __setattr__(self, name: str, value: object) -> None:
+        """Validate ``clipping_planes`` on assignment.
+
+        The model does not validate assignments in general; without this a
+        list would stay a list and a wrong element would be found only when
+        the planes are drawn.
+        """
+        if name == "clipping_planes":
+            value = validate_clipping_planes(value)
+        super().__setattr__(name, value)
 
     @property
     def plans_coarse_on_scrub(self) -> bool:

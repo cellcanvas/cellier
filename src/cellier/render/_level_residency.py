@@ -81,6 +81,16 @@ class LevelResidency:
     fine_level : int
         The level that is the ``TARGET`` class; every other level is
         ``BACKSTOP``.
+    keeps_previous : Callable[[Hashable, Hashable], bool] or None
+        ``(held request key, planned request key)``: whether a level may go
+        on drawing what it holds while the planned key loads.  ``None``
+        (the default) is never: a level that no longer holds the plan's key
+        is released when the plan is made, so no frame draws the position
+        just left.  A visual returns ``True`` for a change that leaves the
+        old result in the right place and only behind (a clipping plane
+        moved; clipping planes design 5.2, D31).  The level is then kept,
+        and a superseded read of the same kind that lands is shown too, so
+        a drag faster than the reads still updates.
 
     Attributes
     ----------
@@ -106,6 +116,7 @@ class LevelResidency:
         *,
         on_change: Callable[[], Any] | None = None,
         fine_level: int = 0,
+        keeps_previous: Callable[[Hashable, Hashable], bool] | None = None,
     ) -> None:
         if n_levels < 1:
             raise ValueError(f"n_levels must be at least 1, got {n_levels}.")
@@ -115,8 +126,13 @@ class LevelResidency:
         self._upload = upload
         self._release = release
         self._on_change = on_change
+        self._keeps_previous = keeps_previous
         self.planned: dict[int, int] = {}
         self.held: dict[int, tuple[int, int]] = {}
+        # level -> request key of what it holds, and the levels kept on
+        # screen although the plan has moved on (``keeps_previous``).
+        self._held_request: dict[int, Hashable] = {}
+        self._kept: set[int] = set()
         # slot -> (key, data, write serial); data is None once uploaded or
         # dropped.
         self._payloads: dict[int, tuple[int, Any, int]] = {}
@@ -200,7 +216,17 @@ class LevelResidency:
         # D9: a level that no longer holds the plan's key is released now,
         # when the plan is made, so no frame draws the position just left.
         for level in [lv for lv, (key, _) in self.held.items()]:
-            if planned.get(level) != self.held[level][0]:
+            if planned.get(level) == self.held[level][0]:
+                self._kept.discard(level)
+            elif (
+                self._keeps_previous is not None
+                and level in planned
+                and level in self._held_request
+                and self._keeps_previous(self._held_request[level], request_keys[level])
+            ):
+                # The old result is in the right place and only behind.
+                self._kept.add(level)
+            else:
                 self._let_go(level)
         self.planned = planned
         if self._on_change is not None:
@@ -231,6 +257,8 @@ class LevelResidency:
     def _let_go(self, level: int) -> None:
         """Release what *level* holds and forget its key, together."""
         key, _serial = self.held.pop(level)
+        self._kept.discard(level)
+        self._held_request.pop(level, None)
         self._forget(key)
         for slot, (slot_key, _data, serial) in list(self._payloads.items()):
             if slot_key == key:
@@ -257,7 +285,11 @@ class LevelResidency:
         #    (or an eviction while retired) took it.  The key stays; if it is
         #    still wanted the scheduler reads it again.
         for level in [lv for lv, (key, _) in self.held.items() if key not in slot_of]:
+            if level in self._kept:
+                # Kept on screen until the planned key replaces it.
+                continue
             self.held.pop(level)
+            self._held_request.pop(level, None)
             self._release(level)
 
         # Payloads of slots the registry gave to something else.
@@ -287,8 +319,48 @@ class LevelResidency:
                 )
                 self._release(level)
                 self.held.pop(level, None)
+                self._kept.discard(level)
+                self._held_request.pop(level, None)
                 continue
             self.held[level] = (key, serial)
+            self._held_request[level] = self._items[key][1]
+            self._kept.discard(level)
+
+        # 2b. A level still waiting for its planned key shows the newest
+        #     superseded arrival of the same kind, if there is one newer
+        #     than what it holds (``keeps_previous``).
+        if self._keeps_previous is not None:
+            for level, key in self.planned.items():
+                if level in self.held and self.held[level][0] == key:
+                    continue
+                wanted_request = self._items[key][1]
+                newest: tuple[int, int, int, Any] | None = None
+                for slot, (other, data, serial) in self._payloads.items():
+                    item = self._items.get(other)
+                    if data is None or other == key or item is None:
+                        continue
+                    if item[0] != level or slot_of.get(other) != slot:
+                        continue
+                    if not self._keeps_previous(item[1], wanted_request):
+                        continue
+                    if newest is None or serial > newest[2]:
+                        newest = (slot, other, serial, data)
+                if newest is None:
+                    continue
+                slot, other, serial, data = newest
+                if level in self.held and self.held[level][1] >= serial:
+                    continue
+                self._payloads[slot] = (other, None, serial)
+                try:
+                    self._upload(level, self._items[other][1], data)
+                except Exception:
+                    _SCHEDULER_LOGGER.exception(
+                        "cache %s: upload of level %d failed", self.cache_id, level
+                    )
+                    continue
+                self.held[level] = (other, serial)
+                self._held_request[level] = self._items[other][1]
+                self._kept.add(level)
 
         # 3. Every other resident result is dropped, and its key forgotten
         #    with it, so the same position later gets a new key and a read.
@@ -319,9 +391,15 @@ class LevelResidency:
     # -- the display rule (L3) -----------------------------------------------
 
     def is_drawable(self, level: int) -> bool:
-        """Whether *level* holds the newest plan's key for it."""
+        """Whether *level* may be drawn.
+
+        It holds the newest plan's key, or it is kept on screen while that
+        key loads (``keeps_previous``).
+        """
         held = self.held.get(level)
-        return held is not None and held[0] == self.planned.get(level)
+        if held is None:
+            return False
+        return held[0] == self.planned.get(level) or level in self._kept
 
     @property
     def awaiting(self) -> bool:

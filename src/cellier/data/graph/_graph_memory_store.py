@@ -23,6 +23,7 @@ from cellier.data._dataset_info import (
     Section,
     array_extent_row,
 )
+from cellier.data._plane_clip import clip_segments, kept_points
 from cellier.data.graph._graph_requests import GraphData, GraphSliceRequest
 
 if TYPE_CHECKING:
@@ -968,6 +969,11 @@ class GraphMemoryStore(BaseDataStore):
         # v1 was retired (R8.3).
         displayed = list(request.retained_axes)
         fading = bool(request.fades)
+        clip_planes = request.clip_planes
+
+        if clip_planes and node_rows.shape[0]:
+            # A node is kept or dropped whole, by its true position.
+            node_rows = node_rows[kept_points(self.positions[node_rows], clip_planes)]
 
         nodes_empty = node_rows.shape[0] == 0
         edges_empty = edge_endpoints.shape[0] == 0
@@ -1023,6 +1029,50 @@ class GraphMemoryStore(BaseDataStore):
                 edge_alpha = None
             edge_endpoint_rows = edge_endpoints
             original_edge_rows = edge_rows
+            if clip_planes:
+                # Cut each edge at the clipping planes, by its true position
+                # on every axis; colour and alpha are interpolated to the cut
+                # (clipping planes design 5.2).
+                full = self.positions[vertex_rows].astype(np.float64)
+                width = full.shape[1]
+                columns = [full]
+                if edge_colors is not None:
+                    columns.append(np.asarray(edge_colors, dtype=np.float64))
+                if edge_alpha is not None:
+                    columns.append(
+                        np.asarray(edge_alpha, dtype=np.float64).reshape(-1, 1)
+                    )
+                pairs = np.concatenate(columns, axis=1).reshape(
+                    -1, 2, sum(c.shape[1] for c in columns)
+                )
+                start, end, kept = clip_segments(
+                    pairs[:, 0], pairs[:, 1], clip_planes, width
+                )
+                cut = np.stack([start, end], axis=1).reshape(-1, start.shape[1])
+                edge_positions = cut[:, displayed]
+                at = width
+                if edge_colors is not None:
+                    n_color = edge_colors.shape[1]
+                    edge_colors = np.ascontiguousarray(
+                        cut[:, at : at + n_color], dtype=edge_colors.dtype
+                    )
+                    at += n_color
+                if edge_alpha is not None:
+                    edge_alpha = np.ascontiguousarray(
+                        cut[:, at], dtype=edge_alpha.dtype
+                    )
+                edge_endpoint_rows = edge_endpoints[kept]
+                if edge_rows is not None:
+                    original_edge_rows = edge_rows[kept]
+                if len(kept) == 0:
+                    edges_empty = True
+                    edge_positions = np.zeros(
+                        (_PLACEHOLDER_N_EDGE_VERTICES, len(displayed)),
+                        dtype=np.float32,
+                    )
+                    edge_colors = edge_alpha = None
+                    edge_endpoint_rows = None
+                    original_edge_rows = None
 
         return GraphData(
             request_id=request.slice_request_id,

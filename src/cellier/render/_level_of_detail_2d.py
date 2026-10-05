@@ -279,3 +279,56 @@ def viewport_cull_2d(
         & (low[:, 1] < view_max[1])
     )
     return arr[visible], len(arr) - int(np.sum(visible))
+
+
+def half_plane_cull_2d(
+    arr: np.ndarray,
+    block_size: int,
+    rows: np.ndarray,
+    level_scale_arr_shader: np.ndarray | None = None,
+    level_translation_arr_shader: np.ndarray | None = None,
+) -> tuple[np.ndarray, int]:
+    """Remove tiles that lie entirely on the clipped side of a half-plane.
+
+    The 2D counterpart of appending rows to the frustum's in brick culling:
+    in a 2D view a clipping plane is the line where it meets the slice
+    (clipping planes design 5.1).  A tile that touches a line is kept.
+
+    Parameters
+    ----------
+    arr : ndarray
+        ``(M, 3)`` rows ``(level, gy, gx)``, in load order.
+    block_size : int
+        Tile side length in data pixels at finest level.
+    rows : ndarray, shape (K, 4)
+        ``(n_x, n_y, _, w)`` in level-0 data space: a point is kept where
+        ``n_x * x + n_y * y + w >= 0``.  The third entry is ignored.
+    level_scale_arr_shader : ndarray, shape (n_levels, 2) or None
+        Per-level scale in shader order ``(x=W, y=H)``.
+    level_translation_arr_shader : ndarray, shape (n_levels, 2) or None
+        Per-level translation in shader order ``(x=W, y=H)``.
+
+    Returns
+    -------
+    culled : ndarray
+        The rows of ``arr`` with any part on the kept side of every
+        half-plane, order preserved.
+    n_culled : int
+        Number of tiles removed.
+    """
+    if len(arr) == 0 or len(rows) == 0:
+        return arr, 0
+    scale, translation = _tile_transforms(
+        arr, level_scale_arr_shader, level_translation_arr_shader
+    )
+    low, high = brick_box_data(arr[:, [2, 1]], block_size, scale, translation)
+    visible = np.ones(len(arr), dtype=bool)
+    for n_x, n_y, _unused, w in np.asarray(rows, dtype=np.float64):
+        # The largest value of the half-plane's function over the tile.
+        best = (
+            np.maximum(n_x * low[:, 0], n_x * high[:, 0])
+            + np.maximum(n_y * low[:, 1], n_y * high[:, 1])
+            + w
+        )
+        visible &= best >= 0.0
+    return arr[visible], len(arr) - int(np.sum(visible))

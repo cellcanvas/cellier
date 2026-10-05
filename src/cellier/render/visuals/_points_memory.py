@@ -8,6 +8,7 @@ import numpy as np
 import pygfx as gfx
 
 from cellier.data.points._points_requests import PointsSliceRequest
+from cellier.render._clipping import GeometryClippingMixin
 from cellier.render._spaces import (
     RenderSpaces,
     data_slice_positions,
@@ -19,6 +20,7 @@ from cellier.render.visuals._aabb import (
     make_aabb_line,
     refresh_aabb_line,
 )
+from cellier.transform import HalfSpace
 
 if TYPE_CHECKING:
     from cellier._state import DimsState
@@ -61,7 +63,7 @@ def _build_material(appearance: PointsMarkerAppearance) -> AlphaPointsMaterial:
     return mat
 
 
-class GFXPointsMemoryVisual:
+class GFXPointsMemoryVisual(GeometryClippingMixin):
     """Render-layer visual for one PointsVisual backed by in-memory points data.
 
     Uses a single ``gfx.Points`` node for both 2D and 3D modes.
@@ -280,6 +282,12 @@ class GFXPointsMemoryVisual:
         self.node.local.matrix = node_matrix(
             self._spaces, self._transform, self._collapsed_origin()
         )
+        self._apply_clipping_planes()
+
+    def _clip_targets(self):
+        """Every material, at the slice the node is drawn at (design 4.6)."""
+        constants = self._collapsed_origin() if self._spaces is not None else {}
+        yield (self._material, self._empty_material), constants
 
     def _data_region(self, selection):
         """The selection in this visual's data coordinates (design 3.12).
@@ -331,6 +339,24 @@ class GFXPointsMemoryVisual:
         self._last_data_positions = data_slice_positions(
             selection.region, self._transform, self._spaces.world
         )
+        # The clip line follows the slice (clipping planes design 4.1).  When
+        # the view flattens an axis a plane has a component on, the read
+        # filters by the planes instead: they join the region, which is
+        # already the exact per-point filter (design 5.2).
+        clip_planes = self._begin_request_clipping()
+        if clip_planes:
+            region = region.model_copy(
+                update={
+                    "half_spaces": (
+                        *region.half_spaces,
+                        *(
+                            # HalfSpace keeps normal . p <= offset.
+                            HalfSpace(normal=[-v for v in normal], offset=-offset)
+                            for normal, offset in clip_planes
+                        ),
+                    )
+                }
+            )
         shared_id = uuid4()
         return PointsSliceRequest(
             slice_request_id=shared_id,

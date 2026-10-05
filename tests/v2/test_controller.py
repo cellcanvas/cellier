@@ -951,6 +951,71 @@ def test_remove_visual_emits_event(small_zarr_store):
     assert events[0].scene_id == scene.id
 
 
+def test_on_visual_removed_fires_for_that_visual_only(small_zarr_store):
+    """The helper filters on the visual, though the bus routes by scene."""
+    controller = CellierController()
+    scene, visual, store = _make_scene_with_visual(controller, small_zarr_store)
+    other = controller.add_image_multiscale(
+        data=store, scene_id=scene.id, appearance=_make_appearance(), name="other"
+    )
+
+    events = []
+    controller.on_visual_removed(visual.id, events.append, owner_id=uuid4())
+
+    controller.remove_visual(other.id)
+    assert events == []
+
+    controller.remove_visual(visual.id)
+    assert [event.visual_id for event in events] == [visual.id]
+
+
+def test_on_visual_removed_weak_subscription_fires(small_zarr_store):
+    """A weak subscription is held through its callback, not a wrapper."""
+
+    class Listener:
+        def __init__(self):
+            self.events = []
+
+        def on_removed(self, event):
+            self.events.append(event)
+
+    controller = CellierController()
+    _scene, visual, _ = _make_scene_with_visual(controller, small_zarr_store)
+    listener = Listener()
+    controller.on_visual_removed(
+        visual.id, listener.on_removed, owner_id=uuid4(), weak=True
+    )
+
+    controller.remove_visual(visual.id)
+
+    assert [event.visual_id for event in listener.events] == [visual.id]
+
+
+def test_on_visual_added_fires_for_that_visual_only(small_zarr_store):
+    from cellier.events import VisualAddedEvent, VisualRemovedEvent
+
+    controller = CellierController()
+    scene, visual, _ = _make_scene_with_visual(controller, small_zarr_store)
+    bus = controller._outgoing_events
+
+    events = []
+    controller.on_visual_added(visual.id, events.append, owner_id=uuid4())
+
+    bus.emit(VisualAddedEvent(source_id=uuid4(), scene_id=scene.id, visual_id=uuid4()))
+    assert events == []
+
+    bus.emit(
+        VisualAddedEvent(source_id=uuid4(), scene_id=scene.id, visual_id=visual.id)
+    )
+    assert [event.visual_id for event in events] == [visual.id]
+
+    # A scene-keyed subscription still routes by scene.
+    by_scene = []
+    bus.subscribe(VisualRemovedEvent, by_scene.append, entity_id=scene.id)
+    controller.remove_visual(visual.id)
+    assert len(by_scene) == 1
+
+
 # -- remove_scene ------------------------------------------------------------
 
 

@@ -87,6 +87,30 @@ def _qt_mesh_section(spec, visual_ids, controller):
     )
 
 
+def _qt_clipping_planes(spec, visual_ids, controller, gizmo=None):
+    """The clipping planes control.
+
+    *gizmo* is the ``(visual_id, canvas_id)`` the viewer named for the
+    control's gizmo toggle, or ``None`` for a control with no toggle.
+    """
+    from cellier.gui._clipping_planes import (
+        get_axis_bounds_from_store,
+        get_clipping_plane_gizmo_data,
+    )
+    from cellier.gui.qt.visuals import QtClippingPlanesControls
+
+    gizmo_data = (
+        {} if gizmo is None else get_clipping_plane_gizmo_data(controller, *gizmo)
+    )
+    return QtClippingPlanesControls(
+        visual_ids,
+        title=spec.title,
+        bounds_source=get_axis_bounds_from_store(controller, spec.values),
+        **gizmo_data,
+        **spec.values,
+    )
+
+
 def _qt_aabb(spec, visual_ids, controller):
     from cellier.gui.qt.visuals import QtAABBWidget
 
@@ -186,6 +210,7 @@ QT_BUILDERS = {
     "loading": _qt_loading,
     "loading_config": _qt_loading_config,
     "mesh_section": _qt_mesh_section,
+    "clipping_planes": _qt_clipping_planes,
     "lod_config": _qt_lod_config,
     "visual_outline": _qt_visual_outline,
     "labels_outline": _qt_labels_outline,

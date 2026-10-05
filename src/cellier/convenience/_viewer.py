@@ -18,13 +18,14 @@ from cellier.visuals._canvas_overlay import CanvasOverlay
 from cellier.visuals._scene_overlay import SceneOverlay
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Mapping
+    from collections.abc import Generator, Mapping, Sequence
     from pathlib import Path
 
     import numpy as np
     from PySide6.QtWidgets import QWidget
 
     from cellier._state import CameraState
+    from cellier.clipping import ClippingPlaneGizmoController
     from cellier.convenience.gui._controls_config import (
         GraphControlsConfig,
         InMemoryImageControlsConfig,
@@ -53,6 +54,7 @@ if TYPE_CHECKING:
     from cellier.scene._background import BackgroundAppearance
     from cellier.scene.scene import Scene
     from cellier.transform import BaseTransform
+    from cellier.visuals import ClippingPlane
     from cellier.visuals._base_visual import VisualOutline
     from cellier.visuals._graph_memory import (
         GraphAppearance,
@@ -657,6 +659,98 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         """
         return self._controller.set_lod_config(_visual_id(visual), **fields)
 
+    def add_clipping_plane_gizmo(
+        self,
+        visual: object,
+        plane: ClippingPlane | UUID,
+        *,
+        canvas: UUID | None = None,
+    ) -> ClippingPlaneGizmoController:
+        """Put a gizmo on one clipping plane of a visual, in the 3D view.
+
+        Dragging the gizmo moves and tilts the plane.  Mirrors
+        :meth:`CellierController.add_clipping_plane_gizmo`: a canvas has
+        one gizmo at a time, and the gizmo closes itself when its plane or
+        its visual is removed or the view leaves 3D.
+
+        Parameters
+        ----------
+        visual : visual model or UUID
+            The visual the plane belongs to.
+        plane : ClippingPlane or UUID
+            One of ``visual.clipping_planes``, or its ``id``.
+        canvas : UUID or None
+            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            single canvas.
+
+        Returns
+        -------
+        ClippingPlaneGizmoController
+            The session.  ``close()`` ends it.
+
+        Raises
+        ------
+        KeyError
+            If the visual has no plane with that id.
+        ValueError
+            If the view is in 2D, the plane has a component on an axis the
+            view does not show, or *canvas* is omitted while the viewer
+            does not have exactly one canvas.
+        """
+        return self._controller.add_clipping_plane_gizmo(
+            _visual_id(visual), self._camera_canvas(canvas), getattr(plane, "id", plane)
+        )
+
+    def remove_clipping_plane_gizmo(self, *, canvas: UUID | None = None) -> None:
+        """Close a canvas's clipping plane gizmo; nothing if it has none.
+
+        Parameters
+        ----------
+        canvas : UUID or None
+            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            single canvas.
+        """
+        self._controller.remove_clipping_plane_gizmo(self._camera_canvas(canvas))
+
+    def _clipping_gizmo_target(
+        self, visual_ids: Sequence[UUID]
+    ) -> tuple[UUID, UUID] | None:
+        """Where a dock's clipping planes control draws its gizmo.
+
+        Asked by the layout walk when it builds the control, and not again:
+        a canvas added afterwards neither adds nor removes the toggle.
+
+        Parameters
+        ----------
+        visual_ids : Sequence[UUID]
+            The visuals the control edits (one, on a ``Viewer``).
+
+        Returns
+        -------
+        tuple[UUID, UUID] or None
+            ``(visual_id, canvas_id)`` when the viewer has exactly one
+            canvas.  ``None``, for a control with no gizmo toggle, when it
+            has several (the viewer does not choose between them: call
+            :meth:`add_clipping_plane_gizmo` with ``canvas=``) or when the
+            scene is never shown in 3D.
+
+        Raises
+        ------
+        ValueError
+            If the viewer has no canvas yet.
+        """
+        if "3d" not in self._scene.render_modes:
+            return None
+        canvas_ids = self.canvases
+        if not canvas_ids:
+            raise ValueError(
+                "This viewer has no canvas to draw a clipping plane gizmo in.  "
+                "Build the canvas before the clipping planes control."
+            )
+        if len(canvas_ids) > 1:
+            return None
+        return visual_ids[0], canvas_ids[0]
+
     # ------------------------------------------------------------------
     # Capture
     # ------------------------------------------------------------------
@@ -1140,6 +1234,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
+        clipping_planes: Sequence[ClippingPlane] = (),
     ) -> ImageVisual:
         """Add an in-memory image visual.
 
@@ -1177,10 +1272,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         pick_write : bool
             Whether the visual writes to the pick buffer.  Default ``True``.
 
+        clipping_planes : Sequence[ClippingPlane]
+            Clipping planes, in the store's level-0 data coordinates: the
+            visual is drawn only on the kept side of every enabled plane.
+            Build them from ``data.data_coordinate_systems[0]``.  They can
+            be changed later by assigning ``visual.clipping_planes``.
+            Default none.
+
         Returns
         -------
         ImageVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_image(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1195,6 +1298,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline=outline,
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1211,6 +1315,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         pick_write: bool = True,
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
+        clipping_planes: Sequence[ClippingPlane] = (),
     ) -> LabelMemoryVisual:
         """Add an in-memory label visual.
 
@@ -1256,10 +1361,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             silhouette and ``"all_boundaries"`` every label's boundary, both
             in the colour of the ``outline`` slot.
 
+        clipping_planes : Sequence[ClippingPlane]
+            Clipping planes, in the store's level-0 data coordinates: the
+            visual is drawn only on the kept side of every enabled plane.
+            Build them from ``data.data_coordinate_systems[0]``.  They can
+            be changed later by assigning ``visual.clipping_planes``.
+            Default none.
+
         Returns
         -------
         LabelMemoryVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_labels(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1271,6 +1384,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             pick_write=pick_write,
             outline_selected_labels=outline_selected_labels,
             outline_mode=outline_mode,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1286,6 +1400,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
         section: MeshSectionConfig | None = None,
+        clipping_planes: Sequence[ClippingPlane] = (),
     ) -> MeshVisual:
         """Add a mesh visual.
 
@@ -1325,10 +1440,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             (``mode="cut"``) or the scene's slab (``mode="slab"``).
             ``None`` (default) is an outline and a fill of the cut.
 
+        clipping_planes : Sequence[ClippingPlane]
+            Clipping planes, in the store's level-0 data coordinates: the
+            visual is drawn only on the kept side of every enabled plane.
+            Build them from ``data.data_coordinate_systems[0]``.  They can
+            be changed later by assigning ``visual.clipping_planes``.
+            Default none.
+
         Returns
         -------
         MeshVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_mesh(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1339,6 +1462,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
             section=section,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1355,6 +1479,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         pick_write: bool = True,
         section: MeshSectionConfig | None = None,
         lod: GeometryLodConfig | None = None,
+        clipping_planes: Sequence[ClippingPlane] = (),
     ) -> MultiscaleMeshVisual:
         """Add a mesh with levels of detail.
 
@@ -1390,10 +1515,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Which coarse level is kept (the coarsest by default), and what a
             dims scrub loads and draws.
 
+        clipping_planes : Sequence[ClippingPlane]
+            Clipping planes, in the store's level-0 data coordinates: the
+            visual is drawn only on the kept side of every enabled plane.
+            Build them from ``data.data_coordinate_systems[0]``.  They can
+            be changed later by assigning ``visual.clipping_planes``.
+            Default none.
+
         Returns
         -------
         MultiscaleMeshVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_multiscale_mesh(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1405,6 +1538,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             pick_write=pick_write,
             section=section,
             lod=lod,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1419,6 +1553,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
+        clipping_planes: Sequence[ClippingPlane] = (),
     ) -> PointsVisual:
         """Add a points visual.
 
@@ -1454,10 +1589,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             this visual; asking for an outline as well turns it back on,
             with a warning.
 
+        clipping_planes : Sequence[ClippingPlane]
+            Clipping planes, in the store's level-0 data coordinates: the
+            visual is drawn only on the kept side of every enabled plane.
+            Build them from ``data.data_coordinate_systems[0]``.  They can
+            be changed later by assigning ``visual.clipping_planes``.
+            Default none.
+
         Returns
         -------
         PointsVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_points(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1467,6 +1610,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline=outline,
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1482,6 +1626,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
+        clipping_planes: Sequence[ClippingPlane] = (),
     ) -> GraphVisual:
         """Add a spatial-graph visual.
 
@@ -1523,10 +1668,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             this visual; asking for an outline as well turns it back on,
             with a warning.
 
+        clipping_planes : Sequence[ClippingPlane]
+            Clipping planes, in the store's level-0 data coordinates: the
+            visual is drawn only on the kept side of every enabled plane.
+            Build them from ``data.data_coordinate_systems[0]``.  They can
+            be changed later by assigning ``visual.clipping_planes``.
+            Default none.
+
         Returns
         -------
         GraphVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_graph(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1537,6 +1690,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline=outline,
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1551,6 +1705,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
+        clipping_planes: Sequence[ClippingPlane] = (),
     ) -> LinesVisual:
         """Add a lines visual.
 
@@ -1586,10 +1741,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             this visual; asking for an outline as well turns it back on,
             with a warning.
 
+        clipping_planes : Sequence[ClippingPlane]
+            Clipping planes, in the store's level-0 data coordinates: the
+            visual is drawn only on the kept side of every enabled plane.
+            Build them from ``data.data_coordinate_systems[0]``.  They can
+            be changed later by assigning ``visual.clipping_planes``.
+            Default none.
+
         Returns
         -------
         LinesVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_lines(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1599,6 +1762,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline=outline,
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1620,6 +1784,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
+        clipping_planes: Sequence[ClippingPlane] = (),
     ) -> MultiscaleImageVisual:
         """Add a multiscale image visual.
 
@@ -1655,10 +1820,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         pick_write : bool
             Whether the visual writes to the pick buffer.  Default ``True``.
 
+        clipping_planes : Sequence[ClippingPlane]
+            Clipping planes, in the store's level-0 data coordinates: the
+            visual is drawn only on the kept side of every enabled plane.
+            Build them from ``data.data_coordinate_systems[0]``.  They can
+            be changed later by assigning ``visual.clipping_planes``.
+            Default none.
+
         Returns
         -------
         MultiscaleImageVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_image_multiscale(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1674,6 +1847,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline=outline,
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1691,6 +1865,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         pick_write: bool = True,
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
+        clipping_planes: Sequence[ClippingPlane] = (),
     ) -> MultiscaleLabelVisual:
         """Add a multiscale label visual.
 
@@ -1738,10 +1913,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             silhouette and ``"all_boundaries"`` every label's boundary, both
             in the colour of the ``outline`` slot.
 
+        clipping_planes : Sequence[ClippingPlane]
+            Clipping planes, in the store's level-0 data coordinates: the
+            visual is drawn only on the kept side of every enabled plane.
+            Build them from ``data.data_coordinate_systems[0]``.  They can
+            be changed later by assigning ``visual.clipping_planes``.
+            Default none.
+
         Returns
         -------
         MultiscaleLabelVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_labels_multiscale(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1754,6 +1937,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             pick_write=pick_write,
             outline_selected_labels=outline_selected_labels,
             outline_mode=outline_mode,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual

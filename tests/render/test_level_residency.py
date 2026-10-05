@@ -23,7 +23,9 @@ class Store:
 class Rig:
     """One level cache on a scheduler core, with reads completed by hand."""
 
-    def __init__(self, n_levels: int = 1, fail_upload: bool = False) -> None:
+    def __init__(
+        self, n_levels: int = 1, fail_upload: bool = False, keeps_previous=None
+    ) -> None:
         self.uploads: list[tuple[int, object, object]] = []
         self.releases: list[int] = []
         self.changes = 0
@@ -33,6 +35,7 @@ class Rig:
             upload=self._upload,
             release=self.releases.append,
             on_change=self._changed,
+            keeps_previous=keeps_previous,
         )
         self.core = SchedulerCore(SchedulerConfig())
         self.core.register(self.residency.cache_id, self.residency, scene="scene")
@@ -275,3 +278,79 @@ def test_changes_are_announced():
 def test_n_levels_must_be_positive():
     with pytest.raises(ValueError, match="n_levels"):
         LevelResidency(0, upload=lambda *a: None, release=lambda level: None)
+
+
+# ---------------------------------------------------------------------------
+# keeps_previous: a level stays on screen across a change that leaves its
+# result in the right place (clipping planes design 5.2, D31)
+# ---------------------------------------------------------------------------
+
+
+def _only_the_clip_changed(held, planned) -> bool:
+    """Request keys here are ``(view, clip)``."""
+    return held[0] == planned[0] and held[1] != planned[1]
+
+
+def test_a_kept_level_stays_drawable_until_the_new_result_lands():
+    rig = Rig(keeps_previous=_only_the_clip_changed)
+    rig.plan(("view", "clip 1"))
+    rig.land()
+    rig.plan(("view", "clip 2"))
+    assert rig.releases == []
+    assert rig.residency.is_drawable(FINE)
+    assert rig.residency.level_to_draw() == FINE
+    assert not rig.residency.awaiting
+    rig.land()
+    assert [upload[1] for upload in rig.uploads] == [
+        ("view", "clip 1"),
+        ("view", "clip 2"),
+    ]
+    assert rig.residency.level_to_draw() == FINE
+    assert rig.releases == []
+
+
+def test_a_change_of_view_still_releases_the_level():
+    rig = Rig(keeps_previous=_only_the_clip_changed)
+    rig.plan(("view", "clip 1"))
+    rig.land()
+    rig.plan(("other view", "clip 1"))
+    assert rig.releases == [FINE]
+    assert rig.residency.level_to_draw() is None
+    assert rig.residency.awaiting
+
+
+def test_a_kept_level_is_released_when_the_view_then_changes():
+    rig = Rig(keeps_previous=_only_the_clip_changed)
+    rig.plan(("view", "clip 1"))
+    rig.land()
+    rig.plan(("view", "clip 2"))
+    rig.plan(("other view", "clip 2"))
+    assert rig.releases == [FINE]
+    assert rig.residency.level_to_draw() is None
+
+
+def test_a_superseded_arrival_of_the_same_view_is_shown():
+    """A drag faster than the reads still updates the picture."""
+    rig = Rig(keeps_previous=_only_the_clip_changed)
+    rig.plan(("view", "clip 1"))
+    rig.land()
+    rig.plan(("view", "clip 2"))
+    rig.plan(("view", "clip 3"))
+    # One fine read at a time: clip 3 waits for clip 2, which is superseded.
+    assert rig.requests_in_flight() == [(FINE, ("view", "clip 2"))]
+    rig.land()
+    assert [upload[1][1] for upload in rig.uploads] == ["clip 1", "clip 2"]
+    assert rig.residency.level_to_draw() == FINE
+    rig.land()
+    assert [upload[1][1] for upload in rig.uploads] == ["clip 1", "clip 2", "clip 3"]
+    assert rig.residency.is_drawable(FINE)
+    assert rig.releases == []
+
+
+def test_a_superseded_arrival_of_another_view_is_not_shown():
+    rig = Rig(keeps_previous=_only_the_clip_changed)
+    rig.plan(("view", "clip 1"))
+    rig.plan(("other view", "clip 1"))
+    rig.land()
+    assert rig.uploads == []
+    assert rig.residency.level_to_draw() is None

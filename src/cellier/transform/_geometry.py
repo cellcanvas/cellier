@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from pydantic import (
@@ -14,6 +14,13 @@ from pydantic import (
     model_validator,
 )
 from typing_extensions import Self
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from numpy.typing import ArrayLike
+
+    from cellier.transform._coordinate_system import AxisRef, CoordinateSystem
 
 from cellier.transform._arrays import (
     coerce_float_array,
@@ -124,7 +131,8 @@ class Plane(BaseModel):
     coordinate_system : UUID4
         The id of the coordinate system this plane is expressed in.
     normal : np.ndarray
-        The plane normal.  Finite, non-zero, any magnitude.
+        The plane normal.  Finite, non-zero, any magnitude.  Read-only: a
+        plane is changed by building a new one.
     offset : float
         The plane offset.  Finite (D44).
     """
@@ -164,7 +172,107 @@ class Plane(BaseModel):
                 "Plane.normal must not be the zero vector: that describes "
                 "either all of space or none of it, not a plane."
             )
+        # The model is frozen; without this the array could still be edited
+        # in place, with no event and a stale hash.
+        self.normal.flags.writeable = False
         return self
+
+    @classmethod
+    def from_point_normal(
+        cls,
+        coordinate_system: CoordinateSystem,
+        point: ArrayLike,
+        normal: ArrayLike,
+        axes: Sequence[AxisRef] | None = None,
+    ) -> Self:
+        """Build the plane through *point* with the given *normal*.
+
+        Parameters
+        ----------
+        coordinate_system : CoordinateSystem
+            The system the plane is expressed in.
+        point : ArrayLike
+            A point on the plane.
+        normal : ArrayLike
+            The plane normal, the same length as *point*.
+        axes : Sequence[AxisRef] or None
+            The axes *point* and *normal* are given on, by name or id, in
+            the order of their entries.  Every other axis of the system
+            gets a zero normal component: the plane does not constrain it.
+            ``None`` means every axis of the system, in its order.
+
+        Returns
+        -------
+        Plane
+            With ``offset = normal . point``.
+        """
+        point = np.asarray(point, dtype=np.float64)
+        normal = np.asarray(normal, dtype=np.float64)
+        if point.ndim != 1 or point.shape != normal.shape:
+            raise ValueError(
+                "point and normal must be 1-D and the same length; got "
+                f"shapes {point.shape} and {normal.shape}."
+            )
+        ndim = len(coordinate_system.axes)
+        if axes is None:
+            if len(normal) != ndim:
+                raise ValueError(
+                    f"The coordinate system has {ndim} axes but point and "
+                    f"normal have {len(normal)} entries; pass axes= to name "
+                    "the axes they are given on."
+                )
+            full = normal
+        else:
+            indices = [coordinate_system.resolve(axis) for axis in axes]
+            if len(indices) != len(normal):
+                raise ValueError(
+                    f"axes names {len(indices)} axes but point and normal "
+                    f"have {len(normal)} entries."
+                )
+            if len(set(indices)) != len(indices):
+                raise ValueError(f"axes names an axis more than once: {axes!r}.")
+            full = np.zeros(ndim, dtype=np.float64)
+            full[indices] = normal
+        return cls(
+            coordinate_system=coordinate_system.id,
+            normal=full,
+            offset=float(normal @ point),
+        )
+
+    def signed_distance(self, points: ArrayLike) -> np.ndarray:
+        """Distance of each point from the plane, positive along the normal.
+
+        Parameters
+        ----------
+        points : ArrayLike
+            ``(n, ndim)`` points, or one ``(ndim,)`` point.
+
+        Returns
+        -------
+        np.ndarray
+            ``(normal . p - offset) / |normal|``, one value per point.
+        """
+        points = np.asarray(points, dtype=np.float64)
+        return (points @ self.normal - self.offset) / float(np.linalg.norm(self.normal))
+
+    def closest_point_to(self, point: ArrayLike) -> np.ndarray:
+        """The point of the plane nearest to *point*.
+
+        Parameters
+        ----------
+        point : ArrayLike
+            One ``(ndim,)`` point.
+
+        Returns
+        -------
+        np.ndarray
+            *point* moved along the normal onto the plane.
+        """
+        point = np.asarray(point, dtype=np.float64)
+        normal = self.normal
+        return point - normal * (
+            (point @ normal - self.offset) / float(normal @ normal)
+        )
 
     @property
     def ndim(self) -> int:

@@ -531,10 +531,10 @@ fn vs_main(in: VertexInput) -> Varyings {
 
 // ── Fragment shader ───────────────────────────────────────────────────────
 
+{$ include 'cellier.ray_clip.wgsl' $}
+
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
-    {$ include 'pygfx.clipping_planes.wgsl' $}
-
     var out: FragmentOutput;
 
     let norm_size    = vec3<f32>(u_vol_params.norm_size_x,
@@ -557,10 +557,18 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let hit     = intersect_box(near_pos, inv_ray_dir, -half_ns, half_ns);
     if (hit.x > hit.y) { discard; }
     var t_start = max(hit.x, 0.0);
-    let t_end   = hit.y;
+    var t_end   = hit.y;
+    if (t_start >= t_end) { discard; }
+    // Clipping planes cut the ray's interval (cellier.ray_clip.wgsl).
+    let clipped = clip_ray_interval(near_pos, ray_dir, t_start, t_end);
+    t_start = clipped.x;
+    t_end = clipped.y;
     if (t_start >= t_end) { discard; }
 
     let ray_origin = near_pos;
+    let clip_t0    = t_start;
+    // Whether the hit is on a clipping plane's cut face.
+    var on_cut_face = false;
 
     var t             = t_start;
     var surface_found = false;
@@ -640,6 +648,9 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
                 // hi_ctx tracks the LOD context of the foreground side and is
                 // written back to surface_* after bisection so the final color
                 // sample uses the context valid at surface_hi_p.
+                // On the first step of a ray that starts on a clipping
+                // plane.  Kept only if every probe below is foreground.
+                on_cut_face = prev_t <= clip_t0 && clip_start_on_plane();
                 var lo_p_norm = ray_origin + ray_dir * prev_t;
                 var hi_p_norm = pos;
                 var lid_hi:   i32 = lid;
@@ -691,6 +702,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
                         hi_ctx.brick_corner_k = use_brick_corner_k;
                     } else {
                         lo_p_norm = mid_norm;
+                        on_cut_face = false;
                     }
                 }
                 // Write hi_ctx back: the final color sample must use the LOD
@@ -700,6 +712,8 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
                 surface_brick_corner_k = hi_ctx.brick_corner_k;
                 surface_lid   = lid_hi;
                 surface_pos   = (lo_p_norm + hi_p_norm) * 0.5;
+                // A cut-face hit sits on the plane.
+                if (on_cut_face) { surface_pos = ray_origin + ray_dir * clip_t0; }
                 surface_hi_p  = hi_p_norm;
                 surface_found = true;
                 break;
@@ -741,13 +755,13 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     );
     $$ if render_mode == "smooth_iso"
     // 3x3x3 Sobel normal.
-    let obj_normal = smooth_label_normal(
+    let obj_normal_data = smooth_label_normal(
         surface_voxel, surface_lid,
         surface_lut_entry, surface_lod_scale, surface_brick_corner_k,
         dataset_size,
     );
     $$ else
-    let obj_normal = label_object_normal(
+    let obj_normal_data = label_object_normal(
         surface_voxel,
         surface_lut_entry, surface_lod_scale, surface_brick_corner_k,
         surface_lid, dataset_size,
@@ -755,6 +769,12 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     $$ endif
     $$ endif
 
+    $$ if needs_normal
+    // A cut face takes the plane's normal (voxel-index space, like the
+    // data normal).
+    let obj_normal = select(obj_normal_data,
+        clip_start_normal_local() / (dataset_size / norm_size), on_cut_face);
+    $$ endif
     $$ if render_mode == "iso_categorical" or render_mode == "smooth_iso"
     // Shade with ambient + diffuse using the object-space gradient normal.
     let view_dir = normalize(-ray_dir);

@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import numpy as np
 
+from cellier.data._plane_clip import kept_points, plane_tuples
 from cellier.events._events import (
     CanvasMouseMove2DEvent,
     CanvasMousePress2DEvent,
@@ -215,6 +216,14 @@ class AbstractPaintController(ABC):
         )[0]
         voxel_center = np.round(voxel_coord).astype(np.int64)
         voxel_indices = self._voxels_in_radius(voxel_center, self._brush_radius)
+        # The brush is a ball of voxels round the pick and would reach
+        # across a clipping plane: write only the voxels that are drawn
+        # (clipping planes design D26).
+        planes = plane_tuples(visual_model.clipping_planes)
+        if planes and voxel_indices.shape[0]:
+            voxel_indices = voxel_indices[
+                kept_points(voxel_indices.astype(np.float64), planes)
+            ]
         if voxel_indices.shape[0] == 0:
             return
         old_values = self._read_old_values(voxel_indices)

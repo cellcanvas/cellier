@@ -121,6 +121,9 @@ fn vs_main(in: VertexInput) -> Varyings {
 
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
+    // In a 2D view a clipping plane is the line where it meets the slice.
+    {$ include 'pygfx.clipping_planes.wgsl' $}
+
     // Sample through the LUT indirection.
     let base = sample_im_lut(varyings.texcoord);
     let raw = vec4<f32>(base.r, 0.0, 0.0, 1.0);

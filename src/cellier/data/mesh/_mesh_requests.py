@@ -94,6 +94,11 @@ class MeshSliceRequest(NamedTuple):
     region: ConvexRegion
     output_axes: tuple[int, ...]
     section: MeshSectionRequest | None = None
+    #: Clipping planes a slab section is clipped with on the CPU, as
+    #: ``(normal, offset)`` pairs in data coordinates, kept where
+    #: ``normal . p >= offset`` (clipping planes design 5.2).  Part of the
+    #: request key.  Empty in cut mode and in 3D, where the shader clips.
+    clip_planes: tuple = ()
 
 
 @dataclass(frozen=True)

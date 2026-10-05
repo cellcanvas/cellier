@@ -12,6 +12,11 @@ from cellier.render._backstop import (
     backstop_level,
     backstop_tiles_2d,
 )
+from cellier.render._clipping import (
+    ClippingPlanesMixin,
+    data_half_space_rows,
+    drawn_materials,
+)
 from cellier.render._frustum import (
     bricks_in_frustum_arr,
     frustum_planes_from_corners,
@@ -26,6 +31,7 @@ from cellier.render._level_of_detail import (
 )
 from cellier.render._level_of_detail_2d import (
     build_tile_grids_2d,
+    half_plane_cull_2d,
     select_lod_2d,
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
@@ -1085,6 +1091,32 @@ class MultiscaleRegionPlanner:
         for axis, value in (fill or {}).items():
             selection[axis] = value
         return tuple(selection)
+
+    # ── Clipping planes in the plan (clipping planes design 5.1) ─────────
+
+    #: Set by a composite image's wrapper: the channel this planner draws.
+    _clip_channel: tuple[int, float] | None = None
+
+    def _clip_rows(self) -> np.ndarray | None:
+        """The enabled clipping planes as culling rows, or ``None``.
+
+        In level-0 data coordinates of the retained axes, pygfx order: the
+        space the frustum's rows and the viewport box are in.  The
+        collapsed axes are substituted at the planes this plan draws.  The
+        coarse fallback level is not culled with them (D24).
+        """
+        planes = getattr(self, "_clipping_planes", ())
+        spaces = self._spaces
+        if not planes or spaces is None:
+            return None
+        planned = self.pick_collapsed_indices() or {}
+        constants = {
+            axis: float(planned.get(axis, 0.0)) for axis in spaces.collapsed_axes
+        }
+        if self._clip_channel is not None and self._clip_channel[0] in constants:
+            constants[self._clip_channel[0]] = self._clip_channel[1]
+        rows = data_half_space_rows(planes, spaces.retained_axes, constants)
+        return rows if len(rows) else None
 
     def pick_collapsed_indices(self) -> dict[int, int] | None:
         """The level-0 planes this visual last drew, per collapsed data axis.
@@ -2176,7 +2208,15 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             translation_vecs_shader=geo._translation_arr_shader,
         )
 
-        # 3. Frustum cull
+        # 3. Frustum cull, with the clipping planes as further half-spaces.
+        # They apply with no frustum too: a clipped brick is never drawn.
+        clip_rows = self._clip_rows()
+        if clip_rows is not None:
+            frustum_planes = (
+                clip_rows
+                if frustum_planes is None
+                else np.concatenate([frustum_planes, clip_rows])
+            )
         if frustum_planes is not None:
             brick_arr, _ = bricks_in_frustum_arr(
                 brick_arr,
@@ -2348,6 +2388,16 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                 block_size,
                 view_min,
                 view_max,
+                level_scale_arr_shader=geo2d._scale_arr_shader,
+                level_translation_arr_shader=geo2d._translation_arr_shader,
+            )
+        # Tiles wholly on the clipped side of a clip line are not fetched.
+        clip_rows = self._clip_rows()
+        if clip_rows is not None:
+            tile_arr, _ = half_plane_cull_2d(
+                tile_arr,
+                block_size,
+                clip_rows,
                 level_scale_arr_shader=geo2d._scale_arr_shader,
                 level_translation_arr_shader=geo2d._translation_arr_shader,
             )
@@ -2858,7 +2908,7 @@ def _slot_geometries(
     return volume_geometry, image_geometry_2d
 
 
-class GFXMultiscaleImageVisual:
+class GFXMultiscaleImageVisual(ClippingPlanesMixin):
     """Render-layer visual for one ``MultiscaleImageVisual``.
 
     Draws the image single-channel or composited from a pool of
@@ -2885,6 +2935,10 @@ class GFXMultiscaleImageVisual:
     displayed_axes : tuple[int, ...]
         The world axes displayed at construction.
     """
+
+    #: Clipped bricks and tiles are not fetched, so a change of planes
+    #: changes the plan (clipping planes design 5.1).
+    clipping_planes_affect_request: bool = True
 
     #: 3D loads go through the chunk scheduler (``plan`` / ``residencies``).
     chunked: bool = True
@@ -3234,7 +3288,29 @@ class GFXMultiscaleImageVisual:
         # _begin_region_planning shows or hides a slot's data node from its
         # own slicing verdict; the pool's visibility is the wrapper's call.
         self._apply_slot_visibility()
+        # The clip follows the slice and the slots' channels (design 4.1).
+        self._apply_clipping_planes()
         return keys, slots
+
+    def _clip_targets(self):
+        """One group per channel slot (clipping planes design 4.1, 4.6).
+
+        The collapsed positions are the level-0 planes the slot last
+        planned.  In composite mode the channel axis is not sliced, so it is
+        pinned at the channel the slot carries.
+        """
+        collapsed = () if self._spaces is None else self._spaces.collapsed_axes
+        channel_of = {index: key for key, index in self._drawn.items()}
+        for index, slot in enumerate(self._slots):
+            planned = slot.pick_collapsed_indices() or {}
+            constants = {axis: float(planned.get(axis, 0.0)) for axis in collapsed}
+            # The slot plans with the same planes (fetch culling, 5.1).
+            slot._clipping_planes = self._clipping_planes
+            slot._clip_channel = None
+            if self._channel_axis in constants and index in channel_of:
+                constants[self._channel_axis] = float(channel_of[index])
+                slot._clip_channel = (self._channel_axis, float(channel_of[index]))
+            yield drawn_materials(slot.node_3d, slot.node_2d), constants
 
     # ── Node selection ─────────────────────────────────────────────────
 
@@ -3253,6 +3329,8 @@ class GFXMultiscaleImageVisual:
                 group.add(new_node)
         self._apply_materials()
         self._apply_slot_visibility()
+        # A node built here has a new material (clipping planes design 4.6).
+        self._apply_clipping_planes()
 
     def get_node_for_dims(self, displayed_axes: tuple[int, ...]) -> gfx.Group | None:
         """Rebuild the slots' geometry if needed and return the group."""
@@ -3453,12 +3531,14 @@ class GFXMultiscaleImageVisual:
         self._transform = event.transform
         for slot in self._slots:
             slot.on_transform_changed(event)
+        self._apply_clipping_planes()
 
     def set_render_spaces(self, spaces: RenderSpaces | None) -> None:
         """Hand the coordinate systems to every slot."""
         self._spaces = spaces
         for slot in self._slots:
             slot.set_render_spaces(spaces)
+        self._apply_clipping_planes()
 
     def on_appearance_changed(self, event: AppearanceChangedEvent) -> None:
         """A shared field changed: restyle every drawn slot."""

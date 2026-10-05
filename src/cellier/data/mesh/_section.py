@@ -37,6 +37,8 @@ import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components, depth_first_order
 
+from cellier.data._plane_clip import clip_segments
+
 # Lone vertex per packed side code (bit i = vertex i on the positive side).
 # Codes 0 and 7 do not cross.
 _LONE = np.array([-1, 0, 1, 2, 2, 1, 0, -1], dtype=np.int64)
@@ -946,6 +948,97 @@ def section_slab(
         outline_face_ids=face_ids_out,
         n_closed_loops=n_loops,
         n_open_segments=n_open,
+    )
+
+
+def clip_parts(parts: SectionParts, planes) -> SectionParts:
+    """Clip a section to the kept side of every plane.
+
+    The fill triangles are clipped as polygons and the outline segments are
+    cut; colours are interpolated to the cuts.  The cut edge is exact: this
+    runs after the slab filter, which keeps or drops whole faces (clipping
+    planes design 5.2).
+
+    Parameters
+    ----------
+    parts : SectionParts
+        A section in the kernel's three-column space.
+    planes : sequence of (normal, offset)
+        Each with a three-entry normal in that space; a point is kept where
+        ``normal . p >= offset``.
+
+    Returns
+    -------
+    SectionParts
+        With unshared fill vertices (three per triangle).  The loop counts
+        are carried over unchanged: they describe the section before it
+        was clipped.
+    """
+    if not planes:
+        return parts
+    colored = parts.fill_colors is not None
+    fill_positions = np.zeros((0, 3))
+    fill_indices = np.zeros((0, 3), dtype=np.int64)
+    fill_colors = np.zeros((0, 4)) if colored else None
+    fill_face_ids = np.zeros(0, dtype=np.int64)
+    if len(parts.fill_indices):
+        corners = parts.fill_positions[parts.fill_indices]
+        if colored:
+            corners = np.concatenate(
+                [corners, parts.fill_colors[parts.fill_indices]], axis=2
+            )
+        polygons = corners.astype(np.float64)
+        counts = np.full(len(polygons), 3)
+        for normal, offset in planes:
+            n = np.asarray(normal, dtype=np.float64)
+            polygons, counts = _clip(
+                polygons, counts, lambda p, n=n, o=offset: p[..., :3] @ n - o
+            )
+        triangles, owners = [], []
+        for k in range(1, polygons.shape[1] - 1):
+            has = counts >= k + 2
+            if has.any():
+                triangles.append(
+                    np.stack(
+                        [polygons[has, 0], polygons[has, k], polygons[has, k + 1]], 1
+                    )
+                )
+                owners.append(np.asarray(parts.fill_face_ids)[has])
+        if triangles:
+            soup = np.concatenate(triangles).reshape(-1, polygons.shape[2])
+            fill_positions = soup[:, :3]
+            fill_indices = np.arange(len(soup), dtype=np.int64).reshape(-1, 3)
+            fill_face_ids = np.concatenate(owners)
+            if colored:
+                fill_colors = soup[:, 3:]
+
+    outline_positions = parts.outline_positions
+    outline_colors = parts.outline_colors
+    outline_face_ids = parts.outline_face_ids
+    if len(outline_face_ids):
+        pairs = outline_positions.reshape(-1, 2, 3).astype(np.float64)
+        start, end = pairs[:, 0], pairs[:, 1]
+        if outline_colors is not None:
+            color_pairs = np.asarray(outline_colors, dtype=np.float64).reshape(-1, 2, 4)
+            start = np.concatenate([start, color_pairs[:, 0]], axis=1)
+            end = np.concatenate([end, color_pairs[:, 1]], axis=1)
+        start, end, kept = clip_segments(start, end, planes, 3)
+        cut = np.stack([start, end], axis=1).reshape(-1, start.shape[1])
+        outline_positions = cut[:, :3]
+        if outline_colors is not None:
+            outline_colors = cut[:, 3:]
+        outline_face_ids = np.asarray(outline_face_ids)[kept]
+
+    return SectionParts(
+        fill_positions=fill_positions,
+        fill_indices=fill_indices,
+        fill_colors=fill_colors,
+        fill_face_ids=fill_face_ids,
+        outline_positions=outline_positions,
+        outline_colors=outline_colors,
+        outline_face_ids=outline_face_ids,
+        n_closed_loops=parts.n_closed_loops,
+        n_open_segments=parts.n_open_segments,
     )
 
 

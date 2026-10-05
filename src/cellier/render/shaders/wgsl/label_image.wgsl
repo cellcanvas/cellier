@@ -86,6 +86,9 @@ fn vs_main(in: VertexInput) -> Varyings {
 // ── Fragment stage ────────────────────────────────────────────────────────
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
+    // In a 2D view a clipping plane is the line where it meets the slice.
+    {$ include 'pygfx.clipping_planes.wgsl' $}
+
     let grid_size = vec2<i32>(textureDimensions(t_img));
     let texel     = vec2<i32>(floor(varyings.texcoord * vec2<f32>(grid_size)));
     let clamped   = clamp(texel, vec2<i32>(0), grid_size - vec2<i32>(1));

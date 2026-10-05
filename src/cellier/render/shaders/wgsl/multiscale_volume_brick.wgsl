@@ -516,10 +516,10 @@ fn vs_main(in: VertexInput) -> Varyings {
 
 // ── Fragment shader ───────────────────────────────────────────────────────
 
+{$ include 'cellier.ray_clip.wgsl' $}
+
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
-    {$ include 'pygfx.clipping_planes.wgsl' $}
-
     var out: FragmentOutput;
 
     let norm_size    = vec3<f32>(u_vol_params.norm_size_x,
@@ -549,7 +549,12 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     if (hit.x > hit.y) { discard; }
 
     var t_start = max(hit.x, 0.0);
-    let t_end   = hit.y;
+    var t_end   = hit.y;
+    if (t_start >= t_end) { discard; }
+    // Clipping planes cut the ray's interval (cellier.ray_clip.wgsl).
+    let clipped = clip_ray_interval(near_pos, ray_dir, t_start, t_end);
+    t_start = clipped.x;
+    t_end = clipped.y;
     if (t_start >= t_end) { discard; }
 
     $$ if debug_mode == 'ray_dir'
@@ -562,6 +567,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // All state variables are declared unconditionally (Metal does not
     // allow variable redefinition across template branches).
     let ray_origin    = near_pos;
+    let clip_t0       = t_start;
     let ray_seed_base = ray_to_seed(ray_dir);
 
     var t             = t_start;
@@ -837,6 +843,9 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // Fix 2: brick-aware bisection — select the correct atlas slot per probe.
     var lo = prev_t;
     var hi = prev_t + surface_step_size;
+    // Whether every probe was inside the object: the refinement then
+    // leaves the hit at the start of the step.
+    var all_inside = true;
     for (var r = 0u; r < 4u; r++) {
         let mid      = (lo + hi) * 0.5;
         let pos_mid  = ray_origin + ray_dir * mid;
@@ -852,9 +861,15 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         $$ else
         let d_mid = sample_atlas(voxel_m, bis_lut, bis_lod, bis_corner);
         $$ endif
-        if (d_mid >= iso_threshold) { hi = mid; } else { lo = mid; }
+        if (d_mid >= iso_threshold) { hi = mid; } else { lo = mid; all_inside = false; }
     }
-    let refined_t   = (lo + hi) * 0.5;
+    // A cut-face hit is one the refinement leaves at the ray's clipped
+    // start.  It sits on the plane and takes the plane's normal.  Any
+    // other hit is the object's own surface (in smooth_iso the soft field
+    // can place it a little way in from the start).
+    let on_cut_face = prev_t <= clip_t0 && all_inside && clip_start_on_plane();
+    let cut_local_normal = clip_start_normal_local();
+    let refined_t   = select((lo + hi) * 0.5, clip_t0, on_cut_face);
     let refined_pos = ray_origin + ray_dir * refined_t;
 
     // ── Gradient-based normal ─────────────────────────────────────────
@@ -901,8 +916,11 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // (e.g. z-anisotropic data).  For isotropic data this has no effect on direction.
     let gradient = vec3<f32>(dx, dy, dz) / grad_lod;
     $$ endif
-    let normal   = select(normalize(-gradient), vec3<f32>(0.0, 1.0, 0.0),
+    let gradient_normal = select(normalize(-gradient), vec3<f32>(0.0, 1.0, 0.0),
                           length(gradient) < 1e-6);
+    // The shading normal is in voxel-index space, like the gradient.
+    let normal   = select(gradient_normal,
+        normalize(cut_local_normal / (dataset_size / norm_size)), on_cut_face);
 
     $$ if debug_mode == 'normal_rgb'
     // ── Debug: normal as RGB ───────────────────────────────────────────
@@ -948,7 +966,8 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // writes normals tilted toward z, which the occlusion pass would then
     // trust over the reconstruction it is there to replace.
     let index_per_norm = dataset_size / norm_size;
-    let local_normal   = -gradient * index_per_norm;
+    let local_normal   = select(-gradient * index_per_norm, cut_local_normal,
+                                on_cut_face);
     let view_pos_r     = u_stdinfo.cam_transform * world_pos_r;
     out.normal = pack_view_normal(local_normal, view_pos_r.xyz);
     $$ endif

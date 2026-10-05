@@ -50,6 +50,12 @@ class LinesSliceRequest(NamedTuple):
         against **data** coordinates -- the latent bug D4 exists to fix: on a
         2 um z spacing it could show a vertex 24 um off the slice plane and
         hide the ones that are on it.  There is no second path now (R8.3).
+    clip_planes : tuple[tuple[tuple[float, ...], float], ...]
+        Clipping planes the read applies on the CPU, as ``(normal, offset)``
+        pairs in data coordinates, kept where ``normal . p >= offset``.
+        Set only where the shader cannot clip: geometry flattened along an
+        axis a plane has a component on (clipping planes design 5.2).
+        Empty otherwise.
     """
 
     slice_request_id: UUID
@@ -58,6 +64,7 @@ class LinesSliceRequest(NamedTuple):
     displayed_axes: tuple[int, ...]
     retained_axes: tuple[int, ...]
     region: ConvexRegion
+    clip_planes: tuple = ()
 
 
 @dataclass(frozen=True)

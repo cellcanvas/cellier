@@ -15,6 +15,7 @@ from cellier.gui.anywidget.visuals._base import (
     AnywidgetIntSpin,
     AnywidgetToggle,
 )
+from cellier.gui.anywidget.visuals._clipping import AnywidgetClippingPlanesControls
 from cellier.gui.anywidget.visuals._color import AnywidgetUniformColorPicker
 from cellier.gui.anywidget.visuals._graph import (
     AnywidgetEdgeColorPicker,
@@ -62,6 +63,7 @@ __all__ = [
     "AnywidgetBackgroundLabelSpin",
     "AnywidgetBoundedSlider",
     "AnywidgetChoice",
+    "AnywidgetClippingPlanesControls",
     "AnywidgetColorPicker",
     "AnywidgetEdgeColorPicker",
     "AnywidgetEdgeThicknessSpaceCombo",

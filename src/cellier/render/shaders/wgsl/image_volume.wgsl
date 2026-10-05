@@ -148,11 +148,12 @@ fn vs_main(in: VertexInput) -> Varyings {
 }
 
 
+{$ include 'cellier.ray_clip.wgsl' $}
+
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
 
     // clipping planes
-    {$ include 'pygfx.clipping_planes.wgsl' $}
 
     // Get size of the volume
     let sizef = vec3<f32>(textureDimensions(t_img));
@@ -175,14 +176,23 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     dist = max(dist, min((-0.5 - back_pos.y) / view_ray.y, (sizef.y - 0.5 - back_pos.y) / view_ray.y));
     dist = max(dist, min((-0.5 - back_pos.z) / view_ray.z, (sizef.z - 0.5 - back_pos.z) / view_ray.z));
 
-    let front_pos = back_pos + view_ray * dist;
+    // The ray is back_pos + s * view_ray for s in [s_front, s_back].
+    var s_front = dist;
+    var s_back = 0.0;
+    // Clipping planes cut the ray's interval (cellier.ray_clip.wgsl).
+    let clipped = clip_ray_interval(back_pos, view_ray, s_front, s_back);
+    s_front = clipped.x;
+    s_back = clipped.y;
+    if (s_front >= s_back) { discard; }
+    let front_pos = back_pos + view_ray * s_front;
+    let end_pos = back_pos + view_ray * s_back;
 
-    let nsteps = i32(-dist / relative_step_size + 0.5);
+    let nsteps = i32((s_back - s_front) / relative_step_size + 0.5);
     if( nsteps < 1 ) { discard; }
 
     // Starting position and step vector in texture coordinates.
     let start_coord = (front_pos + vec3<f32>(0.5, 0.5, 0.5)) / sizef;
-    let step_coord = ((back_pos - front_pos) / sizef) / f32(nsteps);
+    let step_coord = ((end_pos - front_pos) / sizef) / f32(nsteps);
 
     // Render
     let render_out: RenderOutput = raycast(sizef, nsteps, start_coord, step_coord);
@@ -360,6 +370,9 @@ $$ elif mode == 'iso'
         let iso_threshold = u_material.threshold;
         let actual_step_coord = u_material.step_size * step_coord;
         var surface_found = false;
+        // A hit on the first sample of a ray that starts on a clipping
+        // plane is on the cut face.
+        var on_cut_face = false;
         var the_coord = start_coord;
         var the_value : vec4<f32>;
         for (var iter=0.0; iter<nstepsf; iter=iter+1) {
@@ -370,11 +383,15 @@ $$ elif mode == 'iso'
                 the_coord = coord;
                 the_value = value;
                 surface_found = true;
+                on_cut_face = iter == 0.0 && clip_start_on_plane();
                 break;
             }
         }
 
-        if surface_found {
+        if on_cut_face {
+            // The surface is the start itself.  Stepping back would walk
+            // out of the clipped interval, in front of the plane.
+        } else if surface_found {
             // Take smaller steps back to make sure the surface was found.
             let substep_coord = -1 * u_material.substep_size * step_coord;
             let substep_start_coord = the_coord;
@@ -421,6 +438,7 @@ $$ elif mode == 'iso'
         negative_value = sample_vol(the_coord + vec3(0.0,0.0,-gradient_coord[2]), sizef);
         positive_value = sample_vol(the_coord + vec3(0.0,0.0,gradient_coord[2]), sizef);
         local_normal[2] = positive_value.r - negative_value.r;
+        if (on_cut_face) { local_normal = clip_start_normal_local(); }
 
         // The surface position, in data space and then in world space.
         //

@@ -8,6 +8,7 @@ import numpy as np
 import pygfx as gfx
 
 from cellier.data.image._image_requests import ChunkRequest
+from cellier.render._clipping import ClippingPlanesMixin
 from cellier.render._spaces import RenderSpaces, node_matrix
 from cellier.render.shaders._image_volume import IMAGE_VOLUME_MATERIALS
 from cellier.render.visuals._pick import memory_image_data_coordinate
@@ -24,6 +25,8 @@ if TYPE_CHECKING:
         AABBChangedEvent,
         AppearanceChangedEvent,
         ChannelAppearanceChangedEvent,
+        DataStoreContentsChangedEvent,
+        DataStoreMetadataChangedEvent,
         ImageCompositeChangedEvent,
         PickWriteChangedEvent,
         SingleAppearanceChangedEvent,
@@ -375,7 +378,7 @@ class _ImageMemorySlot:
                 material.threshold = mode_appearance.iso_threshold
 
 
-class GFXImageMemoryVisual:
+class GFXImageMemoryVisual(ClippingPlanesMixin):
     """Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
     Draws the image single-channel or composited from a pool of
@@ -456,7 +459,7 @@ class GFXImageMemoryVisual:
         # Channel index -> slot index for the channels the current plan draws.
         self._drawn: dict[int, int] = {}
         self._clock = 0
-        self._pending: dict[str, dict[UUID, tuple[int, tuple]]] = {
+        self._pending: dict[str, dict[UUID, tuple[int, tuple | None]]] = {
             "2d": {},
             "3d": {},
         }
@@ -598,6 +601,9 @@ class GFXImageMemoryVisual:
             taken.add(index)
             self._slots[index].last_drawn = self._clock
             assigned.append(index)
+        if self._clipping_planes:
+            # A slot given another channel is cut at that channel's place.
+            self._apply_clipping_planes()
         return assigned
 
     def _mode_appearance(self, key: int):
@@ -624,6 +630,9 @@ class GFXImageMemoryVisual:
                 alpha_mode=alpha_mode,
                 planes_overlap=overlap,
             )
+        # A render-mode change gives a slot a new volume material, which
+        # starts with no planes (clipping planes design 4.6).
+        self._apply_clipping_planes()
 
     def _apply_slot_visibility(self) -> None:
         drawn = set(self._drawn.values())
@@ -670,6 +679,33 @@ class GFXImageMemoryVisual:
             self.node_3d.local.matrix = m
         if self.node_2d is not None:
             self.node_2d.local.matrix = m
+        self._apply_clipping_planes()
+
+    def _clip_targets(self):
+        """One group per channel slot (clipping planes design 4.1, 4.6).
+
+        A slot draws its channel at that channel's index, so the channel
+        axis is pinned per slot: a plane with a channel component cuts each
+        channel at its own place.
+        """
+        if self._spaces is None:
+            base: dict[int, float] = {}
+        else:
+            base = {
+                axis: float(self._collapsed_indices.get(axis, 0.0))
+                for axis in self._spaces.collapsed_axes
+            }
+        for slot in self._slots:
+            constants = base
+            if self._channel_axis in base and slot.key is not None:
+                constants = {**base, self._channel_axis: float(slot.key)}
+            yield (
+                (
+                    getattr(slot.node_2d, "material", None),
+                    getattr(slot.node_3d, "material", None),
+                ),
+                constants,
+            )
 
     # ------------------------------------------------------------------
     # Node selection
@@ -736,6 +772,8 @@ class GFXImageMemoryVisual:
             planned, self._transform, self._spaces.world, shape
         )
         self._collapsed_indices = collapsed
+        # The clip line follows the slice (clipping planes design 4.1).
+        self._apply_clipping_planes()
         if not composite:
             key = 0 if self._channel_axis is None else int(base[self._channel_axis])
             return [(key, base)]
@@ -908,6 +946,32 @@ class GFXImageMemoryVisual:
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
+
+    def _forget_loaded(self) -> None:
+        """Forget what every slot's textures hold, so the next plan refetches.
+
+        A slot skips the fetch for a selection it already holds, which is
+        only right while the store's values are the ones it read.  A read
+        still in flight may carry the old values too: it is uploaded when it
+        lands, but not recorded as held.
+        """
+        for slot in self._slots:
+            slot.loaded = {"2d": None, "3d": None}
+        for pending in self._pending.values():
+            for request_id, (index, _selections) in pending.items():
+                pending[request_id] = (index, None)
+
+    def on_data_store_contents_changed(
+        self, event: DataStoreContentsChangedEvent
+    ) -> None:
+        """The store's values changed: every slot's texture is stale."""
+        self._forget_loaded()
+
+    def on_data_store_metadata_changed(
+        self, event: DataStoreMetadataChangedEvent
+    ) -> None:
+        """The store's data changed shape: every slot's texture is stale."""
+        self._forget_loaded()
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
         """Update the stored transform and the node matrix."""

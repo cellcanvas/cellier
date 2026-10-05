@@ -24,6 +24,7 @@ from cellier.data.mesh._mesh_requests import (
     MeshSectionRequest,
     MeshSliceRequest,
 )
+from cellier.render._clipping import GeometryClippingMixin
 from cellier.render._level_residency import LevelResidency
 from cellier.render._spaces import (
     RenderSpaces,
@@ -304,7 +305,7 @@ class _LevelNodes:
         self.group_2d.visible = visible and self.holds == "2d"
 
 
-class GFXMeshVisual:
+class GFXMeshVisual(GeometryClippingMixin):
     """Render-layer visual for a mesh, loaded by the chunk scheduler.
 
     The scene graph::
@@ -422,6 +423,7 @@ class GFXMeshVisual:
             release=self._release_level,
             on_change=self._apply_display,
             fine_level=FINE_LEVEL,
+            keeps_previous=self._only_clip_changed,
         )
         # Whether the 2D children hold a section (per-vertex colours) or
         # whole faces drawn flat.
@@ -565,6 +567,19 @@ class GFXMeshVisual:
         node.local.matrix = node_matrix(
             self._spaces, self._transform, self._collapsed_origin()
         )
+        self._apply_clipping_planes()
+
+    def _clip_targets(self):
+        """Every material, at the slice the node is drawn at (design 4.6)."""
+        constants = self._collapsed_origin() if self._spaces is not None else {}
+        yield (
+            (
+                self._material_3d,
+                self._material_2d,
+                self._material_outline,
+            ),
+            constants,
+        )
 
     def _data_region(self, selection):
         """The selection in this visual's data coordinates (design 3.12)."""
@@ -630,6 +645,11 @@ class GFXMeshVisual:
         self._last_data_positions = data_slice_positions(
             selection.region, self._transform, self._spaces.world
         )
+        # The clip line follows the slice (clipping planes design 4.1).  A
+        # slab section is flattened, so the read clips it (design 5.2); a
+        # cut section and a 3D mesh are clipped by the shader.
+        self._slab_section = section is not None and section.mode == "slab"
+        clip_planes = self._section_clip_planes(self._begin_request_clipping(), section)
         shared_id = uuid4()
         retained = tuple(self._spaces.retained_axes)
         return MeshSliceRequest(
@@ -642,7 +662,44 @@ class GFXMeshVisual:
             # pygfx draws (x, y, z); the data is ascending (z, y, x).
             output_axes=tuple(reversed(retained)),
             section=section,
+            clip_planes=clip_planes,
         )
+
+    @staticmethod
+    def _only_clip_changed(held: Hashable, planned: Hashable) -> bool:
+        """Whether two request keys differ in their clipping planes alone.
+
+        Then the held result is in the right place and only behind, so it
+        stays on screen until the new one is uploaded (D31).  Any other
+        difference (the slice, the section, the axes) hides it, as before.
+        """
+        return held[:-1] == planned[:-1] and held[-1] != planned[-1]
+
+    def _wants_cpu_clip(self) -> bool:
+        """Only a slab section is flattened; see ``GeometryClippingMixin``."""
+        return getattr(self, "_slab_section", False) and super()._wants_cpu_clip()
+
+    def _section_clip_planes(self, planes: tuple, section) -> tuple:
+        """The read's planes, reduced to the axes the section kernel sees.
+
+        The kernel works on the two displayed axes and the section axis.
+        Any other collapsed axis (time, say) is substituted at the position
+        this request draws.
+        """
+        if not planes or section is None:
+            return ()
+        section_normal = np.asarray(section.normal)
+        out = []
+        for normal, offset in planes:
+            normal = list(normal)
+            for axis in self._spaces.collapsed_axes:
+                if section_normal[axis] == 0.0 and normal[axis] != 0.0:
+                    offset -= normal[axis] * float(
+                        self._last_data_positions.get(axis, 0.0)
+                    )
+                    normal[axis] = 0.0
+            out.append((tuple(normal), float(offset)))
+        return tuple(out)
 
     @staticmethod
     def request_key(request: MeshSliceRequest) -> Hashable:
@@ -662,6 +719,7 @@ class GFXMeshVisual:
             tuple(request.retained_axes),
             (int(region.ndim), tuple(region.half_spaces)),
             request.section,
+            request.clip_planes,
         )
 
     def plan(
