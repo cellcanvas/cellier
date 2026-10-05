@@ -155,8 +155,14 @@ viewer.add_image(
 ```
 
 The "Clipping planes" group has a row per plane: on or off, a flip button,
-a remove button, the normal, and a position slider along the normal. In an
-`OrthoViewer` a visual's planes are shared by its four panels.
+a remove button, the normal, and a position slider along the normal.
+
+The flag needs a dock to show the control in. On a `Viewer` the control is
+part of the appearance dock, so the config also needs `appearance` and the
+layout an `AppearanceControls()` dock. On an `OrthoViewer` it is in the
+`OrthoClippingControls()` dock ([below](#in-an-orthoviewer)). A flag with
+no dock for it raises `ValueError`, when the layout is rendered or when
+the visual is added to a viewer that is already shown.
 
 The normal has one column per data axis, in the same order as the entries
 of `normal`. The axis names come from the store's data coordinate system
@@ -180,8 +186,9 @@ gizmo = viewer.add_clipping_plane_gizmo(visual, visual.clipping_planes[0])
 gizmo.close()            # or viewer.remove_clipping_plane_gizmo()
 ```
 
-On an `OrthoViewer` the gizmo is drawn in the 3D panel and the 2D panels
-follow. Without a viewer:
+On an `OrthoViewer` the gizmo is drawn in the 3D panel and edits the 3D
+panel's planes; the 2D panels follow when they are linked to it
+([below](#in-an-orthoviewer)). Without a viewer:
 `controller.add_clipping_plane_gizmo(visual_id, canvas_id, plane_id)`.
 
 - The arrow along the normal slides the plane. The two rings that tilt the
@@ -205,9 +212,38 @@ screen until the camera or the plane moves.
 In the control, each row has a "Gizmo" toggle that does the same. The
 toggles of every control of a view act as one set: switching one on
 switches the others off. A toggle is greyed out, with the reason as its
-tooltip, where a gizmo is not possible. The toggle is for the canvas that
-exists when the control is built, so build the canvas first: the layout
-flows do, and a control built by hand before its canvas raises.
+tooltip, where a gizmo is not possible.
+
+A control has the toggle only when it is told where the gizmo goes:
+
+- A `Viewer`'s dock names its visual and its canvas when the viewer has
+  exactly one canvas. With several canvases the control has no toggle
+  (the viewer does not choose one): call
+  `viewer.add_clipping_plane_gizmo(..., canvas=)`. A viewer that never
+  shows 3D has no toggle either.
+- An `OrthoViewer`'s dock names the 3D panel.
+- A control built by hand takes `gizmo_target=`:
+
+  ```python
+  from cellier.gui import (
+      get_clipping_plane_gizmo_data,
+      get_clipping_planes_data_from_visual,
+  )
+  from cellier.gui.qt.visuals import QtClippingPlanesControls
+
+  controls = QtClippingPlanesControls(
+      visual.id,
+      **get_clipping_planes_data_from_visual(visual, store),
+      **get_clipping_plane_gizmo_data(controller, visual.id, canvas_id),
+  )
+  ```
+
+  Without it the rows have no toggle. Nothing picks a visual or a canvas
+  for you.
+
+The target is read when the control is built, so build the canvas first:
+the layout flows do, and a dock built before its canvas raises. A canvas
+added later neither adds nor removes the toggle.
 
 A drag is announced by `ClippingInteractionEvent` (`controller.
 on_clipping_interaction`): one start and one end, with the plane changes
@@ -222,6 +258,96 @@ volume of about a million level-0 bricks that is 13 to 38 ms a frame.
 Known limit: with outlines enabled, a handle over an outlined visual gets a
 thin contour in that visual's outline colour.
 
+## In an OrthoViewer
+
+One `add_*` call makes four visuals, one per panel. They read one store, so
+one tuple of planes is the same cut in each. Which of them carry the same
+tuple is the viewer's link mode:
+
+| Mode | Linked |
+|---|---|
+| `"all"` (default) | xy, xz, yz and the 3D panel carry one tuple. |
+| `"2d"` | xy, xz and yz carry one tuple. The 3D panel has its own. |
+| `None` | No link. Each panel's visual has its own planes. |
+
+```python
+ortho = OrthoViewer(axes, link_clipping_planes="all")
+visuals = ortho.add_image(store, clipping_planes=(plane,))
+
+visuals["vol"].clipping_planes = (moved,)   # "all": the 2D panels follow
+ortho.clipping_controller.mode = "2d"       # at any time
+```
+
+- The mode is for the whole viewer. Links are within the panels of one
+  `add_*` call, never between two datasets.
+- `add_*(clipping_planes=...)` gives the same planes to all four panels in
+  every mode. The mode says what happens after.
+- Linked visuals are changed through the controller, one
+  `ClippingPlanesChangedEvent` each, with the `source_id` of the change
+  that caused them. No plane is stored outside the visuals.
+- **To a less linked mode** nothing is written: the panels keep their
+  planes and may differ from then on.
+- **To a more linked mode** the panels that become linked must agree, and
+  the 3D panel's planes win, because it has the gizmo. From `None` to
+  `"2d"` there is no 3D panel among them and the xy panel's planes win.
+- A drag is forwarded: while a plane of one panel is dragged, each panel
+  linked to it reports the drag too (`ClippingInteractionEvent`, one start
+  and one end). When the dragged panel's drag ends because the handle was
+  held still (`"settle"`), the linked panels end with `"release"`.
+- The gizmo (`ortho.add_clipping_plane_gizmo`) edits a plane of the 3D
+  panel's visual. In `"2d"` and `None` a plane that only a 2D panel has is
+  not one of them.
+
+### The dock
+
+On an `OrthoViewer` the clipping controls are not in the appearance docks.
+They are in their own dock node:
+
+```python
+ortho.add_image(
+    store,
+    name="cells",
+    controls=InMemoryImageControlsConfig(clipping_controls=True),
+)
+layout = Layout(center=grid, right_dock=OrthoClippingControls())
+```
+
+At the top is a "Link" selector for the mode, bound both ways to
+`ortho.clipping_controller.mode`. Under it, each visual added with
+`clipping_controls=True` has one control per group of linked panels:
+
+| "Link" | Controls per visual | "Gizmo" toggle |
+|---|---|---|
+| All views | "cells: All views" | Yes |
+| 2D views | "cells: 2D views", "cells: 3D view" | Only "3D view" |
+| Not linked | "cells: XY", "cells: XZ", "cells: YZ", "cells: 3D view" | Only "3D view" |
+
+- A control only writes to panels that are linked, so it always shows the
+  planes of every panel it edits.
+- `clipping_controls=True` with no `OrthoClippingControls()` in the layout
+  raises `ValueError`. The dock with no flagged visual is fine: it shows
+  the selector and "No visuals with clipping controls".
+- A visual that has lost a panel (`controller.remove_visual` on one of the
+  four) keeps controls for the panels that are left.
+
+### Save and load
+
+The planes of each panel are saved. The mode is not: pass it again.
+
+```python
+ortho.to_file("viewer.json")
+ortho = OrthoViewer.from_file("viewer.json", link_clipping_planes="2d")
+```
+
+A load does not rewrite what was saved. A file whose panels differ where
+the mode would link them (saved in `"2d"` with the 3D panel's planes moved,
+loaded with the default `"all"`) raises `ValueError`, naming the visual.
+Load it with the mode it was saved in. The `controls=` configs are not in
+the file, so after a load the dock lists nothing until visuals are added
+with configs again.
+
 See `examples/clipping_planes/clipping_planes_viewer.py`,
-`examples/clipping_planes/clipping_plane_gizmo.py` and, for multiscale
-visuals, `examples/clipping_planes/multiscale_clipping_planes_viewer.py`.
+`examples/clipping_planes/clipping_plane_gizmo.py`, for multiscale
+visuals `examples/clipping_planes/multiscale_clipping_planes_viewer.py`,
+and for an `OrthoViewer`
+`examples/clipping_planes/ortho_clipping_planes_viewer.py`.

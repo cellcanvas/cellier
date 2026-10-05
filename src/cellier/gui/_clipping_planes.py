@@ -32,7 +32,7 @@ Nothing here imports a toolkit.
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import UUID, uuid4
 
 from cellier.events import (
@@ -44,7 +44,6 @@ from cellier.events import (
     DimsChangedEvent,
     SubscriptionSpec,
 )
-from cellier.gui._appearance_fields import normalize_visual_ids
 from cellier.gui._loading import error_message
 
 if TYPE_CHECKING:
@@ -201,8 +200,9 @@ def get_clipping_planes_data_from_visual(visual: Any, store: Any) -> dict[str, A
     Parameters
     ----------
     visual : BaseVisual
-        The visual (for an ``OrthoViewer`` group, any one of them: they
-        read one store and carry the same planes).
+        The visual.  For a group of visuals edited together, the first:
+        they read one store, and the visuals of a link group carry the
+        same planes.
     store : BaseDataStore
         The store the visual reads.
 
@@ -224,17 +224,24 @@ def get_clipping_planes_data_from_visual(visual: Any, store: Any) -> dict[str, A
     }
 
 
-def seed_bounds_source(
-    controller: Any, seed: Mapping[str, Any]
+def get_axis_bounds_from_store(
+    controller: Any, data: Mapping[str, Any]
 ) -> Callable[[], list[list[float]]] | None:
-    """A reader of the current bounds of the store a seed was read off.
+    """A reader of a store's current bounds; not the bounds themselves.
+
+    The returned function takes no arguments, looks the store up by id and
+    returns its current ``[low, high]`` per axis.  A clipping planes
+    control calls it when the store's extent changes
+    (``DataStoreMetadataChangedEvent``) to move its slider ranges.  It
+    exists because a control does not hold the controller.
 
     Parameters
     ----------
     controller : CellierController or None
         Looks the store up by id each time, so the reader holds no store.
-    seed : Mapping[str, Any]
-        From :func:`get_clipping_planes_data_from_visual`.
+    data : Mapping[str, Any]
+        From :func:`get_clipping_planes_data_from_visual`: its
+        ``data_store_id`` and ``axis_names`` are used.
 
     Returns
     -------
@@ -244,8 +251,8 @@ def seed_bounds_source(
     """
     if controller is None:
         return None
-    store_id = UUID(str(seed["data_store_id"]))
-    ndim = len(seed["axis_names"])
+    store_id = UUID(str(data["data_store_id"]))
+    ndim = len(data["axis_names"])
     return lambda: store_bounds(controller.get_data_store(store_id), ndim)
 
 
@@ -253,72 +260,82 @@ GIZMO_TOOLTIP = "Drag a gizmo in the 3D view to move and tilt this plane."
 """The gizmo toggle's tooltip while it can be used."""
 
 
-def gizmo_seed(controller: Any, visual_ids: Iterable[UUID]) -> dict[str, Any]:
-    """The gizmo arguments of a clipping planes control, read off a controller.
-
-    The gizmo of a control's planes is drawn in the first canvas of the
-    first of *visual_ids* whose scene can be shown in 3D (for an
-    ``OrthoViewer`` group, its 3D panel).  That canvas must exist: build
-    the canvas before the control.
+class ClippingPlaneGizmoTarget(NamedTuple):
+    """Where the gizmo of a clipping planes control is drawn.
 
     Parameters
     ----------
-    controller : CellierController or None
+    visual_id : UUID
+        The visual whose plane the gizmo edits.
+    canvas_id : UUID
+        The 3D canvas the gizmo is drawn in.
+    scene_id : UUID
+        That canvas's scene, whose ``DimsChangedEvent`` the control follows.
+    """
+
+    visual_id: UUID
+    canvas_id: UUID
+    scene_id: UUID
+
+
+def get_clipping_plane_gizmo_data(
+    controller: Any, visual_id: UUID, canvas_id: UUID
+) -> dict[str, Any]:
+    """The gizmo arguments of a clipping planes control, for one visual and canvas.
+
+    Selects nothing: the caller names the visual whose plane the gizmo
+    edits and the canvas it is drawn in, as for
+    ``CellierController.add_clipping_plane_gizmo``.  The canvas must exist:
+    build the canvas before the control.
+
+    Parameters
+    ----------
+    controller : CellierController
         The controller the control is wired to.
-    visual_ids : Iterable[UUID]
-        The visuals the control edits together.
+    visual_id : UUID
+        The visual whose plane the gizmo edits.  One of the control's
+        visuals.
+    canvas_id : UUID
+        A canvas of that visual's scene.
 
     Returns
     -------
     dict[str, Any]
-        ``gizmo`` (``visual_id``, ``canvas_id`` and ``scene_id``, as
-        strings), ``gizmo_plane`` (the id of the plane that has the
-        canvas's gizmo now, or ``None``) and ``gizmo_blocked`` (a reader of
-        why a plane cannot have one).  Empty without a controller, or when
-        none of the visuals is in a scene that can show 3D: the control
-        then draws no toggle.
+        ``gizmo_target`` (a :class:`ClippingPlaneGizmoTarget`),
+        ``gizmo_plane`` (the id of the plane that has the canvas's gizmo
+        now, as a string, if it is one of this visual's; otherwise
+        ``None``) and ``gizmo_blocked`` (a reader of why a plane cannot
+        have one, over ``controller.clipping_plane_gizmo_blocked``).
 
     Raises
     ------
+    KeyError
+        If the visual or the canvas is not registered.
     ValueError
-        If the scene that can show 3D has no canvas yet.
+        If the canvas does not show the visual's scene.
     """
-    if controller is None:
-        return {}
-    for visual_id in normalize_visual_ids(visual_ids):
-        try:
-            scene_id = controller.get_visual_scene_id(visual_id)
-        except KeyError:
-            continue
-        scene = controller.get_scene(scene_id)
-        if "3d" not in scene.render_modes:
-            continue
-        canvases = controller.get_canvas_ids(scene_id)
-        if not canvases:
-            raise ValueError(
-                f"Scene {scene.name!r} has no canvas to draw a clipping plane "
-                "gizmo in.  Build the canvas before the clipping planes "
-                "control."
-            )
-        canvas_id = canvases[0]
-        session = controller.get_clipping_plane_gizmo(canvas_id)
-        on_this = session is not None and session.visual_id == visual_id
+    visual_id, canvas_id = UUID(str(visual_id)), UUID(str(canvas_id))
+    scene_id = controller.get_visual_scene_id(visual_id)
+    if canvas_id not in controller.get_canvas_ids(scene_id):
+        controller.get_canvas_view(canvas_id)  # KeyError for an unknown canvas
+        raise ValueError(
+            f"Canvas {canvas_id} does not show scene "
+            f"{controller.get_scene(scene_id).name!r}, the scene of visual "
+            f"{visual_id}."
+        )
+    session = controller.get_clipping_plane_gizmo(canvas_id)
+    on_this = session is not None and session.visual_id == visual_id
 
-        def blocked(plane_id: str, _visual=visual_id, _canvas=canvas_id) -> str:
-            return controller.clipping_plane_gizmo_blocked(
-                _visual, _canvas, UUID(str(plane_id))
-            )
+    def blocked(plane_id: str) -> str:
+        return controller.clipping_plane_gizmo_blocked(
+            visual_id, canvas_id, UUID(str(plane_id))
+        )
 
-        return {
-            "gizmo": {
-                "visual_id": str(visual_id),
-                "canvas_id": str(canvas_id),
-                "scene_id": str(scene_id),
-            },
-            "gizmo_plane": str(session.plane_id) if on_this else None,
-            "gizmo_blocked": blocked,
-        }
-    return {}
+    return {
+        "gizmo_target": ClippingPlaneGizmoTarget(visual_id, canvas_id, scene_id),
+        "gizmo_plane": str(session.plane_id) if on_this else None,
+        "gizmo_blocked": blocked,
+    }
 
 
 class ClippingPlanesEditor:
@@ -332,7 +349,7 @@ class ClippingPlanesEditor:
     Parameters
     ----------
     visual_ids : Iterable[UUID]
-        The visuals edited together (an ``OrthoViewer`` panel group).
+        The visuals edited together.  One update is sent per visual.
     coordinate_system : UUID or str
         The level-0 data coordinate system of the store they read.
     axis_names : Sequence[str]
@@ -353,15 +370,20 @@ class ClippingPlanesEditor:
     bounds_source : Callable[[], Sequence[Sequence[float]]] or None
         Reads the store's current ``(low, high)`` per axis.  ``None`` keeps
         *bounds* for the life of the control.
-    gizmo : Mapping[str, Any] or None
-        Where a plane's gizmo is drawn: ``visual_id`` (the one of the
-        visuals the gizmo edits), ``canvas_id`` and ``scene_id``.  ``None``
-        gives the rows no gizmo toggle.  See :func:`gizmo_seed`.
+    gizmo_target : ClippingPlaneGizmoTarget or None
+        Where a plane's gizmo is drawn: the one of the visuals the gizmo
+        edits, the canvas and the canvas's scene.  ``None`` gives the rows
+        no gizmo toggle.  See :func:`get_clipping_plane_gizmo_data`.
     gizmo_plane : str or None
         The id of the plane that has the canvas's gizmo now.
     gizmo_blocked : Callable[[str], str] or None
         Given a plane's id, why it cannot have a gizmo now, or ``""``.
         ``None`` means never blocked.
+
+    Raises
+    ------
+    ValueError
+        If the visual of *gizmo_target* is not one of *visual_ids*.
     """
 
     def __init__(
@@ -376,7 +398,7 @@ class ClippingPlanesEditor:
         show: Callable[[list[Row], str], None],
         data_store_id: UUID | str | None = None,
         bounds_source: Callable[[], Sequence[Sequence[float]]] | None = None,
-        gizmo: Mapping[str, Any] | None = None,
+        gizmo_target: ClippingPlaneGizmoTarget | None = None,
         gizmo_plane: str | None = None,
         gizmo_blocked: Callable[[str], str] | None = None,
     ) -> None:
@@ -392,16 +414,17 @@ class ClippingPlanesEditor:
             None if data_store_id is None else UUID(str(data_store_id))
         )
         self._bounds_source = bounds_source
-        #: (visual, canvas, scene) of the gizmo, or ``None`` for no toggle.
-        self._gizmo: tuple[UUID, UUID, UUID] | None = (
-            None
-            if gizmo is None
-            else (
-                UUID(str(gizmo["visual_id"])),
-                UUID(str(gizmo["canvas_id"])),
-                UUID(str(gizmo["scene_id"])),
+        #: Where the gizmo is drawn, or ``None`` for no toggle.
+        self._gizmo: ClippingPlaneGizmoTarget | None = None
+        if gizmo_target is not None:
+            self._gizmo = ClippingPlaneGizmoTarget(
+                *(UUID(str(value)) for value in gizmo_target)
             )
-        )
+            if self._gizmo.visual_id not in self._visual_ids:
+                raise ValueError(
+                    f"The gizmo target's visual {self._gizmo.visual_id} is not "
+                    "one of the visuals this control edits."
+                )
         #: The id of the plane that has the canvas's gizmo, if it is one of
         #: this control's.
         self.gizmo_plane: str | None = None if gizmo_plane is None else str(gizmo_plane)
@@ -591,7 +614,9 @@ class ClippingPlanesEditor:
         """The canvas's gizmo moved to another plane, or closed: show it."""
         if self._gizmo is None:
             return
-        on_this = event.visual_id == self._gizmo[0] and event.plane_id is not None
+        on_this = (
+            event.visual_id == self._gizmo.visual_id and event.plane_id is not None
+        )
         plane = str(event.plane_id) if on_this else None
         if plane == self.gizmo_plane:
             return

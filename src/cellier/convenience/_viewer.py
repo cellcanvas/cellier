@@ -712,6 +712,45 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         """
         self._controller.remove_clipping_plane_gizmo(self._camera_canvas(canvas))
 
+    def _clipping_gizmo_target(
+        self, visual_ids: Sequence[UUID]
+    ) -> tuple[UUID, UUID] | None:
+        """Where a dock's clipping planes control draws its gizmo.
+
+        Asked by the layout walk when it builds the control, and not again:
+        a canvas added afterwards neither adds nor removes the toggle.
+
+        Parameters
+        ----------
+        visual_ids : Sequence[UUID]
+            The visuals the control edits (one, on a ``Viewer``).
+
+        Returns
+        -------
+        tuple[UUID, UUID] or None
+            ``(visual_id, canvas_id)`` when the viewer has exactly one
+            canvas.  ``None``, for a control with no gizmo toggle, when it
+            has several (the viewer does not choose between them: call
+            :meth:`add_clipping_plane_gizmo` with ``canvas=``) or when the
+            scene is never shown in 3D.
+
+        Raises
+        ------
+        ValueError
+            If the viewer has no canvas yet.
+        """
+        if "3d" not in self._scene.render_modes:
+            return None
+        canvas_ids = self.canvases
+        if not canvas_ids:
+            raise ValueError(
+                "This viewer has no canvas to draw a clipping plane gizmo in.  "
+                "Build the canvas before the clipping planes control."
+            )
+        if len(canvas_ids) > 1:
+            return None
+        return visual_ids[0], canvas_ids[0]
+
     # ------------------------------------------------------------------
     # Capture
     # ------------------------------------------------------------------
@@ -1244,6 +1283,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         ImageVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_image(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1332,6 +1372,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         LabelMemoryVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_labels(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1410,6 +1451,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         MeshVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_mesh(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1484,6 +1526,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         MultiscaleMeshVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_multiscale_mesh(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1557,6 +1600,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         PointsVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_points(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1635,6 +1679,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         GraphVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_graph(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1707,6 +1752,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         LinesVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_lines(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1785,6 +1831,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         MultiscaleImageVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_image_multiscale(
             self._resolve_data_store(data),
             self._scene.id,
@@ -1877,6 +1924,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         MultiscaleLabelVisual
         """
+        self._check_controls_docks(controls, name)
         visual = self._controller.add_labels_multiscale(
             self._resolve_data_store(data),
             self._scene.id,

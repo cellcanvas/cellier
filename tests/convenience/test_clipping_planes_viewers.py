@@ -142,7 +142,7 @@ def test_the_viewer_puts_a_gizmo_on_a_plane(qtbot):
 
 
 def test_the_ortho_gizmo_is_on_the_3d_panel_and_the_2d_panels_follow(qtbot):
-    from cellier.gui._clipping_planes import gizmo_seed
+    from cellier.gui._clipping_planes import get_clipping_plane_gizmo_data
 
     system = _system()
     store = LabelMemoryStore(
@@ -170,13 +170,95 @@ def test_the_ortho_gizmo_is_on_the_3d_panel_and_the_2d_panels_follow(qtbot):
         assert {v.clipping_planes[0].plane for v in visuals.values()} == {moved}
         assert {v.clipping_planes[0].id for v in visuals.values()} == {plane.id}
 
-        # A control of the panel group draws its toggle for the 3D panel.
-        seed = gizmo_seed(controller, [v.id for v in visuals.values()])
-        assert seed["gizmo"]["visual_id"] == str(visuals["vol"].id)
-        assert seed["gizmo"]["canvas_id"] == str(vol_canvas)
-        assert seed["gizmo_plane"] == str(plane.id)
+        # The viewer names the 3D panel for a control of a group that has
+        # its visual, and nothing for the 2D group.
+        group_2d = [visuals[key].id for key in ("xy", "xz", "yz")]
+        assert ortho._clipping_gizmo_target(group_2d) is None
+        for group in ([visuals["vol"].id], [v.id for v in visuals.values()]):
+            target = ortho._clipping_gizmo_target(group)
+            assert target == (visuals["vol"].id, vol_canvas)
+        data = get_clipping_plane_gizmo_data(controller, *target)
+        assert data["gizmo_target"].scene_id == ortho.scenes["vol"].id
+        assert data["gizmo_plane"] == str(plane.id)
 
         ortho.remove_clipping_plane_gizmo()
         assert session.closed
     finally:
         ortho.controller.close()
+
+
+# -- the dock's gizmo target (linking design 3.3) -------------------------------
+
+
+def _labels_store():
+    return LabelMemoryStore(
+        data=np.ones((8, 9, 10), np.int32), data_coordinate_systems=[_system()]
+    )
+
+
+def _dock_clipping_controls(viewer) -> list:
+    """The clipping planes control of each dock target, as the walk builds it."""
+    from cellier.convenience._backend import backend_for
+    from cellier.convenience.layout._shared import appearance_targets
+    from cellier.convenience.layout._walk import build_appearance_widgets
+    from cellier.gui.anywidget.visuals import AnywidgetClippingPlanesControls
+
+    controls = []
+    for target in appearance_targets(viewer):
+        built = build_appearance_widgets(
+            target.visual,
+            target.config,
+            viewer.controller,
+            target.visual_ids,
+            backend=backend_for("anywidget"),
+            clipping_gizmo_target=viewer._clipping_gizmo_target,
+        )
+        controls += [
+            widget
+            for widget in built
+            if isinstance(widget, AnywidgetClippingPlanesControls)
+        ]
+    return controls
+
+
+def test_a_viewer_names_its_one_canvas_for_the_docks_gizmo(qtbot):
+    from cellier.convenience import LabelsControlsConfig
+
+    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    try:
+        visual = viewer.add_labels(
+            _labels_store(),
+            controls=LabelsControlsConfig(appearance=True, clipping_controls=True),
+        )
+        # No canvas yet: the control cannot be built (no lazy binding).
+        with pytest.raises(ValueError, match="Build the canvas before"):
+            viewer._clipping_gizmo_target([visual.id])
+        with pytest.raises(ValueError, match="Build the canvas before"):
+            _dock_clipping_controls(viewer)
+
+        viewer.add_canvas()
+        (canvas_id,) = viewer.canvases
+        assert viewer._clipping_gizmo_target([visual.id]) == (visual.id, canvas_id)
+        (control,) = _dock_clipping_controls(viewer)
+        assert control.editor.has_gizmo
+
+        # Several canvases: the viewer does not choose, so no toggle.
+        viewer.add_canvas()
+        assert viewer._clipping_gizmo_target([visual.id]) is None
+        (control,) = _dock_clipping_controls(viewer)
+        assert not control.editor.has_gizmo
+    finally:
+        viewer.controller.close()
+
+
+def test_a_viewer_that_never_shows_3d_names_no_gizmo_target(qtbot):
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), dim="2d", render_modes={"2d"}, gui="offscreen"
+    )
+    try:
+        visual = viewer.add_labels(_labels_store())
+        assert viewer._clipping_gizmo_target([visual.id]) is None
+        viewer.add_canvas()
+        assert viewer._clipping_gizmo_target([visual.id]) is None
+    finally:
+        viewer.controller.close()

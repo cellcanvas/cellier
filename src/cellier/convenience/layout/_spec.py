@@ -110,6 +110,35 @@ class OverlayControls:
 
 
 @dataclass
+class OrthoClippingControls:
+    """Dock spec: the clipping planes controls of an ``OrthoViewer``.
+
+    At the top, a selector of how the panels' clipping planes are linked
+    ("All views", "2D views", "Not linked"), bound both ways to
+    ``ortho.clipping_controller.mode``.  Under it, for every visual added
+    with ``clipping_controls=True``, one clipping planes control per group
+    of linked panels, titled with the visual's name:
+
+    ============== ================================= ==================
+    Mode           Controls per visual               Gizmo toggle
+    ============== ================================= ==================
+    "All views"    "All views"                       Yes
+    "2D views"     "2D views", "3D view"             Only "3D view"
+    "Not linked"   "XY", "XZ", "YZ", "3D view"       Only "3D view"
+    ============== ================================= ==================
+
+    The dock follows the viewer as visuals are added and removed.  A visual
+    that has lost some of its panels keeps controls for the panels that are
+    left.  With no flagged visual it shows the selector and a placeholder.
+
+    Only for an ``OrthoViewer``; on a ``Viewer`` the clipping planes control
+    is part of :class:`AppearanceControls`.  On an ``OrthoViewer`` this is
+    the only place the clipping planes controls are shown, so a visual
+    added with ``clipping_controls=True`` needs this node in the layout.
+    """
+
+
+@dataclass
 class RenderControls:
     """Dock spec: one panel per renderer post-processing feature.
 
@@ -147,8 +176,16 @@ class Layout:
         view, so it does not need a dock of its own.
     left_dock, right_dock, top_dock, bottom_dock :
         Content for each dock region.  Accepts :class:`AppearanceControls`,
-        :class:`OverlayControls`, :class:`RenderControls`, or a stack of
-        those.  ``None`` hides the dock.
+        :class:`OverlayControls`, :class:`RenderControls`,
+        :class:`OrthoClippingControls` (ortho viewers), or a stack of those.
+        ``None`` hides the dock.
+
+        A visual's ``controls=`` flags need the dock that shows them:
+        ``appearance=`` needs an :class:`AppearanceControls` dock, and on an
+        ``OrthoViewer`` ``clipping_controls=True`` needs an
+        :class:`OrthoClippingControls` dock.  Rendering a layout without it
+        raises ``ValueError``, as does adding such a visual afterwards.  A
+        dock with no flagged visual is fine: it shows a placeholder.
     left_dock_min_width, right_dock_min_width : int or None
         The narrowest the left / right dock may be, in logical pixels, on both
         toolkits.  Must be at least :data:`DOCK_MIN_WIDTH` (260 px); a smaller

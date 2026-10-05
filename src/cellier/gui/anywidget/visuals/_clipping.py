@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from cellier.events import SubscriptionSpec
+    from cellier.gui._clipping_planes import ClippingPlaneGizmoTarget
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -40,7 +41,7 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
     column per data axis: two buttons named after the axis as the store's
     coordinate system gives it (``+z`` and ``-z``) that face the plane
     along the axis, and under them the normal's entry on it.  Values are in
-    the visual's data coordinates.  Given *gizmo*, a row also has a "Gizmo"
+    the visual's data coordinates.  Given *gizmo_target*, a row also has a "Gizmo"
     toggle that puts a gizmo on its plane in the 3D canvas; one plane of a
     canvas has it at a time.
 
@@ -53,8 +54,8 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
 
     Wire to the controller after construction::
 
-        seed = get_clipping_planes_data_from_visual(visual, store)
-        controls = AnywidgetClippingPlanesControls(visual.id, **seed)
+        data = get_clipping_planes_data_from_visual(visual, store)
+        controls = AnywidgetClippingPlanesControls(visual.id, **data)
         controller.connect_widget(
             controls, subscription_specs=controls.subscription_specs()
         )
@@ -78,10 +79,12 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
         Reads the store's current ``(low, high)`` per axis.  Given with
         *data_store_id*, the position ranges follow the store's extent;
         without it they stay at *bounds*.
-    gizmo, gizmo_plane, gizmo_blocked :
-        Where a plane's gizmo is drawn, the plane that has it now, and why
-        a plane cannot have one: ``gizmo_seed(controller, visual_ids)``.
-        Without *gizmo* the rows have no gizmo toggle.
+    gizmo_target, gizmo_plane, gizmo_blocked :
+        Where a plane's gizmo is drawn (a ``ClippingPlaneGizmoTarget``),
+        the plane that has it now, and why a plane cannot have one:
+        ``get_clipping_plane_gizmo_data(controller, visual_id, canvas_id)``.
+        The target's visual must be one of *visual_id*.  Without
+        *gizmo_target* the rows have no gizmo toggle.
     """
 
     _esm = _STATIC / "clipping_planes.js"
@@ -114,7 +117,7 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
         planes: Sequence[Mapping[str, Any]] = (),
         data_store_id: UUID | str | None = None,
         bounds_source: Callable[[], Sequence[Sequence[float]]] | None = None,
-        gizmo: Mapping[str, Any] | None = None,
+        gizmo_target: ClippingPlaneGizmoTarget | None = None,
         gizmo_plane: str | None = None,
         gizmo_blocked: Callable[[str], str] | None = None,
         **kwargs,
@@ -133,7 +136,7 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
             self._show,
             data_store_id=data_store_id,
             bounds_source=bounds_source,
-            gizmo=gizmo,
+            gizmo_target=gizmo_target,
             gizmo_plane=gizmo_plane,
             gizmo_blocked=gizmo_blocked,
         )

@@ -15,6 +15,10 @@ from uuid import UUID
 
 from cellier.controller import CellierController
 from cellier.convenience._controls_registry import ControlsRegistryMixin
+from cellier.convenience._ortho_clipping import (
+    ClippingLinkMode,
+    OrthoClippingController,
+)
 from cellier.convenience._ortho_dims import OrthoDimsController
 from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
@@ -232,6 +236,12 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     ``AppearanceControls()`` dock offers both, labelled ``"{name} (2D
     views)"`` and ``"{name} (3D view)"``.
 
+    Clipping planes controls are not in the appearance docks.  A visual
+    added with ``clipping_controls=True`` is shown in the
+    ``OrthoClippingControls()`` dock, which holds the link mode selector
+    (see *link_clipping_planes*) and one clipping planes control per group
+    of linked panels.
+
     Parameters
     ----------
     axes : WorldAxesLike
@@ -246,6 +256,12 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     link_axes : bool
         When ``True`` (default), every axis's slice position, thickness and
         slider override is mirrored across the four panels.
+    link_clipping_planes : {"all", "2d"} or None
+        Which panels of one ``add_*`` call carry one tuple of clipping
+        planes: all four (default), the three 2D panels (the 3D panel is
+        independent), or none.  It applies to every dataset added, and is
+        the starting :attr:`clipping_controller` ``mode``, which can be set
+        later.
     render_config : RenderManagerConfig or None
         Render pipeline configuration passed through to the controller.
     gui : "qt", "anywidget", or "offscreen"
@@ -257,16 +273,24 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         builders reject them.
     """
 
+    # Clipping planes controls live in the ortho clipping widget, one per
+    # link group, not in the appearance docks.
+    _CLIPPING_DOCK_NODE = "OrthoClippingControls"
+
     def __init__(
         self,
         axes: WorldAxesLike,
         *,
         spatial_axes: tuple[str, ...] | tuple[int, ...] | None = None,
         link_axes: bool = True,
+        link_clipping_planes: ClippingLinkMode = "all",
         render_config: RenderManagerConfig | None = None,
         gui: Literal["qt", "anywidget", "offscreen"] = "qt",
     ) -> None:
         self._controller = CellierController(render_config=render_config, gui=gui)
+        self._clipping_controller = OrthoClippingController(
+            self._controller, link_clipping_planes
+        )
         world = world_coordinate_system(axes)
         self._spatial_axes = _resolve_spatial_axes(world.axis_names(), spatial_axes)
         self._ndim = world.ndim
@@ -695,6 +719,18 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         return self._dims_controller
 
     @property
+    def clipping_controller(self) -> OrthoClippingController:
+        """The controller linking clipping planes across the panels.
+
+        Its ``mode`` (``"all"``, ``"2d"`` or ``None``) says which panels of
+        one ``add_*`` call carry one tuple of planes, and can be set at any
+        time::
+
+            ortho.clipping_controller.mode = "2d"
+        """
+        return self._clipping_controller
+
+    @property
     def axis_sync_enabled(self) -> bool:
         """Whether dims edits are mirrored across the panels."""
         return self._dims_controller is not None and self._dims_controller.enabled
@@ -732,6 +768,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         path: str | Path,
         *,
         link_axes: bool = True,
+        link_clipping_planes: ClippingLinkMode = "all",
         render_config: RenderManagerConfig | None = None,
     ) -> OrthoViewer:
         """Restore an ``OrthoViewer`` from a previously serialized file.
@@ -741,12 +778,24 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         displayed axes -- no extra metadata is stored.  Dims mirroring is
         re-established when *link_axes* is ``True``.
 
+        The clipping plane links are rebuilt too.  The panel visuals of
+        each dataset are found by name and type (``f"{name}_{key}"``, as
+        :meth:`image_group` does; datasets of one name and type are paired
+        in the order they were added) and linked as *link_clipping_planes*
+        says.  The mode is not in the file.  A load does not rewrite what
+        was saved: a file whose panels differ where the mode would link
+        them (saved in ``"2d"`` with the 3D panel's planes moved, loaded
+        with ``"all"``) is refused.
+
         Parameters
         ----------
         path : str or Path
             Path to a JSON file written by :meth:`to_file`.
         link_axes : bool
             Re-establish the cross-panel dims mirroring.  Default ``True``.
+        link_clipping_planes : {"all", "2d"} or None
+            The clipping link mode; see :class:`OrthoViewer`.  Pass the
+            mode the viewer was saved in.
         render_config : RenderManagerConfig or None
             Override the serialized render pipeline configuration.
 
@@ -757,7 +806,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Raises
         ------
         ValueError
-            If the file does not contain exactly the four expected panels.
+            If the file does not contain exactly the four expected panels,
+            or the panels of a dataset carry different clipping planes
+            where *link_clipping_planes* links them.
         """
         controller = CellierController.from_file(path, render_config=render_config)
         scenes_by_name = {
@@ -784,10 +835,51 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         obj._ndim = ndim
         obj._extra_axes = {i for i in range(ndim) if i not in vol_displayed}
         obj._dims_controller = None
+        obj._clipping_controller = OrthoClippingController(
+            controller, link_clipping_planes
+        )
+        for name, visuals in obj._panel_groups():
+            try:
+                obj._clipping_controller.add_group(visuals, require_agreement=True)
+            except ValueError:
+                controller.close()
+                raise ValueError(
+                    f"The panels of {name!r} in {str(path)!r} do not carry the "
+                    "same clipping planes, so they cannot be linked with "
+                    f"link_clipping_planes={link_clipping_planes!r}.  Pass the "
+                    "mode the viewer was saved in ('2d' or None)."
+                ) from None
         obj._init_controls_registry()
         if link_axes:
             obj._wire_axis_sync()
         return obj
+
+    def _panel_groups(self) -> list[tuple[str, dict[str, object]]]:
+        """The panel visuals of each dataset, found by name and type.
+
+        The rule of :meth:`image_group`: the panel visuals of one ``add_*``
+        call are of one type and named ``f"{name}_{key}"``.  Datasets of one
+        name and type are paired in scene order, which is the order they
+        were added in.
+
+        Returns
+        -------
+        list[tuple[str, dict[str, object]]]
+            ``(name, {panel key: visual model})`` per dataset, in the order
+            first met.  A dataset that has lost a panel has no entry for it.
+        """
+        groups: dict[tuple, dict[str, object]] = {}
+        for key in _PANEL_KEYS:
+            seen: dict[tuple, int] = {}
+            for visual in self._scenes[key].visuals:
+                name = str(visual.name)
+                if not name.endswith(f"_{key}"):
+                    continue
+                ident = (name[: -len(key) - 1], type(visual))
+                nth = seen.get(ident, 0)
+                seen[ident] = nth + 1
+                groups.setdefault((*ident, nth), {})[key] = visual
+        return [(ident[0], visuals) for ident, visuals in groups.items()]
 
     # ------------------------------------------------------------------
     # Dims control
@@ -977,21 +1069,13 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Call *add_one(key, scene)* for every panel and collect the results.
 
         The panels' visuals read one store and share its data coordinate
-        system, so their clipping planes are linked: assigning
-        ``clipping_planes`` on one panel's visual gives the same tuple to
-        the others.  Each panel then reduces it with its own displayed axes
-        (clipping planes design D20).
+        system, so one tuple of clipping planes means the same cut in each
+        of them, and each panel reduces it with its own displayed axes
+        (clipping planes design D20).  They are registered with
+        :attr:`clipping_controller`, which links them as its mode says.
         """
         visuals = {key: add_one(key, scene) for key, scene in self._scenes.items()}
-        models = list(visuals.values())
-        for source in models:
-
-            def _mirror(planes, source=source) -> None:
-                for other in models:
-                    if other is not source and other.clipping_planes != planes:
-                        other.clipping_planes = planes
-
-            source.events.clipping_planes.connect(_mirror)
+        self._clipping_controller.add_group(visuals)
         return visuals
 
     # ------------------------------------------------------------------
@@ -1065,6 +1149,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             The per-panel visuals keyed ``"xy"``, ``"xz"``, ``"yz"``, ``"vol"``.
         """
         store = self._resolve_data_store(data)
+        self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_image(
                 store,
@@ -1140,6 +1225,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, LabelMemoryVisual]
         """
         store = self._resolve_data_store(data)
+        self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_labels(
                 store,
@@ -1214,6 +1300,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, MeshVisual]
         """
         store = self._resolve_data_store(data)
+        self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_mesh(
                 store,
@@ -1290,6 +1377,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, MultiscaleMeshVisual]
         """
         store = self._resolve_data_store(data)
+        self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_multiscale_mesh(
                 store,
@@ -1358,6 +1446,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, PointsVisual]
         """
         store = self._resolve_data_store(data)
+        self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_points(
                 store,
@@ -1428,6 +1517,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, GraphVisual]
         """
         store = self._resolve_data_store(data)
+        self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_graph(
                 store,
@@ -1495,6 +1585,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, LinesVisual]
         """
         store = self._resolve_data_store(data)
+        self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_lines(
                 store,
@@ -1575,6 +1666,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, MultiscaleImageVisual]
         """
         store = self._resolve_data_store(data)
+        self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_image_multiscale(
                 store,
@@ -1654,6 +1746,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, MultiscaleLabelVisual]
         """
         store = self._resolve_data_store(data)
+        self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_labels_multiscale(
                 store,
@@ -1900,8 +1993,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     ) -> ClippingPlaneGizmoController:
         """Put a gizmo on one clipping plane of a visual, in the 3D panel.
 
-        Dragging the gizmo moves and tilts the plane.  The panels' planes
-        are linked, so the 2D panels follow.  Mirrors
+        Dragging the gizmo moves and tilts the plane.  The 2D panels follow
+        when the panels' planes are linked (``clipping_controller.mode``
+        ``"all"``, the default).  Mirrors
         :meth:`CellierController.add_clipping_plane_gizmo`: the 3D panel
         has one gizmo at a time.
 
@@ -1910,7 +2004,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         visual : UUID, visual model, or dict
             Any panel's visual, or the dict an ``add_*`` method returned.
         plane : ClippingPlane or UUID
-            One of the visual's ``clipping_planes``, or its ``id``.
+            One of the 3D panel's visual's ``clipping_planes``, or its
+            ``id``.  With the mode ``"2d"`` or ``None`` the 3D panel has its
+            own planes, and a plane of a 2D panel only is not one of them.
 
         Returns
         -------
@@ -1920,7 +2016,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Raises
         ------
         KeyError
-            If the visual has no plane with that id.
+            If the 3D panel's visual has no plane with that id.
         ValueError
             If the 3D panel has no canvas yet, or the plane has a component
             on an axis the 3D panel does not show.
@@ -1935,6 +2031,36 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     def remove_clipping_plane_gizmo(self) -> None:
         """Close the 3D panel's clipping plane gizmo; nothing if it has none."""
         self._controller.remove_clipping_plane_gizmo(self._panel_canvas("vol"))
+
+    def _clipping_gizmo_target(
+        self, visual_ids: Sequence[UUID]
+    ) -> tuple[UUID, UUID] | None:
+        """Where a dock's clipping planes control draws its gizmo.
+
+        Asked by the ortho clipping widget when it builds a control.
+
+        Parameters
+        ----------
+        visual_ids : Sequence[UUID]
+            The visuals the control edits: a group of panel siblings.
+
+        Returns
+        -------
+        tuple[UUID, UUID] or None
+            The 3D panel's visual of the group and the 3D panel's canvas.
+            ``None``, for a control with no gizmo toggle, when the group
+            has no visual in the 3D panel.
+
+        Raises
+        ------
+        ValueError
+            If the 3D panel has no canvas yet.
+        """
+        vol_scene_id = self._scenes["vol"].id
+        for visual_id in visual_ids:
+            if self._controller.get_visual_scene_id(visual_id) == vol_scene_id:
+                return visual_id, self._panel_canvas("vol")
+        return None
 
     def set_image_composite(self, visual: object, composite: bool) -> None:
         """Switch every panel's image between single and composite mode.
@@ -1999,7 +2125,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         The appearance docks resolve this record through
         ``appearance_targets``, which is what makes ``AppearanceControls()``
-        work on an ``OrthoViewer`` at all (section 4.1).
+        work on an ``OrthoViewer`` at all (section 4.1).  The clipping
+        planes controls are not in those docks: ``clipping_controls=True``
+        puts the dataset in the ``OrthoClippingControls()`` widget, with one
+        control per link group.
         """
         for keys, label in _CONTROLS_GROUPS.values():
             self._store_controls(

@@ -16,6 +16,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from cellier.convenience._hosts import LayoutHost
 
 
@@ -31,19 +33,32 @@ def render_layout(layout: object, viewer: object, host: LayoutHost) -> RenderedV
 
     The whole traversal, for every toolkit.  Everything backend-specific is
     reached through *host* and the ``GuiBackend`` it carries.
+
+    Before anything is built, the viewer checks its recorded ``controls=``
+    flags against the layout's dock nodes: a flag with no dock to show its
+    controls in raises ``ValueError``.  The viewer keeps the dock nodes, for
+    the ``add_*`` calls that follow, only once the whole layout is built: a
+    render that raises leaves it as it was.
     """
+    from cellier.convenience.layout._shared import dock_node_names
+
+    nodes = dock_node_names(layout)
+    check = getattr(viewer, "_check_rendered_layout", None)
+    if check is not None:
+        check(nodes)
     closeables: list = []
     center = render_center(layout.center, host, closeables)
     docks = {
         name: render_dock(getattr(layout, f"{name}_dock"), viewer, host, closeables)
         for name in ("left", "right", "top", "bottom")
     }
-    return RenderedView(
-        host.assemble(
-            center, docks, closeables, dock_min_widths=layout.dock_min_widths()
-        ),
-        closeables,
+    root = host.assemble(
+        center, docks, closeables, dock_min_widths=layout.dock_min_widths()
     )
+    record = getattr(viewer, "_record_rendered_layout", None)
+    if record is not None:
+        record(nodes)
+    return RenderedView(root, closeables)
 
 
 def render_center(node: object, host: LayoutHost, closeables: list) -> object:
@@ -92,8 +107,9 @@ def render_dock(
 ) -> object | None:
     """Render one dock spec, or ``None`` when it builds nothing.
 
-    ``AppearanceControls`` always builds something: it follows the viewer, so they
-    render a placeholder until a configured visual exists.  Only a ``RenderControls``
+    ``AppearanceControls`` and ``OrthoClippingControls`` always build something:
+    they follow the viewer, so they render a placeholder until a configured
+    visual exists.  Only a ``RenderControls``
     with no sections, or a stack of nothing but those, builds nothing.
 
     Which controls a dock contains is decided in ``_shared.py`` and is the same
@@ -105,6 +121,7 @@ def render_dock(
     from cellier.convenience.layout._spec import (
         AppearanceControls,
         HStack,
+        OrthoClippingControls,
         OverlayControls,
         RenderControls,
         VStack,
@@ -114,6 +131,8 @@ def render_dock(
         return None
     if isinstance(spec, AppearanceControls):
         return _render_appearance_dock(spec, viewer, host, closeables)
+    if isinstance(spec, OrthoClippingControls):
+        return _render_ortho_clipping_dock(viewer, host, closeables)
     if isinstance(spec, OverlayControls):
         return _render_overlay_dock(spec, viewer, host, closeables)
     if isinstance(spec, RenderControls):
@@ -138,12 +157,24 @@ def build_appearance_widgets(
     visual_ids: list | None = None,
     *,
     backend: object,
+    clipping_gizmo_target: Callable[[list], tuple | None] | None = None,
+    clipping_controls: bool = True,
 ) -> list:
     """Build and wire the appearance controls for *visual*, on any backend.
 
     Returns the widgets in display order, each already ``connect_widget``-wired
     where it has a bus contract, and each carrying the name the shared spec
     gave it.
+
+    *clipping_gizmo_target* is how the viewer names where the clipping planes
+    control draws its gizmo: given the control's visual ids it returns
+    ``(visual_id, canvas_id)``, or ``None`` for no gizmo toggle.  It is asked
+    only when a clipping planes control is built.  Without it the control has
+    no toggle: nothing here picks a visual or a canvas.
+
+    *clipping_controls* ``False`` builds no clipping planes control whatever
+    the config says: on an ``OrthoViewer`` they are in the
+    ``OrthoClippingControls()`` dock, one per link group, and not here.
     """
     from cellier.convenience.layout._shared import (
         STATIC_CONTROL_KINDS,
@@ -160,14 +191,23 @@ def build_appearance_widgets(
         palette=controller.render_config.outline.palette,
     )
     warn_skipped_appearance_fields(skipped, visual, config)
-    # Every visual the controls write to: one on a ``Viewer``, the four panel
-    # siblings on an ``OrthoViewer``.  Defaults to *visual* alone.
+    # Every visual the controls write to: one on a ``Viewer``, a group of
+    # panel siblings on an ``OrthoViewer``.  Defaults to *visual* alone.
     visual_ids = [visual.id] if visual_ids is None else list(visual_ids)
 
     built: list = []
     for spec in specs:
+        if spec.kind == "clipping_planes" and not clipping_controls:
+            continue
         builder = backend.builders.get(spec.kind)
-        if builder is not None:
+        if builder is not None and spec.kind == "clipping_planes":
+            gizmo = (
+                None
+                if clipping_gizmo_target is None
+                else clipping_gizmo_target(list(visual_ids))
+            )
+            widget = builder(spec, list(visual_ids), controller, gizmo)
+        elif builder is not None:
             widget = builder(spec, list(visual_ids), controller)
         elif spec.kind in APPEARANCE_FIELD_WIDGETS:
             widget = backend.field_widget(spec, list(visual_ids))
@@ -200,6 +240,9 @@ def _render_appearance_dock(
     from cellier.convenience.layout._shared import appearance_targets
 
     controller = viewer.controller
+    # Where this viewer shows clipping planes controls: here, or (an
+    # ``OrthoViewer``) in the ortho clipping widget.
+    clipping_node = getattr(viewer, "_CLIPPING_DOCK_NODE", "AppearanceControls")
 
     def build(target) -> list:
         return build_appearance_widgets(
@@ -208,6 +251,8 @@ def _render_appearance_dock(
             controller,
             target.visual_ids,
             backend=host.backend,
+            clipping_gizmo_target=getattr(viewer, "_clipping_gizmo_target", None),
+            clipping_controls=clipping_node == "AppearanceControls",
         )
 
     dock = ControlsDock(
@@ -220,6 +265,23 @@ def _render_appearance_dock(
     )
     closeables.append(dock)
     return dock.root
+
+
+def _render_ortho_clipping_dock(
+    viewer: object, host: LayoutHost, closeables: list
+) -> object:
+    """The link mode selector over an ``OrthoViewer``'s clipping controls."""
+    from cellier.convenience.gui._ortho_clipping import OrthoClippingWidget
+
+    if not hasattr(viewer, "clipping_controller"):
+        raise TypeError(
+            "OrthoClippingControls() needs an OrthoViewer; "
+            f"got {type(viewer).__name__}. On a Viewer the clipping planes "
+            "control is part of AppearanceControls()."
+        )
+    widget = OrthoClippingWidget(viewer, host)
+    closeables.append(widget)
+    return widget.root
 
 
 def build_overlay_widgets(

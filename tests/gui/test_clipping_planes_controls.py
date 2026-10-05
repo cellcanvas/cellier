@@ -16,7 +16,9 @@ from cellier.controller import CellierController
 from cellier.data import PointsMemoryStore
 from cellier.gui._clipping_planes import (
     CLIPPING_PLANES_TITLE,
+    ClippingPlaneGizmoTarget,
     facing_of,
+    get_clipping_plane_gizmo_data,
     get_clipping_planes_data_from_visual,
     planes_from_rows,
     position_range,
@@ -61,16 +63,16 @@ def _add_points(controller, names="zyx", name="points"):
 
 
 def _make(toolkit, visual_ids, visual, store):
-    seed = get_clipping_planes_data_from_visual(visual, store)
+    data = get_clipping_planes_data_from_visual(visual, store)
     if toolkit == "qt":
         from cellier.gui.qt.visuals import QtClippingPlanesControls
 
-        control = QtClippingPlanesControls(visual_ids, **seed)
+        control = QtClippingPlanesControls(visual_ids, **data)
         _QTBOT[-1].addWidget(control.widget)
         return control
     from cellier.gui.anywidget.visuals import AnywidgetClippingPlanesControls
 
-    return AnywidgetClippingPlanesControls(visual_ids, **seed)
+    return AnywidgetClippingPlanesControls(visual_ids, **data)
 
 
 def _act(widget, action, index=None, value=None) -> None:
@@ -158,14 +160,14 @@ def test_the_facing_of_a_normal():
     assert facing_of([0, 0, 0]) is None
 
 
-def test_the_seed_is_read_off_the_store(controller):
+def test_the_control_data_is_read_off_the_store(controller):
     visual, store = _add_points(controller)
-    seed = get_clipping_planes_data_from_visual(visual, store)
-    assert seed["axis_names"] == ["z", "y", "x"]
-    assert seed["bounds"] == [[0.0, 10.0], [0.0, 20.0], [0.0, 40.0]]
-    assert seed["coordinate_system"] == str(store.data_coordinate_system.id)
-    assert seed["data_store_id"] == str(store.id)
-    assert seed["planes"] == []
+    data = get_clipping_planes_data_from_visual(visual, store)
+    assert data["axis_names"] == ["z", "y", "x"]
+    assert data["bounds"] == [[0.0, 10.0], [0.0, 20.0], [0.0, 40.0]]
+    assert data["coordinate_system"] == str(store.data_coordinate_system.id)
+    assert data["data_store_id"] == str(store.id)
+    assert data["planes"] == []
 
 
 # -- the control ----------------------------------------------------------------
@@ -532,23 +534,23 @@ def _gizmo_scene(controller, names="zyx"):
     return visual, store, controller.get_canvas_ids(scene_id)[0]
 
 
-def _make_wired(toolkit, controller, visual, store):
-    """The control as a panel builds it, wired to the controller."""
-    from cellier.gui._clipping_planes import gizmo_seed
-
-    seed = {
+def _make_wired(toolkit, controller, visual, store, visual_ids=None):
+    """The control with its gizmo on *visual* in the scene's canvas, wired."""
+    (canvas_id,) = controller.get_canvas_ids(controller.get_visual_scene_id(visual.id))
+    data = {
         **get_clipping_planes_data_from_visual(visual, store),
-        **gizmo_seed(controller, visual.id),
+        **get_clipping_plane_gizmo_data(controller, visual.id, canvas_id),
     }
+    visual_ids = visual.id if visual_ids is None else visual_ids
     if toolkit == "qt":
         from cellier.gui.qt.visuals import QtClippingPlanesControls
 
-        control = QtClippingPlanesControls(visual.id, **seed)
+        control = QtClippingPlanesControls(visual_ids, **data)
         _QTBOT[-1].addWidget(control.widget)
     else:
         from cellier.gui.anywidget.visuals import AnywidgetClippingPlanesControls
 
-        control = AnywidgetClippingPlanesControls(visual.id, **seed)
+        control = AnywidgetClippingPlanesControls(visual_ids, **data)
     controller.connect_widget(control, subscription_specs=control.subscription_specs())
     return control
 
@@ -566,28 +568,62 @@ def _gizmo_states(widget) -> list[tuple[bool, str]]:
     ]
 
 
-def test_a_gizmo_toggle_needs_the_canvas_built_first(controller):
-    from cellier.gui._clipping_planes import gizmo_seed
+def test_the_gizmo_data_is_for_the_visual_and_canvas_named(controller):
+    visual, store, canvas_id = _gizmo_scene(controller)
+    scene_id = controller.get_visual_scene_id(visual.id)
+    first, second = visual.clipping_planes
 
-    visual, _store = _add_points(controller)  # a 3D scene with no canvas
-    with pytest.raises(ValueError, match="Build the canvas before"):
-        gizmo_seed(controller, visual.id)
-    controller.add_canvas(scene_id=controller.get_visual_scene_id(visual.id))
-    assert gizmo_seed(controller, visual.id)["gizmo"]["visual_id"] == str(visual.id)
+    data = get_clipping_plane_gizmo_data(controller, visual.id, canvas_id)
+    assert set(data) == {"gizmo_target", "gizmo_plane", "gizmo_blocked"}
+    assert data["gizmo_target"] == ClippingPlaneGizmoTarget(
+        visual_id=visual.id, canvas_id=canvas_id, scene_id=scene_id
+    )
+    assert data["gizmo_plane"] is None
+    assert data["gizmo_blocked"](str(first.id)) == ""
+
+    # The plane that has the canvas's gizmo now, if it is this visual's.
+    controller.add_clipping_plane_gizmo(visual.id, canvas_id, second.id)
+    data = get_clipping_plane_gizmo_data(controller, visual.id, canvas_id)
+    assert data["gizmo_plane"] == str(second.id)
+    other = controller.add_points(data=store, scene_id=scene_id, name="other")
+    data = get_clipping_plane_gizmo_data(controller, other.id, canvas_id)
+    assert data["gizmo_plane"] is None
+
+
+def test_the_gizmo_data_refuses_ids_that_do_not_go_together(controller):
+    visual, _store, canvas_id = _gizmo_scene(controller)
+    with pytest.raises(KeyError):
+        get_clipping_plane_gizmo_data(controller, uuid4(), canvas_id)
+    with pytest.raises(KeyError):
+        get_clipping_plane_gizmo_data(controller, visual.id, uuid4())
+
+    # A canvas of another scene.
+    elsewhere = controller.add_scene(dim="3d", name="elsewhere")
+    controller.add_canvas(scene_id=elsewhere.id)
+    (other_canvas,) = controller.get_canvas_ids(elsewhere.id)
+    with pytest.raises(ValueError, match="does not show scene"):
+        get_clipping_plane_gizmo_data(controller, visual.id, other_canvas)
+
+    # A scene with no canvas has nothing to name: there is no lazy binding.
+    bare, _ = _add_points(controller, name="bare")
+    assert controller.get_canvas_ids(controller.get_visual_scene_id(bare.id)) == []
 
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
-def test_a_control_given_no_gizmo_draws_no_toggle(controller, toolkit):
-    """A control built with no gizmo arguments: one with no controller, or
-    whose scene never shows 3D."""
-    from cellier.gui._clipping_planes import gizmo_seed
+def test_the_gizmo_target_must_be_one_of_the_controls_visuals(controller, toolkit):
+    visual, store, _canvas_id = _gizmo_scene(controller)
+    scene_id = controller.get_visual_scene_id(visual.id)
+    other = controller.add_points(data=store, scene_id=scene_id, name="other")
+    with pytest.raises(ValueError, match="not one of the visuals"):
+        _make_wired(toolkit, controller, visual, store, visual_ids=[other.id])
+    # One of a group is fine: the control edits both, the gizmo edits one.
+    widget = _make_wired(toolkit, controller, visual, store, [other.id, visual.id])
+    assert widget.editor.has_gizmo
 
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_a_control_given_no_gizmo_target_draws_no_toggle(controller, toolkit):
     visual, store = _add_points(controller)
-    assert gizmo_seed(None, visual.id) == {}
-    flat = controller.add_scene(dim="2d", name="flat", render_modes={"2d"})
-    flat_visual = controller.add_points(data=store, scene_id=flat.id, name="flat")
-    assert gizmo_seed(controller, flat_visual.id) == {}
-
     widget = _make(toolkit, visual.id, visual, store)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
     _act(widget, "add")
@@ -724,14 +760,34 @@ def test_the_panel_builders_give_the_control_its_gizmo(controller, toolkit):
     if toolkit == "qt":
         from cellier.convenience.gui._appearance_widgets_qt import QT_BUILDERS
 
-        widget = QT_BUILDERS["clipping_planes"](spec, [visual.id], controller)
-        _QTBOT[-1].addWidget(widget.widget)
+        builder = QT_BUILDERS["clipping_planes"]
     else:
         from cellier.convenience.gui._appearance_widgets import ANYWIDGET_BUILDERS
 
-        widget = ANYWIDGET_BUILDERS["clipping_planes"](spec, [visual.id], controller)
+        builder = ANYWIDGET_BUILDERS["clipping_planes"]
+    # The builder selects nothing: with no target named there is no toggle.
+    assert not builder(spec, [visual.id], controller).editor.has_gizmo
+
+    widget = builder(spec, [visual.id], controller, (visual.id, canvas_id))
+    if toolkit == "qt":
+        _QTBOT[-1].addWidget(widget.widget)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
     assert widget.editor.has_gizmo
     _act(widget, "gizmo", 1, True)
     assert controller.get_clipping_plane_gizmo(canvas_id) is not None
     assert _gizmo_states(widget) == [(False, ""), (True, "")]
+
+
+def test_the_explicit_api_is_exported_from_cellier_gui():
+    """What a hand-built control is made from needs no private import."""
+    import cellier.gui as gui
+    from cellier.gui import _clipping_planes
+
+    for name in (
+        "ClippingPlaneGizmoTarget",
+        "get_axis_bounds_from_store",
+        "get_clipping_plane_gizmo_data",
+        "get_clipping_planes_data_from_visual",
+    ):
+        assert name in gui.__all__
+        assert getattr(gui, name) is getattr(_clipping_planes, name)
