@@ -1121,6 +1121,7 @@ class _Subscription:
         "_strong_cb",   # callback (strong ref)
         "_weak_func",   # weakref to unbound function (weak bound methods or weak fns)
         "_weak_obj",    # weakref to bound instance (weak bound methods only)
+        "entity_field", # event field entity_id is compared with; None = canonical
         "entity_id",
         "handle",
         "is_weak",
@@ -1185,6 +1186,7 @@ is small (tens of entries) so this has no measurable cost.
         entity_id: UUID | None = None,
         owner_id: UUID | None = None,
         weak: bool = False,
+        entity_field: str | None = None,
     ) -> SubscriptionHandle:
         """Register callback to be called when event_type is emitted.
 
@@ -1206,6 +1208,11 @@ is small (tens of entries) so this has no measurable cost.
             Store a weak reference to the callback.  Dead weak
             subscriptions are cleaned up lazily during emission.
             Do not pass lambdas with ``weak=True``.
+        entity_field :
+            Name of the event field ``entity_id`` is compared with, for
+            this subscription only.  ``None`` (the default) uses the
+            event type's canonical field.  See "Filtering on a
+            non-canonical field" below.
 
         Returns
         -------
@@ -1273,6 +1280,40 @@ _ENTITY_FIELD: dict[type, str] = {
     CanvasMouseRelease3DEvent:         "source_id",
 }
 ```
+
+### Filtering on a non-canonical field
+
+An event type has one canonical field, but some events carry a second id a
+subscriber may want to filter on. `VisualAddedEvent` and `VisualRemovedEvent` are
+routed by `scene_id` and also carry `visual_id`. Passing `entity_field` to
+`subscribe` makes the bus compare that subscription's `entity_id` with the named
+field instead of the canonical one:
+
+```python
+bus.subscribe(
+    VisualRemovedEvent,
+    callback,
+    entity_id=visual_id,
+    entity_field="visual_id",
+)
+```
+
+The override belongs to the subscription, not the event type, so subscribers to the
+same event can filter differently:
+
+| `entity_id` | `entity_field` | Fires when |
+|---|---|---|
+| scene id | not set | any visual in that scene is removed |
+| not set | not set | any visual is removed |
+| visual id | `"visual_id"` | that visual is removed |
+
+`CellierController.on_visual_added` and `on_visual_removed` take a visual id and
+subscribe this way. The filter is applied by the bus rather than by a wrapper around
+the callback, so `weak=True` still references the caller's own callback and
+`get_subscribers` reports it by name.
+
+`entity_field` has no effect when `entity_id` is `None`. If it names a field the
+event does not have, the subscription never matches; the bus does not raise.
 
 ---
 
