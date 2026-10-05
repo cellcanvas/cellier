@@ -9824,6 +9824,9 @@ class CellierController:
     ) -> SubscriptionHandle:
         """Register a callback fired when *visual_id* is added.
 
+        The bus routes this event by scene, so the subscription filters on
+        the event's ``visual_id`` field instead.
+
         Parameters
         ----------
         visual_id :
@@ -9843,6 +9846,7 @@ class CellierController:
             VisualAddedEvent,
             callback,
             entity_id=visual_id,
+            entity_field="visual_id",
             owner_id=owner_id,
             weak=weak,
         )
@@ -9856,6 +9860,9 @@ class CellierController:
         weak: bool = False,
     ) -> SubscriptionHandle:
         """Register a callback fired when *visual_id* is removed.
+
+        The bus routes this event by scene, so the subscription filters on
+        the event's ``visual_id`` field instead.
 
         Parameters
         ----------
@@ -9876,6 +9883,7 @@ class CellierController:
             VisualRemovedEvent,
             callback,
             entity_id=visual_id,
+            entity_field="visual_id",
             owner_id=owner_id,
             weak=weak,
         )

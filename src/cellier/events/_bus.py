@@ -189,6 +189,7 @@ class _Subscription:
         "_strong_cb",
         "_weak_func",
         "_weak_obj",
+        "entity_field",
         "entity_id",
         "handle",
         "is_weak",
@@ -202,9 +203,11 @@ class _Subscription:
         entity_id: UUID | None,
         owner_id: UUID | None,
         weak: bool,
+        entity_field: str | None = None,
     ) -> None:
         self.handle = handle
         self.entity_id = entity_id
+        self.entity_field = entity_field
         self.owner_id = owner_id
         self.is_weak = weak
         self._strong_cb: Callable | None = None
@@ -343,6 +346,7 @@ class EventBus:
         entity_id: UUID | None = None,
         owner_id: UUID | None = None,
         weak: bool = False,
+        entity_field: str | None = None,
     ) -> SubscriptionHandle:
         """Register *callback* to be called when *event_type* is emitted.
 
@@ -360,6 +364,12 @@ class EventBus:
         weak:
             If True, hold only a weak reference to *callback*.  Lambdas
             cannot be weakly referenced and will raise ``ValueError``.
+        entity_field:
+            Name of the event field *entity_id* is compared with, for this
+            subscription only.  ``None`` (the default) uses the event type's
+            canonical field.  Use it to filter on another id the event
+            carries, e.g. ``"visual_id"`` for ``VisualRemovedEvent``, which
+            is routed by ``scene_id``.
 
         Returns
         -------
@@ -384,6 +394,7 @@ class EventBus:
             entity_id=entity_id,
             owner_id=owner_id,
             weak=weak,
+            entity_field=entity_field,
         )
         self._subs[event_type].append(sub)
         self._handle_index[handle._id] = (event_type, sub)
@@ -451,8 +462,13 @@ class EventBus:
                 continue
 
             # Entity filter
-            if sub.entity_id is not None and sub.entity_id != event_entity_id:
-                continue
+            if sub.entity_id is not None:
+                if sub.entity_field is None:
+                    target_id = event_entity_id
+                else:
+                    target_id = getattr(event, sub.entity_field, None)
+                if sub.entity_id != target_id:
+                    continue
 
             try:
                 sub.call(event)
