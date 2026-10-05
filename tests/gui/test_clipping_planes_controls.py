@@ -686,7 +686,7 @@ async def test_the_toggle_is_blocked_in_2d_with_the_reason(controller, toolkit):
 
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
-def test_a_plane_tilted_on_a_hidden_axis_is_blocked(controller, toolkit):
+async def test_a_plane_tilted_on_a_hidden_axis_is_blocked(controller, toolkit):
     visual, store, _canvas_id = _gizmo_scene(controller, "tzyx")
     widget = _make_wired(toolkit, controller, visual, store)
     assert _gizmo_states(widget) == [(False, ""), (False, "")]
