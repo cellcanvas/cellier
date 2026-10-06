@@ -245,10 +245,10 @@ The target is read when the control is built, so build the canvas first:
 the layout flows do, and a dock built before its canvas raises. A canvas
 added later neither adds nor removes the toggle.
 
-A drag is announced by `ClippingInteractionEvent` (`controller.
-on_clipping_interaction`): one start and one end, with the plane changes
+A drag is announced by `PlaneInteractionEvent` (`controller.
+on_plane_interaction`): one start and one end, with the plane changes
 between them. A script can group its own changes the same way with
-`with controller.clipping_interaction(visual.id): ...`. The plane a view's
+`with controller.plane_interaction(visual.id): ...`. The plane a view's
 gizmo is on is announced by `ClippingPlaneGizmoChangedEvent`
 (`controller.on_clipping_plane_gizmo_changed`).
 
@@ -291,7 +291,7 @@ ortho.clipping_controller.mode = "2d"       # at any time
   the 3D panel's planes win, because it has the gizmo. From `None` to
   `"2d"` there is no 3D panel among them and the xy panel's planes win.
 - A drag is forwarded: while a plane of one panel is dragged, each panel
-  linked to it reports the drag too (`ClippingInteractionEvent`, one start
+  linked to it reports the drag too (`PlaneInteractionEvent`, one start
   and one end). When the dragged panel's drag ends because the handle was
   held still (`"settle"`), the linked panels end with `"release"`.
 - The gizmo (`ortho.add_clipping_plane_gizmo`) edits a plane of the 3D

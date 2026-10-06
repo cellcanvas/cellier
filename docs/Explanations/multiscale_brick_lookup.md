@@ -51,7 +51,7 @@ data, the padding, or the next slot in the atlas.
 On the light-sheet organoid dataset
 (`scripts/v2/transforms_v2/lightsheet_viewer.py`), in 3D:
 
-- At startup a strip of the volume was missing. Lowering `lod_bias` (finer
+- At startup a strip of the volume was missing. Lowering `settled_lod_bias` (finer
   levels) filled it; raising it brought it back.
 - While scrubbing time, and after zooming, blocks of the volume showed content
   from elsewhere in the image, and the blocks changed as bricks re-fetched.

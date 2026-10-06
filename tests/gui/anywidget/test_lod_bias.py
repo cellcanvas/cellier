@@ -19,7 +19,7 @@ def _make_widget(**kwargs):
 
 def test_instantiate_smoke():
     widget, _visual_id = _make_widget(initial_lod_bias=2.5)
-    assert widget.lod_bias == pytest.approx(2.5)
+    assert widget.settled_lod_bias == pytest.approx(2.5)
 
 
 def test_trait_edit_emits_update_event():
@@ -27,13 +27,13 @@ def test_trait_edit_emits_update_event():
     emitted = []
     widget.changed.connect(emitted.append)
 
-    widget.lod_bias = 3.5
+    widget.settled_lod_bias = 3.5
 
     assert len(emitted) == 1
     event = emitted[0]
     assert event.source_id == widget._id
     assert event.visual_id == visual_id
-    assert event.field == "lod_bias"
+    assert event.field == "settled_lod_bias"
     assert event.value == pytest.approx(3.5)
 
 
@@ -46,13 +46,13 @@ def test_inbound_change_updates_trait_without_reemit():
         AppearanceChangedEvent(
             source_id=uuid4(),  # not the widget -> applied
             visual_id=visual_id,
-            field_name="lod_bias",
+            field_name="settled_lod_bias",
             new_value=4.0,
             requires_reslice=True,
         )
     )
 
-    assert widget.lod_bias == pytest.approx(4.0)
+    assert widget.settled_lod_bias == pytest.approx(4.0)
     assert emitted == []  # applied under _applying, no echo
 
 
@@ -63,13 +63,13 @@ def test_inbound_echo_filtered_by_source_id():
         AppearanceChangedEvent(
             source_id=widget._id,  # our own echo -> ignored
             visual_id=visual_id,
-            field_name="lod_bias",
+            field_name="settled_lod_bias",
             new_value=9.0,
             requires_reslice=True,
         )
     )
 
-    assert widget.lod_bias == pytest.approx(1.0)  # unchanged
+    assert widget.settled_lod_bias == pytest.approx(1.0)  # unchanged
 
 
 def test_inbound_unrelated_field_ignored():
@@ -85,4 +85,4 @@ def test_inbound_unrelated_field_ignored():
         )
     )
 
-    assert widget.lod_bias == pytest.approx(1.0)  # unchanged
+    assert widget.settled_lod_bias == pytest.approx(1.0)  # unchanged

@@ -1,0 +1,74 @@
+{
+ "image_memory/iso": {
+  "ImageVolumeShader": [
+   "4b9f58702047e20aac1e9e84852e17a15fd967648bdce65e87cd65b00758e931",
+   28615
+  ]
+ },
+ "image_memory/minip": {
+  "ImageVolumeShader": [
+   "b08d67433f1dbd7acb7976c087d10591c6d438e108e08952ab94c583d0b4b8c8",
+   23515
+  ]
+ },
+ "image_memory/mip": {
+  "ImageVolumeShader": [
+   "5532ea51f42399fad5cd1e1b6a59adb3ac6036d16d4e71663dd301458fbfca33",
+   23493
+  ]
+ },
+ "image_multiscale/attenuated_mip": {
+  "MultiscaleVolumeBrickShader": [
+   "479168ee1f7cee3c5a3868eb7082f626c1d4d8da3c85b8a2570feb26c7253e93",
+   49041
+  ]
+ },
+ "image_multiscale/iso": {
+  "MultiscaleVolumeBrickShader": [
+   "78c30dc9ad2617739f5b14a7aa5c4955a2d8148796884220ad6c57c7296a422b",
+   52196
+  ]
+ },
+ "image_multiscale/mip": {
+  "MultiscaleVolumeBrickShader": [
+   "b82af82c9419d0dd0917199400fb033732eeb37dca81dfcf9fd0019f716284cc",
+   48390
+  ]
+ },
+ "image_multiscale/smooth_iso": {
+  "MultiscaleVolumeBrickShader": [
+   "436250e1229b8e010bea547271e7628d33af74875ef306937a97d688681b093f",
+   56529
+  ]
+ },
+ "labels_memory/default": {
+  "LabelVolumeShader": [
+   "2d6de87486336cceeb5d906ed5b3d1a218ae572ac408650de5409b6894b69100",
+   28430
+  ]
+ },
+ "labels_multiscale/flat_categorical": {
+  "LabelVolumeBrickShader": [
+   "23c3c6410a0c4b5cd2446576f85da59bbb38fb5612a86480213515be68dfb959",
+   44992
+  ]
+ },
+ "labels_multiscale/gradient_debug": {
+  "LabelVolumeBrickShader": [
+   "4243368b52d73d5bbcfd20ad70ad1efe0128a829c589c8c382a4b8ddfa1bacac",
+   49523
+  ]
+ },
+ "labels_multiscale/iso_categorical": {
+  "LabelVolumeBrickShader": [
+   "b07a363e12e25171bbafaedd11a31f64f5ba0184951ab85d6a839cc61d1af305",
+   49612
+  ]
+ },
+ "labels_multiscale/smooth_iso": {
+  "LabelVolumeBrickShader": [
+   "bf395c472432c80e8e9fab697e3b5f9f759297c6bbf316b0a158929282491903",
+   51641
+  ]
+ }
+}

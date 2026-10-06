@@ -21,7 +21,7 @@ function render({ model, el }) {
     label.textContent = model.get("title") || "LOD bias";
   });
 
-  const initVal = model.get("lod_bias") ?? 1.0;
+  const initVal = model.get("settled_lod_bias") ?? 1.0;
   const inp = document.createElement("input");
   inp.type = "range";
   inp.min = 0.001;
@@ -36,7 +36,7 @@ function render({ model, el }) {
   inp.addEventListener("change", () => {
     if (guard) return;
     readout.textContent = Number(inp.value).toFixed(2);
-    model.set("lod_bias", parseFloat(inp.value));
+    model.set("settled_lod_bias", parseFloat(inp.value));
     model.save_changes();
   });
   // Live readout while dragging, without emitting to the bus.
@@ -44,10 +44,10 @@ function render({ model, el }) {
     readout.textContent = Number(inp.value).toFixed(2);
   });
 
-  model.on("change:lod_bias", () => {
+  model.on("change:settled_lod_bias", () => {
     guard = true;
     try {
-      const v = model.get("lod_bias") ?? 1.0;
+      const v = model.get("settled_lod_bias") ?? 1.0;
       inp.value = v;
       readout.textContent = Number(v).toFixed(2);
     } finally {

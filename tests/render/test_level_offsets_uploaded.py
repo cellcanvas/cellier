@@ -12,7 +12,6 @@ import pytest
 import tensorstore as ts
 
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
-from cellier.visuals import ProgressiveLoadingConfig
 from cellier.visuals._image import MultiscaleImageRenderConfig
 from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
@@ -49,19 +48,18 @@ def _store(root, dtype) -> MultiscaleZarrDataStore:
 @pytest.mark.parametrize("dim", ["2d", "3d"])
 async def test_visuals_upload_level_offsets(controller, reslice, tmp_path, kind, dim):
     scene = controller.add_scene(dim=dim, name=f"offsets-{kind}-{dim}")
-    loading = ProgressiveLoadingConfig(backstop=False)
     if kind == "image":
         visual = controller.add_image_multiscale(
             data=_store(tmp_path, ts.float32),
             scene_id=scene.id,
-            render_config=MultiscaleImageRenderConfig(block_size=8, loading=loading),
+            render_config=MultiscaleImageRenderConfig(block_size=8),
         )
     else:
         visual = controller.add_labels_multiscale(
             data=_store(tmp_path, ts.int32),
             scene_id=scene.id,
             appearance=MultiscaleLabelsAppearance(),
-            render_config=MultiscaleLabelRenderConfig(block_size=8, loading=loading),
+            render_config=MultiscaleLabelRenderConfig(block_size=8),
         )
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)

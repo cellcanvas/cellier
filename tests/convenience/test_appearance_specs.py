@@ -84,11 +84,11 @@ def test_every_multiscale_field_maps_to_a_control():
                 "render_mode",
                 "iso_threshold",
                 "attenuation",
-                "lod_bias",
+                "settled_lod_bias",
             ]
         ),
     )
-    assert kinds(result) == ["image", "lod_bias", "aabb", "loading"]
+    assert kinds(result) == ["image", "settled_lod_bias", "aabb", "loading"]
     assert result.specs[0].values["fields"] == [
         "color_map",
         "clim",
@@ -133,14 +133,15 @@ def test_order_is_the_config_maps_order_not_the_callers():
 def test_a_field_missing_from_the_visuals_model_is_skipped():
     """A multiscale config on an in-memory visual: the model is narrower.
 
-    The config class knows ``lod_bias``; the model does not carry it.  Both
+    The config class knows ``settled_lod_bias``; the model does not carry it.  Both
     halves of the predicate have to hold.
     """
     result = appearance_specs(
-        _in_memory(), MultiscaleImageControlsConfig(appearance=["clim", "lod_bias"])
+        _in_memory(),
+        MultiscaleImageControlsConfig(appearance=["clim", "settled_lod_bias"]),
     )
     assert kinds(result) == ["image", "aabb"]
-    assert result.skipped == ["lod_bias"]
+    assert result.skipped == ["settled_lod_bias"]
 
 
 @pytest.mark.parametrize("appearance", [False, []])
@@ -306,7 +307,7 @@ def test_titles_are_shared_by_both_front_ends():
     result = appearance_specs(
         _multiscale(),
         MultiscaleImageControlsConfig(
-            appearance=["color_map", "clim", "render_mode", "lod_bias"]
+            appearance=["color_map", "clim", "render_mode", "settled_lod_bias"]
         ),
     )
     assert [spec.title for spec in result.specs] == [

@@ -40,7 +40,6 @@ from cellier.events import (
     CanvasSizeChangedEvent,
     ChannelAppearanceChangedEvent,
     ChannelAppearanceUpdateEvent,
-    ClippingInteractionEvent,
     ClippingPlaneGizmoChangedEvent,
     ClippingPlaneGizmoUpdateEvent,
     ClippingPlanesChangedEvent,
@@ -65,6 +64,7 @@ from cellier.events import (
     OverlayChangedEvent,
     OverlayUpdateEvent,
     PickWriteChangedEvent,
+    PlaneInteractionEvent,
     RenderConfigChangedEvent,
     RenderConfigUpdateEvent,
     ResliceCompletedEvent,
@@ -248,7 +248,9 @@ if TYPE_CHECKING:
 
 
 # Appearance fields that require a reslice (not just a GPU material update).
-_RESLICE_FIELDS: frozenset[str] = frozenset({"lod_bias", "force_level", "frustum_cull"})
+_RESLICE_FIELDS: frozenset[str] = frozenset(
+    {"settled_lod_bias", "force_level", "frustum_cull"}
+)
 
 #: Visuals that load nothing while they draw nothing; showing one reslices it.
 #: The scheduled ones are retired while hidden: their reads stop.
@@ -361,7 +363,7 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
     )
     if isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual)):
         return VisualRenderConfig(
-            lod_bias=visual.appearance.lod_bias,
+            settled_lod_bias=visual.appearance.settled_lod_bias,
             force_level=visual.appearance.force_level,
             frustum_cull=visual.appearance.frustum_cull,
             slicing_enabled=slicing_enabled,
@@ -847,9 +849,9 @@ class CellierController:
         self._dims_ticks: dict[UUID, bool] = {}
         # Clipping plane drags, one tracker per visual (gizmo design 6).  It
         # announces a drag's start and end and drives nothing else.
-        self._clip_driver = _InteractionDriver(
+        self._plane_interaction_driver = _InteractionDriver(
             lambda: self._render_manager.config.scheduler.dims_settle_s,
-            self._on_clip_transition,
+            self._on_plane_transition,
         )
         # The clipping plane gizmo of each canvas that has one: at most one
         # per canvas (gizmo design 7).
@@ -3942,12 +3944,15 @@ class CellierController:
 
         The one place a plan mode is decided, so every reslice path agrees:
         while the scene's dims are being scrubbed, a visual with
-        ``plans_coarse_on_scrub`` plans ``BACKSTOP_ONLY`` and joins the
-        scene's pending set, which the scrub's end plans in full.  A visual
-        that scrub handed to a camera end stays ``BACKSTOP_ONLY`` until then.
+        ``plans_coarse_while_moving`` for the scene's view (2D or 3D) plans
+        ``BACKSTOP_ONLY`` and joins the scene's pending set, which the
+        scrub's end plans in full.  A visual that scrub handed to a camera
+        end stays ``BACKSTOP_ONLY`` until then.
         """
         config = _visual_render_config(visual)
-        if visual.plans_coarse_on_scrub and self._dims_driver.is_active(scene_id):
+        if self._dims_driver.is_active(scene_id) and visual.plans_coarse_while_moving(
+            self._n_displayed_dims(scene_id)
+        ):
             self._dims_scrub_pending.setdefault(scene_id, set()).add(visual.id)
             return dataclasses.replace(config, plan_mode=PlanMode.BACKSTOP_ONLY)
         if visual.id in self._camera_handoff.get(scene_id, ()):
@@ -4407,6 +4412,10 @@ class CellierController:
         """Derive a DimsState from the scene's DimsManager."""
         return self._model.scenes[scene_id].dims.to_state()
 
+    def _n_displayed_dims(self, scene_id: UUID) -> int:
+        """How many dimensions the scene's views display: 2 or 3."""
+        return len(self._model.scenes[scene_id].dims.selection.displayed_axes)
+
     # ------------------------------------------------------------------
     # psygnal bridges
     # ------------------------------------------------------------------
@@ -4775,7 +4784,7 @@ class CellierController:
             # A tick of a drag while a scope is open; otherwise a jump.  The
             # tracker hears of it first, so a drag's start is announced ahead
             # of its first change.
-            self._clip_driver.tick(visual_id, source_id, interactive=False)
+            self._plane_interaction_driver.tick(visual_id, source_id, interactive=False)
             self._outgoing_events.emit(
                 ClippingPlanesChangedEvent(
                     source_id=source_id,
@@ -4788,7 +4797,7 @@ class CellierController:
                     self.reslice_visual(visual_id)
                 self._request_draw_for_visual(visual_id)
             # No event loop means no timer: the drag ends here.
-            self._clip_driver.settle_without_loop(visual_id)
+            self._plane_interaction_driver.settle_without_loop(visual_id)
 
         visual.events.clipping_planes.connect(_on_clipping_planes)
         self._visual_psygnal_handlers.setdefault(visual_id, []).append(
@@ -5314,9 +5323,8 @@ class CellierController:
             widgets pass ``source_id=self._id`` so their own subscription can
             ignore the echo.
         **fields :
-            ``ProgressiveLoadingConfig`` fields: ``backstop``,
-            ``backstop_level``, ``backstop_extent``,
-            ``backstop_max_slot_fraction``, ``dims_drag``.
+            ``ProgressiveLoadingConfig`` fields: ``backstop_level``,
+            ``backstop_extent``, ``backstop_max_slot_fraction``.
 
         Returns
         -------
@@ -5329,8 +5337,8 @@ class CellierController:
             If the visual is not a multiscale image or labels visual.
         ValueError
             If a field name is unknown, or the merged config is invalid
-            (e.g. ``dims_drag="backstop"`` with ``backstop=False``).  The
-            visual is left unchanged; nothing is corrected.
+            (e.g. ``backstop_level=0``).  The visual is left unchanged;
+            nothing is corrected.
         """
         visual = self._get_visual_model(visual_id)
         if not isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual)):
@@ -5570,7 +5578,7 @@ class CellierController:
         Routes field changes to one of two bus events: ``visible`` field changes
         become ``VisualVisibilityChangedEvent``; all other fields become
         ``AppearanceChangedEvent`` with ``requires_reslice=True`` for fields in
-        ``_RESLICE_FIELDS`` (``lod_bias``, ``force_level``, ``frustum_cull``).
+        ``_RESLICE_FIELDS`` (``settled_lod_bias``, ``force_level``, ``frustum_cull``).
         """
 
         def _on_appearance_psygnal(info: EmissionInfo) -> None:
@@ -5892,7 +5900,7 @@ class CellierController:
 
         The plan modes come from the scene's dims tracker (see
         :meth:`_render_config_for`): during a scrub, visuals with
-        ``plans_coarse_on_scrub`` plan backstop-only and the scrub's end
+        ``plans_coarse_while_moving`` plan backstop-only and the scrub's end
         plans them in full; otherwise everything plans in full at once.
 
         A tick made through :meth:`update_slice_indices` has already been
@@ -6092,7 +6100,7 @@ class CellierController:
         once, and a scrub in progress on the scene ends.  With
         ``interactive=True``, or inside an open scope
         (:meth:`dims_interaction`), it is a tick of a **scrub**: visuals
-        that opted in (``dims_drag="backstop"``) plan coarse, and plan in
+        that opted in (``coarsest_while_moving_3d`` or ``_2d``) plan coarse, and plan in
         full when the scrub ends, on release or after
         ``SchedulerConfig.dims_settle_s`` of stillness.  A call that moves no
         sliced axis is neither.
@@ -6895,10 +6903,10 @@ class CellierController:
         )
         return moved
 
-    def _on_clip_transition(self, visual_id: UUID, transition: Transition) -> None:
-        """Announce a clipping plane drag's start or end.  Nothing else."""
+    def _on_plane_transition(self, visual_id: UUID, transition: Transition) -> None:
+        """Announce the start or end of a drag of a visual's planes.  Nothing else."""
         self._outgoing_events.emit(
-            ClippingInteractionEvent(
+            PlaneInteractionEvent(
                 source_id=transition.source_id,
                 visual_id=visual_id,
                 phase=transition.phase,
@@ -6906,12 +6914,12 @@ class CellierController:
             )
         )
 
-    def begin_clipping_interaction(self, visual_id: UUID, *, source_id: UUID) -> None:
-        """Open a clipping interaction scope on a visual.
+    def begin_plane_interaction(self, visual_id: UUID, *, source_id: UUID) -> None:
+        """Open a plane interaction scope on a visual.
 
         While any scope is open, every change of the visual's
         ``clipping_planes`` is a tick of one drag, announced by a
-        ``ClippingInteractionEvent`` at its start and its end.  Opening a
+        ``PlaneInteractionEvent`` at its start and its end.  Opening a
         scope starts nothing by itself; the first change does.  Holding
         still for ``SchedulerConfig.dims_settle_s`` ends a drag, and the
         next change starts a new one.
@@ -6920,7 +6928,7 @@ class CellierController:
         does outside one.
 
         A clipping plane gizmo calls this when a handle is grabbed.
-        Scripts normally use :meth:`clipping_interaction`.
+        Scripts normally use :meth:`plane_interaction`.
 
         Parameters
         ----------
@@ -6936,10 +6944,10 @@ class CellierController:
         """
         if visual_id not in self._visual_to_scene:
             raise KeyError(f"No visual with id {visual_id}")
-        self._clip_driver.begin_scope(visual_id, source_id)
+        self._plane_interaction_driver.begin_scope(visual_id, source_id)
 
-    def end_clipping_interaction(self, visual_id: UUID, *, source_id: UUID) -> None:
-        """Close a clipping interaction scope opened by *source_id*.
+    def end_plane_interaction(self, visual_id: UUID, *, source_id: UUID) -> None:
+        """Close a plane interaction scope opened by *source_id*.
 
         Closing the last open scope ends a drag at once (``"release"``).
         Closing a scope that is not open does nothing.
@@ -6951,16 +6959,16 @@ class CellierController:
         source_id : UUID
             The source that opened it.
         """
-        self._clip_driver.end_scope(visual_id, source_id)
+        self._plane_interaction_driver.end_scope(visual_id, source_id)
 
     @contextmanager
-    def clipping_interaction(self, visual_id: UUID) -> Generator[None, None, None]:
+    def plane_interaction(self, visual_id: UUID) -> Generator[None, None, None]:
         """Drag a visual's clipping planes for the length of a ``with`` block.
 
         Every change of ``clipping_planes`` inside the block belongs to one
         drag::
 
-            with controller.clipping_interaction(visual.id):
+            with controller.plane_interaction(visual.id):
                 for offset in offsets:
                     controller.set_clipping_plane(visual.id, plane_id, ...)
 
@@ -6970,13 +6978,13 @@ class CellierController:
             The visual whose planes are dragged.
         """
         source_id = uuid4()
-        self.begin_clipping_interaction(visual_id, source_id=source_id)
+        self.begin_plane_interaction(visual_id, source_id=source_id)
         try:
             yield
         finally:
-            self.end_clipping_interaction(visual_id, source_id=source_id)
+            self.end_plane_interaction(visual_id, source_id=source_id)
 
-    def clipping_interaction_state(self, visual_id: UUID) -> Literal["idle", "active"]:
+    def plane_interaction_state(self, visual_id: UUID) -> Literal["idle", "active"]:
         """Whether *visual_id*'s clipping planes are being dragged.
 
         Parameters
@@ -6988,7 +6996,7 @@ class CellierController:
         -------
         {"idle", "active"}
         """
-        return self._clip_driver.state(visual_id).value
+        return self._plane_interaction_driver.state(visual_id).value
 
     # ------------------------------------------------------------------
     # Clipping plane gizmo
@@ -8427,7 +8435,7 @@ class CellierController:
         #    cancel its pick value reads, press and release included.
         self._outgoing_events.unsubscribe_all(visual_id)
         self._cancel_visual_pick_reads(visual_id)
-        self._clip_driver.drop(visual_id)
+        self._plane_interaction_driver.drop(visual_id)
 
         # 4. Remove from controller lookup maps.
         self._visual_to_scene.pop(visual_id)
@@ -9930,7 +9938,7 @@ class CellierController:
         self._cancel_queued_camera_reslices()
         self._camera_handoff.clear()
         self._dims_driver.close()
-        self._clip_driver.close()
+        self._plane_interaction_driver.close()
         self._dims_scrub_pending.clear()
         self._dims_scrub_axes.clear()
         for task in self._store_reslice_tasks.values():
@@ -10037,10 +10045,10 @@ class CellierController:
             weak=weak,
         )
 
-    def on_clipping_interaction(
+    def on_plane_interaction(
         self,
         visual_id: UUID,
-        callback: Callable[[ClippingInteractionEvent], None],
+        callback: Callable[[PlaneInteractionEvent], None],
         *,
         owner_id: UUID,
         weak: bool = False,
@@ -10052,7 +10060,7 @@ class CellierController:
         visual_id :
             The visual to watch.
         callback :
-            Called with the ``ClippingInteractionEvent`` on each start and
+            Called with the ``PlaneInteractionEvent`` on each start and
             end.
         owner_id :
             UUID under which this subscription is registered.
@@ -10064,7 +10072,7 @@ class CellierController:
         SubscriptionHandle
         """
         return self._outgoing_events.subscribe(
-            ClippingInteractionEvent,
+            PlaneInteractionEvent,
             callback,
             entity_id=visual_id,
             owner_id=owner_id,
@@ -10305,8 +10313,7 @@ class CellierController:
         """Register a callback fired when a multiscale visual's backstop is loaded.
 
         From then on the view shows the current slice everywhere, possibly
-        blurry, while finer data keeps loading.  Fired once per plan that
-        has a backstop (``render_config.loading.backstop``).
+        blurry, while finer data keeps loading.  Fired once per plan.
 
         Parameters
         ----------

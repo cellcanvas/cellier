@@ -44,7 +44,7 @@ import cellier.gui.anywidget.visuals as anywidget_visuals
 import cellier.gui.qt.visuals as qt_visuals
 
 # (field-class stem, field name, label) -- the section 10.4 catalog, minus
-# ``visible`` (stage 0) and ``lod_bias`` (an existing widget, not a new class).
+# ``visible`` (stage 0) and ``settled_lod_bias`` (an existing widget, not a new class).
 CATALOG = [
     ("OpacitySlider", "opacity", "Opacity"),
     ("LabelsRenderModeCombo", "render_mode", "Render mode"),

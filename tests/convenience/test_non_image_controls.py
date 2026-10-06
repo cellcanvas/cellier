@@ -124,7 +124,7 @@ def test_add_labels_multiscale_takes_the_multiscale_config(multiscale_labels_sto
     from cellier.visuals._labels import MultiscaleLabelsAppearance
 
     viewer = Viewer(spatial_axes("z", "y", "x"))
-    config = MultiscaleLabelsControlsConfig(appearance=["lod_bias"])
+    config = MultiscaleLabelsControlsConfig(appearance=["settled_lod_bias"])
 
     visual = viewer.add_labels_multiscale(
         multiscale_labels_store,
@@ -454,11 +454,11 @@ def test_a_field_from_another_visual_family_is_rejected(kind, field):
 
 
 def test_lod_bias_is_multiscale_labels_only():
-    with pytest.raises(ValueError, match="lod_bias"):
-        LabelsControlsConfig(appearance=["lod_bias"])
-    assert MultiscaleLabelsControlsConfig(appearance=["lod_bias"]).appearance == [
-        "lod_bias"
-    ]
+    with pytest.raises(ValueError, match="settled_lod_bias"):
+        LabelsControlsConfig(appearance=["settled_lod_bias"])
+    assert MultiscaleLabelsControlsConfig(
+        appearance=["settled_lod_bias"]
+    ).appearance == ["settled_lod_bias"]
 
 
 def test_colormap_mode_is_not_in_the_labels_vocabulary():
@@ -538,7 +538,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
 
     composites = {
         "image": (QtImageControls, AnywidgetImageControls),
-        "lod_bias": (QtLodBiasSlider, AnywidgetLodBiasSlider),
+        "settled_lod_bias": (QtLodBiasSlider, AnywidgetLodBiasSlider),
         "aabb": (QtAABBWidget, AnywidgetAABBWidget),
         "trail": (QtTrailControls, AnywidgetTrailControls),
         "loading": (QtLoadingIndicator, AnywidgetLoadingIndicator),
@@ -577,7 +577,7 @@ def test_every_valid_field_name_has_a_widget():
     from cellier.convenience.gui import _controls_config
     from cellier.gui._appearance_fields import APPEARANCE_FIELD_WIDGETS
 
-    bespoke = {"image", "lod_bias"}
+    bespoke = {"image", "settled_lod_bias"}
     config_classes = [
         value
         for value in vars(_controls_config).values()

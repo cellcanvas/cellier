@@ -204,7 +204,7 @@ def _qt_trail(spec, visual_ids, controller):
 
 QT_BUILDERS = {
     "image": _qt_image,
-    "lod_bias": _qt_lod_bias,
+    "settled_lod_bias": _qt_lod_bias,
     "trail": _qt_trail,
     "aabb": _qt_aabb,
     "loading": _qt_loading,

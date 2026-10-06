@@ -1,8 +1,8 @@
-"""``dims_drag`` and the dims scrub (interaction tracker design 4.3, 4.4).
+"""``coarsest_while_moving`` and the dims scrub (interaction tracker design 4.3, 4.4).
 
 A scrub is a run of interactive ticks: ``update_slice_indices`` with
-``interactive=True`` or inside ``dims_interaction``.  During one, a visual in
-``dims_drag="backstop"`` mode plans backstop-only; the scrub's end (release
+``interactive=True`` or inside ``dims_interaction``.  During one, a visual with
+``coarsest_while_moving`` on for the view plans backstop-only; the scrub's end (release
 or stillness) plans it in full.  A plain ``update_slice_indices`` is a jump.
 
 The fixture is a 16^3 volume with two levels and ``force_level=1``: the
@@ -24,11 +24,16 @@ from cellier.visuals import MultiscaleImageSingleAppearance, ProgressiveLoadingC
 from cellier.visuals._image import (
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
+    MultiscaleImageVisual,
 )
+from cellier.visuals._labels import MultiscaleLabelsAppearance
 from tests._gpu_budget import SMALL_BUDGETS
 from tests.render.conftest import drain_loading
 
-DRAG = ProgressiveLoadingConfig(dims_drag="backstop")
+#: Appearance fields: plan the backstop only while moving, in 2D and 3D.
+DRAG = {"coarsest_while_moving_2d": True, "coarsest_while_moving_3d": True}
+#: The defaults of this phase: plan in full on every tick.
+EAGER: dict = {}
 
 
 def _tzyx_store(tmp_path):
@@ -49,7 +54,7 @@ def _tzyx_store(tmp_path):
     )
 
 
-def _add(controller, store, dim="2d", loading=DRAG, name="scene"):
+def _add(controller, store, dim="2d", moving=DRAG, name="scene"):
     if len(store.level_shapes[0]) == 4:
         from cellier.scene import spatial_axes
 
@@ -63,10 +68,8 @@ def _add(controller, store, dim="2d", loading=DRAG, name="scene"):
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,
-        appearance=MultiscaleImageAppearance(force_level=1),
-        render_config=MultiscaleImageRenderConfig(
-            **SMALL_BUDGETS, block_size=8, loading=loading
-        ),
+        appearance=MultiscaleImageAppearance(force_level=1, **moving),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         single=MultiscaleImageSingleAppearance(
             color_map="viridis", clim=(0.0, 1.0), render_mode="mip"
         ),
@@ -139,15 +142,20 @@ def _timers(controller) -> list:
 # -- the config -------------------------------------------------------------------
 
 
-def test_eager_is_the_default() -> None:
-    assert ProgressiveLoadingConfig().dims_drag == "eager"
+@pytest.mark.parametrize(
+    "appearance_cls", [MultiscaleImageAppearance, MultiscaleLabelsAppearance]
+)
+def test_eager_is_the_default(appearance_cls) -> None:
+    appearance = appearance_cls()
+    assert appearance.coarsest_while_moving_2d is False
+    assert appearance.coarsest_while_moving_3d is False
 
 
-def test_backstop_drag_without_a_backstop_is_refused() -> None:
-    with pytest.raises(ValidationError, match="needs backstop=True"):
-        ProgressiveLoadingConfig(backstop=False, dims_drag="backstop")
-    # Off with eager is fine: the target alone.
-    ProgressiveLoadingConfig(backstop=False, dims_drag="eager")
+@pytest.mark.parametrize("field", ["dims_drag", "backstop"])
+def test_the_removed_loading_settings_are_refused(field) -> None:
+    """``dims_drag`` and the ``backstop`` switch are gone, not ignored."""
+    with pytest.raises(ValidationError, match=field):
+        ProgressiveLoadingConfig(**{field: "eager"})
 
 
 def test_the_opt_in_is_a_model_property(multiscale_image_store, controller) -> None:
@@ -155,11 +163,20 @@ def test_the_opt_in_is_a_model_property(multiscale_image_store, controller) -> N
     _other, eager, _gfx2 = _add(
         controller,
         multiscale_image_store,
-        loading=ProgressiveLoadingConfig(),
+        moving=EAGER,
         name="eager",
     )
-    assert drag.plans_coarse_on_scrub is True
-    assert eager.plans_coarse_on_scrub is False
+    assert drag.plans_coarse_while_moving(2) is True
+    assert drag.plans_coarse_while_moving(3) is True
+    assert eager.plans_coarse_while_moving(2) is False
+    assert eager.plans_coarse_while_moving(3) is False
+
+
+def test_each_view_dimension_has_its_own_setting() -> None:
+    appearance = MultiscaleImageAppearance(coarsest_while_moving_3d=True)
+    visual = MultiscaleImageVisual.model_construct(appearance=appearance)
+    assert visual.plans_coarse_while_moving(3) is True
+    assert visual.plans_coarse_while_moving(2) is False
 
 
 # -- a scrub ends on stillness ----------------------------------------------------
@@ -323,9 +340,7 @@ async def test_a_jump_ends_a_scrub(controller, multiscale_image_store, monkeypat
 async def test_eager_ticks_plan_in_full(
     controller, multiscale_image_store, monkeypatch
 ):
-    scene, _visual, _gfx = _add(
-        controller, multiscale_image_store, loading=ProgressiveLoadingConfig()
-    )
+    scene, _visual, _gfx = _add(controller, multiscale_image_store, moving=EAGER)
     await _loaded(controller, scene)
     plans = _record_plans(monkeypatch)
     events = _record_events(controller, scene)
@@ -595,10 +610,8 @@ async def test_a_visual_added_during_a_scrub_plans_coarse_then_in_full(
         added = controller.add_image_multiscale(
             data=multiscale_image_store,
             scene_id=scene.id,
-            appearance=MultiscaleImageAppearance(force_level=1),
-            render_config=MultiscaleImageRenderConfig(
-                **SMALL_BUDGETS, block_size=8, loading=DRAG
-            ),
+            appearance=MultiscaleImageAppearance(force_level=1, **DRAG),
+            render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
             single=MultiscaleImageSingleAppearance(color_map="viridis"),
         )
         controller.update_slice_indices(scene.id, {0: 6.0})
@@ -618,10 +631,10 @@ async def test_a_config_change_mid_scrub_still_plans_in_full_at_the_end(
     plans = _record_plans(monkeypatch)
     with controller.dims_interaction(scene.id):
         controller.update_slice_indices(scene.id, {0: 6.0})
-        controller.set_loading_config(visual.id, dims_drag="eager")
-        # Judged by its current value: its own reslice plans in full.
-        assert _modes(plans, visual.id) == ["BACKSTOP_ONLY", "FULL"]
-    assert _modes(plans, visual.id) == ["BACKSTOP_ONLY", "FULL", "FULL"]
+        visual.appearance.coarsest_while_moving_2d = False
+        # The setting is read by the next plan; changing it plans nothing.
+        assert _modes(plans, visual.id) == ["BACKSTOP_ONLY"]
+    assert _modes(plans, visual.id) == ["BACKSTOP_ONLY", "FULL"]
     await drain_loading(controller)
 
 
@@ -635,17 +648,13 @@ async def test_a_visual_that_opts_in_through_its_model_receives_the_plan_mode(
     """The opt-in is the model's property, not the visual's type or config.
 
     This is the path the multiscale mesh uses: an ``eager`` image here stands
-    in for a visual whose model answers ``plans_coarse_on_scrub`` itself.
+    in for a visual whose model answers ``plans_coarse_while_moving`` itself.
     """
-    from cellier.visuals._image import MultiscaleImageVisual
-
-    scene, visual, gfx = _add(
-        controller, _tzyx_store(tmp_path), dim=dim, loading=ProgressiveLoadingConfig()
-    )
+    scene, visual, gfx = _add(controller, _tzyx_store(tmp_path), dim=dim, moving=EAGER)
     await _loaded(controller, scene)
-    assert visual.plans_coarse_on_scrub is False
+    assert visual.plans_coarse_while_moving(int(dim[0])) is False
     monkeypatch.setattr(
-        MultiscaleImageVisual, "plans_coarse_on_scrub", property(lambda self: True)
+        MultiscaleImageVisual, "plans_coarse_while_moving", lambda self, n: True
     )
     received: list[str] = []
     original = gfx.plan

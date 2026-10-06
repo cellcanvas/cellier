@@ -6,13 +6,20 @@ See ``plans/progressive_loading_design_v3.md`` 5.9 and 5.11, and
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from cellier.visuals._removed import REMOVED_LOADING_FIELDS, refuse_removed_fields
 
 
 class ProgressiveLoadingConfig(BaseModel):
     """How a multiscale visual loads: a coarse backstop, then the target.
+
+    A coarse *backstop* level is always loaded ahead of the target level, so
+    the view is blurry rather than blank (or showing the previous slice)
+    while the target loads.  Backstop reads go before every target read,
+    from every visual.
 
     Every setting is explicit, with a fixed default, and never changed by the
     library at runtime.  Replacing a visual's ``render_config`` with one that
@@ -20,11 +27,6 @@ class ProgressiveLoadingConfig(BaseModel):
 
     Parameters
     ----------
-    backstop : bool
-        Load a coarse *backstop* level ahead of the target level, so the view
-        is blurry rather than blank (or showing the previous slice) while
-        the target loads.  Backstop reads go before every target read, from
-        every visual.  ``False`` loads the target only.  Default ``True``.
     backstop_level : int or None
         1-based level of the backstop, like ``force_level`` (1 is the
         finest).  Clamped to the pyramid.  ``None`` (the default) is the
@@ -39,36 +41,18 @@ class ProgressiveLoadingConfig(BaseModel):
         pyramids reach it; when it truncates, one INFO line per visual on
         ``cellier.render.cache`` names the settings that would avoid it.
         Default ``0.1``.
-    dims_drag : {"eager", "backstop"}
-        What a tick of a dims scrub loads: a slider being moved, or a
-        programmatic move marked ``interactive=True`` or made inside
-        ``dims_interaction``.  ``"eager"`` (default): the full plan,
-        so the target starts loading at once; best on local disk.
-        ``"backstop"``: the backstop only, and the target once the scrub
-        ends, when the slider is released or has been still for
-        ``SchedulerConfig.dims_settle_s``; this saves most of
-        a scrub's reads, and is recommended for remote stores.  Both show the
-        slider's slice (blurry) about one read behind it.  Needs
-        ``backstop=True``.  A plain programmatic move is a jump and loads in
-        full either way.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    backstop: bool = True
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_removed_fields(cls, data: Any) -> Any:
+        return refuse_removed_fields(data, REMOVED_LOADING_FIELDS, cls.__name__)
+
     backstop_level: int | None = Field(default=None, ge=1)
     backstop_extent: Literal["full", "view"] = "full"
     backstop_max_slot_fraction: float = Field(default=0.1, gt=0, le=0.5)
-    dims_drag: Literal["eager", "backstop"] = "eager"
-
-    @model_validator(mode="after")
-    def _drag_needs_a_backstop(self) -> ProgressiveLoadingConfig:
-        if self.dims_drag == "backstop" and not self.backstop:
-            raise ValueError(
-                "dims_drag='backstop' needs backstop=True: a backstop-only "
-                "slider tick would plan nothing."
-            )
-        return self
 
 
 class GeometryLodConfig(BaseModel):

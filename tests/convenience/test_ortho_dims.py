@@ -350,9 +350,7 @@ async def test_with_forwarding_no_mirrored_panel_plans_in_full(monkeypatch):
     _add_image(viewer)
     controller = viewer.controller
     # Every visual opts in, so the mode each panel would plan is visible.
-    monkeypatch.setattr(
-        ImageVisual, "plans_coarse_on_scrub", property(lambda self: True)
-    )
+    monkeypatch.setattr(ImageVisual, "plans_coarse_while_moving", lambda self, n: True)
     keys = {scene.id: key for key, scene in viewer.scenes.items()}
     modes: dict[str, list] = {key: [] for key in viewer.scenes}
     render_manager = controller._render_manager

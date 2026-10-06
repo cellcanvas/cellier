@@ -100,26 +100,27 @@ def test_an_edit_applies_and_an_invalid_one_is_refused(
     widget = _make(toolkit, [visual.id], visual.render_config.loading)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
 
-    _user_edit(widget, "dims_drag", "backstop")
-    assert visual.render_config.loading.dims_drag == "backstop"
-    assert _shown(widget)["dims_drag"] == "backstop"
+    _user_edit(widget, "backstop_extent", "view")
+    assert visual.render_config.loading.backstop_extent == "view"
+    assert _shown(widget)["backstop_extent"] == "view"
     assert _error(widget) == ""
 
-    _user_edit(widget, "backstop", False)
-    # Refused: the model is unchanged, the control shows it again, and why.
-    assert visual.render_config.loading.backstop is True
-    assert _shown(widget)["backstop"] is True
-    assert "needs backstop=True" in _error(widget)
+    if toolkit == "anywidget":
+        # With no setting that depends on another, a Qt control cannot hold
+        # a value the config refuses (its inputs are bounded); a front end's
+        # raw edit can.
+        _user_edit(widget, "backstop_max_slot_fraction", 0.9)
+        # Refused: the model is unchanged, the control shows it again, and why.
+        assert visual.render_config.loading.backstop_max_slot_fraction == 0.1
+        assert _shown(widget)["backstop_max_slot_fraction"] == pytest.approx(0.1)
+        assert "less than or equal to 0.5" in _error(widget)
 
     # A change from elsewhere is shown, and clears the message.
-    controller.set_loading_config(visual.id, dims_drag="eager")
-    assert _shown(widget)["dims_drag"] == "eager"
+    controller.set_loading_config(visual.id, backstop_extent="full")
+    assert _shown(widget)["backstop_extent"] == "full"
     assert _error(widget) == ""
-    _user_edit(widget, "backstop", False)
-    assert visual.render_config.loading.backstop is False
 
     # Level 0 is "coarsest", i.e. None.
-    _user_edit(widget, "backstop", True)
     _user_edit(widget, "backstop_level", 1)
     assert visual.render_config.loading.backstop_level == 1
     _user_edit(widget, "backstop_level", 0)
@@ -135,9 +136,9 @@ def test_a_group_control_edits_every_visual(controller, multiscale_image_store, 
     widget = _make("qt", [first.id, second.id], first.render_config.loading)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
 
-    _user_edit(widget, "dims_drag", "backstop")
-    assert first.render_config.loading.dims_drag == "backstop"
-    assert second.render_config.loading.dims_drag == "backstop"
+    _user_edit(widget, "backstop_extent", "view")
+    assert first.render_config.loading.backstop_extent == "view"
+    assert second.render_config.loading.backstop_extent == "view"
 
 
 def test_the_level_control_offers_the_stores_levels(qtbot):

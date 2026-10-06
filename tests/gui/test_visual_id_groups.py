@@ -62,10 +62,10 @@ def _qt_widgets(visual_id):
             "clim",
         ),
         (
-            "lod_bias",
+            "settled_lod_bias",
             lod,
             lambda: (lod._slider.setValue(2.5), lod._on_slider_released()),
-            "lod_bias",
+            "settled_lod_bias",
         ),
         ("aabb", aabb, lambda: aabb._enabled_check.setChecked(True), "enabled"),
     ]
@@ -163,7 +163,12 @@ def _anywidget_widgets(visual_id):
             _set(image, "single", {**image.single, "clim": [0.2, 0.8]}),
             "clim",
         ),
-        ("lod_bias", lod, _set(lod, "lod_bias", 2.5), "lod_bias"),
+        (
+            "settled_lod_bias",
+            lod,
+            _set(lod, "settled_lod_bias", 2.5),
+            "settled_lod_bias",
+        ),
         ("aabb", aabb, _set(aabb, "enabled", True), "enabled"),
     ]
 
@@ -236,7 +241,7 @@ def test_the_event_type_is_unchanged_by_the_group_form():
     clim.changed.connect(clim_events.append)
     aabb.changed.connect(aabb_events.append)
 
-    clim.lod_bias = 2.0
+    clim.settled_lod_bias = 2.0
     aabb.enabled = True
 
     assert all(isinstance(e, AppearanceUpdateEvent) for e in clim_events)

@@ -25,6 +25,7 @@ from cellier.render._gpu_lifetime import destroy_textures, weak_callback
 from cellier.render._level_mapping import base_cell_range
 from cellier.render._level_of_detail import (
     build_level_grids,
+    cull_masks,
     orthographic_voxels_per_pixel,
     select_level_orthographic,
     select_levels_arr_forced,
@@ -1262,11 +1263,11 @@ class MultiscaleRegionPlanner:
     ) -> np.ndarray | None:
         """The backstop bricks for this view, nearest first (design 5.9).
 
-        ``None`` when the backstop is off.  Extent ``"view"`` culls to the
+        ``None`` before the 3D geometry exists.  Extent ``"view"`` culls to the
         request's frustum whether or not the target is frustum-culled.
         """
         geo = self._volume_geometry
-        if not loading.backstop or geo is None:
+        if geo is None:
             return None
         camera_pos_data = self._to_level0_displayed(
             np.asarray(camera_pos_world).reshape(1, -1)
@@ -1296,12 +1297,12 @@ class MultiscaleRegionPlanner:
     ) -> np.ndarray | None:
         """The backstop tiles for this view, centre first (design 5.9).
 
-        ``None`` when the backstop is off.  Extent ``"view"`` culls to the
+        ``None`` before the 2D geometry exists.  Extent ``"view"`` culls to the
         viewport plus one backstop tile, whether or not the target is
         viewport-culled.
         """
         geo2d = self._image_geometry_2d
-        if not loading.backstop or geo2d is None:
+        if geo2d is None:
             return None
         camera_pos, view_min, view_max, _ = self._view_2d(
             camera_pos_world, world_width, view_min_world, view_max_world
@@ -2207,9 +2208,15 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                     geo._level_scale_factors, voxels_per_pixel, lod_bias
                 )
 
+        # Cull first: a clipped visual ranks and sorts only the bricks its
+        # clipping planes keep.  The exact test still runs in the frustum
+        # cull, so the plan is the same rows in the same order.
+        clip_rows = self._clip_rows()
+        keep = cull_masks(geo._level_grids, clip_rows)
+
         if force_level is not None:
             brick_arr = select_levels_arr_forced(
-                geo.base_layout, force_level, geo._level_grids
+                geo.base_layout, force_level, geo._level_grids, keep=keep
             )
         else:
             brick_arr = select_levels_from_cache(
@@ -2218,6 +2225,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                 camera_pos_data,
                 thresholds=thresholds,
                 base_layout=geo.base_layout,
+                keep=keep,
             )
 
         # 2. Distance sort
@@ -2231,7 +2239,6 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
         # 3. Frustum cull, with the clipping planes as further half-spaces.
         # They apply with no frustum too: a clipped brick is never drawn.
-        clip_rows = self._clip_rows()
         if clip_rows is not None:
             frustum_planes = (
                 clip_rows
@@ -3453,7 +3460,7 @@ class GFXMultiscaleImageVisual(ClippingPlanesMixin):
                     world_width=request.world_extent[0],
                     view_min_world=view_min if config.frustum_cull else None,
                     view_max_world=view_max if config.frustum_cull else None,
-                    lod_bias=config.lod_bias,
+                    lod_bias=config.settled_lod_bias,
                     force_level=config.force_level,
                     use_culling=config.frustum_cull,
                 )
@@ -3478,7 +3485,7 @@ class GFXMultiscaleImageVisual(ClippingPlanesMixin):
                     request.frustum_corners if config.frustum_cull else None,
                     request.fov_y_rad,
                     request.screen_size_px[1],
-                    config.lod_bias,
+                    config.settled_lod_bias,
                     config.force_level,
                     view_height_world=request.world_extent[1],
                 )

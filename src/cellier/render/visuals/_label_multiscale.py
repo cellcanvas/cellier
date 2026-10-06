@@ -17,6 +17,7 @@ from cellier.render._frustum import (
 from cellier.render._gpu_lifetime import destroy_textures
 from cellier.render._level_mapping import base_cell_range
 from cellier.render._level_of_detail import (
+    cull_masks,
     orthographic_voxels_per_pixel,
     select_level_orthographic,
     select_levels_arr_forced,
@@ -921,9 +922,15 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
                     geo._level_scale_factors, voxels_per_pixel, lod_bias
                 )
 
+        # Cull first: a clipped visual ranks and sorts only the bricks its
+        # clipping planes keep.  The exact test still runs in the frustum
+        # cull, so the plan is the same rows in the same order.
+        clip_rows = self._clip_rows()
+        keep = cull_masks(geo._level_grids, clip_rows)
+
         if force_level is not None:
             brick_arr = select_levels_arr_forced(
-                geo.base_layout, force_level, geo._level_grids
+                geo.base_layout, force_level, geo._level_grids, keep=keep
             )
         else:
             brick_arr = select_levels_from_cache(
@@ -932,6 +939,7 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
                 camera_pos_data,
                 thresholds=thresholds,
                 base_layout=geo.base_layout,
+                keep=keep,
             )
         lod_select_ms = (time.perf_counter() - t0) * 1000
 
@@ -952,7 +960,6 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
         frustum_cull_ms = 0.0
         # The clipping planes are further half-spaces, with or without a
         # frustum: a clipped brick is never drawn (clipping planes 5.1).
-        clip_rows = self._clip_rows()
         if clip_rows is not None:
             frustum_planes = (
                 clip_rows
@@ -1078,7 +1085,7 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
                 request.frustum_corners if config.frustum_cull else None,
                 request.fov_y_rad,
                 request.screen_size_px[1],
-                lod_bias=config.lod_bias,
+                lod_bias=config.settled_lod_bias,
                 dims_state=request.dims_state,
                 force_level=config.force_level,
                 selection=request.selection,
@@ -1189,7 +1196,7 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
                 view_min_world=view_min_world if use_culling else None,
                 view_max_world=view_max_world if use_culling else None,
                 dims_state=request.dims_state,
-                lod_bias=config.lod_bias,
+                lod_bias=config.settled_lod_bias,
                 force_level=config.force_level,
                 use_culling=use_culling,
                 selection=request.selection,

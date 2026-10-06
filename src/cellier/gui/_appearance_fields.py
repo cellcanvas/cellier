@@ -347,7 +347,7 @@ toolkit-neutral name for the control -- checked against each field class's
 ``test_the_shared_widget_table_agrees_with_the_field_classes``.
 
 Not listed: the multi-field image controls (``color_map``, ``clim``,
-``render``, ``lod_bias``) and ``aabb``/``dataset_info``, which predate this
+``render``, ``settled_lod_bias``) and ``aabb``/``dataset_info``, which predate this
 design and keep their bespoke builders.
 """
 

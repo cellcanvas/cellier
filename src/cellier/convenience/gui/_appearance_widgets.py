@@ -195,7 +195,7 @@ def _any_trail(spec: ControlSpec, visual_ids, controller=None):
 
 ANYWIDGET_BUILDERS = {
     "image": _any_image,
-    "lod_bias": _any_lod_bias,
+    "settled_lod_bias": _any_lod_bias,
     "trail": _any_trail,
     "aabb": _any_aabb,
     "loading": _any_loading,

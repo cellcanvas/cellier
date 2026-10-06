@@ -26,7 +26,7 @@ AppearanceField = Literal[
     "render_mode",
     "iso_threshold",
     "attenuation",
-    "lod_bias",
+    "settled_lod_bias",
     # Labels ("render_mode" is shared with the image models, and means a
     # different set of values there -- see BaseControlsConfig.APPEARANCE_CONTROLS)
     "salt",
@@ -279,7 +279,7 @@ class MultiscaleImageControlsConfig(InMemoryImageControlsConfig):
     appearance : list[str] or False
         Appearance fields in display order, e.g.
         ``["color_map", "clim", "render_mode", "iso_threshold",
-        "attenuation", "lod_bias"]``.
+        "attenuation", "settled_lod_bias"]``.
     colormap_names : list[str] or None
         Names available in the colormap dropdown.
     clim_range : tuple[float, float] or None
@@ -306,7 +306,7 @@ class MultiscaleImageControlsConfig(InMemoryImageControlsConfig):
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
         **InMemoryImageControlsConfig.APPEARANCE_CONTROLS,
         "attenuation": "image",
-        "lod_bias": "lod_bias",
+        "settled_lod_bias": "settled_lod_bias",
     }
 
     loading_indicator: bool = True
@@ -349,7 +349,7 @@ class LabelsControlsConfig(BaseControlsConfig):
 class MultiscaleLabelsControlsConfig(LabelsControlsConfig):
     """Controls configuration for multiscale label visuals.
 
-    Adds ``lod_bias``, mirroring the image pair.
+    Adds ``settled_lod_bias``, mirroring the image pair.
 
     Parameters
     ----------
@@ -365,7 +365,7 @@ class MultiscaleLabelsControlsConfig(LabelsControlsConfig):
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
         **LabelsControlsConfig.APPEARANCE_CONTROLS,
-        "lod_bias": "lod_bias",
+        "settled_lod_bias": "settled_lod_bias",
     }
 
     loading_indicator: bool = True

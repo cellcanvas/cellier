@@ -331,7 +331,7 @@ def _(
         transform=beside(image_store, 0),
         clipping_planes=half(image_store, (0, 0, 1)),
         controls=MultiscaleImageControlsConfig(
-            appearance=["visible", "render_mode", "iso_threshold", "lod_bias"],
+            appearance=["visible", "render_mode", "iso_threshold", "settled_lod_bias"],
             clipping_controls=True,
             loading_indicator=True,
         ),

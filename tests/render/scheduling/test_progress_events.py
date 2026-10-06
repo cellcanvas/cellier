@@ -17,7 +17,6 @@ from cellier.events import (
     ResliceCompletedEvent,
     ResliceProgressEvent,
 )
-from cellier.visuals import ProgressiveLoadingConfig
 from tests._gpu_budget import SMALL_BUDGETS
 from tests.render.conftest import drain_loading
 from tests.render.scheduling.test_backstop_integration import _add, _Gate, _until
@@ -99,20 +98,6 @@ async def test_backstop_complete_fires_while_the_target_is_held(
     kinds = [type(e) for e in rec.events if not isinstance(e, ResliceProgressEvent)]
     assert kinds == [BackstopCompleteEvent, ResliceCompletedEvent]
     assert rec.of(ResliceProgressEvent)[-1].progress.complete
-
-
-async def test_no_backstop_event_without_a_backstop(controller, multiscale_image_store):
-    scene, visual, _gfx = _add(
-        controller,
-        multiscale_image_store,
-        loading=ProgressiveLoadingConfig(backstop=False),
-    )
-    rec = _Recorder(controller, visual.id)
-    await _load(controller, scene)
-    assert not rec.of(BackstopCompleteEvent)
-    last = rec.of(ResliceProgressEvent)[-1].progress
-    assert last.needed_backstop == 0
-    assert last.complete and last.backstop_complete
 
 
 async def test_one_event_per_loop_iteration_over_every_channel(
@@ -202,7 +187,7 @@ async def test_a_dims_scrub_marks_the_target_deferred_until_it_ends(
     from tests.render.scheduling.test_dims_drag import DRAG, _settle_s, _tzyx_store
     from tests.render.scheduling.test_dims_drag import _add as _add_drag
 
-    scene, visual, _gfx = _add_drag(controller, _tzyx_store(tmp_path), loading=DRAG)
+    scene, visual, _gfx = _add_drag(controller, _tzyx_store(tmp_path), moving=DRAG)
     await _load(controller, scene)
     assert not controller.loading_progress(visual.id).target_deferred
 

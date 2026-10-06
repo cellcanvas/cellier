@@ -86,6 +86,8 @@ def build_level_grids(
             World-space ``(x, y, z)`` centre of each coarse brick.
         ``half_extents`` : ndarray, shape (3,), dtype float64
             Half-brick-width per axis in world space ``(x, y, z)``.
+        ``centre_abs_max`` : ndarray, shape (3,), dtype float64
+            Largest absolute centre coordinate per axis, for ``cull_mask``.
     """
     bs = base_layout.block_size
     gd, gh, gw = base_layout.grid_dims
@@ -126,9 +128,90 @@ def build_level_grids(
         centres = brick_centre_data(np.stack([gx_c, gy_c, gz_c], axis=1), bs, sv, tv)
 
         half_extents = (bs * sv / 2.0).astype(np.float64)
-        grids.append({"arr": arr, "centres": centres, "half_extents": half_extents})
+        grids.append(
+            {
+                "arr": arr,
+                "centres": centres,
+                "half_extents": half_extents,
+                "centre_abs_max": np.abs(centres).max(axis=0),
+            }
+        )
 
     return grids
+
+
+# ---------------------------------------------------------------------------
+# Cull first: drop the bricks no half-space keeps before ranking them
+# ---------------------------------------------------------------------------
+
+
+def _reaches_rows(grid: dict, rows: np.ndarray) -> np.ndarray:
+    """Mask of a level's bricks whose box reaches the kept side of every row.
+
+    A box reaches ``n . p + d >= 0`` when its farthest corner along ``n``
+    does: ``n . centre + d + |n| . half_extents >= 0``.  The test is on the
+    cached centres, so it carries a small slack and never drops a brick the
+    corner test of ``bricks_in_frustum_arr`` keeps.
+    """
+    rows = np.asarray(rows, dtype=np.float64)
+    normals = rows[:, :3]
+    abs_normals = np.abs(normals)
+    reach = abs_normals @ grid["half_extents"]
+    signed = grid["centres"] @ normals.T + rows[:, 3]
+    magnitude = abs_normals @ grid["centre_abs_max"] + reach + np.abs(rows[:, 3])
+    return (signed + reach >= -1e-9 * magnitude).all(axis=1)
+
+
+def cull_mask(
+    grid: dict,
+    clip_rows: np.ndarray | None = None,
+    plane_row_sets: list[np.ndarray] | None = None,
+) -> np.ndarray | None:
+    """Mask of one level's bricks worth ranking, or ``None`` to keep all.
+
+    Run before level selection so a clipped visual ranks and sorts only the
+    bricks it can draw.  The mask is conservative: the exact half-space test
+    still runs on what is left.
+
+    Parameters
+    ----------
+    grid : dict
+        One level of ``build_level_grids``.
+    clip_rows : ndarray, shape (N, 4), or None
+        Half-spaces ``n . p + d >= 0`` in the space of ``grid["centres"]``.
+        A brick is kept when its box reaches the kept side of every row.
+    plane_row_sets : list of ndarray, shape (N_i, 4), or None
+        One set of rows per plane.  A brick is kept when it reaches every
+        row of at least one set: a union, which a row list cannot express.
+
+    Returns
+    -------
+    keep : ndarray of bool, shape (M_k,), or None
+        ``None`` with nothing to cull by.
+    """
+    if clip_rows is None and plane_row_sets is None:
+        return None
+    if clip_rows is None:
+        keep = np.ones(len(grid["arr"]), dtype=bool)
+    else:
+        keep = _reaches_rows(grid, clip_rows)
+    if plane_row_sets is not None:
+        on_a_plane = np.zeros(len(keep), dtype=bool)
+        for rows in plane_row_sets:
+            on_a_plane |= _reaches_rows(grid, rows)
+        keep &= on_a_plane
+    return keep
+
+
+def cull_masks(
+    level_grids: list[dict],
+    clip_rows: np.ndarray | None = None,
+    plane_row_sets: list[np.ndarray] | None = None,
+) -> list[np.ndarray] | None:
+    """``cull_mask`` for every level, or ``None`` with nothing to cull by."""
+    if clip_rows is None and plane_row_sets is None:
+        return None
+    return [cull_mask(grid, clip_rows, plane_row_sets) for grid in level_grids]
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +225,7 @@ def select_levels_from_cache(
     camera_pos: np.ndarray,
     thresholds: list[float] | None = None,
     base_layout: BlockLayout3D | None = None,
+    keep: list[np.ndarray] | None = None,
 ) -> np.ndarray:
     """Select LOD levels using precomputed coarse grid data.
 
@@ -174,6 +258,9 @@ def select_levels_from_cache(
         diagonal (measured from ``level_grids``), so they honour
         anisotropic scale/translation.  When None, ``thresholds`` stays
         empty and all bricks fall to the finest level.
+    keep : list of ndarray of bool, or None
+        Output of ``cull_masks``: per level, the bricks to rank.  The result
+        is the unculled result with the other rows removed, in order.
 
     Returns
     -------
@@ -203,7 +290,8 @@ def select_levels_from_cache(
     # ``n_levels >= 2`` case, where the per-level loop below would otherwise
     # index an empty threshold list; it also handles an explicit ``[]``.
     if not thresholds:
-        return level_grids[0]["arr"]
+        arr0 = level_grids[0]["arr"]
+        return arr0 if keep is None else arr0[keep[0]]
 
     parts: list[np.ndarray] = []
 
@@ -211,6 +299,12 @@ def select_levels_from_cache(
         grid = level_grids[level - 1]
         centres = grid["centres"]  # (M_k, 3) — precomputed, no alloc
         arr_k = grid["arr"]  # (M_k, 4)
+        if keep is not None:
+            kept = keep[level - 1]
+            if not kept.any():
+                continue
+            centres = centres[kept]
+            arr_k = arr_k[kept]
 
         diff = centres - cam
         dist = np.sqrt((diff * diff).sum(axis=1))
@@ -317,6 +411,7 @@ def select_levels_arr_forced(
     base_layout: BlockLayout3D,
     force_level: int,
     level_grids: list[dict] | None = None,
+    keep: list[np.ndarray] | None = None,
 ) -> np.ndarray:
     """Return the full coarse grid for a forced single LOD level.
 
@@ -339,12 +434,16 @@ def select_levels_arr_forced(
     level_grids : list[dict] or None
         If provided, returns ``level_grids[level - 1]["arr"]``
         directly (zero-copy view).
+    keep : list of ndarray of bool, or None
+        Output of ``cull_masks``; needs ``level_grids``.  Only the kept rows
+        of the level are returned.
     """
     level = max(force_level, 1)
 
     if level_grids is not None:
         level = min(level, len(level_grids))
-        return level_grids[level - 1]["arr"]
+        arr = level_grids[level - 1]["arr"]
+        return arr if keep is None else arr[keep[level - 1]]
 
     # The uncached branch has no ``n_levels`` to clamp against, so only the
     # lower bound applies here.

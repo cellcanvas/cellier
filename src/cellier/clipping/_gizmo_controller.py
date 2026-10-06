@@ -117,7 +117,7 @@ class ClippingPlaneGizmoController:
     - A plane changed from anywhere else (a slider, an assignment) moves
       the gizmo.
     - A drag is one clipping interaction on the visual
-      (``ClippingInteractionEvent``).
+      (``PlaneInteractionEvent``).
     - It closes itself when its plane or its visual is removed, when the
       canvas leaves 3D, and when the plane gains a component on an axis the
       view does not show.
@@ -271,7 +271,7 @@ class ClippingPlaneGizmoController:
             self._changes_plane = handle_changes_plane(
                 event.handle_kind, event.handle_axis
             )
-            self._controller.begin_clipping_interaction(
+            self._controller.begin_plane_interaction(
                 self._visual_id, source_id=self._id
             )
         elif event.phase == "move":
@@ -300,7 +300,7 @@ class ClippingPlaneGizmoController:
 
     def _end_scope(self) -> None:
         self._dragging = False
-        self._controller.end_clipping_interaction(self._visual_id, source_id=self._id)
+        self._controller.end_plane_interaction(self._visual_id, source_id=self._id)
 
     # -- the model -> the gizmo ----------------------------------------------
 

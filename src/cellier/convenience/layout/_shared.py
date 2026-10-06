@@ -35,7 +35,7 @@ class ControlSpec:
     ----------
     kind : str
         Which control to build: ``color_map``, ``clim``, ``render``,
-        ``lod_bias``, ``aabb``, ``loading``, ``loading_config``,
+        ``settled_lod_bias``, ``aabb``, ``loading``, ``loading_config``,
         ``mesh_section``, ``clipping_planes``, ``lod_config`` or
         ``dataset_info``.  A renderer with no
         builder for a kind skips it.
@@ -78,7 +78,7 @@ class AppearanceSpecs(NamedTuple):
 
 _CONTROL_TITLES = {
     "image": "Image",
-    "lod_bias": "LOD bias",
+    "settled_lod_bias": "LOD bias",
     "aabb": "Bounding box",
     "trail": "Trail",
     "loading": LOADING_TITLE,
@@ -228,7 +228,7 @@ def appearance_specs(
     # A field is honoured when the config class has a control for it *and* the
     # visual's model actually carries it.  Both halves matter: a config can be
     # paired with a visual whose model is narrower (a multiscale config on an
-    # in-memory image has no ``lod_bias`` to drive).
+    # in-memory image has no ``settled_lod_bias`` to drive).
     # An image's mode-dependent fields live on ``single`` (unified image
     # design 3.1), not on the shared appearance.
     single = getattr(visual, "single", None)
@@ -264,7 +264,9 @@ def appearance_specs(
 
     values_for = {
         "image": _image_values,
-        "lod_bias": lambda: {"initial_lod_bias": float(getattr(app, "lod_bias", 1.0))},
+        "settled_lod_bias": lambda: {
+            "initial_lod_bias": float(getattr(app, "settled_lod_bias", 1.0))
+        },
     }
 
     specs: list[ControlSpec] = []

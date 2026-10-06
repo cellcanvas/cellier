@@ -21,7 +21,7 @@ import pytest
 
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
 from cellier.data.label._label_memory_store import LabelMemoryStore
-from cellier.visuals import InMemoryLabelsAppearance, ProgressiveLoadingConfig
+from cellier.visuals import InMemoryLabelsAppearance
 from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
     MultiscaleLabelsAppearance,
@@ -88,7 +88,6 @@ def _labels_multiscale(controller, tmp_path):
         render_config=MultiscaleLabelRenderConfig(
             **SMALL_BUDGETS,
             block_size=8,
-            loading=ProgressiveLoadingConfig(backstop=False),
         ),
     )
     return scene

@@ -18,11 +18,10 @@ class VisualRenderConfig:
 
     Parameters
     ----------
-    lod_bias : float
-        Multiplier applied to LOD distance thresholds.  Values greater
-        than 1.0 favour finer (higher-resolution) levels at a given
-        camera distance; values less than 1.0 favour coarser levels.
-        Default ``1.0`` (no bias).
+    settled_lod_bias : float
+        Level-of-detail bias of a settled plan: a divisor on the LOD
+        thresholds, so values greater than 1.0 favour coarser levels and
+        values less than 1.0 finer ones.  Default ``1.0`` (no bias).
     force_level : int or None
         When set, all bricks are assigned this 1-based LOD level,
         bypassing distance-based selection entirely.  ``None`` restores
@@ -41,10 +40,11 @@ class VisualRenderConfig:
     plan_mode : PlanMode
         What a multiscale visual plans this reslice: ``FULL`` (default), or
         ``BACKSTOP_ONLY`` for any reslice while the scene's dims are being
-        scrubbed, when the visual opted in (``dims_drag="backstop"``).
+        scrubbed, when the visual opted in (its ``coarsest_while_moving``
+        setting for the view, or a mesh's ``lod.dims_drag="coarse"``).
     """
 
-    lod_bias: float = 1.0
+    settled_lod_bias: float = 1.0
     force_level: int | None = None
     frustum_cull: bool = True
     slicing_enabled: bool = True

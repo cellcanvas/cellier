@@ -126,11 +126,11 @@ Only a **sliced** axis ticks. A scene keeps a position for every world axis, dis
 
 ### What a scrub does
 
-Visuals do not subscribe to the tracker. Each visual model answers one question through its own explicit config, `BaseVisual.plans_coarse_on_scrub`:
+Visuals do not subscribe to the tracker. Each visual model answers one question through its own explicit config, `BaseVisual.plans_coarse_while_moving(n_displayed_dims)`, asked with the scene's view (2D or 3D):
 
-| Visual | `plans_coarse_on_scrub` |
+| Visual | `plans_coarse_while_moving` |
 |---|---|
-| Multiscale image, multiscale labels | `render_config.loading.dims_drag == "backstop"` (the default is `"eager"`, which is `False`) |
+| Multiscale image, multiscale labels | `appearance.coarsest_while_moving_3d` in a 3D view, `appearance.coarsest_while_moving_2d` in a 2D view (both default to `False`) |
 | Multiscale mesh | `lod.dims_drag == "coarse"` (the default, which is `True`), when the mesh has more than one level |
 | Everything else | `False` |
 
@@ -371,6 +371,6 @@ A loop that wants every position at full resolution does not open a scope. Each 
 | Camera: `_on_camera_changed`, `_on_camera_transition`, `_after_programmatic_camera_move`, `camera_interaction`, `set_camera_state` | `cellier/controller.py` |
 | Frame-by-frame camera detection, `accept_camera_state`, `camera_moving` | `cellier/render/canvas_view.py` |
 | The events | `cellier/events/_events.py`, `cellier/events/_update_events.py` |
-| `plans_coarse_on_scrub` | `cellier/visuals/_base_visual.py` |
+| `plans_coarse_while_moving` | `cellier/visuals/_base_visual.py` |
 | Slider press and release | `cellier/gui/qt/_scene.py`, `cellier/gui/anywidget/_dims_panel.py` |
 | Ortho scope forwarding | `cellier/convenience/_ortho_dims.py` |

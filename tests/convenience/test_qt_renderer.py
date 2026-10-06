@@ -104,7 +104,9 @@ def test_appearance_controls_multiscale_render_and_lod(qtbot, multiscale_image_s
     viewer.add_image_multiscale(
         multiscale_image_store,
         appearance=MultiscaleImageAppearance(),
-        controls=MultiscaleImageControlsConfig(appearance=["render_mode", "lod_bias"]),
+        controls=MultiscaleImageControlsConfig(
+            appearance=["render_mode", "settled_lod_bias"]
+        ),
         single=MultiscaleImageSingleAppearance(color_map="viridis", render_mode="mip"),
     )
 

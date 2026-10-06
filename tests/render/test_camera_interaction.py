@@ -17,7 +17,7 @@ import pytest
 
 from cellier.controller import CellierController
 from cellier.render import CameraConfig, RenderManagerConfig
-from cellier.visuals import MultiscaleImageSingleAppearance, ProgressiveLoadingConfig
+from cellier.visuals import MultiscaleImageSingleAppearance
 from cellier.visuals._image import (
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
@@ -51,7 +51,7 @@ class Rig:
         *,
         dim: str = "3d",
         settle_s: float = NO_SETTLE,
-        loading: ProgressiveLoadingConfig | None = None,
+        moving: dict | None = None,
         n_canvases: int = 1,
         render_modes: set[str] | None = None,
         with_image: bool = True,
@@ -66,7 +66,7 @@ class Rig:
         kwargs = {} if render_modes is None else {"render_modes": render_modes}
         self.scene = self.controller.add_scene(dim=dim, name="scene", **kwargs)
         self.store = store
-        self.visual = self.add_image(loading) if with_image else None
+        self.visual = self.add_image(moving) if with_image else None
         self.canvas_ids = []
         self.views = []
         for _ in range(n_canvases):
@@ -116,16 +116,12 @@ class Rig:
             self.scene.id, self.camera_events.append, owner_id=self.controller._id
         )
 
-    def add_image(self, loading: ProgressiveLoadingConfig | None = None):
+    def add_image(self, moving: dict | None = None):
         return self.controller.add_image_multiscale(
             data=self.store,
             scene_id=self.scene.id,
-            appearance=MultiscaleImageAppearance(force_level=1),
-            render_config=MultiscaleImageRenderConfig(
-                **SMALL_BUDGETS,
-                block_size=8,
-                loading=loading or ProgressiveLoadingConfig(),
-            ),
+            appearance=MultiscaleImageAppearance(force_level=1, **(moving or {})),
+            render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
             single=MultiscaleImageSingleAppearance(
                 color_map="viridis", clim=(0.0, 1.0), render_mode="mip"
             ),
@@ -788,12 +784,13 @@ async def test_moving_one_canvas_leaves_the_other_idle(make_rig, monkeypatch):
 
 # -- camera and dims together -----------------------------------------------------
 
-DRAG = ProgressiveLoadingConfig(dims_drag="backstop")
+#: Plan the backstop only while the dims are scrubbed, in 2D and 3D.
+DRAG = {"coarsest_while_moving_2d": True, "coarsest_while_moving_3d": True}
 
 
 @pytest.mark.parametrize("how", ["motion_end", "jump"])
 async def test_a_camera_reslice_during_a_scrub_plans_coarse(make_rig, how):
-    rig = make_rig(dim="2d", loading=DRAG)
+    rig = make_rig(dim="2d", moving=DRAG)
     controller = rig.controller
     await rig.settle_first_frames()
     visual_id = rig.visual.id
@@ -828,7 +825,7 @@ async def test_a_camera_reslice_during_a_scrub_plans_coarse(make_rig, how):
 async def test_a_scrub_ending_during_camera_motion_leaves_the_target_to_the_camera(
     make_rig,
 ):
-    rig = make_rig(dim="2d", loading=DRAG)
+    rig = make_rig(dim="2d", moving=DRAG)
     controller = rig.controller
     await rig.settle_first_frames()
     visual_id = rig.visual.id
@@ -856,7 +853,7 @@ async def test_a_scrub_ending_during_camera_motion_leaves_the_target_to_the_came
 
 
 async def test_a_scrub_ending_with_no_camera_moving_plans_the_target(make_rig):
-    rig = make_rig(dim="2d", loading=DRAG)
+    rig = make_rig(dim="2d", moving=DRAG)
     controller = rig.controller
     await rig.settle_first_frames()
     with controller.dims_interaction(rig.scene.id):
@@ -871,7 +868,7 @@ async def test_a_scrub_ending_with_no_camera_moving_plans_the_target(make_rig):
 async def test_a_handed_over_visual_is_planned_even_with_camera_reslicing_off(
     make_rig,
 ):
-    rig = make_rig(dim="2d", loading=DRAG)
+    rig = make_rig(dim="2d", moving=DRAG)
     controller = rig.controller
     await rig.settle_first_frames()
     controller.camera_reslice_enabled = False

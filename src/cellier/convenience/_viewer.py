@@ -627,7 +627,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         visual : visual model or UUID
             A multiscale image or labels visual.
         **fields :
-            ``ProgressiveLoadingConfig`` fields, e.g. ``dims_drag="backstop"``.
+            ``ProgressiveLoadingConfig`` fields, e.g. ``backstop_extent="view"``.
 
         Returns
         -------
@@ -1052,8 +1052,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         By default a **jump**: every visual loads in full at once.  With
         ``interactive=True``, or inside :meth:`dims_interaction`, it is a
-        tick of a **scrub**: visuals in ``dims_drag="backstop"`` mode load
-        their coarse backstop only, and load in full when the scrub ends.
+        tick of a **scrub**: visuals with ``coarsest_while_moving`` on for the
+        view load their coarse backstop only, and load in full when the scrub ends.
         See ``CellierController.update_slice_indices``.
 
         Parameters

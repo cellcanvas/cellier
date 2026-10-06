@@ -26,11 +26,10 @@ if TYPE_CHECKING:
 class QtLoadingConfigControls(VisualIdGroup):
     """Every ``ProgressiveLoadingConfig`` field of a multiscale visual.
 
-    One row per field: the backstop on or off, its level ("coarsest" for
-    ``None``), its extent and slot cap, and what a dims slider tick loads.
+    One row per field: the backstop's level ("coarsest" for ``None``), its
+    extent and its slot cap.
     An edit is sent as ``LoadingConfigUpdateEvent`` and applied at once.
-    An invalid combination (``dims_drag="backstop"`` with the backstop off)
-    is refused by the controller: the rows show the settings again and the
+    An invalid value is refused by the controller: the rows show the settings again and the
     reason below them; nothing is corrected.
 
     Wire to the controller after construction::

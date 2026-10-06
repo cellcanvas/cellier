@@ -29,7 +29,7 @@ from cellier.convenience.gui._controls_config import (
 )
 
 _IN_MEMORY_FIELDS = ["color_map", "clim", "render_mode", "iso_threshold"]
-_MULTISCALE_ONLY = ["attenuation", "lod_bias"]
+_MULTISCALE_ONLY = ["attenuation", "settled_lod_bias"]
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ def test_a_whole_valid_list_is_accepted():
 def test_multiscale_only_fields_are_rejected_on_the_in_memory_config(field):
     """The likelier mistake (section 9.1): a real name, wrong config.
 
-    ``lod_bias`` and ``attenuation`` exist on ``MultiscaleImageAppearance``
+    ``settled_lod_bias`` and ``attenuation`` exist on ``MultiscaleImageAppearance``
     and not on ``InMemoryImageAppearance``.  A closed ``Enum`` would not catch
     this -- the member exists either way -- which is why the vocabulary is
     per config class and not one global set.
@@ -73,7 +73,7 @@ def test_multiscale_only_fields_are_rejected_on_the_in_memory_config(field):
 
 def test_the_error_names_the_config_class_and_its_valid_set():
     with pytest.raises(ValueError) as excinfo:
-        InMemoryImageControlsConfig(appearance=["lod_bias"])
+        InMemoryImageControlsConfig(appearance=["settled_lod_bias"])
 
     message = str(excinfo.value)
     assert "InMemoryImageControlsConfig" in message
@@ -97,7 +97,7 @@ def test_a_typo_is_rejected_with_the_nearest_match():
     [
         ("clims", "clim"),
         ("render_modes", "render_mode"),
-        ("lodbias", "lod_bias"),
+        ("lodbias", "settled_lod_bias"),
     ],
 )
 def test_near_misses_suggest_the_right_field(typo, expected):
@@ -201,7 +201,7 @@ def test_a_field_valid_for_the_config_but_absent_from_the_model_is_reported():
     """Validation cannot catch this; only the renderer sees both halves.
 
     A ``MultiscaleImageControlsConfig`` on an in-memory visual: every name is
-    valid for the config class, and the model still has no ``lod_bias``.
+    valid for the config class, and the model still has no ``settled_lod_bias``.
     ``appearance_specs`` reports it and the renderers warn (section 9.5
     step 4).
     """
@@ -211,11 +211,11 @@ def test_a_field_valid_for_the_config_but_absent_from_the_model_is_reported():
     visual = ImageVisual(name="v0", data_store_id="store")
 
     specs, skipped = appearance_specs(
-        visual, MultiscaleImageControlsConfig(appearance=["clim", "lod_bias"])
+        visual, MultiscaleImageControlsConfig(appearance=["clim", "settled_lod_bias"])
     )
 
     assert [spec.kind for spec in specs] == ["image", "aabb"]
-    assert skipped == ["lod_bias"]
+    assert skipped == ["settled_lod_bias"]
 
 
 # ---------------------------------------------------------------------------

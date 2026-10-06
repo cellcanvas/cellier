@@ -455,7 +455,7 @@ def test_reslice_visual_only_targets_one_visual() -> None:
 
 def test_visual_render_config_defaults() -> None:
     config = VisualRenderConfig()
-    assert config.lod_bias == 1.0
+    assert config.settled_lod_bias == 1.0
     assert config.force_level is None
     assert config.frustum_cull is True
 
@@ -466,7 +466,7 @@ def test_visual_render_config_defaults() -> None:
 
 
 def test_lod_bias_forwarded_to_visual() -> None:
-    """lod_bias from VisualRenderConfig must be passed to build_slice_request."""
+    """The config's settled_lod_bias must be passed to build_slice_request."""
     scene_id = uuid4()
     sm = SceneManager(scene_id=scene_id)
     visual = _make_mock_visual()
@@ -475,7 +475,7 @@ def test_lod_bias_forwarded_to_visual() -> None:
 
     req = _make_reslicing_request(scene_id=scene_id)
     sm.build_slice_requests(
-        req, {visual.visual_model_id: VisualRenderConfig(lod_bias=2.0)}
+        req, {visual.visual_model_id: VisualRenderConfig(settled_lod_bias=2.0)}
     )
 
     _, kwargs = visual.build_slice_request.call_args

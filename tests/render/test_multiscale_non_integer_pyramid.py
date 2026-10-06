@@ -173,11 +173,12 @@ async def _render_image(controller, render_scene, reslice, root, dim, level):
         data=_store(root, f"ramp-{dim}-{level}"),
         scene_id=scene.id,
         appearance=MultiscaleImageAppearance(force_level=level),
-        # The level under test only: no backstop drawn beneath it.
+        # The level under test only: it is its own backstop, so no other
+        # level is drawn beneath it.
         render_config=MultiscaleImageRenderConfig(
             **SMALL_BUDGETS,
             block_size=BLOCK_SIZE,
-            loading=ProgressiveLoadingConfig(backstop=False),
+            loading=ProgressiveLoadingConfig(backstop_level=level),
         ),
         single=MultiscaleImageSingleAppearance(
             color_map="gray", clim=(0.0, 1.0), render_mode="mip"
@@ -200,7 +201,7 @@ async def _render_labels(controller, render_scene, reslice, root, dim, level):
         render_config=MultiscaleLabelRenderConfig(
             **SMALL_BUDGETS,
             block_size=BLOCK_SIZE,
-            loading=ProgressiveLoadingConfig(backstop=False),
+            loading=ProgressiveLoadingConfig(backstop_level=level),
         ),
     )
     controller.add_canvas(scene_id=scene.id)

@@ -28,7 +28,7 @@ _STATIC = Path(__file__).parent / "static"
 class AnywidgetLodBiasSlider(VisualIdGroup, anywidget.AnyWidget):
     """Single-value LOD-bias slider wired to the cellier v2 bus.
 
-    Mirrors ``QtLodBiasSlider``.  Because changing ``lod_bias`` triggers a
+    Mirrors ``QtLodBiasSlider``.  Because changing ``settled_lod_bias`` triggers a
     reslice, the JS emits only on settled ``change`` (not on every drag
     ``input``), so only one reslice fires per drag interaction.
 
@@ -42,11 +42,11 @@ class AnywidgetLodBiasSlider(VisualIdGroup, anywidget.AnyWidget):
     Parameters
     ----------
     visual_id :
-        UUID of the visual whose ``lod_bias`` field this widget controls.
+        UUID of the visual whose ``settled_lod_bias`` field this widget controls.
         A sequence drives every listed visual in lock-step -- the
         ``OrthoViewer``'s four panel siblings (design section 8.1).
     initial_lod_bias :
-        Starting value -- typically ``visual_model.appearance.lod_bias``.
+        Starting value -- typically ``visual_model.appearance.settled_lod_bias``.
     """
 
     _esm = _STATIC / "lod_bias.js"
@@ -72,7 +72,7 @@ class AnywidgetLodBiasSlider(VisualIdGroup, anywidget.AnyWidget):
     stack controls and stop.
     """
 
-    lod_bias = traitlets.Float(1.0).tag(sync=True)
+    settled_lod_bias = traitlets.Float(1.0).tag(sync=True)
 
     def __init__(
         self,
@@ -81,11 +81,11 @@ class AnywidgetLodBiasSlider(VisualIdGroup, anywidget.AnyWidget):
         initial_lod_bias: float = 1.0,
         **kwargs,
     ) -> None:
-        super().__init__(lod_bias=float(initial_lod_bias), **kwargs)
+        super().__init__(settled_lod_bias=float(initial_lod_bias), **kwargs)
         self._id = uuid4()
         self._init_visual_ids(visual_id)
         self._applying = False
-        self.observe(self._on_trait_change, names="lod_bias")
+        self.observe(self._on_trait_change, names="settled_lod_bias")
 
     # ── Public interface ─────────────────────────────────────────────────────
 
@@ -116,9 +116,9 @@ class AnywidgetLodBiasSlider(VisualIdGroup, anywidget.AnyWidget):
     def _on_appearance_changed(self, event: AppearanceChangedEvent) -> None:
         if event.source_id == self._id:
             return  # echo from our own change; ignore
-        if event.field_name != "lod_bias":
+        if event.field_name != "settled_lod_bias":
             return
-        self._set_field("lod_bias", event.new_value)
+        self._set_field("settled_lod_bias", event.new_value)
 
     def _set_field(self, name: str, value) -> None:
         self._applying = True
@@ -132,4 +132,4 @@ class AnywidgetLodBiasSlider(VisualIdGroup, anywidget.AnyWidget):
     def _on_trait_change(self, change) -> None:
         if self._applying:
             return
-        self._emit_group(AppearanceUpdateEvent, "lod_bias", change["new"])
+        self._emit_group(AppearanceUpdateEvent, "settled_lod_bias", change["new"])

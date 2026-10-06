@@ -15,7 +15,6 @@ import pytest
 import tensorstore as ts
 
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
-from cellier.visuals import ProgressiveLoadingConfig
 from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
     MultiscaleLabelsAppearance,
@@ -80,7 +79,6 @@ async def test_a_pick_just_inside_the_silhouette_names_the_label(
         render_config=MultiscaleLabelRenderConfig(
             **SMALL_BUDGETS,
             block_size=8,
-            loading=ProgressiveLoadingConfig(backstop=False),
         ),
     )
     controller.add_canvas(scene_id=scene.id)

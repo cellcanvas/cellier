@@ -26,7 +26,7 @@ def _make_level_transforms_3d(factors):
 def test_image_appearance_roundtrip(tmp_path):
     # Non-default values including the new LOD/frustum fields
     original = MultiscaleImageAppearance(
-        lod_bias=2.0,
+        settled_lod_bias=2.0,
         force_level=1,
         frustum_cull=False,
     )
@@ -51,7 +51,7 @@ def test_multiscale_image_visual_roundtrip(tmp_path):
         data_store_id=store_id,
         level_transforms=transforms,
         appearance=MultiscaleImageAppearance(
-            lod_bias=1.5, force_level=None, frustum_cull=True
+            settled_lod_bias=1.5, force_level=None, frustum_cull=True
         ),
         single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )

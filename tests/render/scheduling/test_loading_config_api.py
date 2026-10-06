@@ -39,16 +39,16 @@ def test_fields_merge_into_the_current_config(controller, multiscale_image_store
     _scene, visual, _gfx = _add(controller, multiscale_image_store)
     events = _record(controller, visual.id)
 
-    result = controller.set_loading_config(visual.id, dims_drag="backstop")
+    result = controller.set_loading_config(visual.id, backstop_extent="view")
 
-    assert result == ProgressiveLoadingConfig(dims_drag="backstop")
+    assert result == ProgressiveLoadingConfig(backstop_extent="view")
     assert visual.render_config.loading == result
     [event] = events
     assert event.loading == result
     assert event.source_id == controller._id
     # A second field keeps the first.
     controller.set_loading_config(visual.id, backstop_max_slot_fraction=0.3)
-    assert visual.render_config.loading.dims_drag == "backstop"
+    assert visual.render_config.loading.backstop_extent == "view"
     assert visual.render_config.loading.backstop_max_slot_fraction == 0.3
 
 
@@ -60,16 +60,16 @@ def test_the_caller_source_id_is_stamped(controller, multiscale_image_store):
     assert events[-1].source_id == widget_id
 
 
-def test_an_invalid_combination_raises_and_changes_nothing(
+def test_an_invalid_value_raises_and_changes_nothing(
     controller, multiscale_image_store
 ):
     _scene, visual, _gfx = _add(controller, multiscale_image_store)
-    controller.set_loading_config(visual.id, dims_drag="backstop")
+    controller.set_loading_config(visual.id, backstop_extent="view")
     before = visual.render_config.loading
     events = _record(controller, visual.id)
 
-    with pytest.raises(ValueError, match="needs backstop=True"):
-        controller.set_loading_config(visual.id, backstop=False)
+    with pytest.raises(ValueError, match="backstop_level"):
+        controller.set_loading_config(visual.id, backstop_level=0)
 
     assert visual.render_config.loading == before
     assert events == []
@@ -77,21 +77,32 @@ def test_an_invalid_combination_raises_and_changes_nothing(
 
 def test_an_unknown_field_raises_with_a_suggestion(controller, multiscale_image_store):
     _scene, visual, _gfx = _add(controller, multiscale_image_store)
-    with pytest.raises(ValueError, match="Did you mean 'dims_drag'"):
-        controller.set_loading_config(visual.id, dims_dragg="backstop")
+    with pytest.raises(ValueError, match="Did you mean 'backstop_level'"):
+        # Built, so the typos hook does not correct it.
+        controller.set_loading_config(visual.id, **{"backstop_level" + "s": 2})
+
+
+@pytest.mark.parametrize("field", ["dims_drag", "backstop"])
+def test_a_removed_field_is_refused(controller, multiscale_image_store, field):
+    """``dims_drag`` and the ``backstop`` switch are gone (hard break)."""
+    _scene, visual, _gfx = _add(controller, multiscale_image_store)
+    before = visual.render_config.loading
+    with pytest.raises(ValueError, match=field):
+        controller.set_loading_config(visual.id, **{field: "eager"})
+    assert visual.render_config.loading == before
 
 
 def test_a_visual_that_is_not_multiscale_raises(controller, image_volume):
     scene = controller.add_scene(dim="3d", name="scene")
     visual = controller.add_image(image_volume, scene.id)
     with pytest.raises(TypeError, match="multiscale"):
-        controller.set_loading_config(visual.id, dims_drag="backstop")
+        controller.set_loading_config(visual.id, backstop_extent="view")
 
 
 def test_no_change_is_a_no_op(controller, multiscale_image_store):
     _scene, visual, _gfx = _add(controller, multiscale_image_store)
     events = _record(controller, visual.id)
-    assert controller.set_loading_config(visual.id, dims_drag="eager") == (
+    assert controller.set_loading_config(visual.id, backstop_extent="full") == (
         visual.render_config.loading
     )
     assert events == []
@@ -103,10 +114,10 @@ def test_assigning_render_config_directly_announces_the_change(
     _scene, visual, _gfx = _add(controller, multiscale_image_store)
     events = _record(controller, visual.id)
     visual.render_config = visual.render_config.model_copy(
-        update={"loading": ProgressiveLoadingConfig(backstop=False)}
+        update={"loading": ProgressiveLoadingConfig(backstop_level=1)}
     )
     [event] = events
-    assert event.loading.backstop is False
+    assert event.loading.backstop_level == 1
     assert event.source_id == controller._id
 
 
@@ -116,10 +127,13 @@ def test_an_update_event_on_the_incoming_bus_applies(
     _scene, visual, _gfx = _add(controller, multiscale_image_store)
     controller._incoming_events.emit(
         LoadingConfigUpdateEvent(
-            source_id=uuid4(), visual_id=visual.id, field="dims_drag", value="backstop"
+            source_id=uuid4(),
+            visual_id=visual.id,
+            field="backstop_extent",
+            value="view",
         )
     )
-    assert visual.render_config.loading.dims_drag == "backstop"
+    assert visual.render_config.loading.backstop_extent == "view"
 
 
 # -- the Viewer -----------------------------------------------------------------------
@@ -160,8 +174,8 @@ async def test_viewer_mirrors_the_controller(viewer_with_image):
     assert progress and isinstance(progress[-1], ResliceProgressEvent)
     assert [type(e) for e in backstops] == [BackstopCompleteEvent]
     assert viewer.loading_progress(visual).complete
-    assert viewer.set_loading(visual, dims_drag="backstop").dims_drag == "backstop"
-    assert visual.render_config.loading.dims_drag == "backstop"
+    assert viewer.set_loading(visual, backstop_extent="view").backstop_extent == "view"
+    assert visual.render_config.loading.backstop_extent == "view"
 
 
 async def test_removing_the_visual_removes_its_subscriptions(viewer_with_image):
@@ -190,11 +204,13 @@ def ortho_with_image(qtbot, multiscale_image_store):
 
 def test_ortho_set_loading_writes_every_panel(ortho_with_image):
     ortho, visuals = ortho_with_image
-    ortho.set_loading(visuals, dims_drag="backstop")
-    assert {v.render_config.loading.dims_drag for v in visuals.values()} == {"backstop"}
-    with pytest.raises(ValueError, match="needs backstop=True"):
-        ortho.set_loading(next(iter(visuals.values())), backstop=False)
-    assert all(v.render_config.loading.backstop for v in visuals.values())
+    ortho.set_loading(visuals, backstop_extent="view")
+    assert {v.render_config.loading.backstop_extent for v in visuals.values()} == {
+        "view"
+    }
+    with pytest.raises(ValueError, match="backstop_level"):
+        ortho.set_loading(next(iter(visuals.values())), backstop_level=0)
+    assert {v.render_config.loading.backstop_level for v in visuals.values()} == {None}
 
 
 def _fake_progress(ortho, monkeypatch, table):

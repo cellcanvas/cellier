@@ -338,7 +338,7 @@ def image_control_values(
     from cellier.gui._appearance_fields import literal_choices
 
     appearance = visual.appearance
-    multiscale = hasattr(appearance, "lod_bias")
+    multiscale = hasattr(appearance, "settled_lod_bias")
     shared = {
         "visible": bool(appearance.visible),
         "transparency_mode": to_widget_value(

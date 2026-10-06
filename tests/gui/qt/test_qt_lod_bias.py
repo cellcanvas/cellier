@@ -35,7 +35,7 @@ def _make_controller_with_visual(small_zarr_store, initial_lod_bias=1.0):
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
     scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
     store = _make_store(small_zarr_store)
-    appearance = MultiscaleImageAppearance(lod_bias=initial_lod_bias)
+    appearance = MultiscaleImageAppearance(settled_lod_bias=initial_lod_bias)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=appearance, name="vol"
     )
@@ -57,7 +57,7 @@ def test_slider_release_reaches_model(qtbot, small_zarr_store):
     slider._slider.setValue(3.5)
     slider._on_slider_released()  # simulate the user releasing the handle
 
-    assert visual.appearance.lod_bias == pytest.approx(3.5)
+    assert visual.appearance.settled_lod_bias == pytest.approx(3.5)
 
 
 def test_model_push_updates_slider_without_reemit(qtbot, small_zarr_store):
@@ -69,7 +69,7 @@ def test_model_push_updates_slider_without_reemit(qtbot, small_zarr_store):
     emitted = []
     slider.changed.connect(emitted.append)
 
-    controller.update_appearance_field(visual.id, "lod_bias", 4.0)
+    controller.update_appearance_field(visual.id, "settled_lod_bias", 4.0)
 
     assert slider._slider.value() == pytest.approx(4.0)
     assert emitted == []
@@ -97,7 +97,7 @@ def test_inbound_echo_filtered_by_source_id(qtbot, small_zarr_store):
         AppearanceChangedEvent(
             source_id=slider._id,  # our own echo -> ignored
             visual_id=visual.id,
-            field_name="lod_bias",
+            field_name="settled_lod_bias",
             new_value=9.0,
             requires_reslice=True,
         )

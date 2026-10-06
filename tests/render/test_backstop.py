@@ -37,7 +37,6 @@ BLOCK = 4
 
 def test_defaults_are_the_designed_ones() -> None:
     cfg = ProgressiveLoadingConfig()
-    assert cfg.backstop is True
     assert cfg.backstop_level is None
     assert cfg.backstop_extent == "full"
     assert cfg.backstop_max_slot_fraction == 0.1
@@ -59,7 +58,13 @@ def test_bad_settings_are_refused(kwargs) -> None:
 
 def test_the_config_is_frozen() -> None:
     with pytest.raises(ValidationError):
-        ProgressiveLoadingConfig().backstop = False
+        ProgressiveLoadingConfig().backstop_level = 1
+
+
+def test_the_backstop_cannot_be_switched_off() -> None:
+    """The ``backstop`` switch is gone: the backstop always loads."""
+    with pytest.raises(ValidationError, match="backstop"):
+        ProgressiveLoadingConfig(backstop=False)
 
 
 # -- level and cap --------------------------------------------------------------------
@@ -77,7 +82,6 @@ def test_the_cap_is_a_share_of_the_slots() -> None:
     residency = SimpleNamespace(n_slots=40)
     assert backstop_cap_for(cfg, residency) == 10
     assert backstop_cap_for(None, residency) == 0
-    assert backstop_cap_for(ProgressiveLoadingConfig(backstop=False), residency) == 0
 
 
 # -- the helpers ----------------------------------------------------------------------

@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 
     from cellier.controller import CellierController
     from cellier.events import (
-        ClippingInteractionEvent,
         ClippingPlanesChangedEvent,
+        PlaneInteractionEvent,
         VisualRemovedEvent,
     )
 
@@ -227,7 +227,7 @@ class OrthoClippingController:
             controller.on_clipping_planes_changed(
                 visual_id, self._on_planes, owner_id=owner_id
             )
-            controller.on_clipping_interaction(
+            controller.on_plane_interaction(
                 visual_id, self._on_interaction, owner_id=owner_id
             )
             controller.on_visual_removed(visual_id, self._on_removed, owner_id=owner_id)
@@ -294,7 +294,7 @@ class OrthoClippingController:
     # Drag forwarding
     # ------------------------------------------------------------------
 
-    def _on_interaction(self, event: ClippingInteractionEvent) -> None:
+    def _on_interaction(self, event: PlaneInteractionEvent) -> None:
         """Hold a scope on the linked visuals for as long as one is dragged."""
         origin = event.visual_id
         if event.phase == "end":
@@ -313,14 +313,14 @@ class OrthoClippingController:
             return
         self._forwarded[origin] = others
         for other in others:
-            self._controller.begin_clipping_interaction(
+            self._controller.begin_plane_interaction(
                 other, source_id=self._scope_ids[origin]
             )
 
     def _end_forwarded(self, origin: UUID) -> None:
         source_id = self._scope_ids.get(origin)
         for other in self._forwarded.pop(origin, ()):
-            self._controller.end_clipping_interaction(other, source_id=source_id)
+            self._controller.end_plane_interaction(other, source_id=source_id)
 
     # ------------------------------------------------------------------
     # Removal

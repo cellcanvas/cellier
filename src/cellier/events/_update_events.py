@@ -330,8 +330,7 @@ class LoadingConfigUpdateEvent(NamedTuple):
     Only multiscale image and labels visuals load progressively
     (``render_config.loading``).  The controller merges the field into the
     visual's current config and validates the result, so an invalid
-    combination (``dims_drag="backstop"`` with ``backstop=False``) raises
-    rather than being corrected.
+    value (``backstop_level=0``) raises rather than being corrected.
 
     Fields
     ------
@@ -341,7 +340,7 @@ class LoadingConfigUpdateEvent(NamedTuple):
     visual_id :
         Target visual.
     field :
-        A ``ProgressiveLoadingConfig`` field name, e.g. ``"dims_drag"``.
+        A ``ProgressiveLoadingConfig`` field name, e.g. ``"backstop_level"``.
     value :
         New value for the field.
     """

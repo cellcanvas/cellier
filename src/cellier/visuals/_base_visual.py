@@ -191,13 +191,18 @@ class BaseVisual(EventedModel):
             value = validate_clipping_planes(value)
         super().__setattr__(name, value)
 
-    @property
-    def plans_coarse_on_scrub(self) -> bool:
+    def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:
         """Whether an interactive dims tick plans this visual ``BACKSTOP_ONLY``.
 
         While the scene's dims are being scrubbed, the controller plans a
         visual that returns ``True`` coarse only, and plans it in full once
         when the scrub ends.  A subclass derives the answer from its own
         explicit config; the base answer is ``False``.
+
+        Parameters
+        ----------
+        n_displayed_dims : int
+            Displayed dimensions of the view being planned (2 or 3): a
+            visual may have a setting for each.
         """
         return False

@@ -25,7 +25,6 @@ from cellier.visuals import (
     InMemoryLabelsAppearance,
     MultiscaleImageAppearance,
     MultiscaleImageChannelAppearance,
-    ProgressiveLoadingConfig,
 )
 from cellier.visuals._image import MultiscaleImageRenderConfig
 from cellier.visuals._labels import (
@@ -74,7 +73,6 @@ def _image(controller, tmp_path, mirrored):
         render_config=MultiscaleImageRenderConfig(
             **SMALL_BUDGETS,
             block_size=8,
-            loading=ProgressiveLoadingConfig(backstop=False),
         ),
         transform=_mirror(controller, scene, store, 4) if mirrored else None,
         channel_axis=0,
@@ -124,7 +122,6 @@ def _labels_multiscale(controller, tmp_path, mirrored):
         render_config=MultiscaleLabelRenderConfig(
             **SMALL_BUDGETS,
             block_size=8,
-            loading=ProgressiveLoadingConfig(backstop=False),
         ),
         transform=_mirror(controller, scene, store, 3) if mirrored else None,
     )
@@ -209,8 +206,10 @@ async def test_frustum_cull_selects_bricks_under_mirroring(
 
     (gfx_visual,) = controller._render_manager._scenes[scene.id]._visuals.values()
     owners = gfx_visual.slots if kind == "image" else (gfx_visual,)
+    # The target level's bricks: the backstop (the coarsest level, always
+    # loaded) is not frustum-culled and is not what this test counts.
     resident = sum(
-        len(owner._block_cache_3d.tile_manager.tilemap)
+        sum(key.level == 1 for key in owner._block_cache_3d.tile_manager.tilemap)
         for owner in owners
         if owner._block_cache_3d is not None
     )

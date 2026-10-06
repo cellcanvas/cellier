@@ -98,7 +98,7 @@ class _Events:
                 lambda e, n=name: self.planes.append((n, e.source_id)),
                 owner_id=owner,
             )
-            controller.on_clipping_interaction(
+            controller.on_plane_interaction(
                 visual.id,
                 lambda e, n=name: self.drags.append((n, e.phase, e.reason)),
                 owner_id=owner,
@@ -318,7 +318,7 @@ async def test_a_drag_is_reported_by_every_linked_visual(make_ortho, mode):
     visuals, _ = _add(ortho)
     events = _Events(controller, visuals)
 
-    with controller.clipping_interaction(visuals["xz"].id):
+    with controller.plane_interaction(visuals["xz"].id):
         for x in (5.0, 6.0, 7.0):
             controller.set_clipping_planes(visuals["xz"].id, _moved(visuals["xz"], x))
     linked = LINKED[mode]["xz"]
@@ -330,7 +330,7 @@ async def test_a_drag_is_reported_by_every_linked_visual(make_ortho, mode):
     # The origin starts first, so the scopes are open for the first tick.
     assert events.drags[0] == ("xz", "start", None)
     assert all(
-        controller.clipping_interaction_state(v.id) == "idle" for v in visuals.values()
+        controller.plane_interaction_state(v.id) == "idle" for v in visuals.values()
     )
     assert ortho.clipping_controller._forwarded == {}
 
@@ -342,7 +342,7 @@ def test_without_an_event_loop_every_change_is_a_drag_on_every_linked_visual(
     controller = ortho.controller
     visuals, _ = _add(ortho)
     events = _Events(controller, visuals)
-    with controller.clipping_interaction(visuals["vol"].id):
+    with controller.plane_interaction(visuals["vol"].id):
         for x in (5.0, 6.0):
             controller.set_clipping_planes(visuals["vol"].id, _moved(visuals["vol"], x))
     # No stillness timer: every visual settles at once, after each change.
@@ -368,7 +368,7 @@ async def test_a_mode_change_in_a_drag_closes_the_forwarded_scopes(make_ortho):
     visuals, _ = _add(ortho)
     events = _Events(controller, visuals)
 
-    with controller.clipping_interaction(visuals["vol"].id):
+    with controller.plane_interaction(visuals["vol"].id):
         controller.set_clipping_planes(visuals["vol"].id, _moved(visuals["vol"], 5.0))
         assert set(linker._forwarded) == {visuals["vol"].id}
         linker.mode = "2d"
@@ -379,7 +379,7 @@ async def test_a_mode_change_in_a_drag_closes_the_forwarded_scopes(make_ortho):
     assert _at(visuals, 6.0) == {"vol"}
     assert _at(visuals, 5.0) == {"xy", "xz", "yz"}
     assert all(
-        controller.clipping_interaction_state(v.id) == "idle" for v in visuals.values()
+        controller.plane_interaction_state(v.id) == "idle" for v in visuals.values()
     )
 
 
@@ -406,11 +406,11 @@ def _link_xy(controller, a, b, *, forward_scope: bool):
 
         def forward(event) -> None:
             if event.phase == "start":
-                controller.begin_clipping_interaction(b["xy"].id, source_id=user)
+                controller.begin_plane_interaction(b["xy"].id, source_id=user)
             else:
-                controller.end_clipping_interaction(b["xy"].id, source_id=user)
+                controller.end_plane_interaction(b["xy"].id, source_id=user)
 
-        controller.on_clipping_interaction(a["xy"].id, forward, owner_id=user)
+        controller.on_plane_interaction(a["xy"].id, forward, owner_id=user)
     return user
 
 
@@ -449,7 +449,7 @@ async def test_a_drag_reaches_the_second_dataset_only_if_the_user_forwards_it(
     events_b = _Events(controller, b)
 
     origin = a[_ORIGIN[mode]]
-    with controller.clipping_interaction(origin.id):
+    with controller.plane_interaction(origin.id):
         for x in (5.0, 6.0, 7.0):
             controller.set_clipping_planes(origin.id, _moved(origin, x))
     linked = LINKED[mode]["xy"]
@@ -468,7 +468,7 @@ async def test_a_drag_reaches_the_second_dataset_only_if_the_user_forwards_it(
     assert sorted(events_b.drags) == expected_b
     assert ortho.clipping_controller._forwarded == {}
     assert all(
-        controller.clipping_interaction_state(v.id) == "idle"
+        controller.plane_interaction_state(v.id) == "idle"
         for v in (*a.values(), *b.values())
     )
 
@@ -508,7 +508,7 @@ async def test_removal_in_a_drag_leaves_no_scope_open(make_ortho):
     visuals, _ = _add(ortho)
 
     # A forward target goes: the drag carries on for the others.
-    with controller.clipping_interaction(visuals["vol"].id):
+    with controller.plane_interaction(visuals["vol"].id):
         controller.set_clipping_planes(visuals["vol"].id, _moved(visuals["vol"], 5.0))
         controller.remove_visual(visuals.pop("yz").id)
         controller.set_clipping_planes(visuals["vol"].id, _moved(visuals["vol"], 6.0))
@@ -517,14 +517,14 @@ async def test_removal_in_a_drag_leaves_no_scope_open(make_ortho):
 
     # The origin goes: the scopes it forwarded are closed.
     vol = visuals.pop("vol")
-    controller.begin_clipping_interaction(vol.id, source_id=(source := uuid4()))
+    controller.begin_plane_interaction(vol.id, source_id=(source := uuid4()))
     controller.set_clipping_planes(vol.id, _moved(vol, 7.0))
     assert set(linker._forwarded) == {vol.id}
     controller.remove_visual(vol.id)
-    controller.end_clipping_interaction(vol.id, source_id=source)
+    controller.end_plane_interaction(vol.id, source_id=source)
     assert linker._forwarded == {}
     assert all(
-        controller.clipping_interaction_state(v.id) == "idle" for v in visuals.values()
+        controller.plane_interaction_state(v.id) == "idle" for v in visuals.values()
     )
     # The two that are left are still linked.
     controller.set_clipping_planes(visuals["xy"].id, _moved(visuals["xy"], 8.0))

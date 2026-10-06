@@ -1944,7 +1944,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         visual : UUID, visual model, or dict
             Any panel's multiscale visual; see :meth:`image_group`.
         **fields :
-            ``ProgressiveLoadingConfig`` fields, e.g. ``dims_drag="backstop"``.
+            ``ProgressiveLoadingConfig`` fields, e.g. ``backstop_extent="view"``.
 
         Returns
         -------

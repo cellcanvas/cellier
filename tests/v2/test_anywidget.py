@@ -757,19 +757,19 @@ def _appearance_changed_event(source_id, visual_id, field, value):
 
 
 def test_lod_bias_slider_user_change_emits_appearance_update():
-    """A user-driven lod_bias change emits AppearanceUpdateEvent."""
+    """A user-driven settled_lod_bias change emits AppearanceUpdateEvent."""
     from cellier.events import AppearanceUpdateEvent
 
     slider = _make_lod_bias_slider()
     emitted = []
     slider.changed.connect(emitted.append)
 
-    slider.lod_bias = 2.0
+    slider.settled_lod_bias = 2.0
 
     assert len(emitted) == 1
     event = emitted[0]
     assert isinstance(event, AppearanceUpdateEvent)
-    assert event.field == "lod_bias"
+    assert event.field == "settled_lod_bias"
     assert event.value == 2.0
 
 

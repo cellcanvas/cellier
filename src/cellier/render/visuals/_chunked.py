@@ -155,7 +155,7 @@ def desired_bricks(
         ``(N, 4)`` rows ``[level, g0, g1, g2]`` (3D) or ``(N, 3)`` rows
         ``[level, g0, g1]`` (2D), each in load order (nearest the camera or
         canvas centre first).  ``None`` is empty: no target
-        (``PlanMode.BACKSTOP_ONLY``), or the backstop is off.
+        (``PlanMode.BACKSTOP_ONLY``), or no geometry to plan a backstop on.
     backstop_cap : int
         At most this many backstop keys (``backstop_max_slot_fraction``).
     fill : dict[int, int] or None
@@ -210,8 +210,8 @@ def backstop_cap_for(
     loading: ProgressiveLoadingConfig | None,
     residency: ImageResidency3D | ImageResidency2D,
 ) -> int:
-    """The backstop's slot cap on *residency*'s atlas; 0 when it is off."""
-    if loading is None or not loading.backstop:
+    """The backstop's slot cap on *residency*'s atlas; 0 with no *loading*."""
+    if loading is None:
         return 0
     return backstop_cap(loading, residency.n_slots)
 

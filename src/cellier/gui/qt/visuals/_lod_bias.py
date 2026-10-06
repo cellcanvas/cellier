@@ -23,10 +23,10 @@ class QtLodBiasSlider(VisualIdGroup):
     """Single-value LOD-bias slider wired to the cellier v2 bus.
 
     Wraps a ``superqt.QLabeledDoubleSlider`` and keeps it in sync with
-    ``MultiscaleImageAppearance.lod_bias`` (or the equivalent labels field)
+    ``MultiscaleImageAppearance.settled_lod_bias`` (or the equivalent labels field)
     via ``AppearanceChangedEvent``.
 
-    Because changing ``lod_bias`` triggers a reslice, the ``AppearanceUpdateEvent``
+    Because changing ``settled_lod_bias`` triggers a reslice, the ``AppearanceUpdateEvent``
     is emitted on ``sliderReleased`` rather than on every ``valueChanged`` tick,
     so only one reslice fires per drag interaction.
 
@@ -40,11 +40,11 @@ class QtLodBiasSlider(VisualIdGroup):
     Parameters
     ----------
     visual_id :
-        UUID of the visual whose ``lod_bias`` field this widget controls.
+        UUID of the visual whose ``settled_lod_bias`` field this widget controls.
         A sequence drives every listed visual in lock-step -- the
         ``OrthoViewer``'s four panel siblings (design section 8.1).
     initial_lod_bias :
-        Starting value — typically ``visual_model.appearance.lod_bias``.
+        Starting value — typically ``visual_model.appearance.settled_lod_bias``.
     lod_range :
         ``(min, max)`` for the slider range.  Defaults to ``(1e-6, 5.0)``.
     title :
@@ -128,14 +128,16 @@ class QtLodBiasSlider(VisualIdGroup):
     def _on_visual_changed(self, event) -> None:
         if event.source_id == self._id:
             return
-        if event.field_name != "lod_bias":
+        if event.field_name != "settled_lod_bias":
             return
         self._set_value(event.new_value)
 
     # ── Cellier layer: widget → model ────────────────────────────────────────
 
     def _on_slider_released(self) -> None:
-        self._emit_group(AppearanceUpdateEvent, "lod_bias", self._slider.value())
+        self._emit_group(
+            AppearanceUpdateEvent, "settled_lod_bias", self._slider.value()
+        )
 
     # ── Qt seam: push value without re-firing signals ────────────────────────
 

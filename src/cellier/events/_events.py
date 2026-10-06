@@ -344,7 +344,7 @@ class LoadingProgress(NamedTuple):
         Every wanted chunk is resident or given up.
     target_deferred : bool
         The latest plan was the backstop only: a tick of a dims scrub with
-        ``loading.dims_drag="backstop"``.  The target is planned once the
+        ``coarsest_while_moving`` on for the view.  The target is planned once the
         scrub ends, so ``complete`` here does not mean full detail.
     """
 
@@ -485,11 +485,12 @@ class ClippingPlanesChangedEvent(NamedTuple):
     clipping_planes: Any
 
 
-class ClippingInteractionEvent(NamedTuple):
-    """A clipping plane drag started or ended on a visual.
+class PlaneInteractionEvent(NamedTuple):
+    """A drag of a visual's planes started or ended.
 
-    A drag is a run of ``clipping_planes`` changes made inside
-    ``CellierController.clipping_interaction`` (a gizmo opens one for the
+    One tracker per visual serves its planes; today those are its clipping
+    planes.  A drag is a run of ``clipping_planes`` changes made inside
+    ``CellierController.plane_interaction`` (a gizmo opens one for the
     length of a drag).  The start is emitted with the first change, ahead
     of its ``ClippingPlanesChangedEvent``.  No event is emitted per change.
 
@@ -1569,7 +1570,7 @@ CellierEventTypes = (
     | LoadingConfigChangedEvent
     | LodConfigChangedEvent
     | ClippingPlanesChangedEvent
-    | ClippingInteractionEvent
+    | PlaneInteractionEvent
     | ClippingPlaneGizmoChangedEvent
     | PlaneGizmoMovedEvent
     | ResliceCancelledEvent

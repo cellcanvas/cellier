@@ -15,10 +15,10 @@ from cellier.clipping import handle_changes_plane, initial_anchor
 from cellier.data import ImageMemoryStore
 from cellier.data._axes import scale_and_translation_transform
 from cellier.events import (
-    ClippingInteractionEvent,
     ClippingPlaneGizmoChangedEvent,
     ClippingPlaneGizmoUpdateEvent,
     ClippingPlanesChangedEvent,
+    PlaneInteractionEvent,
 )
 from cellier.visuals import ClippingPlane, InMemoryImageSingleAppearance
 from tests.render.test_plane_gizmo import CAPTURES, Rig
@@ -38,7 +38,7 @@ class GizmoRig(Rig):
         self.controller.on_clipping_planes_changed(
             self.visual.id, self.log.append, owner_id=owner
         )
-        self.controller.on_clipping_interaction(
+        self.controller.on_plane_interaction(
             self.visual.id, self.log.append, owner_id=owner
         )
         for view in self.views:
@@ -226,12 +226,12 @@ async def test_a_drag_along_the_normal_moves_the_plane_once_per_frame(make_rig):
     changes = rig.of(ClippingPlanesChangedEvent)
     assert 1 <= len(changes) <= 3
     assert {event.source_id for event in changes} == {session.id}
-    interactions = rig.of(ClippingInteractionEvent)
+    interactions = rig.of(PlaneInteractionEvent)
     assert [(e.phase, e.reason) for e in interactions] == [
         ("start", None),
         ("end", "release"),
     ]
-    assert rig.controller.clipping_interaction_state(rig.visual.id) == "idle"
+    assert rig.controller.plane_interaction_state(rig.visual.id) == "idle"
     assert not session.dragging
 
 
@@ -291,8 +291,8 @@ async def test_a_drag_that_cannot_change_the_plane_assigns_nothing(
     else:
         assert gizmo.proxy.local.rotation.tolist() != [0.0, 0.0, 0.0, 1.0]
     # The scope opened and closed with nothing inside it.
-    assert rig.of(ClippingInteractionEvent) == []
-    assert not rig.controller._clip_driver.scope_open(rig.visual.id)
+    assert rig.of(PlaneInteractionEvent) == []
+    assert not rig.controller._plane_interaction_driver.scope_open(rig.visual.id)
 
 
 def _dim(dim):
@@ -309,14 +309,14 @@ async def test_a_new_grab_ends_a_scope_whose_release_was_lost(make_rig):
     rig.send("pointer_down", x, y)
     rig.send("pointer_move", x + 20, y + 8)
     rig.frame()
-    assert rig.controller.clipping_interaction_state(rig.visual.id) == "active"
+    assert rig.controller.plane_interaction_state(rig.visual.id) == "active"
     # No release.  The next press drops the capture and ends the drag.
     x, y = rig.handle(rig.gizmo(session), "_translate1_children", 0)
     rig.send("pointer_down", x, y)
-    phases = [(e.phase, e.reason) for e in rig.of(ClippingInteractionEvent)]
+    phases = [(e.phase, e.reason) for e in rig.of(PlaneInteractionEvent)]
     assert phases == [("start", None), ("end", "release")]
     rig.send("pointer_up", x, y, buttons=())
-    assert not rig.controller._clip_driver.scope_open(rig.visual.id)
+    assert not rig.controller._plane_interaction_driver.scope_open(rig.visual.id)
 
 
 # -- the model -> the gizmo -----------------------------------------------------
@@ -440,9 +440,9 @@ async def test_closing_mid_drag_ends_the_drag(make_rig):
     rig.send("pointer_down", x, y)
     rig.send("pointer_move", x + 20, y + 8)
     rig.frame()
-    assert rig.controller.clipping_interaction_state(rig.visual.id) == "active"
+    assert rig.controller.plane_interaction_state(rig.visual.id) == "active"
     session.close()
-    assert rig.controller.clipping_interaction_state(rig.visual.id) == "idle"
+    assert rig.controller.plane_interaction_state(rig.visual.id) == "idle"
     assert not CAPTURES
     rig.send("pointer_up", x + 20, y + 8, buttons=())
 
