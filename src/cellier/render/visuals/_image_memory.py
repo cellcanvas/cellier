@@ -9,6 +9,7 @@ import pygfx as gfx
 
 from cellier.data.image._image_requests import ChunkRequest
 from cellier.render._clipping import ClippingPlanesMixin
+from cellier.render._plane_mode import volume_mode_until_planes_draw
 from cellier.render._spaces import RenderSpaces, node_matrix
 from cellier.render.shaders._image_volume import IMAGE_VOLUME_MATERIALS
 from cellier.render.visuals._pick import memory_image_data_coordinate
@@ -72,6 +73,11 @@ def _make_colormap(color_map) -> gfx.TextureMap:
 _VOLUME_MATERIALS: dict[str, type] = IMAGE_VOLUME_MATERIALS
 
 
+def _volume_material_class(render_mode: str) -> type:
+    """The material class that draws *render_mode*."""
+    return _VOLUME_MATERIALS[volume_mode_until_planes_draw(render_mode, "mip")]
+
+
 def _make_volume_material(appearance, colormap, pick_write: bool):
     """Build the pygfx volume material for an in-memory image appearance.
 
@@ -94,7 +100,7 @@ def _make_volume_material(appearance, colormap, pick_write: bool):
     gfx.VolumeRayMaterial
         A configured volume material.
     """
-    material_cls = _VOLUME_MATERIALS[appearance.render_mode]
+    material_cls = _volume_material_class(appearance.render_mode)
     material = material_cls(
         clim=appearance.clim,
         map=colormap,
@@ -350,7 +356,7 @@ class _ImageMemorySlot:
             material.depth_test = shared.depth_test and not planes_overlap
             material.depth_write = shared.depth_write and not planes_overlap
         if self.node_3d is not None:
-            material_cls = _VOLUME_MATERIALS[mode_appearance.render_mode]
+            material_cls = _volume_material_class(mode_appearance.render_mode)
             material = self.node_3d.material
             if not isinstance(material, material_cls) or type(material) is not (
                 material_cls

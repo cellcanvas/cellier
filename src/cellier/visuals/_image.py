@@ -30,13 +30,17 @@ class MultiscaleImageAppearance(BaseImageAppearance):
         Level-of-detail bias of a settled view, 2D and 3D.  Divisor on the
         screen-space LOD threshold: higher is coarser.  Default 1.0.
     coarsest_while_moving_3d : bool
-        In a 3D view, plan no target while the visual moves (its scene's
-        dims are being scrubbed): each tick loads the coarse backstop only,
-        and the target once the motion ends.  ``False`` (the default) plans
-        in full on every tick.
+        In a 3D view, plan no target while the visual moves.  A visual moves
+        while its scene's dims are scrubbed, or while its clipping planes
+        are dragged (``CellierController.plane_interaction``).  A dims tick
+        then loads the new slice's coarse backstop only; a plane drag plans
+        nothing and keeps the last plan.  The target is planned once every
+        motion has ended.  ``False`` plans in full on every tick and nothing
+        more at the end.  Default ``True``.
     coarsest_while_moving_2d : bool
-        The same, for a 2D view.  ``True`` saves most of a scrub's reads and
-        is the setting for a slow store.  Default ``False``.
+        The same, for a 2D view, whose only motion is a dims scrub.
+        ``True`` saves most of a scrub's reads and is the setting for a slow
+        store.  Default ``False``.
     force_level : int or None
         Overrides automatic LOD selection when set.  Default None.
     frustum_cull : bool
@@ -57,7 +61,7 @@ class MultiscaleImageAppearance(BaseImageAppearance):
 
     attenuation: float = 1.0
     settled_lod_bias: float = 1.0
-    coarsest_while_moving_3d: bool = False
+    coarsest_while_moving_3d: bool = True
     coarsest_while_moving_2d: bool = False
     force_level: int | None = None
     frustum_cull: bool = True
@@ -70,13 +74,14 @@ class MultiscaleImageSingleAppearance(BaseImageSingleAppearance):
     Parameters
     ----------
     render_mode : str
-        ``"iso"`` (default), ``"mip"``, ``"smooth_iso"`` or
-        ``"attenuated_mip"``.
+        ``"iso"`` (default), ``"mip"``, ``"smooth_iso"``,
+        ``"attenuated_mip"``, or ``"plane"``, which draws the data on the
+        visual's ``render_planes`` instead of as a volume.
     iso_threshold : float
         Isosurface threshold.  Default 0.2.
     """
 
-    render_mode: Literal["iso", "mip", "smooth_iso", "attenuated_mip"] = "iso"
+    render_mode: Literal["iso", "mip", "smooth_iso", "attenuated_mip", "plane"] = "iso"
     iso_threshold: float = 0.2
 
 

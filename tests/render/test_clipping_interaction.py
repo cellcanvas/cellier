@@ -1,7 +1,7 @@
 """The clipping interaction tracker: scopes, ticks and the start / end event.
 
-A drag is announced and nothing else: no plan mode depends on it (clipping
-plane gizmo design, section 6).
+A drag is announced (clipping plane gizmo design, section 6).  What it does
+to planning is in ``test_moving_policy.py`` (plane rendering design 7).
 """
 
 from __future__ import annotations
@@ -128,7 +128,9 @@ def test_with_no_event_loop_each_change_settles(controller):
     assert _interactions(log) == [("start", None), ("end", "settle")] * 2
 
 
-async def test_a_drag_changes_no_planning(controller, reslice, tmp_path, monkeypatch):
+async def test_a_drag_holds_a_multiscale_volume_s_plan_until_it_ends(
+    controller, reslice, tmp_path, monkeypatch
+):
     scene = controller.add_scene(dim="3d", name="ms")
     visual, store = h.add_visual(
         "image_multiscale_mip", controller, scene.id, h.image_data(), tmp_path, "ms"
@@ -146,13 +148,14 @@ async def test_a_drag_changes_no_planning(controller, reslice, tmp_path, monkeyp
     monkeypatch.setattr(controller, "_render_config_for", _recording)
     visual.clipping_planes = h.clipping_planes(store, [((0, 0, 16.5), (0, 0, 1))])
     outside = list(modes)
-    assert outside  # the change planned
+    assert outside  # a jump plans at once
     modes.clear()
     item = visual.clipping_planes[0]
     moved = h.clipping_planes(store, [((0, 0, 20.5), (0, 0, 1))])[0].plane
     with controller.plane_interaction(visual.id):
         controller.set_clipping_plane(visual.id, item.id, moved)
-    assert modes == outside
+        assert modes == []  # held: coarsest_while_moving_3d is on by default
+    assert modes == outside  # the release plans, in full
     await drain_loading(controller)
 
 

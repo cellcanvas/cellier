@@ -35,7 +35,7 @@ src/cellier/v2/
     └── visuals/
         ├── _contrast_limits.py
         ├── _colormap.py
-        ├── _lod_bias.py
+        ├── _level_of_detail.py
         ├── _image.py
         └── _aabb.py
 ```
@@ -684,13 +684,17 @@ visual when its request depends on the planes.
 class PlaneInteractionEvent(NamedTuple):
     """A drag of a visual's planes started or ended.
 
-    One tracker per visual serves its planes; today those are its clipping
-    planes.  A drag is a run of ``clipping_planes`` changes made inside
-    ``CellierController.plane_interaction`` (a gizmo opens one for the
-    length of a drag).  The start is emitted with the first change, ahead
-    of its ``ClippingPlanesChangedEvent``.  No event is emitted per change.
+    One tracker per visual serves its clipping planes and its render planes.
+    A drag is a run of ``clipping_planes`` or ``render_planes`` changes made
+    inside ``CellierController.plane_interaction`` (a gizmo opens one for
+    the length of a drag).  The start is emitted with the first change,
+    ahead of its ``ClippingPlanesChangedEvent`` or
+    ``RenderPlanesChangedEvent``.  No event is emitted per change.
 
-    It announces only: a plane change plans the same way inside a drag as
+    A multiscale image or labels visual in a 3D view with
+    ``appearance.coarsest_while_moving_3d`` on (the default) plans nothing
+    between the start and the end, and its target is planned at the end.
+    Every other visual plans a plane change the same way inside a drag as
     outside one.
 
     Attributes
@@ -747,6 +751,16 @@ class ClippingPlaneGizmoChangedEvent(NamedTuple):
     visual_id: UUID | None = None
     plane_id: UUID | None = None
 ```
+
+**Render planes.** An image or labels visual also carries `render_planes`, a
+tuple of frozen `RenderPlane`s in the scene's world space, which a 3D view
+draws while the visual's render mode is `"plane"`. A change is a new tuple,
+announced by `RenderPlanesChangedEvent(source_id, visual_id, render_planes)`
+whatever the render mode; a GUI asks for one with
+`RenderPlanesUpdateEvent(source_id, visual_id, render_planes)` on the incoming
+bus. While a 3D view draws the planes, a change is also a tick of the visual's
+plane interaction tracker, the one its clipping planes use, so one
+`PlaneInteractionEvent` pair brackets a drag of either kind.
 
 **Requests.** A clipping planes control sends two update events on the
 incoming bus. The controller applies them and emits the events above with
@@ -1273,6 +1287,7 @@ CellierEventTypes = (
     | LoadingConfigChangedEvent
     | LodConfigChangedEvent
     | ClippingPlanesChangedEvent
+    | RenderPlanesChangedEvent
     | PlaneInteractionEvent
     | ClippingPlaneGizmoChangedEvent
     | ResliceCancelledEvent
@@ -1452,6 +1467,7 @@ _ENTITY_FIELD: dict[type, str] = {
     LoadingConfigChangedEvent:         "visual_id",
     LodConfigChangedEvent:             "visual_id",
     ClippingPlanesChangedEvent:        "visual_id",
+    RenderPlanesChangedEvent:          "visual_id",
     PlaneInteractionEvent:          "visual_id",
     ClippingPlaneGizmoChangedEvent:    "canvas_id",
     ResliceCancelledEvent:             "visual_id",
@@ -2046,6 +2062,7 @@ object registration time.
 | Controller | `FrameRenderedEvent` | *(none — all canvases)* | With no event loop, run the camera reslices the frame queued |
 | `OrthoDimsController` | `DimsInteractionEvent` | `scene_id` (each panel) | Open a dims interaction scope on the other panels while one is scrubbed |
 | Controller | `ClippingPlanesUpdateEvent` (incoming) | *(none)* | Call `set_clipping_planes` with the request's `source_id` |
+| Controller | `RenderPlanesUpdateEvent` (incoming) | *(none)* | Call `set_render_planes` with the request's `source_id` |
 | Controller | `ClippingPlaneGizmoUpdateEvent` (incoming) | *(none)* | Open the canvas's gizmo on the plane, or close it |
 | `ClippingPlaneGizmoController` | `ClippingPlanesChangedEvent` | `visual_id` | Move the gizmo to its plane's new pose; close when the plane is gone or can no longer have a gizmo |
 | `ClippingPlaneGizmoController` | `VisualRemovedEvent` | `scene_id` | Close the gizmo when its visual is removed |
@@ -2073,6 +2090,7 @@ object registration time.
 | Clipping planes control | `ClippingPlanesChangedEvent` | `visual_id` (each visual it edits) | Show the planes (`QtClippingPlanesControls`, `AnywidgetClippingPlanesControls`); edits go out as one `ClippingPlanesUpdateEvent` per visual on the incoming bus |
 | Clipping planes control | `ClippingPlaneGizmoChangedEvent` | `canvas_id` | With a gizmo target: show which plane has the canvas's gizmo; the toggle goes out as `ClippingPlaneGizmoUpdateEvent` |
 | External callback | `ClippingPlanesChangedEvent` | `visual_id` | Fire `on_clipping_planes_changed` user callback |
+| External callback | `RenderPlanesChangedEvent` | `visual_id` | Fire `on_render_planes_changed` user callback |
 | External callback | `PlaneInteractionEvent` | `visual_id` | Fire `on_plane_interaction` user callback |
 | External callback | `ClippingPlaneGizmoChangedEvent` | `canvas_id` | Fire `on_clipping_plane_gizmo_changed` user callback |
 | External callback | `CanvasMouse{Press,Move,Release}{2D,3D}Event` | `canvas_id` | Fire `on_mouse_*` user callback |
@@ -2251,6 +2269,7 @@ from cellier.events._events import (
     PlaneInteractionEvent,
     ClippingPlaneGizmoChangedEvent,
     ClippingPlanesChangedEvent,
+    RenderPlanesChangedEvent,
     DataStoreContentsChangedEvent,
     DataStoreMetadataChangedEvent,
     DimsChangedEvent,
@@ -2287,6 +2306,7 @@ from cellier.events._update_events import (
     CellierUpdateEventTypes,
     ClippingPlaneGizmoUpdateEvent,
     ClippingPlanesUpdateEvent,
+    RenderPlanesUpdateEvent,
     DimsInteractionUpdateEvent,
     DimsUpdateEvent,
     SubscriptionSpec,

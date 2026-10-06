@@ -485,16 +485,44 @@ class ClippingPlanesChangedEvent(NamedTuple):
     clipping_planes: Any
 
 
+class RenderPlanesChangedEvent(NamedTuple):
+    """A visual's ``render_planes`` changed.
+
+    Emitted for every change, whether it came from
+    ``CellierController.set_render_planes`` (or a
+    ``RenderPlanesUpdateEvent``) or from assigning ``visual.render_planes``
+    directly, and whether or not the visual is in ``"plane"`` render mode.
+
+    Parameters
+    ----------
+    source_id : UUID
+        Who asked for the change: the widget's id for a GUI edit, otherwise
+        the controller's.
+    visual_id : UUID
+        The visual.  The routing key.
+    render_planes : tuple[RenderPlane, ...]
+        The complete tuple after the change.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    render_planes: Any
+
+
 class PlaneInteractionEvent(NamedTuple):
     """A drag of a visual's planes started or ended.
 
-    One tracker per visual serves its planes; today those are its clipping
-    planes.  A drag is a run of ``clipping_planes`` changes made inside
-    ``CellierController.plane_interaction`` (a gizmo opens one for the
-    length of a drag).  The start is emitted with the first change, ahead
-    of its ``ClippingPlanesChangedEvent``.  No event is emitted per change.
+    One tracker per visual serves its clipping planes and its render planes.
+    A drag is a run of ``clipping_planes`` or ``render_planes`` changes made
+    inside ``CellierController.plane_interaction`` (a gizmo opens one for
+    the length of a drag).  The start is emitted with the first change,
+    ahead of its ``ClippingPlanesChangedEvent`` or
+    ``RenderPlanesChangedEvent``.  No event is emitted per change.
 
-    It announces only: a plane change plans the same way inside a drag as
+    A multiscale image or labels visual in a 3D view with
+    ``appearance.coarsest_while_moving_3d`` on (the default) plans nothing
+    between the start and the end, and its target is planned at the end.
+    Every other visual plans a plane change the same way inside a drag as
     outside one.
 
     Attributes
@@ -1570,6 +1598,7 @@ CellierEventTypes = (
     | LoadingConfigChangedEvent
     | LodConfigChangedEvent
     | ClippingPlanesChangedEvent
+    | RenderPlanesChangedEvent
     | PlaneInteractionEvent
     | ClippingPlaneGizmoChangedEvent
     | PlaneGizmoMovedEvent

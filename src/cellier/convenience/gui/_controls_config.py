@@ -11,6 +11,8 @@ import difflib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Literal
 
+from cellier.visuals._removed import REMOVED_CONTROL_KEYS
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
@@ -26,7 +28,9 @@ AppearanceField = Literal[
     "render_mode",
     "iso_threshold",
     "attenuation",
-    "settled_lod_bias",
+    # Multiscale image and labels: the level-of-detail control (the settled
+    # bias and "coarsest while moving"), named for the control, not a field
+    "level_of_detail",
     # Labels ("render_mode" is shared with the image models, and means a
     # different set of values there -- see BaseControlsConfig.APPEARANCE_CONTROLS)
     "salt",
@@ -86,6 +90,13 @@ def _validate_field_names(
     for name in requested:
         if name in valid:
             continue
+        # A key removed by a hard break is refused by name, with its
+        # replacement (plane rendering design v3, 7.6).
+        if name in REMOVED_CONTROL_KEYS:
+            raise ValueError(
+                f"{name!r} was removed as an {argument} field: use "
+                f"{REMOVED_CONTROL_KEYS[name]!r}."
+            )
         if not valid:
             raise ValueError(
                 f"{config_name} accepts no {argument} fields, but {name!r} was "
@@ -279,7 +290,7 @@ class MultiscaleImageControlsConfig(InMemoryImageControlsConfig):
     appearance : list[str] or False
         Appearance fields in display order, e.g.
         ``["color_map", "clim", "render_mode", "iso_threshold",
-        "attenuation", "settled_lod_bias"]``.
+        "attenuation", "level_of_detail"]``.
     colormap_names : list[str] or None
         Names available in the colormap dropdown.
     clim_range : tuple[float, float] or None
@@ -306,7 +317,7 @@ class MultiscaleImageControlsConfig(InMemoryImageControlsConfig):
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
         **InMemoryImageControlsConfig.APPEARANCE_CONTROLS,
         "attenuation": "image",
-        "settled_lod_bias": "settled_lod_bias",
+        "level_of_detail": "level_of_detail",
     }
 
     loading_indicator: bool = True
@@ -349,7 +360,7 @@ class LabelsControlsConfig(BaseControlsConfig):
 class MultiscaleLabelsControlsConfig(LabelsControlsConfig):
     """Controls configuration for multiscale label visuals.
 
-    Adds ``settled_lod_bias``, mirroring the image pair.
+    Adds ``level_of_detail``, mirroring the image pair.
 
     Parameters
     ----------
@@ -365,7 +376,7 @@ class MultiscaleLabelsControlsConfig(LabelsControlsConfig):
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
         **LabelsControlsConfig.APPEARANCE_CONTROLS,
-        "settled_lod_bias": "settled_lod_bias",
+        "level_of_detail": "level_of_detail",
     }
 
     loading_indicator: bool = True

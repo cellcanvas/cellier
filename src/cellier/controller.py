@@ -67,6 +67,8 @@ from cellier.events import (
     PlaneInteractionEvent,
     RenderConfigChangedEvent,
     RenderConfigUpdateEvent,
+    RenderPlanesChangedEvent,
+    RenderPlanesUpdateEvent,
     ResliceCompletedEvent,
     ResliceProgressEvent,
     ResliceStartedEvent,
@@ -171,7 +173,7 @@ from cellier.transform import (
 from cellier.viewer_model import DataManager, ViewerModel
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
     from cellier.transform import Plane
     from cellier.visuals._base_visual import BaseVisual, VisualOutline
@@ -196,6 +198,7 @@ from cellier.visuals._image_memory import (
     InMemoryImageAppearance,
     InMemoryImageChannelAppearance,
     InMemoryImageSingleAppearance,
+    check_channels_share_render_mode,
 )
 from cellier.visuals._label_memory import (
     BaseLabelsAppearance,
@@ -219,6 +222,11 @@ from cellier.visuals._mesh_memory import (
     MultiscaleMeshVisual,
 )
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
+from cellier.visuals._render_plane import (
+    MAX_RENDER_PLANES,
+    RenderPlane,
+    validate_render_planes,
+)
 from cellier.visuals._scene_overlay import SceneBoundingBox, SceneOverlay
 
 if TYPE_CHECKING:
@@ -255,6 +263,9 @@ _RESLICE_FIELDS: frozenset[str] = frozenset(
 #: Visuals that load nothing while they draw nothing; showing one reslices it.
 #: The scheduled ones are retired while hidden: their reads stop.
 _SKIP_WHEN_HIDDEN = (BaseImageVisual, BaseMeshVisual)
+
+#: Visuals with a ``"plane"`` render mode and ``render_planes``.
+_PLANE_VISUALS = (BaseImageVisual, BaseLabelsVisual)
 
 #: Visuals the chunk scheduler loads.  A ``"contents"`` store change needs no
 #: new plan for them: invalidation already requeued what they want.
@@ -455,6 +466,12 @@ _loading_source_id_override: contextvars.ContextVar[UUID | None] = (
 # on ``ClippingPlanesChangedEvent`` (``set_clipping_planes``).
 _clipping_source_id_override: contextvars.ContextVar[UUID | None] = (
     contextvars.ContextVar("_clipping_source_id_override", default=None)
+)
+
+# The same for ``visual.render_planes`` changes, stamped on
+# ``RenderPlanesChangedEvent`` (``set_render_planes``).
+_render_planes_source_id_override: contextvars.ContextVar[UUID | None] = (
+    contextvars.ContextVar("_render_planes_source_id_override", default=None)
 )
 
 # Parallel context variable for ``visual.lod`` changes, stamped on
@@ -847,12 +864,25 @@ class CellierController:
         self._dims_scrub_pending: dict[UUID, set[UUID]] = {}
         self._dims_scrub_axes: dict[UUID, set[int]] = {}
         self._dims_ticks: dict[UUID, bool] = {}
-        # Clipping plane drags, one tracker per visual (gizmo design 6).  It
-        # announces a drag's start and end and drives nothing else.
+        # Plane drags, one tracker per visual (gizmo design 6; plane
+        # rendering design 7.2).  ``_plane_plan_owed`` holds the visuals a
+        # drag left without a plan (7.4): the drag's end plans them.
         self._plane_interaction_driver = _InteractionDriver(
             lambda: self._render_manager.config.scheduler.dims_settle_s,
             self._on_plane_transition,
         )
+        self._plane_plan_owed: set[UUID] = set()
+        # Render planes (plane rendering design 4).  Per visual: whether a
+        # 3D view shows it in plane mode, the render mode its channels share
+        # (to put a refused one back), and whether it has been warned that a
+        # plane's axes are not the displayed ones.
+        self._plane_mode_shown: dict[UUID, bool] = {}
+        self._channel_render_modes: dict[UUID, dict[int, str]] = {}
+        # Image visuals whose channels' render modes are being set together
+        # (``set_image_render_mode``): the one-mode rule is not checked
+        # between the channels of the batch.
+        self._render_mode_sync: set[UUID] = set()
+        self._render_plane_axes_warned: set[UUID] = set()
         # The clipping plane gizmo of each canvas that has one: at most one
         # per canvas (gizmo design 7).
         self._clipping_gizmos: dict[UUID, ClippingPlaneGizmoController] = {}
@@ -1039,6 +1069,11 @@ class CellierController:
         self._incoming_events.subscribe(
             ClippingPlanesUpdateEvent,
             self._on_clipping_planes_update,
+            owner_id=self._id,
+        )
+        self._incoming_events.subscribe(
+            RenderPlanesUpdateEvent,
+            self._on_render_planes_update,
             owner_id=self._id,
         )
         self._incoming_events.subscribe(
@@ -1521,6 +1556,10 @@ class CellierController:
             visual_model.transform = default_data_to_world(
                 data_store.data_coordinate_system, world
             )
+        if isinstance(visual_model, _PLANE_VISUALS):
+            self._check_render_planes(
+                visual_model, visual_model.render_planes, scene_id=scene_id
+            )
 
         if isinstance(visual_model, MultiscaleImageVisual):
             return self._add_multiscale_image_visual(scene_id, visual_model)
@@ -1561,6 +1600,7 @@ class CellierController:
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> ImageVisual:
         """Add an in-memory image visual to a scene.
 
@@ -1608,6 +1648,12 @@ class CellierController:
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the visual draws its data on in a 3D view while its
+            render mode is ``"plane"``, in the scene's world space; at most
+            four.  Build them from the scene's world coordinate system
+            (``RenderPlane.from_point_normal``).  They can be changed later
+            with :meth:`set_render_planes`.  Default none.
 
         Returns
         -------
@@ -1622,6 +1668,7 @@ class CellierController:
         """
         visual_model = ImageVisual(
             clipping_planes=clipping_planes,
+            render_planes=render_planes,
             name=name,
             data_store_id=str(data.id),
             appearance=appearance
@@ -1656,6 +1703,7 @@ class CellierController:
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> LabelMemoryVisual:
         """Add an in-memory label visual to a scene.
 
@@ -1705,6 +1753,12 @@ class CellierController:
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the visual draws its data on in a 3D view while its
+            render mode is ``"plane"``, in the scene's world space; at most
+            four.  Build them from the scene's world coordinate system
+            (``RenderPlane.from_point_normal``).  They can be changed later
+            with :meth:`set_render_planes`.  Default none.
 
         Returns
         -------
@@ -1718,6 +1772,7 @@ class CellierController:
         resolved_transform = self._prepare_transform(scene_id, data, transform)
         visual_model = LabelMemoryVisual(
             clipping_planes=clipping_planes,
+            render_planes=render_planes,
             name=name,
             data_store_id=str(data.id),
             appearance=appearance,
@@ -2174,6 +2229,7 @@ class CellierController:
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> MultiscaleImageVisual:
         """Add a multiscale image visual to a scene.
 
@@ -2218,6 +2274,12 @@ class CellierController:
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the visual draws its data on in a 3D view while its
+            render mode is ``"plane"``, in the scene's world space; at most
+            four.  Build them from the scene's world coordinate system
+            (``RenderPlane.from_point_normal``).  They can be changed later
+            with :meth:`set_render_planes`.  Default none.
 
         Returns
         -------
@@ -2234,6 +2296,7 @@ class CellierController:
         resolved_transform = self._prepare_transform(scene_id, data, transform)
         visual_model = MultiscaleImageVisual(
             clipping_planes=clipping_planes,
+            render_planes=render_planes,
             name=name,
             data_store_id=str(data.id),
             level_transforms=data.level_transforms,
@@ -2271,6 +2334,7 @@ class CellierController:
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> MultiscaleLabelVisual:
         """Add a multiscale label visual to a scene.
 
@@ -2323,6 +2387,12 @@ class CellierController:
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the visual draws its data on in a 3D view while its
+            render mode is ``"plane"``, in the scene's world space; at most
+            four.  Build them from the scene's world coordinate system
+            (``RenderPlane.from_point_normal``).  They can be changed later
+            with :meth:`set_render_planes`.  Default none.
 
         Returns
         -------
@@ -2334,6 +2404,7 @@ class CellierController:
         resolved_transform = self._prepare_transform(scene_id, data, transform)
         visual_model = MultiscaleLabelVisual(
             clipping_planes=clipping_planes,
+            render_planes=render_planes,
             name=name,
             data_store_id=str(data.id),
             level_transforms=data.level_transforms,
@@ -2533,6 +2604,9 @@ class CellierController:
             self._wire_lod(visual_model)
         self._wire_transform(visual_model, scene_id)
         self._wire_clipping_planes(visual_model)
+        if isinstance(visual_model, _PLANE_VISUALS):
+            self._wire_render_planes(visual_model)
+            self._warn_render_planes_not_displayed(visual_model)
         self._wire_render_config(visual_model)
         self._wire_pick_write(visual_model)
         self._wire_visual_render(visual_model)
@@ -2553,6 +2627,7 @@ class CellierController:
             (AABBChangedEvent, "on_aabb_changed"),
             (MeshSectionChangedEvent, "on_section_changed"),
             (ClippingPlanesChangedEvent, "on_clipping_planes_changed"),
+            (RenderPlanesChangedEvent, "on_render_planes_changed"),
             (VisualVisibilityChangedEvent, "on_visibility_changed"),
             (TrailChangedEvent, "on_trail_changed"),
             (TransformChangedEvent, "on_transform_changed"),
@@ -3948,8 +4023,17 @@ class CellierController:
         ``BACKSTOP_ONLY`` and joins the scene's pending set, which the
         scrub's end plans in full.  A visual that scrub handed to a camera
         end stays ``BACKSTOP_ONLY`` until then.
+
+        A drag of the visual's planes has no plan mode: while it holds the
+        plan nothing is planned at all (:meth:`_plane_drag_holds_plan`), and
+        a reslice that does reach here during one is a jump, planned in full.
+
+        A visual in plane mode with no plane to draw in this view draws
+        nothing, so it is not sliced (design 4.2).
         """
         config = _visual_render_config(visual)
+        if config.slicing_enabled and self._plane_mode_draws_nothing(scene_id, visual):
+            config = dataclasses.replace(config, slicing_enabled=False)
         if self._dims_driver.is_active(scene_id) and visual.plans_coarse_while_moving(
             self._n_displayed_dims(scene_id)
         ):
@@ -4794,7 +4878,10 @@ class CellierController:
             )
             if visual_id in self._visual_to_scene:
                 if self._render_manager.clipping_planes_affect_request(visual_id):
-                    self.reslice_visual(visual_id)
+                    # A tick of a drag keeps the last plan when the view
+                    # plans coarsest while moving; the drag's end plans.
+                    if not self._hold_plan_for_plane_drag(visual):
+                        self.reslice_visual(visual_id)
                 self._request_draw_for_visual(visual_id)
             # No event loop means no timer: the drag ends here.
             self._plane_interaction_driver.settle_without_loop(visual_id)
@@ -4802,6 +4889,270 @@ class CellierController:
         visual.events.clipping_planes.connect(_on_clipping_planes)
         self._visual_psygnal_handlers.setdefault(visual_id, []).append(
             (visual.events.clipping_planes, _on_clipping_planes)
+        )
+
+    # ------------------------------------------------------------------
+    # Render planes (plane rendering design v3, sections 4 and 7.4)
+    # ------------------------------------------------------------------
+
+    def _check_render_planes(
+        self, visual: BaseVisual, planes: Any, *, scene_id: UUID | None = None
+    ) -> None:
+        """Refuse render planes the visual cannot carry (design 4.3).
+
+        Parameters
+        ----------
+        visual : BaseVisual
+            An image or labels visual.
+        planes : tuple[RenderPlane, ...]
+            The tuple to check.
+        scene_id : UUID or None
+            The visual's scene, for a visual not registered yet.
+
+        Raises
+        ------
+        ValueError
+            If there are more than ``MAX_RENDER_PLANES`` planes, two share
+            an id, a plane is not on three axes of the scene's world
+            coordinate system, or the visual's transform does not map a
+            plane's axes by a per-axis scale and translation.
+        """
+        if not planes:
+            return
+        if len(planes) > MAX_RENDER_PLANES:
+            raise ValueError(
+                f"Visual {visual.name!r} was given {len(planes)} render "
+                f"planes; a visual draws at most {MAX_RENDER_PLANES}."
+            )
+        ids = [plane.id for plane in planes]
+        if len(set(ids)) != len(ids):
+            raise ValueError(
+                f"Two render planes of visual {visual.name!r} share an id.  "
+                "Each plane of a visual needs its own."
+            )
+        if scene_id is None:
+            scene_id = self._visual_to_scene[visual.id]
+        world = self._model.scenes[scene_id].dims.world_coordinate_system
+        for index, plane in enumerate(planes):
+            if plane.coordinate_system != world.id:
+                raise ValueError(
+                    f"Render plane {index} of visual {visual.name!r} is not in "
+                    "the scene's world coordinate system.  Build it from the "
+                    "scene's dims.world_coordinate_system."
+                )
+            try:
+                axes = [world.resolve(axis) for axis in plane.axes]
+            except (KeyError, ValueError) as error:
+                raise ValueError(
+                    f"Render plane {index} of visual {visual.name!r} names an "
+                    f"axis that is not one axis of the scene's world "
+                    f"{world.axis_names()}: {error}"
+                ) from error
+            if len(set(axes)) != 3:
+                raise ValueError(
+                    f"Render plane {index} of visual {visual.name!r} names a "
+                    "world axis more than once."
+                )
+            self._check_render_plane_transform(visual, index, axes, world)
+
+    @staticmethod
+    def _check_render_plane_transform(
+        visual: BaseVisual, index: int, axes: list[int], world: Any
+    ) -> None:
+        """Refuse a plane on world axes the visual's data does not map to singly.
+
+        The plane's level rule and culling rows take the visual's transform,
+        on the plane's three axes, to be a scale and a translation per axis:
+        each of the three world axes fed by one data axis that feeds nothing
+        else.
+        """
+        linear = getattr(visual.transform, "linear", None)
+        ok = linear is not None
+        if ok:
+            linear = np.asarray(linear)
+            columns = []
+            for row in axes:
+                fed_by = np.flatnonzero(linear[row])
+                if fed_by.size != 1:
+                    ok = False
+                    break
+                columns.append(int(fed_by[0]))
+            ok = (
+                ok
+                and len(set(columns)) == 3
+                and all(np.flatnonzero(linear[:, c]).size == 1 for c in columns)
+            )
+        if not ok:
+            names = tuple(world.axes[axis].name for axis in axes)
+            raise ValueError(
+                f"Render plane {index} of visual {visual.name!r} is on world "
+                f"axes {names}, which the visual's transform does not map by "
+                "a scale and a translation per axis.  A render plane needs "
+                "each of its axes to be one data axis, scaled and shifted."
+            )
+
+    def _draws_planes(self, visual: BaseVisual) -> bool:
+        """Whether *visual* is in plane mode in a 3D view.
+
+        In a 2D view the mode and the planes are ignored: the visual shows
+        its normal slice.
+        """
+        if not isinstance(visual, _PLANE_VISUALS):
+            return False
+        scene_id = self._visual_to_scene.get(visual.id)
+        if scene_id is None or self._n_displayed_dims(scene_id) != 3:
+            return False
+        return visual.plane_mode()
+
+    def _split_render_planes(
+        self, scene_id: UUID, planes: Iterable[RenderPlane]
+    ) -> tuple[tuple[RenderPlane, ...], tuple[RenderPlane, ...]]:
+        """The enabled *planes*: those on the scene's displayed axes, and the rest."""
+        dims = self._model.scenes[scene_id].dims
+        world = dims.world_coordinate_system
+        displayed = set(dims.selection.displayed_axes)
+        drawable: list[RenderPlane] = []
+        elsewhere: list[RenderPlane] = []
+        for plane in planes:
+            if not plane.enabled:
+                continue
+            try:
+                axes = {world.resolve(axis) for axis in plane.axes}
+            except (KeyError, ValueError):
+                axes = set()
+            (drawable if axes == displayed else elsewhere).append(plane)
+        return tuple(drawable), tuple(elsewhere)
+
+    def _plane_mode_draws_nothing(self, scene_id: UUID, visual: BaseVisual) -> bool:
+        """Whether *visual* is in plane mode in a 3D view with no plane to draw.
+
+        Then it draws nothing: it is not sliced and loads no backstop, and
+        it is resliced when a plane appears (design 4.2).
+        """
+        if not isinstance(visual, _PLANE_VISUALS) or not visual.plane_mode():
+            return False
+        if self._n_displayed_dims(scene_id) != 3:
+            return False
+        drawable, _ = self._split_render_planes(scene_id, visual.render_planes)
+        return not drawable
+
+    def _warn_render_planes_not_displayed(self, visual: BaseVisual) -> None:
+        """Warn, once per visual, that a plane's axes are not the displayed ones.
+
+        Such a plane is not drawn (design 4.4).  The warning is armed again
+        once every enabled plane of the visual is on the displayed axes.
+        """
+        if not self._draws_planes(visual):
+            return
+        scene_id = self._visual_to_scene[visual.id]
+        _, elsewhere = self._split_render_planes(scene_id, visual.render_planes)
+        if not elsewhere:
+            self._render_plane_axes_warned.discard(visual.id)
+            return
+        if visual.id in self._render_plane_axes_warned:
+            return
+        self._render_plane_axes_warned.add(visual.id)
+        dims = self._model.scenes[scene_id].dims
+        world = dims.world_coordinate_system
+        displayed = tuple(world.axes[i].name for i in dims.selection.displayed_axes)
+        warnings.warn(
+            f"Visual {visual.name!r} is in 'plane' render mode with "
+            f"{len(elsewhere)} render plane(s) on axes other than the "
+            f"displayed {displayed}; they are not drawn.  A render plane is "
+            "drawn only in a 3D view of its own three axes.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    def _refresh_plane_mode(self, visual_id: UUID, *, reslice: bool = True) -> None:
+        """Act on a change of whether a 3D view shows a visual in plane mode.
+
+        Called after a render mode, ``composite``, ``channels`` or
+        displayed-axes change.  Entering or leaving plane mode changes what
+        the visual reads, so it is resliced: a jump.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+        reslice : bool
+            ``False`` when the caller reslices anyway.
+        """
+        if visual_id not in self._visual_to_scene:
+            return
+        visual = self.get_visual_model(visual_id)
+        shown = self._draws_planes(visual)
+        was = self._plane_mode_shown.get(visual_id, False)
+        self._plane_mode_shown[visual_id] = shown
+        if shown:
+            self._warn_render_planes_not_displayed(visual)
+        else:
+            self._render_plane_axes_warned.discard(visual_id)
+        if shown != was and reslice:
+            self.reslice_visual(visual_id)
+            self._request_draw_for_visual(visual_id)
+
+    def _wire_render_planes(self, visual: BaseVisual) -> None:
+        """Act on a replaced ``render_planes`` tuple (design 7.4, 8.2).
+
+        Emits ``RenderPlanesChangedEvent``, which carries the planes to the
+        render visual.  While a 3D view shows the visual in plane mode the
+        change is also a tick of the visual's plane interaction tracker,
+        and a multiscale visual is resliced: at once for a jump, at the
+        drag's end when the view plans coarsest while moving.  Otherwise the
+        tuple is stored and announced and nothing else happens.
+
+        A tuple that fails the check is put back to the last good one and
+        the error raised.
+        """
+        visual_id = visual.id
+        accepted: list[tuple] = [visual.render_planes]
+        self._plane_mode_shown[visual_id] = self._draws_planes(visual)
+
+        def _on_render_planes(planes: tuple) -> None:
+            try:
+                self._check_render_planes(visual, planes)
+            except ValueError:
+                with visual.events.render_planes.blocked():
+                    visual.render_planes = accepted[0]
+                raise
+            previous, accepted[0] = accepted[0], planes
+            source_id = _render_planes_source_id_override.get() or self._id
+            drawn = self._draws_planes(visual)
+            if drawn:
+                # The tracker hears of it first, so a drag's start is
+                # announced ahead of its first change.
+                self._plane_interaction_driver.tick(
+                    visual_id, source_id, interactive=False
+                )
+            self._outgoing_events.emit(
+                RenderPlanesChangedEvent(
+                    source_id=source_id,
+                    visual_id=visual_id,
+                    render_planes=planes,
+                )
+            )
+            if not drawn:
+                return
+            self._warn_render_planes_not_displayed(visual)
+            scene_id = self._visual_to_scene[visual_id]
+            if isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual)):
+                # What a multiscale visual reads follows its planes.
+                if not self._hold_plan_for_plane_drag(visual):
+                    self.reslice_visual(visual_id)
+            elif (
+                not self._split_render_planes(scene_id, previous)[0]
+                and self._split_render_planes(scene_id, planes)[0]
+            ):
+                # An in-memory visual with no plane to draw was not sliced.
+                self.reslice_visual(visual_id)
+            self._request_draw_for_visual(visual_id)
+            # No event loop means no timer: the drag ends here.
+            self._plane_interaction_driver.settle_without_loop(visual_id)
+
+        visual.events.render_planes.connect(_on_render_planes)
+        self._visual_psygnal_handlers.setdefault(visual_id, []).append(
+            (visual.events.render_planes, _on_render_planes)
         )
 
     def _wire_render_config(self, visual: BaseVisual) -> None:
@@ -4916,6 +5267,8 @@ class CellierController:
             if scene_id is None:
                 return
             self._check_slider_axes(scene_id)
+            self._end_plane_drag_by_jump(visual_id, resolved_source_id)
+            self._refresh_plane_mode(visual_id, reslice=False)
             self.reslice_visual(visual_id)
             self._request_draw_for_visual(visual_id)
 
@@ -4937,6 +5290,10 @@ class CellierController:
                     new_value=new_single,
                 )
             )
+            self._end_plane_drag_by_jump(
+                visual_id, _source_id_override.get() or self._id
+            )
+            self._refresh_plane_mode(visual_id)
             self._request_draw_for_visual(visual_id)
 
         visual.events.single.connect(_on_single_replaced)
@@ -4946,13 +5303,21 @@ class CellierController:
         known_keys = {"keys": set(visual.channels)}
 
         def _on_channels_replaced(new_channels: dict) -> None:
+            # The model has already refused channels that do not share one
+            # render mode (``BaseImageVisual``), so nothing to check here.
             self._wire_channels(visual)
             keys = set(new_channels)
             changed = keys != known_keys["keys"]
             known_keys["keys"] = keys
-            if changed and visual_id in self._visual_to_scene:
+            if visual_id not in self._visual_to_scene:
+                return
+            self._end_plane_drag_by_jump(
+                visual_id, _source_id_override.get() or self._id
+            )
+            self._refresh_plane_mode(visual_id, reslice=not changed)
+            if changed:
                 self.reslice_visual(visual_id)
-                self._request_draw_for_visual(visual_id)
+            self._request_draw_for_visual(visual_id)
 
         visual.events.channels.connect(_on_channels_replaced)
         handlers.append((visual.events.channels, _on_channels_replaced))
@@ -4966,6 +5331,11 @@ class CellierController:
         visual_id = visual.id
 
         def _on_single_field(info: EmissionInfo) -> None:
+            if info.signal.name == "render_mode":
+                # A jump: it ends a drag of the visual's planes.
+                self._end_plane_drag_by_jump(
+                    visual_id, _source_id_override.get() or self._id
+                )
             self._outgoing_events.emit(
                 SingleAppearanceChangedEvent(
                     source_id=_source_id_override.get() or self._id,
@@ -4974,6 +5344,8 @@ class CellierController:
                     new_value=info.args[0],
                 )
             )
+            if info.signal.name == "render_mode":
+                self._refresh_plane_mode(visual_id)
             self._request_draw_for_visual(visual_id)
 
         visual.single.events.connect(_on_single_field)
@@ -4994,6 +5366,9 @@ class CellierController:
             appearance.events.connect(handler)
             wired.append((appearance.events, handler))
         self._channel_psygnal_handlers[visual.id] = wired
+        self._channel_render_modes[visual.id] = {
+            index: channel.render_mode for index, channel in visual.channels.items()
+        }
 
     def _make_channel_appearance_handler(
         self, visual_id: UUID, channel_index: int
@@ -5004,6 +5379,14 @@ class CellierController:
             field_name: str = info.signal.name
             new_value = info.args[0]
             resolved_source_id = _source_id_override.get() or self._id
+            syncing = visual_id in self._render_mode_sync
+            if field_name == "render_mode":
+                if not syncing:
+                    self._accept_channel_render_mode(
+                        visual_id, channel_index, new_value
+                    )
+                # A jump: it ends a drag of the visual's planes.
+                self._end_plane_drag_by_jump(visual_id, resolved_source_id)
             self._outgoing_events.emit(
                 ChannelAppearanceChangedEvent(
                     source_id=resolved_source_id,
@@ -5015,15 +5398,49 @@ class CellierController:
             )
             # A hidden channel is left out of every slice request, so showing
             # it needs a load.
-            if (
+            resliced = (
                 field_name == "visible"
                 and new_value
                 and visual_id in self._visual_to_scene
-            ):
+            )
+            # ``set_image_render_mode`` refreshes once, after its last channel.
+            if field_name in ("render_mode", "visible") and not syncing:
+                self._refresh_plane_mode(visual_id, reslice=not resliced)
+            if resliced:
                 self.reslice_visual(visual_id)
             self._request_draw_for_visual(visual_id)
 
         return _on_channel_appearance_psygnal
+
+    def _accept_channel_render_mode(
+        self, visual_id: UUID, channel_index: int, new_value: str
+    ) -> None:
+        """Refuse a render mode assigned to one channel alone; put it back.
+
+        Every channel of an image visual has the same render mode.  A direct
+        assignment to one channel breaks that unless the visual has one
+        channel, so it is undone and the error raised.
+
+        Raises
+        ------
+        ValueError
+            Naming :meth:`set_image_render_mode`.
+        """
+        visual = self.get_visual_model(visual_id)
+        modes = self._channel_render_modes.setdefault(visual_id, {})
+        try:
+            check_channels_share_render_mode(visual.channels, visual.name)
+        except ValueError:
+            channel = visual.channels[channel_index]
+            with channel.events.render_mode.blocked():
+                channel.render_mode = modes.get(channel_index, new_value)
+            raise ValueError(
+                f"Channel {channel_index} of image {visual.name!r} cannot have "
+                f"render mode {new_value!r} alone: every channel of an image "
+                "has the same render mode.  Use "
+                "CellierController.set_image_render_mode to set them together."
+            ) from None
+        modes[channel_index] = new_value
 
     def _wire_aabb(self, visual: BaseVisual) -> None:
         """Subscribe to all field changes on a visual's aabb model."""
@@ -5593,6 +6010,9 @@ class CellierController:
                 resolved_source_id,
                 _source_id_override.get() is not None,
             )
+            if field_name in ("visible", "render_mode"):
+                # A jump: it ends a drag of the visual's planes.
+                self._end_plane_drag_by_jump(visual_id, resolved_source_id)
             if field_name == "visible":
                 self._outgoing_events.emit(
                     VisualVisibilityChangedEvent(
@@ -5621,6 +6041,8 @@ class CellierController:
                 )
                 if field_name in _RESLICE_FIELDS:
                     self.reslice_visual(visual_id)
+                elif field_name == "render_mode":
+                    self._refresh_plane_mode(visual_id)
 
             # An appearance change repaints the same data, so it triggers no
             # reslice (only the three _RESLICE_FIELDS do) and nothing else in
@@ -5914,6 +6336,12 @@ class CellierController:
         tracked = scene_id in self._dims_ticks
         if event.displayed_axes_changed:
             self._dims_driver.cancel(scene_id, event.source_id)
+            # The reslice below plans every visual, so no drag is owed one.
+            scene = self._model.scenes.get(scene_id)
+            for visual in scene.visuals if scene is not None else ():
+                self._plane_plan_owed.discard(visual.id)
+                self._plane_interaction_driver.cancel(visual.id, event.source_id)
+                self._refresh_plane_mode(visual.id, reslice=False)
         elif not tracked:
             self._dims_driver.tick(scene_id, event.source_id, interactive=False)
         self.reslice_scene(scene_id)
@@ -5964,6 +6392,9 @@ class CellierController:
             if handed:
                 self._camera_handoff.setdefault(scene_id, set()).update(handed)
                 target -= handed
+        # A visual whose planes are still dragged keeps its backstop: the
+        # target is planned when every motion has stopped (7.4).
+        target -= self._leave_to_plane_drags(live[vid] for vid in target)
         if not target:
             return
         _SCHEDULER_LOGGER.info(
@@ -6451,6 +6882,13 @@ class CellierController:
         A ``pydantic.ValidationError`` from a malformed *value* is allowed to
         propagate (matching ``update_appearance_field``).
 
+        ``render_mode`` is the exception to "one channel": every channel of
+        an image has the same render mode, so setting it here sets it on all
+        of them, as :meth:`set_image_render_mode` does.  *source_id* is
+        stamped on this channel's event only; the other channels' events
+        carry the controller's id, so the caller's echo filter lets them
+        through.
+
         Parameters
         ----------
         visual_id :
@@ -6467,6 +6905,10 @@ class CellierController:
         """
         visual = self.get_visual_model(visual_id)
         resolved_source_id = source_id if source_id is not None else self._id
+        if field == "render_mode":
+            visual.channels[channel_index]  # KeyError for an unknown channel
+            self._set_channels_render_mode(visual, value, {channel_index: source_id})
+            return
         _SOURCE_ID_LOGGER.debug(
             "set  channel=%d  field=%s  visual=%s  source=%s",
             channel_index,
@@ -6576,6 +7018,90 @@ class CellierController:
             self.update_single_appearance_field(
                 visual_id, field, value, source_id=source_id
             )
+
+    def set_image_render_mode(
+        self,
+        visual_id: UUID,
+        render_mode: str,
+        *,
+        source_id: UUID | None = None,
+    ) -> None:
+        """Set the render mode of every channel of an image visual.
+
+        Every entry of ``visual.channels`` has the same ``render_mode``, so
+        the mode is set here, on all of them at once.  Assigning it to one
+        channel of several is refused.  ``single.render_mode``, which single
+        mode draws with, is separate and is not touched.
+
+        One ``ChannelAppearanceChangedEvent`` is emitted per channel whose
+        mode changed.  Entering or leaving ``"plane"`` mode reslices the
+        visual once.
+
+        Parameters
+        ----------
+        visual_id :
+            Target visual: an image visual.
+        render_mode :
+            The new mode, e.g. ``"mip"`` or ``"plane"``.
+        source_id :
+            UUID to stamp on the emitted events.  Defaults to the
+            controller's own ID.
+
+        Raises
+        ------
+        TypeError
+            If the visual is not an image visual.
+        pydantic.ValidationError
+            If *render_mode* is not a mode of the visual's channels.  Nothing
+            is changed.
+        """
+        visual = self.get_visual_model(visual_id)
+        if not isinstance(visual, BaseImageVisual):
+            raise TypeError(f"Visual {visual_id} is not an image visual.")
+        self._set_channels_render_mode(
+            visual, render_mode, dict.fromkeys(visual.channels, source_id)
+        )
+
+    def _set_channels_render_mode(
+        self,
+        visual: BaseImageVisual,
+        render_mode: str,
+        source_ids: dict[int, UUID | None],
+    ) -> None:
+        """Set *render_mode* on every channel of *visual*, as one change.
+
+        Parameters
+        ----------
+        visual : BaseImageVisual
+            The image visual.
+        render_mode : str
+            The new mode.
+        source_ids : dict[int, UUID or None]
+            Per channel index, the source to stamp on its event.  A channel
+            left out, or mapped to ``None``, is stamped with the
+            controller's id.
+        """
+        visual_id = visual.id
+        channels = dict(visual.channels)
+        if not channels:
+            return
+        # Refuse an unknown mode before any channel changes.
+        first = next(iter(channels.values()))
+        type(first).__pydantic_validator__.validate_assignment(
+            first.model_copy(), "render_mode", render_mode
+        )
+        self._render_mode_sync.add(visual_id)
+        try:
+            for index, channel in channels.items():
+                token = _source_id_override.set(source_ids.get(index))
+                try:
+                    channel.render_mode = render_mode
+                finally:
+                    _source_id_override.reset(token)
+        finally:
+            self._render_mode_sync.discard(visual_id)
+        self._channel_render_modes[visual_id] = dict.fromkeys(channels, render_mode)
+        self._refresh_plane_mode(visual_id)
 
     def set_image_composite(
         self,
@@ -6903,8 +7429,141 @@ class CellierController:
         )
         return moved
 
+    # ------------------------------------------------------------------
+    # Render planes
+    # ------------------------------------------------------------------
+
+    def set_render_planes(
+        self,
+        visual_id: UUID,
+        render_planes: Sequence[RenderPlane],
+        *,
+        source_id: UUID | None = None,
+    ) -> tuple[RenderPlane, ...]:
+        """Replace an image or labels visual's render planes.
+
+        The same as assigning ``visual.render_planes``, with the check made
+        before anything changes and a *source_id* for echo filtering.  Emits
+        ``RenderPlanesChangedEvent``; nothing happens when the tuple equals
+        the current one.
+
+        The planes are drawn only in a 3D view, and only while the visual's
+        render mode is ``"plane"``; otherwise the tuple is stored and
+        announced and nothing else happens.  Inside
+        :meth:`plane_interaction` the change is a tick of a drag.
+
+        Parameters
+        ----------
+        visual_id :
+            Target visual: an image or labels visual.
+        render_planes :
+            The complete new sequence of ``RenderPlane``, in the scene's
+            world space.  At most four.  Empty removes them all.
+        source_id :
+            UUID to stamp on the emitted ``RenderPlanesChangedEvent``.  GUI
+            widgets pass ``source_id=self._id`` so their own subscription
+            can ignore the echo.
+
+        Returns
+        -------
+        tuple[RenderPlane, ...]
+            The visual's new planes.
+
+        Raises
+        ------
+        TypeError
+            If the visual is not an image or labels visual.
+        ValueError
+            If there are more than four planes, two share an id, a plane is
+            not on three axes of the scene's world coordinate system, or
+            the visual's transform does not map a plane's axes by a scale
+            and a translation per axis.
+        """
+        visual = self.get_visual_model(visual_id)
+        if not isinstance(visual, _PLANE_VISUALS):
+            raise TypeError(
+                f"Visual {visual.name!r} ({type(visual).__name__}) has no render "
+                "planes: only image and labels visuals do."
+            )
+        planes = validate_render_planes(render_planes)
+        self._check_render_planes(visual, planes)
+        token = _render_planes_source_id_override.set(source_id)
+        try:
+            visual.render_planes = planes
+        finally:
+            _render_planes_source_id_override.reset(token)
+        return visual.render_planes
+
+    def get_render_plane(self, visual_id: UUID, plane_id: UUID) -> RenderPlane:
+        """Return one render plane of a visual, by the plane's id.
+
+        Raises
+        ------
+        KeyError
+            If the visual has no render plane with that id.
+        """
+        plane_id = UUID(str(plane_id))
+        for plane in getattr(self.get_visual_model(visual_id), "render_planes", ()):
+            if plane.id == plane_id:
+                return plane
+        raise KeyError(f"Visual {visual_id} has no render plane {plane_id}.")
+
+    def set_render_plane(
+        self,
+        visual_id: UUID,
+        plane_id: UUID,
+        plane: RenderPlane,
+        *,
+        source_id: UUID | None = None,
+    ) -> RenderPlane:
+        """Replace one render plane of a visual; the others stay.
+
+        The plane keeps its id and its place in the tuple; its pose, extents
+        and ``enabled`` flag are taken from *plane*.  Goes through
+        :meth:`set_render_planes`, so it emits ``RenderPlanesChangedEvent``
+        and does nothing for an equal plane.
+
+        Parameters
+        ----------
+        visual_id :
+            Target visual.
+        plane_id :
+            The ``id`` of the ``RenderPlane`` to replace.
+        plane :
+            Its new state.  Its own ``id`` is ignored.
+        source_id :
+            UUID to stamp on the emitted ``RenderPlanesChangedEvent``.
+
+        Returns
+        -------
+        RenderPlane
+            The plane now in the tuple.
+
+        Raises
+        ------
+        KeyError
+            If the visual has no render plane with that id.
+        ValueError
+            As :meth:`set_render_planes`.
+        """
+        plane_id = UUID(str(plane_id))
+        self.get_render_plane(visual_id, plane_id)  # KeyError if absent
+        moved = plane.model_copy(update={"id": plane_id})
+        current = self.get_visual_model(visual_id).render_planes
+        self.set_render_planes(
+            visual_id,
+            tuple(moved if item.id == plane_id else item for item in current),
+            source_id=source_id,
+        )
+        return moved
+
     def _on_plane_transition(self, visual_id: UUID, transition: Transition) -> None:
-        """Announce the start or end of a drag of a visual's planes.  Nothing else."""
+        """Announce the start or end of a drag of a visual's planes.
+
+        An end by release or stillness plans a visual the drag left without
+        a plan.  An end by a jump or a cancel plans nothing here: the change
+        that caused it does.
+        """
         self._outgoing_events.emit(
             PlaneInteractionEvent(
                 source_id=transition.source_id,
@@ -6913,19 +7572,104 @@ class CellierController:
                 reason=transition.reason,
             )
         )
+        if transition.phase != "end":
+            return
+        owed = visual_id in self._plane_plan_owed
+        self._plane_plan_owed.discard(visual_id)
+        if owed and transition.reason in ("release", "settle"):
+            self._plan_after_plane_drag(visual_id)
+
+    def _plane_drag_holds_plan(self, visual: BaseVisual) -> bool:
+        """Whether a drag of *visual*'s planes keeps its last plan.
+
+        ``True`` for a multiscale image or labels visual in a 3D view with
+        ``coarsest_while_moving_3d`` on.  Everything else plans on every
+        tick: a 2D view's only motion is a dims scrub, and an in-memory
+        visual plans nothing view-dependent.
+        """
+        if not isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual)):
+            return False
+        scene_id = self._visual_to_scene.get(visual.id)
+        if scene_id is None or self._n_displayed_dims(scene_id) != 3:
+            return False
+        return visual.appearance.coarsest_while_moving_3d
+
+    def _hold_plan_for_plane_drag(self, visual: BaseVisual) -> bool:
+        """Whether to skip a plan of *visual* because its planes are dragged.
+
+        When ``True`` the visual is owed a plan, made when the drag ends
+        (:meth:`_on_plane_transition`).  The last plan stays the desired
+        set meanwhile, so the bricks already loaded are still drawn; a
+        ``BACKSTOP_ONLY`` plan would drop them (plane rendering design 7.4).
+        """
+        if not self._plane_interaction_driver.is_active(visual.id):
+            return False
+        if not self._plane_drag_holds_plan(visual):
+            return False
+        self._plane_plan_owed.add(visual.id)
+        return True
+
+    def _leave_to_plane_drags(self, visuals: Iterable[BaseVisual]) -> set[UUID]:
+        """Ids of *visuals* whose plan a plane drag holds; each is now owed one."""
+        return {
+            visual.id for visual in visuals if self._hold_plan_for_plane_drag(visual)
+        }
+
+    def _plan_after_plane_drag(self, visual_id: UUID) -> None:
+        """Plan a visual's target once a drag of its planes has ended.
+
+        Only when every motion of the visual has stopped: while its scene's
+        dims are scrubbed the scrub's end plans it, and while a camera of the
+        scene moves the camera's end does.
+        """
+        scene_id = self._visual_to_scene.get(visual_id)
+        if scene_id is None:
+            return
+        visual = self.get_visual_model(visual_id)
+        if self._dims_driver.is_active(scene_id) and visual.plans_coarse_while_moving(
+            self._n_displayed_dims(scene_id)
+        ):
+            self._dims_scrub_pending.setdefault(scene_id, set()).add(visual_id)
+            return
+        if (
+            visual.requires_camera_reslice
+            and self._render_manager.config.camera.reslice_enabled
+            and self._scene_camera_moving(scene_id)
+        ):
+            return
+        self.reslice_visual(visual_id)
+        self._request_draw_for_visual(visual_id)
+
+    def _end_plane_drag_by_jump(self, visual_id: UUID, source_id: UUID) -> None:
+        """End a drag of a visual's planes because the visual jumped.
+
+        A visibility or render mode change is a jump.  If the drag left the
+        visual without a plan it is planned now, in full.
+        """
+        owed = visual_id in self._plane_plan_owed
+        self._plane_plan_owed.discard(visual_id)
+        self._plane_interaction_driver.cancel(visual_id, source_id)
+        if owed and visual_id in self._visual_to_scene:
+            self.reslice_visual(visual_id)
 
     def begin_plane_interaction(self, visual_id: UUID, *, source_id: UUID) -> None:
         """Open a plane interaction scope on a visual.
 
         While any scope is open, every change of the visual's
-        ``clipping_planes`` is a tick of one drag, announced by a
+        ``clipping_planes``, or of its ``render_planes`` while a 3D view
+        draws them, is a tick of one drag, announced by a
         ``PlaneInteractionEvent`` at its start and its end.  Opening a
         scope starts nothing by itself; the first change does.  Holding
         still for ``SchedulerConfig.dims_settle_s`` ends a drag, and the
         next change starts a new one.
 
-        A drag changes no planning: a plane change inside one plans as it
-        does outside one.
+        A multiscale image or labels visual in a 3D view with
+        ``appearance.coarsest_while_moving_3d`` on (the default) plans
+        nothing during a drag: it keeps drawing the bricks it has, and the
+        backstop where the planes reveal more.  Its target is planned when
+        the drag ends, once its scene's dims and cameras are still too.
+        With the setting off, and for every other visual, a plane change
+        inside a drag plans as it does outside one.
 
         A clipping plane gizmo calls this when a handle is grabbed.
         Scripts normally use :meth:`plane_interaction`.
@@ -6963,10 +7707,10 @@ class CellierController:
 
     @contextmanager
     def plane_interaction(self, visual_id: UUID) -> Generator[None, None, None]:
-        """Drag a visual's clipping planes for the length of a ``with`` block.
+        """Drag a visual's planes for the length of a ``with`` block.
 
-        Every change of ``clipping_planes`` inside the block belongs to one
-        drag::
+        Every change of ``clipping_planes`` or ``render_planes`` inside the
+        block belongs to one drag::
 
             with controller.plane_interaction(visual.id):
                 for offset in offsets:
@@ -6985,7 +7729,7 @@ class CellierController:
             self.end_plane_interaction(visual_id, source_id=source_id)
 
     def plane_interaction_state(self, visual_id: UUID) -> Literal["idle", "active"]:
-        """Whether *visual_id*'s clipping planes are being dragged.
+        """Whether *visual_id*'s clipping or render planes are being dragged.
 
         Parameters
         ----------
@@ -7172,6 +7916,11 @@ class CellierController:
     def _on_clipping_planes_update(self, event: ClippingPlanesUpdateEvent) -> None:
         self.set_clipping_planes(
             event.visual_id, event.clipping_planes, source_id=event.source_id
+        )
+
+    def _on_render_planes_update(self, event: RenderPlanesUpdateEvent) -> None:
+        self.set_render_planes(
+            event.visual_id, event.render_planes, source_id=event.source_id
         )
 
     def _on_lod_config_update(self, event: LodConfigUpdateEvent) -> None:
@@ -7844,6 +8593,11 @@ class CellierController:
             target_ids = frozenset(
                 visual.id for visual in scene.visuals if visual.id in handed
             )
+        # A camera end during a drag of a visual's planes leaves that
+        # visual's target to the drag's end (7.4).
+        target_ids -= self._leave_to_plane_drags(
+            visual for visual in scene.visuals if visual.id in target_ids
+        )
         if not target_ids:
             return
         _CAMERA_LOGGER.info(
@@ -8436,6 +9190,10 @@ class CellierController:
         self._outgoing_events.unsubscribe_all(visual_id)
         self._cancel_visual_pick_reads(visual_id)
         self._plane_interaction_driver.drop(visual_id)
+        self._plane_plan_owed.discard(visual_id)
+        self._plane_mode_shown.pop(visual_id, None)
+        self._channel_render_modes.pop(visual_id, None)
+        self._render_plane_axes_warned.discard(visual_id)
 
         # 4. Remove from controller lookup maps.
         self._visual_to_scene.pop(visual_id)
@@ -9939,6 +10697,7 @@ class CellierController:
         self._camera_handoff.clear()
         self._dims_driver.close()
         self._plane_interaction_driver.close()
+        self._plane_plan_owed.clear()
         self._dims_scrub_pending.clear()
         self._dims_scrub_axes.clear()
         for task in self._store_reslice_tasks.values():
@@ -10108,6 +10867,40 @@ class CellierController:
         """
         return self._outgoing_events.subscribe(
             ClippingPlanesChangedEvent,
+            callback,
+            entity_id=visual_id,
+            owner_id=owner_id,
+            weak=weak,
+        )
+
+    def on_render_planes_changed(
+        self,
+        visual_id: UUID,
+        callback: Callable[[RenderPlanesChangedEvent], None],
+        *,
+        owner_id: UUID,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired when a visual's render planes change.
+
+        Parameters
+        ----------
+        visual_id :
+            The visual to watch.
+        callback :
+            Called with the ``RenderPlanesChangedEvent``: ``source_id`` for
+            echo filtering, and ``render_planes``, the complete new tuple.
+        owner_id :
+            UUID under which this subscription is registered.
+        weak :
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+        """
+        return self._outgoing_events.subscribe(
+            RenderPlanesChangedEvent,
             callback,
             entity_id=visual_id,
             owner_id=owner_id,

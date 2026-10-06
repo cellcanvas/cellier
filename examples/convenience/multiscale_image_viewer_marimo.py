@@ -201,7 +201,7 @@ def _(
                 "render_mode",
                 "iso_threshold",
                 "attenuation",
-                "settled_lod_bias",
+                "level_of_detail",
             ],
             colormap_names=[
                 "grays",

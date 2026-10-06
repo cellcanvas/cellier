@@ -36,13 +36,18 @@ def _qt_image(spec, visual_ids, controller):
     )
 
 
-def _qt_lod_bias(spec, visual_ids, controller):
-    from cellier.gui.qt.visuals import QtLodBiasSlider
+def _qt_level_of_detail(spec, visual_ids, controller):
+    from cellier.gui._image_controls import display_seed
+    from cellier.gui.qt.visuals import QtLevelOfDetailControls
 
-    return QtLodBiasSlider(
+    # The checkbox edits the setting of the view shown: seeded, then followed.
+    scene_ids, n_displayed = display_seed(controller, visual_ids)
+    return QtLevelOfDetailControls(
         visual_ids,
-        initial_lod_bias=spec.values["initial_lod_bias"],
+        spec.values,
         title=spec.title,
+        n_displayed_dimensions=n_displayed,
+        scene_ids=scene_ids,
     )
 
 
@@ -204,7 +209,7 @@ def _qt_trail(spec, visual_ids, controller):
 
 QT_BUILDERS = {
     "image": _qt_image,
-    "settled_lod_bias": _qt_lod_bias,
+    "level_of_detail": _qt_level_of_detail,
     "trail": _qt_trail,
     "aabb": _qt_aabb,
     "loading": _qt_loading,

@@ -29,7 +29,7 @@ from cellier.convenience.gui._controls_config import (
 )
 
 _IN_MEMORY_FIELDS = ["color_map", "clim", "render_mode", "iso_threshold"]
-_MULTISCALE_ONLY = ["attenuation", "settled_lod_bias"]
+_MULTISCALE_ONLY = ["attenuation", "level_of_detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -62,10 +62,10 @@ def test_a_whole_valid_list_is_accepted():
 def test_multiscale_only_fields_are_rejected_on_the_in_memory_config(field):
     """The likelier mistake (section 9.1): a real name, wrong config.
 
-    ``settled_lod_bias`` and ``attenuation`` exist on ``MultiscaleImageAppearance``
-    and not on ``InMemoryImageAppearance``.  A closed ``Enum`` would not catch
-    this -- the member exists either way -- which is why the vocabulary is
-    per config class and not one global set.
+    ``attenuation`` and the level-of-detail settings exist on
+    ``MultiscaleImageAppearance`` and not on ``InMemoryImageAppearance``.  A
+    closed ``Enum`` would not catch this -- the member exists either way --
+    which is why the vocabulary is per config class and not one global set.
     """
     with pytest.raises(ValueError, match=field):
         InMemoryImageControlsConfig(appearance=[field])
@@ -73,7 +73,7 @@ def test_multiscale_only_fields_are_rejected_on_the_in_memory_config(field):
 
 def test_the_error_names_the_config_class_and_its_valid_set():
     with pytest.raises(ValueError) as excinfo:
-        InMemoryImageControlsConfig(appearance=["settled_lod_bias"])
+        InMemoryImageControlsConfig(appearance=["level_of_detail"])
 
     message = str(excinfo.value)
     assert "InMemoryImageControlsConfig" in message
@@ -97,7 +97,7 @@ def test_a_typo_is_rejected_with_the_nearest_match():
     [
         ("clims", "clim"),
         ("render_modes", "render_mode"),
-        ("lodbias", "settled_lod_bias"),
+        ("level_of_detail"[:-1], "level_of_detail"),
     ],
 )
 def test_near_misses_suggest_the_right_field(typo, expected):
@@ -211,11 +211,11 @@ def test_a_field_valid_for_the_config_but_absent_from_the_model_is_reported():
     visual = ImageVisual(name="v0", data_store_id="store")
 
     specs, skipped = appearance_specs(
-        visual, MultiscaleImageControlsConfig(appearance=["clim", "settled_lod_bias"])
+        visual, MultiscaleImageControlsConfig(appearance=["clim", "level_of_detail"])
     )
 
     assert [spec.kind for spec in specs] == ["image", "aabb"]
-    assert skipped == ["settled_lod_bias"]
+    assert skipped == ["level_of_detail"]
 
 
 # ---------------------------------------------------------------------------

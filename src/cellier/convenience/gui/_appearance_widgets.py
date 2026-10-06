@@ -34,13 +34,18 @@ def _any_image(spec: ControlSpec, visual_ids, controller=None):
     )
 
 
-def _any_lod_bias(spec: ControlSpec, visual_ids, controller=None):
-    from cellier.gui.anywidget.visuals import AnywidgetLodBiasSlider
+def _any_level_of_detail(spec: ControlSpec, visual_ids, controller=None):
+    from cellier.gui._image_controls import display_seed
+    from cellier.gui.anywidget.visuals import AnywidgetLevelOfDetailControls
 
-    return AnywidgetLodBiasSlider(
+    # The checkbox edits the setting of the view shown: seeded, then followed.
+    scene_ids, n_displayed = display_seed(controller, visual_ids)
+    return AnywidgetLevelOfDetailControls(
         visual_ids,
-        initial_lod_bias=spec.values["initial_lod_bias"],
+        spec.values,
         title=spec.title,
+        n_displayed_dimensions=n_displayed,
+        scene_ids=scene_ids,
     )
 
 
@@ -195,7 +200,7 @@ def _any_trail(spec: ControlSpec, visual_ids, controller=None):
 
 ANYWIDGET_BUILDERS = {
     "image": _any_image,
-    "settled_lod_bias": _any_lod_bias,
+    "level_of_detail": _any_level_of_detail,
     "trail": _any_trail,
     "aabb": _any_aabb,
     "loading": _any_loading,

@@ -33,13 +33,15 @@ from cellier.gui.anywidget.visuals._labels import (
     AnywidgetLabelsRenderModeCombo,
     AnywidgetSaltSpin,
 )
+from cellier.gui.anywidget.visuals._level_of_detail import (
+    AnywidgetLevelOfDetailControls,
+)
 from cellier.gui.anywidget.visuals._lines import (
     AnywidgetThicknessSpaceCombo,
     AnywidgetThicknessSpin,
 )
 from cellier.gui.anywidget.visuals._loading import AnywidgetLoadingIndicator
 from cellier.gui.anywidget.visuals._loading_config import AnywidgetLoadingConfigControls
-from cellier.gui.anywidget.visuals._lod_bias import AnywidgetLodBiasSlider
 from cellier.gui.anywidget.visuals._lod_config import AnywidgetLodConfigControls
 from cellier.gui.anywidget.visuals._mesh import (
     AnywidgetFlatShadingToggle,
@@ -74,9 +76,9 @@ __all__ = [
     "AnywidgetImageControls",
     "AnywidgetIntSpin",
     "AnywidgetLabelsRenderModeCombo",
+    "AnywidgetLevelOfDetailControls",
     "AnywidgetLoadingConfigControls",
     "AnywidgetLoadingIndicator",
-    "AnywidgetLodBiasSlider",
     "AnywidgetLodConfigControls",
     "AnywidgetMeshSectionControls",
     "AnywidgetNodeColorPicker",

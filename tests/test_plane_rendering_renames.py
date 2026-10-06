@@ -67,10 +67,10 @@ def test_the_removed_loading_fields_are_refused(field) -> None:
 @pytest.mark.parametrize(
     "appearance_cls", [MultiscaleImageAppearance, MultiscaleLabelsAppearance]
 )
-def test_the_moving_settings_reproduce_the_old_defaults(appearance_cls) -> None:
-    """Phase 2 changes no behaviour: both settings start off (eager)."""
+def test_the_moving_settings_defaults(appearance_cls) -> None:
+    """Coarsest while moving in 3D, eager in 2D (design 7.1)."""
     appearance = appearance_cls()
-    assert appearance.coarsest_while_moving_3d is False
+    assert appearance.coarsest_while_moving_3d is True
     assert appearance.coarsest_while_moving_2d is False
 
 
@@ -109,10 +109,12 @@ def test_the_old_controls_key_is_refused() -> None:
     )
 
     for config_cls in (MultiscaleImageControlsConfig, MultiscaleLabelsControlsConfig):
-        with pytest.raises(ValueError, match=LOD_BIAS):
-            config_cls(appearance=[LOD_BIAS])
-        assert config_cls(appearance=["settled_lod_bias"]).appearance == [
-            "settled_lod_bias"
+        # The Phase 2 key went too, when the level of detail control came.
+        for old in (LOD_BIAS, "settled_" + LOD_BIAS):
+            with pytest.raises(ValueError, match="use 'level_of_detail'"):
+                config_cls(appearance=[old])
+        assert config_cls(appearance=["level_of_detail"]).appearance == [
+            "level_of_detail"
         ]
 
 
@@ -177,15 +179,20 @@ def _hits(pattern: re.Pattern, allowed: set[str], skip_line=lambda line: False):
 
 
 def test_no_old_bias_name_is_left() -> None:
-    # The anywidget control's asset files keep their names until the level of
-    # detail control replaces them (Phase 4).
-    assets = (f"{LOD_BIAS}.js", f"{LOD_BIAS}.css")
-    hits = _hits(
-        _word(LOD_BIAS),
-        _BIAS_ARGUMENT_FILES,
-        skip_line=lambda line: any(asset in line for asset in assets),
-    )
+    hits = _hits(_word(LOD_BIAS), _BIAS_ARGUMENT_FILES)
     assert not hits, "\n".join(hits)
+
+
+def test_the_bias_slider_widgets_are_gone() -> None:
+    """The level of detail control replaced them (design 9.3)."""
+    import cellier.gui.anywidget.visuals as any_visuals
+    import cellier.gui.qt.visuals as qt_visuals
+
+    assert not hasattr(qt_visuals, "QtLodBias" + "Slider")
+    assert not hasattr(any_visuals, "AnywidgetLodBias" + "Slider")
+    static = ROOT / "src/cellier/gui/anywidget/visuals/static"
+    assert not list(static.glob(LOD_BIAS + ".*"))
+    assert (static / "level_of_detail.js").exists()
 
 
 def test_no_image_dims_drag_is_left() -> None:

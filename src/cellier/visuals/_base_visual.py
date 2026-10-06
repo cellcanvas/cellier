@@ -8,6 +8,7 @@ from pydantic import UUID4, AfterValidator, ConfigDict, Field
 from cellier.render._config import MAX_OUTLINE_SLOT
 from cellier.transform import TransformType
 from cellier.visuals._clipping import ClippingPlane, validate_clipping_planes
+from cellier.visuals._render_plane import validate_render_planes
 
 
 class AABBParams(EventedModel):
@@ -181,7 +182,7 @@ class BaseVisual(EventedModel):
     )
 
     def __setattr__(self, name: str, value: object) -> None:
-        """Validate ``clipping_planes`` on assignment.
+        """Validate ``clipping_planes`` and ``render_planes`` on assignment.
 
         The model does not validate assignments in general; without this a
         list would stay a list and a wrong element would be found only when
@@ -189,6 +190,8 @@ class BaseVisual(EventedModel):
         """
         if name == "clipping_planes":
             value = validate_clipping_planes(value)
+        elif name == "render_planes":
+            value = validate_render_planes(value)
         super().__setattr__(name, value)
 
     def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:

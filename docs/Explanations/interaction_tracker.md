@@ -130,7 +130,7 @@ Visuals do not subscribe to the tracker. Each visual model answers one question 
 
 | Visual | `plans_coarse_while_moving` |
 |---|---|
-| Multiscale image, multiscale labels | `appearance.coarsest_while_moving_3d` in a 3D view, `appearance.coarsest_while_moving_2d` in a 2D view (both default to `False`) |
+| Multiscale image, multiscale labels | `appearance.coarsest_while_moving_3d` in a 3D view, `appearance.coarsest_while_moving_2d` in a 2D view (`True` by default in 3D, `False` in 2D) |
 | Multiscale mesh | `lod.dims_drag == "coarse"` (the default, which is `True`), when the mesh has more than one level |
 | Everything else | `False` |
 
@@ -138,6 +138,10 @@ The controller turns the tracker's state into a plan mode in one place, `Cellier
 
 - While the scene's tracker is `ACTIVE`, a visual that opted in plans `BACKSTOP_ONLY` (its coarse backstop level) and joins the scene's *pending set*. This applies to **every** reslice during the scrub, not only the scrub's own ticks: a visual shown, a config change, a store change, and a camera reslice all plan coarse.
 - Visuals that did not opt in plan in full on every tick, as they always have.
+
+A drag of a visual's planes (`controller.plane_interaction`, which a clipping plane gizmo opens) is the visual's other motion, with a tracker per visual. It has no plan mode. While the tracker is `ACTIVE`, a multiscale image or labels visual in a 3D view with `coarsest_while_moving_3d` on is **not planned at all**: its last plan stays the desired set, so the bricks it has are still drawn, and the always-loaded backstop shows where the planes reveal more. (A `BACKSTOP_ONLY` plan would drop those bricks.) The drag's end, by release or stillness, plans the target.
+
+The target is planned only when every motion of the visual has stopped. A scrub that ends during a plane drag leaves the visual on its backstop, and the drag's end plans it; a drag that ends during a scrub is planned by the scrub's end; a camera motion that ends during a drag does not plan the visual, and a drag that ends while a camera moves is planned by the camera's end. A visibility, render mode or displayed-axes change is a jump: it ends the drag and plans in full.
 - When the scrub ends by release or stillness, the pending set is planned in full, once.
 
 ### Timeline: a slider drag

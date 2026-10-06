@@ -52,6 +52,7 @@ from cellier.visuals._mesh_memory import (
 )
 from cellier.visuals._overlay_types import CanvasOverlayType, SceneOverlayType
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
+from cellier.visuals._render_plane import MAX_RENDER_PLANES, RenderPlane
 from cellier.visuals._scene_overlay import (
     SceneBoundingBox,
     SceneBoundingBoxAppearance,
@@ -60,6 +61,7 @@ from cellier.visuals._scene_overlay import (
 from cellier.visuals._types import VisualType
 
 __all__ = [
+    "MAX_RENDER_PLANES",
     "AABBParams",
     "BaseImageAppearance",
     "BaseImageSingleAppearance",
@@ -99,6 +101,7 @@ __all__ = [
     "PointsMarkerAppearance",
     "PointsVisual",
     "ProgressiveLoadingConfig",
+    "RenderPlane",
     "SceneBoundingBox",
     "SceneBoundingBoxAppearance",
     "SceneOverlay",

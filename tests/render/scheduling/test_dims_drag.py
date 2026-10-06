@@ -32,8 +32,8 @@ from tests.render.conftest import drain_loading
 
 #: Appearance fields: plan the backstop only while moving, in 2D and 3D.
 DRAG = {"coarsest_while_moving_2d": True, "coarsest_while_moving_3d": True}
-#: The defaults of this phase: plan in full on every tick.
-EAGER: dict = {}
+#: Plan in full on every tick, in 2D (the default) and 3D.
+EAGER = {"coarsest_while_moving_2d": False, "coarsest_while_moving_3d": False}
 
 
 def _tzyx_store(tmp_path):
@@ -145,10 +145,10 @@ def _timers(controller) -> list:
 @pytest.mark.parametrize(
     "appearance_cls", [MultiscaleImageAppearance, MultiscaleLabelsAppearance]
 )
-def test_eager_is_the_default(appearance_cls) -> None:
+def test_the_defaults_are_eager_in_2d_and_coarsest_in_3d(appearance_cls) -> None:
     appearance = appearance_cls()
     assert appearance.coarsest_while_moving_2d is False
-    assert appearance.coarsest_while_moving_3d is False
+    assert appearance.coarsest_while_moving_3d is True
 
 
 @pytest.mark.parametrize("field", ["dims_drag", "backstop"])

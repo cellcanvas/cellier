@@ -11,6 +11,10 @@ from cellier.gui._clipping_planes import (
     CLIPPING_PLANES_TITLE,
     get_clipping_planes_data_from_visual,
 )
+from cellier.gui._level_of_detail import (
+    LEVEL_OF_DETAIL_TITLE,
+    level_of_detail_values,
+)
 from cellier.gui._loading import LOADING_CONFIG_TITLE, LOADING_TITLE
 from cellier.gui._lod import LOD_CONFIG_TITLE
 from cellier.gui._mesh_section import MESH_SECTION_TITLE
@@ -35,7 +39,7 @@ class ControlSpec:
     ----------
     kind : str
         Which control to build: ``color_map``, ``clim``, ``render``,
-        ``settled_lod_bias``, ``aabb``, ``loading``, ``loading_config``,
+        ``level_of_detail``, ``aabb``, ``loading``, ``loading_config``,
         ``mesh_section``, ``clipping_planes``, ``lod_config`` or
         ``dataset_info``.  A renderer with no
         builder for a kind skips it.
@@ -78,7 +82,7 @@ class AppearanceSpecs(NamedTuple):
 
 _CONTROL_TITLES = {
     "image": "Image",
-    "settled_lod_bias": "LOD bias",
+    "level_of_detail": LEVEL_OF_DETAIL_TITLE,
     "aabb": "Bounding box",
     "trail": "Trail",
     "loading": LOADING_TITLE,
@@ -102,6 +106,11 @@ pinned by ``test_composite_default_titles_match_the_shared_vocabulary``: this
 is the name the renderers pass in, that is the name a directly-constructed
 widget uses.
 """
+
+
+_CONTROL_NEEDS_FIELD = {"level_of_detail": "settled_lod_bias"}
+"""Appearance entries that are a control, not a field, and the model field
+whose presence says the visual can be driven by it."""
 
 
 APPEARANCE_DOCK_GAP_PX = 6
@@ -228,7 +237,9 @@ def appearance_specs(
     # A field is honoured when the config class has a control for it *and* the
     # visual's model actually carries it.  Both halves matter: a config can be
     # paired with a visual whose model is narrower (a multiscale config on an
-    # in-memory image has no ``settled_lod_bias`` to drive).
+    # in-memory image has no ``settled_lod_bias`` to drive).  A control that
+    # is not named after one field names the field it needs in
+    # ``_CONTROL_NEEDS_FIELD``.
     # An image's mode-dependent fields live on ``single`` (unified image
     # design 3.1), not on the shared appearance.
     single = getattr(visual, "single", None)
@@ -236,7 +247,10 @@ def appearance_specs(
         field
         for field in requested
         if field in controls_map
-        and (hasattr(app, field) or (single is not None and hasattr(single, field)))
+        and (
+            hasattr(app, _CONTROL_NEEDS_FIELD.get(field, field))
+            or (single is not None and hasattr(single, field))
+        )
     }
     # A default list is "everything this config *can* drive", and the visual's
     # model is often narrower on purpose -- a flat mesh has no ``shininess``.
@@ -264,9 +278,7 @@ def appearance_specs(
 
     values_for = {
         "image": _image_values,
-        "settled_lod_bias": lambda: {
-            "initial_lod_bias": float(getattr(app, "settled_lod_bias", 1.0))
-        },
+        "level_of_detail": lambda: level_of_detail_values(app),
     }
 
     specs: list[ControlSpec] = []

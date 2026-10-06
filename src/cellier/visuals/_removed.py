@@ -25,6 +25,14 @@ REMOVED_LOADING_FIELDS: dict[str, str] = {
 }
 
 
+#: Appearance keys of the multiscale controls configs
+#: (``cellier.convenience.gui``): removed key to the key that replaces it.
+REMOVED_CONTROL_KEYS: dict[str, str] = {
+    "lod_bias": "level_of_detail",
+    "settled_lod_bias": "level_of_detail",
+}
+
+
 def refuse_removed_fields(data: Any, removed: dict[str, str], model: str) -> Any:
     """Raise if *data*, a model's input, names a removed field.
 

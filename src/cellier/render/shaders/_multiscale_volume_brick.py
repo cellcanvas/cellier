@@ -28,6 +28,7 @@ from pygfx.renderers.wgpu import (
 from pygfx.renderers.wgpu.shaders.volumeshader import BaseVolumeShader
 from pygfx.resources import Buffer
 
+from cellier.render._plane_mode import volume_mode_until_planes_draw
 from cellier.render.lut_indirection._cell_brick_rule import (
     UNBOUNDED_BRICK_COUNT,
     level_brick_counts,
@@ -521,7 +522,9 @@ class MultiscaleVolumeBrickShader(BaseVolumeShader):
         # Template variable for debug visualisation modes.
         self["debug_mode"] = getattr(material, "debug_mode", "none")
         # Template variable for render mode (iso / mip).
-        self["render_mode"] = getattr(material, "render_mode", "iso")
+        self["render_mode"] = volume_mode_until_planes_draw(
+            getattr(material, "render_mode", "iso"), "mip"
+        )
         # Default for the ``normal`` render target.  ``write_normal`` is
         # overridden by CellierBlender.get_shader_kwargs when the target
         # exists; without it the write compiles away, so the same shader

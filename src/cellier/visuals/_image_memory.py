@@ -16,6 +16,7 @@ from psygnal import EventedModel
 from pydantic import ConfigDict, Field, model_validator
 
 from cellier.visuals._base_visual import BaseDrawAppearance, BaseVisual
+from cellier.visuals._render_plane import PLANE_RENDER_MODE, RenderPlane
 
 __all__ = [
     "BaseImageAppearance",
@@ -25,6 +26,7 @@ __all__ = [
     "InMemoryImageAppearance",
     "InMemoryImageChannelAppearance",
     "InMemoryImageSingleAppearance",
+    "check_channels_share_render_mode",
     "effective_transparency_mode",
 ]
 
@@ -97,11 +99,12 @@ class InMemoryImageSingleAppearance(BaseImageSingleAppearance):
     Parameters
     ----------
     render_mode : str
-        Volume rendering mode for the 3D view: ``"mip"`` (default), ``"iso"``
-        or ``"minip"``.  Ignored by the 2D view.
+        Rendering mode for the 3D view: ``"mip"`` (default), ``"iso"``,
+        ``"minip"``, or ``"plane"``, which draws the data on the visual's
+        ``render_planes`` instead of as a volume.  Ignored by the 2D view.
     """
 
-    render_mode: Literal["mip", "iso", "minip"] = "mip"
+    render_mode: Literal["mip", "iso", "minip", "plane"] = "mip"
 
 
 class InMemoryImageChannelAppearance(InMemoryImageSingleAppearance):
@@ -142,9 +145,21 @@ class BaseImageVisual(BaseVisual):
     channels : dict[int, channel appearance]
         Per-channel appearances, keyed by index along ``channel_axis``.  Empty
         is valid and draws nothing in composite mode (D16).
+
+        **Every channel has the same ``render_mode``**, hidden ones
+        included: the dict is refused otherwise, here and on assignment.
+        Change it with ``CellierController.set_image_render_mode``, which
+        sets every channel together; assigning it to one channel of several
+        is refused.  ``single.render_mode`` is separate.
     max_channels : int
         The most channels ``channels`` may hold, in 2D and 3D alike (D15).
         Default 4.
+    render_planes : tuple[RenderPlane, ...]
+        The planes the visual draws its data on in a 3D view while its
+        render mode is ``"plane"``; ignored in every other mode and in a 2D
+        view.  World space; see :class:`~cellier.visuals.RenderPlane`.  At
+        most four.  Assign a new tuple to change them: one assignment is one
+        event.  Default empty, which in ``"plane"`` mode draws nothing.
     """
 
     model_config = ConfigDict(validate_assignment=True)
@@ -160,6 +175,7 @@ class BaseImageVisual(BaseVisual):
         ),
     )
     max_channels: int = Field(default=4, ge=1)
+    render_planes: tuple[RenderPlane, ...] = ()
 
     @model_validator(mode="after")
     def _validate_modes(self) -> BaseImageVisual:
@@ -174,7 +190,25 @@ class BaseImageVisual(BaseVisual):
                 f"channels has {len(channels)} entries but max_channels="
                 f"{self.max_channels}.  Raise max_channels or remove a channel."
             )
+        check_channels_share_render_mode(channels, self.name)
         return self
+
+    def __setattr__(self, name: str, value: object) -> None:
+        """Keep the old ``channels`` when a new dict is refused.
+
+        The rules on ``channels`` (one render mode, ``max_channels``) are
+        checked after pydantic has assigned the field, and a failed check
+        does not undo the assignment.
+        """
+        if name != "channels":
+            super().__setattr__(name, value)
+            return
+        previous = self.channels
+        try:
+            super().__setattr__(name, value)
+        except ValueError:
+            self.__dict__["channels"] = previous
+            raise
 
     def drawn_channels(self, size: int | None = None) -> tuple[int, ...]:
         """The channel indices composite mode draws, ascending.
@@ -202,6 +236,19 @@ class BaseImageVisual(BaseVisual):
             )
         )
 
+    def plane_mode(self) -> bool:
+        """Whether a 3D view draws this visual on its ``render_planes``.
+
+        Single mode reads ``single.render_mode``.  Composite mode reads its
+        drawn channels, which share one render mode like all the channels.
+        """
+        if not self.composite:
+            return self.single.render_mode == PLANE_RENDER_MODE
+        drawn = self.drawn_channels()
+        return bool(drawn) and all(
+            self.channels[index].render_mode == PLANE_RENDER_MODE for index in drawn
+        )
+
     def draws_nothing(self, size: int | None = None) -> bool:
         """Whether the visual draws nothing and so needs no slicing (3.3).
 
@@ -210,6 +257,31 @@ class BaseImageVisual(BaseVisual):
         if not self.appearance.visible:
             return True
         return self.composite and not self.drawn_channels(size)
+
+
+def check_channels_share_render_mode(channels: Any, name: str = "image") -> None:
+    """Raise unless every channel appearance has the same ``render_mode``.
+
+    Parameters
+    ----------
+    channels : dict[int, channel appearance]
+        An image visual's ``channels``.
+    name : str
+        The visual's name, for the message.
+
+    Raises
+    ------
+    ValueError
+        Naming each channel's mode.
+    """
+    modes = {index: channel.render_mode for index, channel in channels.items()}
+    if len(set(modes.values())) > 1:
+        raise ValueError(
+            f"The channels of image {name!r} have different render modes "
+            f"{dict(sorted(modes.items()))}.  Every channel of an image has "
+            "the same render mode; set it with "
+            "CellierController.set_image_render_mode."
+        )
 
 
 def effective_transparency_mode(visual: Any) -> str:

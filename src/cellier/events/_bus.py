@@ -45,6 +45,7 @@ from cellier.events._events import (
     PlaneGizmoMovedEvent,
     PlaneInteractionEvent,
     PointsPickEvent,
+    RenderPlanesChangedEvent,
     ResliceCancelledEvent,
     ResliceCompletedEvent,
     ResliceProgressEvent,
@@ -86,6 +87,7 @@ _ENTITY_FIELD: dict[type, str] = {
     LoadingConfigChangedEvent: "visual_id",
     LodConfigChangedEvent: "visual_id",
     ClippingPlanesChangedEvent: "visual_id",
+    RenderPlanesChangedEvent: "visual_id",
     PlaneInteractionEvent: "visual_id",
     ClippingPlaneGizmoChangedEvent: "canvas_id",
     PlaneGizmoMovedEvent: "gizmo_id",
@@ -523,6 +525,7 @@ class EventBus:
               ``LoadingConfigChangedEvent``,
               ``LodConfigChangedEvent``,
               ``ClippingPlanesChangedEvent``,
+              ``RenderPlanesChangedEvent``,
               ``PlaneInteractionEvent``,
               ``ResliceCancelledEvent``
             - Canvas (keyed by ``canvas_id``) — ``FrameRenderedEvent``,

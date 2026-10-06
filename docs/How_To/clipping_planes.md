@@ -252,8 +252,13 @@ between them. A script can group its own changes the same way with
 gizmo is on is announced by `ClippingPlaneGizmoChangedEvent`
 (`controller.on_clipping_plane_gizmo_changed`).
 
-A plane change during a drag costs the same as any other. On a multiscale
-volume of about a million level-0 bricks that is 13 to 38 ms a frame.
+A multiscale image or labels visual in a 3D view plans nothing during a
+drag: it draws the bricks it already has, and its coarse backstop where the
+plane reveals more, and loads the full detail when the drag ends (on release,
+or after 0.15 s of stillness). This is `appearance.coarsest_while_moving_3d`,
+on by default; turn it off to plan on every change, which on a multiscale
+volume of about a million level-0 bricks costs 13 to 38 ms a frame. A change
+outside a drag always plans at once.
 
 Known limit: with outlines enabled, a handle over an outlined visual gets a
 thin contour in that visual's outline colour.

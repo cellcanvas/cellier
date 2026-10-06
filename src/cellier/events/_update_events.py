@@ -400,6 +400,27 @@ class ClippingPlanesUpdateEvent(NamedTuple):
     clipping_planes: Any
 
 
+class RenderPlanesUpdateEvent(NamedTuple):
+    """Request to replace a visual's render planes.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``RenderPlanesChangedEvent``
+        so the caller can echo-filter on its own subscription.
+    visual_id :
+        Target visual: an image or labels visual.
+    render_planes :
+        The complete new tuple of ``RenderPlane``.  The whole tuple rather
+        than one plane, so adding, removing, moving and toggling are one
+        kind of request.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    render_planes: Any
+
+
 class ClippingPlaneGizmoUpdateEvent(NamedTuple):
     """Request to put a canvas's clipping plane gizmo on a plane, or close it.
 
@@ -467,6 +488,7 @@ CellierUpdateEventTypes = (
     | LoadingConfigUpdateEvent
     | LodConfigUpdateEvent
     | ClippingPlanesUpdateEvent
+    | RenderPlanesUpdateEvent
     | ClippingPlaneGizmoUpdateEvent
     | TrailUpdateEvent
 )

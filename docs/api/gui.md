@@ -13,7 +13,7 @@ Qt widgets for building interactive cellier-based applications.
 ::: cellier.gui.qt.visuals.QtVisibleToggle
 ::: cellier.gui.qt.visuals.QtOpacitySlider
 ::: cellier.gui.qt.visuals.QtUniformColorPicker
-::: cellier.gui.qt.visuals.QtLodBiasSlider
+::: cellier.gui.qt.visuals.QtLevelOfDetailControls
 ::: cellier.gui.qt.visuals.QtLoadingIndicator
 ::: cellier.gui.qt.visuals.QtLoadingConfigControls
 ::: cellier.gui.qt.visuals.QtMeshSectionControls

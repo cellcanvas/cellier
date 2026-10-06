@@ -159,7 +159,7 @@ class VisualIdGroup:
 
     Mix in **before** the toolkit base so the plain-``object`` MRO stays first::
 
-        class AnywidgetLodBiasSlider(VisualIdGroup, anywidget.AnyWidget): ...
+        class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget): ...
     """
 
     _visual_ids: tuple[UUID, ...]
@@ -228,12 +228,26 @@ with the model automatically: a new *real* mode appears with no change here.
 """
 
 
+UNOFFERED_FIELD_VALUES: dict[str, frozenset[str]] = {
+    "render_mode": frozenset({"plane"}),
+}
+"""Literal values the models accept that no control offers yet.
+
+``"plane"`` is a render mode on the image and labels models (plane rendering
+design v3), settable from code.  Its place in the render-mode combos comes
+with the render planes control (design 9.1), which hides the rows that mean
+nothing in it and moves a composite's channels together.  Until then a combo
+offering it would offer a mode it cannot set up.
+"""
+
+
 def literal_choices(appearance: Any, field: str) -> tuple[str, ...]:
     """Return the values *field* admits on *appearance*'s model, user-facing only.
 
     Reads the field's ``Literal`` annotation, so the in-memory and multiscale
     variants of a field need no separate lists -- each model answers for
-    itself.  Debug-only values are dropped per :data:`DEBUG_FIELD_VALUES`.
+    itself.  Debug-only values are dropped per :data:`DEBUG_FIELD_VALUES`,
+    and values with no control yet per :data:`UNOFFERED_FIELD_VALUES`.
 
     Returns an empty tuple when the field is not a ``Literal``.
     """
@@ -241,7 +255,9 @@ def literal_choices(appearance: Any, field: str) -> tuple[str, ...]:
     if not model_fields or field not in model_fields:
         return ()
     args = get_args(model_fields[field].annotation)
-    denied = DEBUG_FIELD_VALUES.get(field, frozenset())
+    denied = DEBUG_FIELD_VALUES.get(field, frozenset()) | UNOFFERED_FIELD_VALUES.get(
+        field, frozenset()
+    )
     return tuple(arg for arg in args if isinstance(arg, str) and arg not in denied)
 
 
@@ -347,7 +363,7 @@ toolkit-neutral name for the control -- checked against each field class's
 ``test_the_shared_widget_table_agrees_with_the_field_classes``.
 
 Not listed: the multi-field image controls (``color_map``, ``clim``,
-``render``, ``settled_lod_bias``) and ``aabb``/``dataset_info``, which predate this
+``render``, ``level_of_detail``) and ``aabb``/``dataset_info``, which predate this
 design and keep their bespoke builders.
 """
 

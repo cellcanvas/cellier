@@ -25,6 +25,7 @@ from pygfx.renderers.wgpu import (
 from pygfx.renderers.wgpu.shaders.imageshader import ImageShader
 from pygfx.renderers.wgpu.shaders.volumeshader import BaseVolumeShader
 
+from cellier.render._plane_mode import volume_mode_until_planes_draw
 from cellier.render.shaders._label_colormap import (
     build_outline_selection_texture,
 )
@@ -166,7 +167,9 @@ class LabelVolumeBrickShader(BaseVolumeShader):
         # stays valid on a canvas using the stock blender.
         self["write_outline_id"] = False
         self["has_outline_selection"] = m.outline_selection_texture is not None
-        self["render_mode"] = m.render_mode
+        self["render_mode"] = volume_mode_until_planes_draw(
+            m.render_mode, "iso_categorical"
+        )
         # Default for the ``normal`` render target.  ``write_normal`` is
         # overridden by CellierBlender.get_shader_kwargs when the target
         # exists; without it the write compiles away, so the same shader
