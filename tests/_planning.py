@@ -36,6 +36,7 @@ def planned_requests_3d(
     force_level: int | None = None,
     selection: Any = None,
     backstop: bool = False,
+    view_height_world: float = 0.0,
 ) -> list[ChunkRequest]:
     """Every store request a 3D plan of *visual* wants, in load order.
 
@@ -43,7 +44,9 @@ def planned_requests_3d(
     or a bare ``_MultiscaleImageSlot``; any other visual's own
     ``build_slice_request`` answers.  The arguments are
     ``build_slice_request``'s, plus *backstop*: whether the plan includes
-    the coarse backstop (off by default, so the requests are the target's).
+    the coarse backstop (off by default, so the requests are the target's),
+    and *view_height_world*: the visible world height of an orthographic
+    view (``fov_y_rad`` of 0).
     """
     from cellier.render.scheduling import is_chunked_visual
     from cellier.render.visuals._image import _MultiscaleImageSlot
@@ -75,6 +78,7 @@ def planned_requests_3d(
             screen_height_px,
             lod_bias,
             force_level,
+            view_height_world=view_height_world,
         )
         desired = [visual.desired_set_3d(brick_arr)]
     else:
@@ -84,7 +88,7 @@ def planned_requests_3d(
             frustum_corners=frustum_corners_world,
             fov_y_rad=fov_y_rad,
             screen_size_px=(screen_height_px, screen_height_px),
-            world_extent=(0.0, 0.0),
+            world_extent=(view_height_world, view_height_world),
             dims_state=dims_state,
             selection=selection,
             request_id=uuid4(),

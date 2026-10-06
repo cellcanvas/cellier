@@ -28,6 +28,8 @@ import numpy as np
 from cellier.render._level_mapping import brick_centre_data, implied_power_of_two
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from cellier.render.lut_indirection import BlockLayout3D
 
 # Pre-computed (8, 3) offset table for AABB corner construction.
@@ -236,6 +238,79 @@ def select_levels_from_cache(
     if not parts:
         return np.empty((0, 4), dtype=np.int32)
     return np.concatenate(parts, axis=0)
+
+
+def select_level_orthographic(
+    level_scale_factors: list[float],
+    voxels_per_pixel: float,
+    lod_bias: float = 1.0,
+) -> int:
+    """Select the one LOD level an orthographic 3D view draws.
+
+    An orthographic screen pixel covers the same world size everywhere, so
+    distance bands do not apply: the whole visual takes the level whose voxel
+    size best matches the pixel.  The transition rule is ``select_lod_2d``'s:
+    switch levels at the geometric mean of consecutive scale factors.
+
+    Parameters
+    ----------
+    level_scale_factors : list[float]
+        Effective isotropic scale factor per level (geometric mean of the
+        per-axis scales).  ``level_scale_factors[0]`` is the finest.
+    voxels_per_pixel : float
+        Level-0 voxels covered by one screen pixel.
+    lod_bias : float
+        Multiplicative bias. 1.0 = neutral (default); higher is coarser.
+
+    Returns
+    -------
+    level : int
+        1-indexed level, as ``select_levels_arr_forced`` takes it.
+    """
+    biased = voxels_per_pixel * max(lod_bias, 1e-6)
+    level = 1
+    for k in range(len(level_scale_factors) - 1):
+        threshold = float(np.sqrt(level_scale_factors[k] * level_scale_factors[k + 1]))
+        if biased < threshold:
+            break
+        level = k + 2
+    return level
+
+
+def orthographic_voxels_per_pixel(
+    to_level0: Callable[[np.ndarray], np.ndarray],
+    camera_pos_world: np.ndarray,
+    view_height_world: float,
+    screen_height_px: float,
+) -> float:
+    """Level-0 voxels covered by one screen pixel of an orthographic view.
+
+    Parameters
+    ----------
+    to_level0 : callable
+        Maps ``(N, 3)`` world points to level-0 voxel coordinates.
+    camera_pos_world : np.ndarray
+        Camera world-space position ``(x, y, z)``; the scale is measured
+        there.
+    view_height_world : float
+        Visible height in world units.
+    screen_height_px : float
+        Viewport height in pixels.
+
+    Returns
+    -------
+    voxels_per_pixel : float
+        The geometric mean over the three axes, so anisotropic voxels are
+        weighed as ``level_scale_factors`` weighs them.  ``0.0`` when the
+        view or the map is degenerate.
+    """
+    if view_height_world <= 0 or screen_height_px <= 0:
+        return 0.0
+    origin = np.asarray(camera_pos_world, dtype=np.float64).reshape(1, 3)
+    points = np.concatenate([origin, origin + np.eye(3)])
+    mapped = np.asarray(to_level0(points), dtype=np.float64)
+    voxels_per_world = abs(np.linalg.det(mapped[1:] - mapped[0])) ** (1.0 / 3.0)
+    return float(voxels_per_world * view_height_world / screen_height_px)
 
 
 def select_levels_arr_forced(

@@ -614,15 +614,36 @@ class CanvasView:
         screen_w: float,
         screen_h: float,
     ) -> ReslicingRequest:
-        """Build a ReslicingRequest for a perspective camera."""
-        frustum = np.asarray(self._camera.frustum, dtype=np.float64)
+        """Build a ReslicingRequest for a perspective camera.
+
+        At a field of view of 0 the camera is orthographic, and the request
+        carries the visible world extent that level selection needs.  It is
+        worked out from the canvas size, as for the 2D camera, and not read
+        off the frustum: the frustum only takes the canvas's aspect once a
+        frame has been drawn.
+        """
+        cam = self._camera
+        frustum = np.asarray(cam.frustum, dtype=np.float64)
+        fov = float(cam.fov)
+        if fov == 0 and screen_w > 0 and screen_h > 0:
+            canvas_aspect = screen_w / screen_h
+            zoom = cam.zoom if cam.zoom > 0 else 1.0
+            if not cam.maintain_aspect:
+                world_width, world_height = cam.width, cam.height
+            elif canvas_aspect >= cam.width / cam.height:
+                world_width, world_height = cam.height * canvas_aspect, cam.height
+            else:
+                world_width, world_height = cam.width, cam.width / canvas_aspect
+            world_extent = (float(world_width / zoom), float(world_height / zoom))
+        else:
+            world_extent = (0.0, 0.0)
         return ReslicingRequest(
             camera_type="perspective",
-            camera_pos=np.array(self._camera.world.position, dtype=np.float64),
+            camera_pos=np.array(cam.world.position, dtype=np.float64),
             frustum_corners=frustum.copy(),
-            fov_y_rad=float(np.radians(self._camera.fov)),
+            fov_y_rad=float(np.radians(fov)),
             screen_size_px=(float(screen_w), float(screen_h)),
-            world_extent=(0.0, 0.0),
+            world_extent=world_extent,
             dims_state=dims_state,
             selection=selection,
             request_id=uuid4(),

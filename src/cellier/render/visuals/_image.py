@@ -25,6 +25,8 @@ from cellier.render._gpu_lifetime import destroy_textures, weak_callback
 from cellier.render._level_mapping import base_cell_range
 from cellier.render._level_of_detail import (
     build_level_grids,
+    orthographic_voxels_per_pixel,
+    select_level_orthographic,
     select_levels_arr_forced,
     select_levels_from_cache,
     sort_arr_by_distance,
@@ -2125,6 +2127,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         screen_height_px: float,
         lod_bias: float,
         force_level: int | None,
+        view_height_world: float = 0.0,
     ) -> np.ndarray:
         """Run LOD selection, distance sort, frustum cull, and budget truncation.
 
@@ -2147,6 +2150,10 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             levels; values < 1 prefer finer. Clamped to a minimum of 1e-6.
         force_level : int or None
             Override level; ``None`` lets LOD selection choose.
+        view_height_world : float
+            Visible height in world units of an orthographic view
+            (``fov_y_rad`` of 0), which selects one level for the whole
+            visual.  Unused with a perspective camera.
 
         Returns
         -------
@@ -2186,6 +2193,20 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             frustum_planes = None
 
         # 1. LOD selection
+        if force_level is None and fov_y_rad <= 0:
+            # Orthographic: a pixel covers the same world size everywhere, so
+            # the whole visual takes one level, by the 2D transition rule.
+            voxels_per_pixel = orthographic_voxels_per_pixel(
+                self._to_level0_displayed,
+                camera_pos_world,
+                view_height_world,
+                screen_height_px,
+            )
+            if voxels_per_pixel > 0:
+                force_level = select_level_orthographic(
+                    geo._level_scale_factors, voxels_per_pixel, lod_bias
+                )
+
         if force_level is not None:
             brick_arr = select_levels_arr_forced(
                 geo.base_layout, force_level, geo._level_grids
@@ -3459,6 +3480,7 @@ class GFXMultiscaleImageVisual(ClippingPlanesMixin):
                     request.screen_size_px[1],
                     config.lod_bias,
                     config.force_level,
+                    view_height_world=request.world_extent[1],
                 )
             backstop = planner._plan_backstop_3d(
                 request.camera_pos, request.frustum_corners, loading

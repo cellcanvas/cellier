@@ -17,6 +17,8 @@ from cellier.render._frustum import (
 from cellier.render._gpu_lifetime import destroy_textures
 from cellier.render._level_mapping import base_cell_range
 from cellier.render._level_of_detail import (
+    orthographic_voxels_per_pixel,
+    select_level_orthographic,
     select_levels_arr_forced,
     select_levels_from_cache,
     sort_arr_by_distance,
@@ -842,11 +844,16 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
         dims_state: DimsState | None = None,
         force_level: int | None = None,
         selection: RegionSelection | None = None,
+        view_height_world: float = 0.0,
     ) -> np.ndarray:
         """LOD selection, distance sort and frustum cull.
 
         Pure with respect to the GPU (design 5.3): adopts the region, then
         returns the planned ``[level, g0, g1, g2]`` rows, nearest first.
+
+        An orthographic view (``fov_y_rad`` of 0) takes one level for the
+        whole visual, from ``view_height_world``, its visible height in world
+        units.
         """
         t_plan_start = time.perf_counter()
         self._frame_number += 1
@@ -900,6 +907,20 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
         )
 
         t0 = time.perf_counter()
+        if force_level is None and fov_y_rad <= 0:
+            # Orthographic: a pixel covers the same world size everywhere, so
+            # the whole visual takes one level, by the 2D transition rule.
+            voxels_per_pixel = orthographic_voxels_per_pixel(
+                self._to_level0_displayed,
+                camera_pos_world,
+                view_height_world,
+                screen_height_px,
+            )
+            if voxels_per_pixel > 0:
+                force_level = select_level_orthographic(
+                    geo._level_scale_factors, voxels_per_pixel, lod_bias
+                )
+
         if force_level is not None:
             brick_arr = select_levels_arr_forced(
                 geo.base_layout, force_level, geo._level_grids
@@ -1061,6 +1082,7 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
                 dims_state=request.dims_state,
                 force_level=config.force_level,
                 selection=request.selection,
+                view_height_world=request.world_extent[1],
             )
         else:
             self._adopt_request_3d(request)

@@ -37,8 +37,9 @@ class ReslicingRequest(NamedTuple):
     screen_size_px : tuple[float, float]
         Logical ``(width, height)`` in pixels, baked in at snapshot time.
     world_extent : tuple[float, float]
-        Visible ``(width, height)`` in world units for orthographic cameras.
-        ``(0.0, 0.0)`` for perspective cameras.
+        Visible ``(width, height)`` in world units for orthographic cameras,
+        a 3D camera at a field of view of 0 included.  ``(0.0, 0.0)`` for
+        perspective cameras.
     dims_state : DimsState
         Current dimension display state.
     selection : RegionSelection or None
