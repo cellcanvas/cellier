@@ -633,7 +633,7 @@ def test_a_control_given_no_gizmo_target_draws_no_toggle(controller, toolkit):
     else:
         assert "gizmo" not in widget.rows[0]
         _act(widget, "gizmo", 0, True)  # ignored
-    assert controller._clipping_gizmos == {}
+    assert controller._plane_gizmos == {}
 
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
@@ -644,16 +644,16 @@ def test_the_toggle_puts_the_gizmo_on_one_plane_at_a_time(controller, toolkit):
     assert _gizmo_states(widget) == [(False, ""), (False, "")]
 
     _act(widget, "gizmo", 0, True)
-    assert controller.get_clipping_plane_gizmo(canvas_id).plane_id == first.id
+    assert controller.get_plane_gizmo(canvas_id).plane_id == first.id
     assert _gizmo_states(widget) == [(True, ""), (False, "")]
 
     # The other row: the canvas's one gizmo moves there.
     _act(widget, "gizmo", 1, True)
-    assert controller.get_clipping_plane_gizmo(canvas_id).plane_id == second.id
+    assert controller.get_plane_gizmo(canvas_id).plane_id == second.id
     assert _gizmo_states(widget) == [(False, ""), (True, "")]
 
     _act(widget, "gizmo", 1, False)
-    assert controller.get_clipping_plane_gizmo(canvas_id) is None
+    assert controller.get_plane_gizmo(canvas_id) is None
     assert _gizmo_states(widget) == [(False, ""), (False, "")]
     assert widget.error == ""
 
@@ -680,7 +680,7 @@ def test_the_toggle_follows_a_gizmo_opened_and_closed_elsewhere(controller, tool
     _act(widget, "enabled", 0, False)
     _act(widget, "gizmo", 0, True)
     _act(widget, "enabled", 0, True)
-    assert controller.get_clipping_plane_gizmo(canvas_id).plane_id == first.id
+    assert controller.get_plane_gizmo(canvas_id).plane_id == first.id
     assert _gizmo_states(widget) == [(True, "")]
 
 
@@ -699,7 +699,7 @@ def test_two_controls_on_one_canvas_share_the_gizmo(controller, toolkit):
 
     _act(a, "gizmo", 0, True)
     _act(b, "gizmo", 0, True)
-    assert controller.get_clipping_plane_gizmo(canvas_id).visual_id == other.id
+    assert controller.get_plane_gizmo(canvas_id).visual_id == other.id
     assert _gizmo_states(a) == [(False, ""), (False, "")]
     assert _gizmo_states(b) == [(True, "")]
 
@@ -712,7 +712,7 @@ async def test_the_toggle_is_blocked_in_2d_with_the_reason(controller, toolkit):
     _act(widget, "gizmo", 0, True)
 
     scene.dims.selection.displayed_axes = (1, 2)
-    assert controller.get_clipping_plane_gizmo(canvas_id) is None
+    assert controller.get_plane_gizmo(canvas_id) is None
     states = _gizmo_states(widget)
     assert [on for on, _ in states] == [False, False]
     assert all("2D" in why for _, why in states)
@@ -740,7 +740,7 @@ async def test_a_refused_request_shows_its_reason_and_leaves_the_toggle_off(cont
     # The front end has not drawn the block yet and sends the click anyway.
     scene.dims.selection.displayed_axes = (1, 2)
     _act(widget, "gizmo", 0, True)
-    assert controller.get_clipping_plane_gizmo(canvas_id) is None
+    assert controller.get_plane_gizmo(canvas_id) is None
     assert "3D canvas" in widget.error
     assert not widget.rows[0]["gizmo"]
 
@@ -774,7 +774,7 @@ def test_the_panel_builders_give_the_control_its_gizmo(controller, toolkit):
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
     assert widget.editor.has_gizmo
     _act(widget, "gizmo", 1, True)
-    assert controller.get_clipping_plane_gizmo(canvas_id) is not None
+    assert controller.get_plane_gizmo(canvas_id) is not None
     assert _gizmo_states(widget) == [(False, ""), (True, "")]
 
 

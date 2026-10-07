@@ -15,7 +15,11 @@ from uuid import UUID, uuid4
 import numpy as np
 
 from cellier._interaction_driver import _InteractionDriver
-from cellier.clipping import ClippingPlaneGizmoController
+from cellier.clipping import (
+    ClippingPlaneGizmoController,
+    PlaneGizmoController,
+    RenderPlaneGizmoController,
+)
 from cellier.data._axes import (
     data_axes_from_world,
     default_data_to_world,
@@ -40,8 +44,6 @@ from cellier.events import (
     CanvasSizeChangedEvent,
     ChannelAppearanceChangedEvent,
     ChannelAppearanceUpdateEvent,
-    ClippingPlaneGizmoChangedEvent,
-    ClippingPlaneGizmoUpdateEvent,
     ClippingPlanesChangedEvent,
     ClippingPlanesUpdateEvent,
     DataStoreContentsChangedEvent,
@@ -64,6 +66,8 @@ from cellier.events import (
     OverlayChangedEvent,
     OverlayUpdateEvent,
     PickWriteChangedEvent,
+    PlaneGizmoChangedEvent,
+    PlaneGizmoUpdateEvent,
     PlaneInteractionEvent,
     RenderConfigChangedEvent,
     RenderConfigUpdateEvent,
@@ -224,6 +228,7 @@ from cellier.visuals._mesh_memory import (
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 from cellier.visuals._render_plane import (
     MAX_RENDER_PLANES,
+    PLANE_RENDER_MODE,
     RenderPlane,
     validate_render_planes,
 )
@@ -883,13 +888,14 @@ class CellierController:
         # between the channels of the batch.
         self._render_mode_sync: set[UUID] = set()
         self._render_plane_axes_warned: set[UUID] = set()
-        # The clipping plane gizmo of each canvas that has one: at most one
-        # per canvas (gizmo design 7).
-        self._clipping_gizmos: dict[UUID, ClippingPlaneGizmoController] = {}
+        # The plane gizmo of each canvas that has one: at most one per
+        # canvas, on a clipping plane or a render plane (gizmo design 7;
+        # plane rendering design 8.3).
+        self._plane_gizmos: dict[UUID, PlaneGizmoController] = {}
         # The source to stamp on the state event of a gizmo closed on
         # request, and whether one is being replaced (no event for the old).
-        self._clipping_gizmo_source: UUID | None = None
-        self._clipping_gizmo_replacing: bool = False
+        self._plane_gizmo_source: UUID | None = None
+        self._plane_gizmo_replacing: bool = False
         # Reslices after store changes, capped per store at
         # ``SchedulerConfig.store_change_max_hz`` (design v3 5.14): the loop
         # time of the last one, the trailing one waiting to run, and whether
@@ -1077,8 +1083,8 @@ class CellierController:
             owner_id=self._id,
         )
         self._incoming_events.subscribe(
-            ClippingPlaneGizmoUpdateEvent,
-            self._on_clipping_plane_gizmo_update,
+            PlaneGizmoUpdateEvent,
+            self._on_plane_gizmo_update,
             owner_id=self._id,
         )
 
@@ -5094,6 +5100,8 @@ class CellierController:
             self._warn_render_planes_not_displayed(visual)
         else:
             self._render_plane_axes_warned.discard(visual_id)
+            # A gizmo edits a plane that is drawn (design 8.3).
+            self._close_render_plane_gizmos(visual_id)
         if shown != was and reslice:
             self.reslice_visual(visual_id)
             self._request_draw_for_visual(visual_id)
@@ -7514,6 +7522,133 @@ class CellierController:
                 return plane
         raise KeyError(f"Visual {visual_id} has no render plane {plane_id}.")
 
+    def visual_world_extent(self, visual_id: UUID) -> list[tuple[float, float]]:
+        """The box a visual's data occupies, per world axis of its scene.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+
+        Returns
+        -------
+        list[tuple[float, float]]
+            ``(low, high)`` per world axis, in the world system's order.
+            ``(nan, nan)`` on an axis the visual has no extent on (one it
+            broadcasts over) and for a store with no data yet.
+
+        Raises
+        ------
+        KeyError
+            If *visual_id* is not registered.
+        """
+        from cellier.scene._bounds import visual_world_bounds
+
+        visual = self.get_visual_model(visual_id)
+        scene_id = self._visual_to_scene[visual_id]
+        world = self._model.scenes[scene_id].dims.world_coordinate_system
+        store = self.get_data_store(UUID(str(visual.data_store_id)))
+        extents = store.axis_extents
+        transform = getattr(visual, "transform", None)
+        if extents is None or transform is None:
+            return [(float("nan"), float("nan"))] * world.ndim
+        low, high = visual_world_bounds(transform, extents, world)
+        return [(float(a), float(b)) for a, b in zip(low, high, strict=True)]
+
+    def default_render_plane(self, visual_id: UUID) -> RenderPlane:
+        """A new render plane for a visual: centred, unbounded.
+
+        The plane a control adds: through the centre of the visual's data
+        box, on the three world axes the scene displays, facing the first
+        of them, unbounded on every side.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual the plane is for.  It is not given the plane.
+
+        Returns
+        -------
+        RenderPlane
+
+        Raises
+        ------
+        KeyError
+            If *visual_id* is not registered.
+        ValueError
+            If the visual's scene does not display three axes.
+        """
+        scene_id = self._visual_to_scene[visual_id]
+        dims = self._model.scenes[scene_id].dims
+        world = dims.world_coordinate_system
+        displayed = tuple(dims.selection.displayed_axes)
+        if len(displayed) != 3:
+            raise ValueError(
+                "A render plane is on the three world axes a 3D view "
+                f"displays; the scene displays {len(displayed)}."
+            )
+        extent = self.visual_world_extent(visual_id)
+        centre = [
+            0.5 * (extent[axis][0] + extent[axis][1])
+            if np.isfinite(extent[axis]).all()
+            else 0.0
+            for axis in displayed
+        ]
+        return RenderPlane.from_point_normal(
+            world,
+            centre,
+            (1.0, 0.0, 0.0),
+            axes=tuple(world.axes[axis].id for axis in displayed),
+        )
+
+    def render_planes_blocked(self, visual_id: UUID) -> str:
+        """Why a visual's render planes are not drawn now, or ``""`` if they are.
+
+        A sentence a control can show: the visual is not in the ``"plane"``
+        render mode, or its scene is shown in 2D (where a visual in plane
+        mode shows its normal slice).
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+
+        Returns
+        -------
+        str
+        """
+        try:
+            visual = self.get_visual_model(visual_id)
+            scene_id = self._visual_to_scene[visual_id]
+        except KeyError as error:
+            return str(error.args[0]) if error.args else "Not available."
+        if not isinstance(visual, _PLANE_VISUALS):
+            return "This visual has no render planes."
+        if self._n_displayed_dims(scene_id) != 3:
+            return "Render planes are drawn in a 3D view; this one is 2D."
+        if not visual.plane_mode():
+            return "Set the render mode to 'plane' to draw on render planes."
+        return ""
+
+    def _give_plane_mode_a_plane(self, visual_id: UUID, field: str, value: Any) -> None:
+        """Add a centred render plane when a control chose ``"plane"`` with none.
+
+        Called for a GUI's request only (an appearance update event): a
+        control that selects the mode on a visual with no planes would
+        otherwise blank it.  The model does not switch itself: assigning
+        the mode from code adds nothing (design 9.1).
+        """
+        if field != "render_mode" or value != PLANE_RENDER_MODE:
+            return
+        if visual_id not in self._visual_to_scene:
+            return
+        visual = self.get_visual_model(visual_id)
+        if not isinstance(visual, _PLANE_VISUALS) or visual.render_planes:
+            return
+        if not self._draws_planes(visual):
+            return
+        self.set_render_planes(visual_id, (self.default_render_plane(visual_id),))
+
     def set_render_plane(
         self,
         visual_id: UUID,
@@ -7677,7 +7812,7 @@ class CellierController:
         With the setting off, and for every other visual, a plane change
         inside a drag plans as it does outside one.
 
-        A clipping plane gizmo calls this when a handle is grabbed.
+        A plane gizmo calls this when a handle is grabbed.
         Scripts normally use :meth:`plane_interaction`.
 
         Parameters
@@ -7769,7 +7904,10 @@ class CellierController:
         its visual is removed, when the canvas leaves 3D, and when the plane
         gains a component on an axis the view does not show.
 
-        Emits ``ClippingPlaneGizmoChangedEvent``.
+        The canvas's one gizmo serves both kinds of plane: a gizmo on a
+        render plane (:meth:`add_render_plane_gizmo`) is closed too.
+
+        Emits ``PlaneGizmoChangedEvent`` with ``kind="clipping"``.
 
         Parameters
         ----------
@@ -7781,7 +7919,7 @@ class CellierController:
             The ``id`` of the ``ClippingPlane`` to edit.  The plane may be
             disabled.
         source_id : UUID or None
-            Stamped on the emitted ``ClippingPlaneGizmoChangedEvent``.
+            Stamped on the emitted ``PlaneGizmoChangedEvent``.
         screen_size : float
             The gizmo's size on screen, in logical pixels.
 
@@ -7800,24 +7938,110 @@ class CellierController:
             scene, or the plane has a component on an axis the view does
             not show.  The canvas keeps the gizmo it had.
         """
-        session = ClippingPlaneGizmoController(
+        return self._open_plane_gizmo(
+            ClippingPlaneGizmoController,
+            visual_id,
+            canvas_id,
+            plane_id,
+            source_id,
+            screen_size,
+        )
+
+    def add_render_plane_gizmo(
+        self,
+        visual_id: UUID,
+        canvas_id: UUID,
+        plane_id: UUID,
+        *,
+        source_id: UUID | None = None,
+        screen_size: float = 100.0,
+    ) -> RenderPlaneGizmoController:
+        """Put a gizmo on one render plane of a visual, in a 3D canvas.
+
+        The gizmo carries the plane's whole pose.  Dragging a translate
+        handle moves the plane's ``origin``, a rotation ring turns its
+        in-plane axes, and a scale handle on an in-plane axis multiplies
+        that axis's extent about the origin (an axis with an unbounded side
+        has no scale handle).  A plane changed from anywhere else moves the
+        gizmo.  Each drag is one plane interaction on the visual.
+
+        A canvas has one gizmo at a time, whatever the kind of plane: the
+        one it had is closed.  The gizmo closes itself when its plane or
+        its visual is removed, when the canvas leaves 3D, when the visual
+        leaves the ``"plane"`` render mode, and when the plane's axes stop
+        being the displayed ones.
+
+        Emits ``PlaneGizmoChangedEvent`` with ``kind="render"``.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual the plane belongs to.  It must be in the
+            ``"plane"`` render mode.
+        canvas_id : UUID
+            A 3D canvas of the visual's scene.
+        plane_id : UUID
+            The ``id`` of the ``RenderPlane`` to edit.  The plane may be
+            disabled.
+        source_id : UUID or None
+            Stamped on the emitted ``PlaneGizmoChangedEvent``.
+        screen_size : float
+            The gizmo's size on screen, in logical pixels.
+
+        Returns
+        -------
+        RenderPlaneGizmoController
+            The session.  ``close()`` ends it.
+
+        Raises
+        ------
+        KeyError
+            If the canvas or the visual is not registered, or the visual
+            has no render plane with that id.
+        ValueError
+            If the canvas is in 2D, the visual is not in the canvas's scene
+            or not in the ``"plane"`` render mode, or the plane's axes are
+            not the ones the view displays.  The canvas keeps the gizmo it
+            had.
+        """
+        return self._open_plane_gizmo(
+            RenderPlaneGizmoController,
+            visual_id,
+            canvas_id,
+            plane_id,
+            source_id,
+            screen_size,
+        )
+
+    def _open_plane_gizmo(
+        self,
+        session_type: type[PlaneGizmoController],
+        visual_id: UUID,
+        canvas_id: UUID,
+        plane_id: UUID,
+        source_id: UUID | None,
+        screen_size: float,
+    ) -> Any:
+        """Open a gizmo session on a canvas, replacing the one it had."""
+        # Built first: a refusal leaves the canvas the gizmo it had.
+        session = session_type(
             self,
             visual_id,
             canvas_id,
             plane_id,
             screen_size=screen_size,
-            on_closed=self._on_clipping_gizmo_closed,
+            on_closed=self._on_plane_gizmo_closed,
         )
-        previous = self._clipping_gizmos.get(canvas_id)
+        previous = self._plane_gizmos.get(canvas_id)
         if previous is not None:
             # One event for a replacement: the new plane, not "none" first.
-            self._clipping_gizmo_replacing = True
+            self._plane_gizmo_replacing = True
             try:
                 previous.close()
             finally:
-                self._clipping_gizmo_replacing = False
-        self._clipping_gizmos[canvas_id] = session
-        self._emit_clipping_gizmo(canvas_id, source_id)
+                self._plane_gizmo_replacing = False
+        self._plane_gizmos[canvas_id] = session
+        self._emit_plane_gizmo(canvas_id, source_id)
         return session
 
     def clipping_plane_gizmo_blocked(
@@ -7859,65 +8083,125 @@ class CellierController:
             "not show; a gizmo cannot move it."
         )
 
-    def get_clipping_plane_gizmo(
-        self, canvas_id: UUID
-    ) -> ClippingPlaneGizmoController | None:
-        """The clipping plane gizmo of a canvas, or ``None`` if it has none."""
-        return self._clipping_gizmos.get(canvas_id)
+    def render_plane_gizmo_blocked(
+        self, visual_id: UUID, canvas_id: UUID, plane_id: UUID
+    ) -> str:
+        """Why a render plane cannot have a gizmo in a canvas now, or ``""``.
 
-    def remove_clipping_plane_gizmo(
+        What :meth:`add_render_plane_gizmo` would refuse, as a sentence a
+        control can show: the canvas is in 2D, the visual is not in the
+        ``"plane"`` render mode, or the plane's axes are not the displayed
+        ones.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual the plane belongs to.
+        canvas_id : UUID
+            The canvas the gizmo would be drawn in.
+        plane_id : UUID
+            The ``id`` of the ``RenderPlane``.
+
+        Returns
+        -------
+        str
+        """
+        try:
+            plane = self.get_render_plane(visual_id, plane_id)
+            if self._render_manager.canvas_dim(canvas_id) != "3d":
+                return "A gizmo needs a 3D view; this one is 2D."
+            visual = self.get_visual_model(visual_id)
+            if not visual.plane_mode():
+                return "A gizmo needs the visual in the 'plane' render mode."
+            scene_id = self._visual_to_scene[visual_id]
+            drawable, _ = self._split_render_planes(
+                scene_id, (plane.model_copy(update={"enabled": True}),)
+            )
+        except (KeyError, ValueError) as error:
+            return str(error.args[0]) if error.args else "Not available."
+        if drawable:
+            return ""
+        return (
+            "The plane is on axes other than the ones the 3D view displays; "
+            "a gizmo cannot move it."
+        )
+
+    def get_plane_gizmo(self, canvas_id: UUID) -> PlaneGizmoController | None:
+        """The plane gizmo of a canvas, or ``None`` if it has none.
+
+        Its ``kind`` is ``"clipping"`` or ``"render"``.
+        """
+        return self._plane_gizmos.get(canvas_id)
+
+    def remove_plane_gizmo(
         self, canvas_id: UUID, *, source_id: UUID | None = None
     ) -> None:
-        """Close a canvas's clipping plane gizmo; nothing if it has none.
+        """Close a canvas's plane gizmo, of either kind; nothing if it has none.
 
-        Emits ``ClippingPlaneGizmoChangedEvent`` stamped with *source_id*.
+        Emits ``PlaneGizmoChangedEvent`` stamped with *source_id*.
         """
-        session = self._clipping_gizmos.get(canvas_id)
+        session = self._plane_gizmos.get(canvas_id)
         if session is None:
             return
-        self._clipping_gizmo_source = source_id
+        self._plane_gizmo_source = source_id
         try:
             session.close()
         finally:
-            self._clipping_gizmo_source = None
+            self._plane_gizmo_source = None
 
-    def _on_clipping_gizmo_closed(self, session: ClippingPlaneGizmoController) -> None:
+    def _on_plane_gizmo_closed(self, session: PlaneGizmoController) -> None:
         canvas_id = session.canvas_id
-        if self._clipping_gizmos.get(canvas_id) is not session:
+        if self._plane_gizmos.get(canvas_id) is not session:
             return
-        del self._clipping_gizmos[canvas_id]
-        if not self._clipping_gizmo_replacing:
-            self._emit_clipping_gizmo(canvas_id, self._clipping_gizmo_source)
+        del self._plane_gizmos[canvas_id]
+        if not self._plane_gizmo_replacing:
+            self._emit_plane_gizmo(canvas_id, self._plane_gizmo_source)
 
-    def _emit_clipping_gizmo(self, canvas_id: UUID, source_id: UUID | None) -> None:
-        session = self._clipping_gizmos.get(canvas_id)
+    def _emit_plane_gizmo(self, canvas_id: UUID, source_id: UUID | None) -> None:
+        session = self._plane_gizmos.get(canvas_id)
         self._outgoing_events.emit(
-            ClippingPlaneGizmoChangedEvent(
+            PlaneGizmoChangedEvent(
                 source_id=source_id or self._id,
                 canvas_id=canvas_id,
                 visual_id=None if session is None else session.visual_id,
+                kind=None if session is None else session.kind,
                 plane_id=None if session is None else session.plane_id,
             )
         )
 
-    def _on_clipping_plane_gizmo_update(
-        self, event: ClippingPlaneGizmoUpdateEvent
-    ) -> None:
+    def _close_render_plane_gizmos(self, visual_id: UUID) -> None:
+        """Close the render plane gizmos on a visual that left plane mode."""
+        for session in list(self._plane_gizmos.values()):
+            if session.kind == "render" and session.visual_id == visual_id:
+                session.close()
+
+    def _on_plane_gizmo_update(self, event: PlaneGizmoUpdateEvent) -> None:
+        if event.kind not in ("clipping", "render"):
+            raise ValueError(
+                f"Unknown plane gizmo kind {event.kind!r}; expected "
+                '"clipping" or "render".'
+            )
         if event.enabled:
-            self.add_clipping_plane_gizmo(
+            add = (
+                self.add_render_plane_gizmo
+                if event.kind == "render"
+                else self.add_clipping_plane_gizmo
+            )
+            add(
                 event.visual_id,
                 event.canvas_id,
                 event.plane_id,
                 source_id=event.source_id,
             )
             return
-        session = self._clipping_gizmos.get(event.canvas_id)
+        session = self._plane_gizmos.get(event.canvas_id)
         if (
             session is not None
+            and session.kind == event.kind
             and session.visual_id == event.visual_id
             and session.plane_id == UUID(str(event.plane_id))
         ):
-            self.remove_clipping_plane_gizmo(event.canvas_id, source_id=event.source_id)
+            self.remove_plane_gizmo(event.canvas_id, source_id=event.source_id)
 
     def _on_clipping_planes_update(self, event: ClippingPlanesUpdateEvent) -> None:
         self.set_clipping_planes(
@@ -8045,6 +8329,7 @@ class CellierController:
         self.update_appearance_field(
             event.visual_id, event.field, event.value, source_id=event.source_id
         )
+        self._give_plane_mode_a_plane(event.visual_id, event.field, event.value)
 
     def _on_dims_update(self, event: DimsUpdateEvent) -> None:
         # No ordering between the two: every axis keeps a position whether or
@@ -8099,6 +8384,7 @@ class CellierController:
         self.update_single_appearance_field(
             event.visual_id, event.field, event.value, source_id=event.source_id
         )
+        self._give_plane_mode_a_plane(event.visual_id, event.field, event.value)
 
     def _on_image_composite_update(self, event: ImageCompositeUpdateEvent) -> None:
         self.set_image_composite(
@@ -8115,6 +8401,7 @@ class CellierController:
             event.value,
             source_id=event.source_id,
         )
+        self._give_plane_mode_a_plane(event.visual_id, event.field, event.value)
 
     # ------------------------------------------------------------------
     # Camera reslicing
@@ -9126,7 +9413,7 @@ class CellierController:
         """
         scene_id = self._canvas_to_scene[canvas_id]
 
-        self.remove_clipping_plane_gizmo(canvas_id)
+        self.remove_plane_gizmo(canvas_id)
         # 1. Drop the canvas's camera motion state (no event; timer cancelled).
         self._forget_camera_interaction(canvas_id)
 
@@ -10696,7 +10983,7 @@ class CellierController:
         # task only observes its CancelledError once the loop runs again.  What
         # is guaranteed here is that nothing stays tracked and nothing is left
         # un-cancelled -- not that everything has already stopped.
-        for session in list(self._clipping_gizmos.values()):
+        for session in list(self._plane_gizmos.values()):
             session.close()
         self._camera_driver.close()
         self._cancel_queued_camera_reslices()
@@ -10775,24 +11062,25 @@ class CellierController:
             weak=weak,
         )
 
-    def on_clipping_plane_gizmo_changed(
+    def on_plane_gizmo_changed(
         self,
         canvas_id: UUID,
-        callback: Callable[[ClippingPlaneGizmoChangedEvent], None],
+        callback: Callable[[PlaneGizmoChangedEvent], None],
         *,
         owner_id: UUID,
         weak: bool = False,
     ) -> SubscriptionHandle:
-        """Register a callback fired when a canvas's clipping plane gizmo changes.
+        """Register a callback fired when a canvas's plane gizmo changes.
 
         Parameters
         ----------
         canvas_id :
             The canvas to watch.
         callback :
-            Called with the ``ClippingPlaneGizmoChangedEvent``: the visual
-            and plane the canvas's gizmo is now on, or ``None`` for both
-            when it has none.
+            Called with the ``PlaneGizmoChangedEvent``: the visual, the
+            kind (``"clipping"`` or ``"render"``) and the plane the
+            canvas's gizmo is now on, or ``None`` for all three when it has
+            none.
         owner_id :
             UUID under which this subscription is registered.
         weak :
@@ -10803,7 +11091,7 @@ class CellierController:
         SubscriptionHandle
         """
         return self._outgoing_events.subscribe(
-            ClippingPlaneGizmoChangedEvent,
+            PlaneGizmoChangedEvent,
             callback,
             entity_id=canvas_id,
             owner_id=owner_id,

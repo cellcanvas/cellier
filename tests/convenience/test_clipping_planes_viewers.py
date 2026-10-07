@@ -128,15 +128,15 @@ def test_the_viewer_puts_a_gizmo_on_a_plane(qtbot):
         (canvas_id,) = viewer.canvases
         session = viewer.add_clipping_plane_gizmo(visual, plane)
         assert (session.canvas_id, session.plane_id) == (canvas_id, plane.id)
-        assert viewer.controller.get_clipping_plane_gizmo(canvas_id) is session
+        assert viewer.controller.get_plane_gizmo(canvas_id) is session
 
         # By id, on the other plane: the canvas's one gizmo moves there.
         second = viewer.add_clipping_plane_gizmo(visual.id, other.id)
         assert session.closed
-        viewer.remove_clipping_plane_gizmo()
+        viewer.remove_plane_gizmo()
         assert second.closed
-        assert viewer.controller.get_clipping_plane_gizmo(canvas_id) is None
-        viewer.remove_clipping_plane_gizmo()  # none: nothing
+        assert viewer.controller.get_plane_gizmo(canvas_id) is None
+        viewer.remove_plane_gizmo()  # none: nothing
     finally:
         viewer.controller.close()
 
@@ -181,7 +181,7 @@ def test_the_ortho_gizmo_is_on_the_3d_panel_and_the_2d_panels_follow(qtbot):
         assert data["gizmo_target"].scene_id == ortho.scenes["vol"].id
         assert data["gizmo_plane"] == str(plane.id)
 
-        ortho.remove_clipping_plane_gizmo()
+        ortho.remove_plane_gizmo()
         assert session.closed
     finally:
         ortho.controller.close()

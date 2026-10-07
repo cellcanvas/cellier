@@ -152,6 +152,97 @@ def reduce_render_planes(
     )
 
 
+def _displayed_block(
+    spaces: RenderSpaces | None, axes: Sequence[Any]
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """``world on axes -> rendered`` of a 3D view, or ``None``.
+
+    ``None`` when the view is not 3D or *axes* are not the three world axes
+    it displays.  Rendered order is ``(z, y, x)``-like: pygfx order reversed.
+    """
+    if spaces is None:
+        return None
+    linear = np.asarray(spaces.world_to_rendered.linear, dtype=np.float64)
+    if linear.shape[0] != 3:
+        return None
+    displayed = set(np.flatnonzero(np.any(linear != 0.0, axis=0)).tolist())
+    try:
+        resolved = [spaces.world.resolve(axis) for axis in axes]
+    except (KeyError, ValueError):
+        return None
+    if set(resolved) != displayed or len(resolved) != 3:
+        return None
+    translation = np.asarray(spaces.world_to_rendered.translation, dtype=np.float64)
+    return linear[:, resolved], translation
+
+
+def rendered_plane_frame(
+    spaces: RenderSpaces | None, plane: Any
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """One plane's frame in a 3D view's rendered space, in pygfx order.
+
+    Unlike :func:`reduce_render_planes` the plane's ``enabled`` flag is not
+    looked at: a gizmo can sit on a disabled plane.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, np.ndarray] or None
+        ``(origin, in_plane_axis_0, in_plane_axis_1)`` in ``(x, y, z)``;
+        ``None`` when the view does not display the plane's axes.
+    """
+    found = _displayed_block(spaces, plane.axes)
+    if found is None:
+        return None
+    block, translation = found
+    return (
+        (block @ np.asarray(plane.origin, dtype=np.float64) + translation)[::-1],
+        (block @ np.asarray(plane.in_plane_axis_0, dtype=np.float64))[::-1],
+        (block @ np.asarray(plane.in_plane_axis_1, dtype=np.float64))[::-1],
+    )
+
+
+def expand_rendered_frame(
+    spaces: RenderSpaces | None,
+    axes: Sequence[Any],
+    origin: Any,
+    in_plane_axis_0: Any,
+    in_plane_axis_1: Any,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A rendered-space frame on three named world axes.
+
+    The inverse of :func:`rendered_plane_frame`.
+
+    Parameters
+    ----------
+    spaces : RenderSpaces or None
+        The systems of the 3D view.
+    axes : Sequence[AxisRef]
+        The three world axes to express the frame on, in the order wanted.
+    origin, in_plane_axis_0, in_plane_axis_1 : array-like
+        The frame in rendered ``(x, y, z)``.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, np.ndarray]
+        ``(origin, in_plane_axis_0, in_plane_axis_1)`` on *axes*.
+
+    Raises
+    ------
+    ValueError
+        If the view is not 3D or does not display *axes*.
+    """
+    found = _displayed_block(spaces, axes)
+    if found is None:
+        raise ValueError("The 3D view does not display the plane's three axes.")
+    block, translation = found
+    inverse = np.linalg.inv(block)
+    return (
+        inverse @ (np.asarray(origin, dtype=np.float64)[::-1] - translation),
+        inverse @ np.asarray(in_plane_axis_0, dtype=np.float64)[::-1],
+        inverse @ np.asarray(in_plane_axis_1, dtype=np.float64)[::-1],
+    )
+
+
 def make_render_planes_buffer() -> gfx.Buffer:
     """A ``u_render_planes`` uniform buffer holding no plane."""
     return gfx.Buffer(

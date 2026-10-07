@@ -116,6 +116,28 @@ def _qt_clipping_planes(spec, visual_ids, controller, gizmo=None):
     )
 
 
+def _qt_render_planes(spec, visual_ids, controller, target=None):
+    """The render planes control.
+
+    *target* is the ``RenderPlanesTarget`` the viewer named: the canvas of
+    the gizmo toggle (``None`` for no toggle) and why the control is
+    disabled.  The control reads the scene through the controller.
+    """
+    from cellier.gui._render_planes import (
+        get_render_plane_gizmo_data,
+        get_render_planes_data_from_visual,
+    )
+    from cellier.gui.qt.visuals import QtRenderPlanesControls
+
+    canvas_id = None if target is None else target.canvas_id
+    data = get_render_planes_data_from_visual(
+        controller, visual_ids[0], blocked=None if target is None else target.blocked
+    )
+    if canvas_id is not None:
+        data.update(get_render_plane_gizmo_data(controller, visual_ids[0], canvas_id))
+    return QtRenderPlanesControls(visual_ids, title=spec.title, **data)
+
+
 def _qt_aabb(spec, visual_ids, controller):
     from cellier.gui.qt.visuals import QtAABBWidget
 
@@ -216,6 +238,7 @@ QT_BUILDERS = {
     "loading_config": _qt_loading_config,
     "mesh_section": _qt_mesh_section,
     "clipping_planes": _qt_clipping_planes,
+    "render_planes": _qt_render_planes,
     "lod_config": _qt_lod_config,
     "visual_outline": _qt_visual_outline,
     "labels_outline": _qt_labels_outline,

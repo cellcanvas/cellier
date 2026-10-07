@@ -724,13 +724,14 @@ With no event loop there is no stillness timer, so every change inside a scope
 is a drag of its own: one `start` and one `end` (`"settle"`).
 
 ```python
-class ClippingPlaneGizmoChangedEvent(NamedTuple):
-    """The plane a canvas's clipping plane gizmo edits changed.
+class PlaneGizmoChangedEvent(NamedTuple):
+    """The plane a canvas's plane gizmo edits changed.
 
-    A canvas has at most one clipping plane gizmo.  Emitted when one is
-    added, when it is replaced by one on another plane, and when it is
-    closed, by its owner or by itself (its plane or visual was removed, the
-    canvas left 3D).
+    A canvas has at most one plane gizmo, on a clipping plane or on a
+    render plane.  Emitted when one is added, when it is replaced by one on
+    another plane, and when it is closed, by its owner or by itself (its
+    plane or visual was removed, the canvas left 3D, a render plane's
+    visual left plane mode).
 
     Parameters
     ----------
@@ -742,6 +743,9 @@ class ClippingPlaneGizmoChangedEvent(NamedTuple):
     visual_id : UUID or None
         The visual whose plane the gizmo edits; ``None`` when the canvas
         has no gizmo.
+    kind : {"clipping", "render"} or None
+        Which of the visual's tuples the plane is in; ``None`` when the
+        canvas has no gizmo.
     plane_id : UUID or None
         That plane's id; ``None`` when the canvas has no gizmo.
     """
@@ -789,20 +793,22 @@ class ClippingPlanesUpdateEvent(NamedTuple):
     clipping_planes: Any
 
 
-class ClippingPlaneGizmoUpdateEvent(NamedTuple):
-    """Request to put a canvas's clipping plane gizmo on a plane, or close it.
+class PlaneGizmoUpdateEvent(NamedTuple):
+    """Request to put a canvas's plane gizmo on a plane, or close it.
 
     Fields
     ------
     source_id :
         Caller's UUID.  Stamped on the outgoing
-        ``ClippingPlaneGizmoChangedEvent``.
+        ``PlaneGizmoChangedEvent``.
     visual_id :
         The visual the plane belongs to.
     plane_id :
-        The ``id`` of the ``ClippingPlane``.
+        The ``id`` of the ``ClippingPlane`` or ``RenderPlane``.
     canvas_id :
         The 3D canvas to draw the gizmo in.
+    kind :
+        ``"clipping"`` or ``"render"``: which tuple the plane is in.
     enabled :
         ``True`` opens a gizmo on the plane, replacing the canvas's current
         one.  ``False`` closes the canvas's gizmo if it is on this plane.
@@ -1289,7 +1295,7 @@ CellierEventTypes = (
     | ClippingPlanesChangedEvent
     | RenderPlanesChangedEvent
     | PlaneInteractionEvent
-    | ClippingPlaneGizmoChangedEvent
+    | PlaneGizmoChangedEvent
     | ResliceCancelledEvent
     | FrameRenderedEvent
     | VisualAddedEvent
@@ -1469,7 +1475,7 @@ _ENTITY_FIELD: dict[type, str] = {
     ClippingPlanesChangedEvent:        "visual_id",
     RenderPlanesChangedEvent:          "visual_id",
     PlaneInteractionEvent:          "visual_id",
-    ClippingPlaneGizmoChangedEvent:    "canvas_id",
+    PlaneGizmoChangedEvent:    "canvas_id",
     ResliceCancelledEvent:             "visual_id",
     FrameRenderedEvent:                "canvas_id",
     VisualAddedEvent:                  "scene_id",
@@ -2063,9 +2069,12 @@ object registration time.
 | `OrthoDimsController` | `DimsInteractionEvent` | `scene_id` (each panel) | Open a dims interaction scope on the other panels while one is scrubbed |
 | Controller | `ClippingPlanesUpdateEvent` (incoming) | *(none)* | Call `set_clipping_planes` with the request's `source_id` |
 | Controller | `RenderPlanesUpdateEvent` (incoming) | *(none)* | Call `set_render_planes` with the request's `source_id` |
-| Controller | `ClippingPlaneGizmoUpdateEvent` (incoming) | *(none)* | Open the canvas's gizmo on the plane, or close it |
+| Controller | `PlaneGizmoUpdateEvent` (incoming) | *(none)* | Open the canvas's gizmo on the plane, or close it |
 | `ClippingPlaneGizmoController` | `ClippingPlanesChangedEvent` | `visual_id` | Move the gizmo to its plane's new pose; close when the plane is gone or can no longer have a gizmo |
 | `ClippingPlaneGizmoController` | `VisualRemovedEvent` | `scene_id` | Close the gizmo when its visual is removed |
+| `RenderPlaneGizmoController` | `PlaneGizmoMovedEvent` | `gizmo_id` | Assign the fields the held handle changes: `origin` (translate), the in-plane axes (rotate), one extent (scale); one plane interaction scope per drag |
+| `RenderPlaneGizmoController` | `RenderPlanesChangedEvent` | `visual_id` | Move the gizmo to its plane's new frame and show a scale handle on each bounded axis; close when the plane is gone |
+| `RenderPlaneGizmoController` | `DimsChangedEvent`, `VisualRemovedEvent` | `scene_id` | Close when the view leaves 3D or stops displaying the plane's axes, or the visual is removed (the controller closes it when the visual leaves plane mode) |
 | `OrthoClippingController` | `ClippingPlanesChangedEvent` | `visual_id` (each panel visual) | Write the tuple to the panel visuals linked to it whose tuple differs (`set_clipping_planes`, same `source_id`) |
 | `OrthoClippingController` | `PlaneInteractionEvent` | `visual_id` (each panel visual) | Open a plane interaction scope on the linked panel visuals while one is dragged |
 | `OrthoClippingController` | `VisualRemovedEvent` | `visual_id` (each panel visual) | Close the scopes forwarded from the visual, drop its subscriptions, take it out of its group |
@@ -2088,11 +2097,11 @@ object registration time.
 | Level-of-detail control | `LodConfigChangedEvent` | `visual_id` | Show a multiscale mesh's `GeometryLodConfig` (`QtLodConfigControls`, `AnywidgetLodConfigControls`); edits go out as `LodConfigUpdateEvent` on the incoming bus, and a refused edit shows the reason |
 | External callback | `LodConfigChangedEvent` | `visual_id` | Fire `on_lod_config_changed` user callback |
 | Clipping planes control | `ClippingPlanesChangedEvent` | `visual_id` (each visual it edits) | Show the planes (`QtClippingPlanesControls`, `AnywidgetClippingPlanesControls`); edits go out as one `ClippingPlanesUpdateEvent` per visual on the incoming bus |
-| Clipping planes control | `ClippingPlaneGizmoChangedEvent` | `canvas_id` | With a gizmo target: show which plane has the canvas's gizmo; the toggle goes out as `ClippingPlaneGizmoUpdateEvent` |
+| Clipping planes control | `PlaneGizmoChangedEvent` | `canvas_id` | With a gizmo target: show which plane has the canvas's gizmo; the toggle goes out as `PlaneGizmoUpdateEvent` |
 | External callback | `ClippingPlanesChangedEvent` | `visual_id` | Fire `on_clipping_planes_changed` user callback |
 | External callback | `RenderPlanesChangedEvent` | `visual_id` | Fire `on_render_planes_changed` user callback |
 | External callback | `PlaneInteractionEvent` | `visual_id` | Fire `on_plane_interaction` user callback |
-| External callback | `ClippingPlaneGizmoChangedEvent` | `canvas_id` | Fire `on_clipping_plane_gizmo_changed` user callback |
+| External callback | `PlaneGizmoChangedEvent` | `canvas_id` | Fire `on_plane_gizmo_changed` user callback |
 | External callback | `CanvasMouse{Press,Move,Release}{2D,3D}Event` | `canvas_id` | Fire `on_mouse_*` user callback |
 | External callback | `{Image,Labels,Points,Lines,Mesh,Graph}PickEvent` | `canvas_id` | Fire `on_pick` user callback; enables pick-detail extraction |
 | Paint controller | `CanvasMouse{Press,Move,Release}2DEvent` | `canvas_id` | Accumulate brush stroke (direct bus subscription; does not enable pick details) |
@@ -2267,7 +2276,7 @@ from cellier.events._events import (
     CellierEventTypes,
     ChannelAppearanceChangedEvent,
     PlaneInteractionEvent,
-    ClippingPlaneGizmoChangedEvent,
+    PlaneGizmoChangedEvent,
     ClippingPlanesChangedEvent,
     RenderPlanesChangedEvent,
     DataStoreContentsChangedEvent,
@@ -2304,7 +2313,7 @@ from cellier.events._update_events import (
     AABBUpdateEvent,
     AppearanceUpdateEvent,
     CellierUpdateEventTypes,
-    ClippingPlaneGizmoUpdateEvent,
+    PlaneGizmoUpdateEvent,
     ClippingPlanesUpdateEvent,
     RenderPlanesUpdateEvent,
     DimsInteractionUpdateEvent,

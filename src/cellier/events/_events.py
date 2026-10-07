@@ -444,11 +444,19 @@ class PlaneGizmoMovedEvent(NamedTuple):
     phase : str
         ``"start"``, ``"move"`` or ``"end"``.
     handle_kind : str
-        ``"translate"`` or ``"rotate"``: the handle being dragged.
+        ``"translate"``, ``"rotate"`` or ``"scale"``: the handle being
+        dragged.  Only a gizmo on a render plane shows scale handles.
     handle_axis : int or tuple[int, int]
         The axis of the handle in the gizmo's own frame, where axis 0 is
-        the normal: the axis a one-axis handle moves along or turns about,
-        or the pair of axes a two-axis translate handle moves in.
+        the normal and axes 1 and 2 are the in-plane axes: the axis a
+        one-axis handle moves along, turns about or scales, or the pair of
+        axes a two-axis translate handle moves in.
+    in_plane_axis_0, in_plane_axis_1 : tuple[float, float, float]
+        The gizmo's two in-plane axes, unit vectors.  With ``normal`` they
+        are the gizmo's whole frame: ``normal`` is their cross product.
+    scale : tuple[float, float]
+        The gizmo's scale along the two in-plane axes: 1.0 unless a scale
+        handle is held, when it is the factor of the drag so far.
     """
 
     source_id: UUID
@@ -459,6 +467,9 @@ class PlaneGizmoMovedEvent(NamedTuple):
     phase: str
     handle_kind: str
     handle_axis: Any
+    in_plane_axis_0: tuple[float, float, float] = (0.0, 1.0, 0.0)
+    in_plane_axis_1: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    scale: tuple[float, float] = (1.0, 1.0)
 
 
 class ClippingPlanesChangedEvent(NamedTuple):
@@ -545,13 +556,14 @@ class PlaneInteractionEvent(NamedTuple):
     reason: Literal["release", "settle", "jump", "cancel"] | None = None
 
 
-class ClippingPlaneGizmoChangedEvent(NamedTuple):
-    """The plane a canvas's clipping plane gizmo edits changed.
+class PlaneGizmoChangedEvent(NamedTuple):
+    """The plane a canvas's plane gizmo edits changed.
 
-    A canvas has at most one clipping plane gizmo.  Emitted when one is
-    added, when it is replaced by one on another plane, and when it is
-    closed, by its owner or by itself (its plane or visual was removed, the
-    canvas left 3D).
+    A canvas has at most one plane gizmo, on a clipping plane or on a
+    render plane.  Emitted when one is added, when it is replaced by one on
+    another plane, and when it is closed, by its owner or by itself (its
+    plane or visual was removed, the canvas left 3D, a render plane's
+    visual left plane mode).
 
     Parameters
     ----------
@@ -563,6 +575,9 @@ class ClippingPlaneGizmoChangedEvent(NamedTuple):
     visual_id : UUID or None
         The visual whose plane the gizmo edits; ``None`` when the canvas
         has no gizmo.
+    kind : {"clipping", "render"} or None
+        Which of the visual's tuples the plane is in: ``clipping_planes``
+        or ``render_planes``.  ``None`` when the canvas has no gizmo.
     plane_id : UUID or None
         That plane's id; ``None`` when the canvas has no gizmo.
     """
@@ -570,6 +585,7 @@ class ClippingPlaneGizmoChangedEvent(NamedTuple):
     source_id: UUID
     canvas_id: UUID
     visual_id: UUID | None = None
+    kind: Literal["clipping", "render"] | None = None
     plane_id: UUID | None = None
 
 
@@ -1600,7 +1616,7 @@ CellierEventTypes = (
     | ClippingPlanesChangedEvent
     | RenderPlanesChangedEvent
     | PlaneInteractionEvent
-    | ClippingPlaneGizmoChangedEvent
+    | PlaneGizmoChangedEvent
     | PlaneGizmoMovedEvent
     | ResliceCancelledEvent
     | FrameRenderedEvent

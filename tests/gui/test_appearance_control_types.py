@@ -393,8 +393,13 @@ def test_choices_come_from_the_models_literal_not_a_restated_list(qtbot):
     in_memory = literal_choices(InMemoryLabelsAppearance(), "render_mode")
     multiscale = literal_choices(MultiscaleLabelsAppearance(), "render_mode")
 
-    assert in_memory == ("iso_categorical", "flat_categorical")
-    assert multiscale == ("iso_categorical", "flat_categorical", "smooth_iso")
+    assert in_memory == ("iso_categorical", "flat_categorical", "plane")
+    assert multiscale == (
+        "iso_categorical",
+        "flat_categorical",
+        "smooth_iso",
+        "plane",
+    )
 
     visual_id = uuid4()
     widget = _qt("LabelsRenderModeCombo")(visual_id, choices=multiscale)

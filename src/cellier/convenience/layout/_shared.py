@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from cellier.gui._clipping_planes import (
@@ -19,6 +19,7 @@ from cellier.gui._loading import LOADING_CONFIG_TITLE, LOADING_TITLE
 from cellier.gui._lod import LOD_CONFIG_TITLE
 from cellier.gui._mesh_section import MESH_SECTION_TITLE
 from cellier.gui._render_controls import VISUAL_RENDER_TITLES
+from cellier.gui._render_planes import RENDER_PLANES_TITLE
 
 # ── Appearance controls: the toolkit-neutral decision layer ──────────────────
 #
@@ -89,6 +90,7 @@ _CONTROL_TITLES = {
     "loading_config": LOADING_CONFIG_TITLE,
     "mesh_section": MESH_SECTION_TITLE,
     "clipping_planes": CLIPPING_PLANES_TITLE,
+    "render_planes": RENDER_PLANES_TITLE,
     "lod_config": LOD_CONFIG_TITLE,
     # Read rather than restated: the per-visual groups name themselves in
     # the shared control spec, beside the controls they hold.
@@ -106,6 +108,31 @@ pinned by ``test_composite_default_titles_match_the_shared_vocabulary``: this
 is the name the renderers pass in, that is the name a directly-constructed
 widget uses.
 """
+
+
+class RenderPlanesTarget(NamedTuple):
+    """What a dock's render planes control edits, as its viewer names it.
+
+    Parameters
+    ----------
+    visual_ids : list[UUID]
+        The visuals whose ``render_planes`` the control edits.
+    canvas_id : UUID or None
+        The 3D canvas its gizmo toggle draws in.  ``None`` gives the rows
+        no toggle.
+    blocked : Callable[[], str] or None
+        Why the control is disabled now, or ``""``.  ``None`` uses the
+        controller's answer: the visual is not in plane mode, or the view
+        is 2D.
+    watch : Callable[[Callable[[], None]], None] or None
+        Given the control's ``refresh``, arranges for it to be called when
+        what *blocked* reads may have changed.
+    """
+
+    visual_ids: list
+    canvas_id: Any = None
+    blocked: Any = None
+    watch: Any = None
 
 
 _CONTROL_NEEDS_FIELD = {"level_of_detail": "settled_lod_bias"}
@@ -353,6 +380,14 @@ def appearance_specs(
                 get_clipping_planes_data_from_visual(visual, store),
             )
         )
+
+    # The planes of the "plane" render mode: a row per plane.  Opt-in, and
+    # only for a visual that has the mode (an image or labels).  The control
+    # reads the scene through the controller, so its builder fills it in.
+    if getattr(config, "render_plane_controls", False) and hasattr(
+        visual, "render_planes"
+    ):
+        specs.append(ControlSpec("render_planes", _CONTROL_TITLES["render_planes"], {}))
 
     # A multiscale mesh's level-of-detail settings: what a dims scrub loads
     # and draws, and what a moving camera draws.  Opt-in.
@@ -920,6 +955,13 @@ def missing_dock_node(
             "AppearanceControls() dock to show them in. Add "
             "AppearanceControls() to a dock of the Layout, or pass "
             "appearance=False."
+        )
+    if getattr(config, "render_plane_controls", False) and not appearance:
+        return (
+            "render_plane_controls=True and no appearance controls. The "
+            "render planes control is part of the appearance dock: pass "
+            "appearance=True (or a list of fields) as well, and give the "
+            "Layout an AppearanceControls() dock."
         )
     if not getattr(config, "clipping_controls", False):
         return None

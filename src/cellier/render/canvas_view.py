@@ -953,6 +953,7 @@ class CanvasView:
         if self._event_bus is None:
             return
         point, normal = gizmo.pose()
+        axis_0, axis_1, scale = gizmo.frame()
         self._event_bus.emit(
             PlaneGizmoMovedEvent(
                 source_id=self._canvas_id,
@@ -963,6 +964,9 @@ class CanvasView:
                 phase=phase,
                 handle_kind=gizmo.handle_kind,
                 handle_axis=gizmo.handle_axis,
+                in_plane_axis_0=axis_0,
+                in_plane_axis_1=axis_1,
+                scale=scale,
             )
         )
 

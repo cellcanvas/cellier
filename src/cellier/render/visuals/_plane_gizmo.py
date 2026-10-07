@@ -31,15 +31,21 @@ class PlaneTransformGizmo(gfx.TransformGizmo):
     - Every element is drawn with ``depth_test=False``: inside a volume the
       volume would otherwise win the pick and the handles could not be
       grabbed.
-    - The scale handles and the centre sphere are hidden.  A plane has no
-      scale, and in pygfx a drag on the sphere is a uniform scale and a
-      click on it changes the frame.
+    - The centre sphere is hidden: in pygfx a drag on it is a uniform scale
+      and a click on it changes the frame.
+    - The scale handles are hidden except those of ``scale_axes``.  A
+      clipping plane has no size; a render plane has one along each
+      in-plane axis that is bounded on both sides (plane rendering design
+      v3, 8.3).  Axis 0, the normal, never has one.
+    - A scale drag along a handle's arrow always grows the object, whatever
+      the camera angle (see :meth:`_handle_scale_move`).
     - The frame stays ``"object"``: axis 0 is the normal.
     - It tells its owner when a handle is grabbed, moved and released.
 
     Relies on private pygfx names: ``_ref``, ``_camera``, ``_viewport``,
-    ``_update_visibility``, ``_highlight``, ``_center_sphere`` and
-    ``_scale_children``.
+    ``_update_visibility``, ``_highlight``, ``_center_sphere``,
+    ``_scale_children``, ``_handle_scale_move``, ``_object_to_control`` and
+    ``gizmo_scale``.
 
     Parameters
     ----------
@@ -54,6 +60,8 @@ class PlaneTransformGizmo(gfx.TransformGizmo):
     def __init__(
         self, target: gfx.WorldObject, owner: GFXPlaneGizmo, screen_size: float
     ) -> None:
+        #: The axes (1 and 2, the in-plane ones) whose scale handle is shown.
+        self.scale_axes: frozenset[int] = frozenset()
         super().__init__(target, screen_size=screen_size)
         self._owner = owner
         self.toggle_mode("object")
@@ -63,8 +71,34 @@ class PlaneTransformGizmo(gfx.TransformGizmo):
     def _update_visibility(self) -> None:
         super()._update_visibility()
         self._center_sphere.visible = False
-        for element in self._scale_children:
-            element.visible = False
+        for dim, element in enumerate(self._scale_children):
+            if dim not in self.scale_axes:
+                element.visible = False
+
+    def _handle_scale_move(self, event: Any) -> None:
+        """Scale as pygfx does, with the drag's direction put right.
+
+        pygfx flips a handle that would point away from the camera and
+        means its scale drag to flip with it.  It reads the flip from the
+        sign of the gizmo's ``local.scale``, but a node's matrix is kept as
+        translation, rotation and scale, and a flip does not come back from
+        it as a negative scale on the axis that was flipped (two flipped
+        axes come back as a half turn).  ``gizmo_scale`` is the array the
+        flip was written to, so its sign is the truth: where the two
+        disagree, the factor pygfx applied is inverted.
+        """
+        super()._handle_scale_move(event)
+        dim = self._ref["dim"]
+        if dim is None:
+            return
+        assumed = self.local.scale[dim] < 0
+        flipped = self.gizmo_scale[dim] < 0
+        if assumed != flipped:
+            target = self._object_to_control
+            scale = np.array(target.local.scale, dtype=np.float64)
+            start = float(self._ref["scale"][dim])
+            scale[dim] = start * start / scale[dim]
+            target.local.scale = scale
 
     def process_event(self, event: Any) -> None:
         """Handle the event as pygfx does, then report what it did."""
@@ -172,6 +206,70 @@ class GFXPlaneGizmo:
             (float(point[0]), float(point[1]), float(point[2])),
             (float(normal[0]), float(normal[1]), float(normal[2])),
         )
+
+    def frame(
+        self,
+    ) -> tuple[
+        tuple[float, float, float], tuple[float, float, float], tuple[float, float]
+    ]:
+        """The proxy's in-plane axes and its scale along them.
+
+        Returns
+        -------
+        tuple
+            ``(in_plane_axis_0, in_plane_axis_1, scale)``: the proxy's local
+            ``+y`` and ``+z`` as unit vectors in rendered ``(x, y, z)``, and
+            the size of its scale along each (1.0 unless a scale handle is
+            held).
+        """
+        rotation = self.proxy.world.rotation
+        axes = []
+        for local in ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)):
+            axis = la.vec_transform_quat(local, rotation)
+            axis = axis / np.linalg.norm(axis)
+            axes.append((float(axis[0]), float(axis[1]), float(axis[2])))
+        scale = self.proxy.local.scale
+        return axes[0], axes[1], (abs(float(scale[1])), abs(float(scale[2])))
+
+    def set_frame(self, point: Any, in_plane_axis_0: Any, in_plane_axis_1: Any) -> None:
+        """Place the proxy at *point* with its whole frame given.
+
+        The proxy's local ``+y`` and ``+z`` become the two in-plane axes
+        and its ``+x`` their cross product, the normal.
+
+        Parameters
+        ----------
+        point : array-like
+            A point on the plane, in rendered ``(x, y, z)``.
+        in_plane_axis_0, in_plane_axis_1 : array-like
+            Two orthogonal directions in the plane.  Any length but zero.
+
+        Raises
+        ------
+        ValueError
+            If the axes are zero or parallel.
+        """
+        axis_0 = np.asarray(in_plane_axis_0, dtype=np.float64)
+        axis_1 = np.asarray(in_plane_axis_1, dtype=np.float64)
+        normal = np.cross(axis_0, axis_1)
+        if float(np.linalg.norm(normal)) == 0.0:
+            raise ValueError("A plane's in-plane axes must not be zero or parallel.")
+        normal = normal / np.linalg.norm(normal)
+        axis_0 = axis_0 / np.linalg.norm(axis_0)
+        # Exactly orthogonal, so the matrix is a rotation.
+        axis_1 = np.cross(normal, axis_0)
+        matrix = np.eye(4)
+        matrix[:3, 0], matrix[:3, 1], matrix[:3, 2] = normal, axis_0, axis_1
+        self.proxy.local.rotation = la.quat_from_mat(matrix)
+        self.proxy.local.position = tuple(float(v) for v in point)
+
+    def set_scale_axes(self, axes: Any) -> None:
+        """Show the scale handles of the in-plane *axes* (1, 2) and no other."""
+        self.gizmo.scale_axes = frozenset(int(a) for a in axes if int(a) in (1, 2))
+
+    def reset_scale(self) -> None:
+        """Put the proxy's scale back to 1 (a scale drag was folded in)."""
+        self.proxy.local.scale = (1.0, 1.0, 1.0)
 
     def set_pose(self, point: Any, normal: Any) -> None:
         """Place the proxy at *point*, its normal along *normal*.

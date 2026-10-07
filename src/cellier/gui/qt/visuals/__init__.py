@@ -55,6 +55,7 @@ from cellier.gui.qt.visuals._points import (
     QtSizeSpaceCombo,
     QtSizeSpin,
 )
+from cellier.gui.qt.visuals._render_planes import QtRenderPlanesControls
 from cellier.gui.qt.visuals._trail import QtTrailControls
 from cellier.gui.qt.visuals._visible import QtVisibleToggle
 
@@ -85,6 +86,7 @@ __all__ = [
     "QtNodeSizeSpin",
     "QtNodeVisibleToggle",
     "QtOpacitySlider",
+    "QtRenderPlanesControls",
     "QtSaltSpin",
     "QtShininessSpin",
     "QtSideCombo",

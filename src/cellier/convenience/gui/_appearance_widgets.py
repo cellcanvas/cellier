@@ -121,6 +121,28 @@ def _any_clipping_planes(spec: ControlSpec, visual_ids, controller=None, gizmo=N
     )
 
 
+def _any_render_planes(spec: ControlSpec, visual_ids, controller=None, target=None):
+    """The render planes control.
+
+    *target* is the ``RenderPlanesTarget`` the viewer named: the canvas of
+    the gizmo toggle (``None`` for no toggle) and why the control is
+    disabled.  The control reads the scene through the controller.
+    """
+    from cellier.gui._render_planes import (
+        get_render_plane_gizmo_data,
+        get_render_planes_data_from_visual,
+    )
+    from cellier.gui.anywidget.visuals import AnywidgetRenderPlanesControls
+
+    canvas_id = None if target is None else target.canvas_id
+    data = get_render_planes_data_from_visual(
+        controller, visual_ids[0], blocked=None if target is None else target.blocked
+    )
+    if canvas_id is not None:
+        data.update(get_render_plane_gizmo_data(controller, visual_ids[0], canvas_id))
+    return AnywidgetRenderPlanesControls(visual_ids, title=spec.title, **data)
+
+
 def _any_aabb(spec: ControlSpec, visual_ids, controller=None):
     from cellier.gui.anywidget.visuals import AnywidgetAABBWidget
 
@@ -207,6 +229,7 @@ ANYWIDGET_BUILDERS = {
     "loading_config": _any_loading_config,
     "mesh_section": _any_mesh_section,
     "clipping_planes": _any_clipping_planes,
+    "render_planes": _any_render_planes,
     "lod_config": _any_lod_config,
     "visual_outline": _any_visual_outline,
     "labels_outline": _any_labels_outline,

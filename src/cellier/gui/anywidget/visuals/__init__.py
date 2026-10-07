@@ -56,6 +56,9 @@ from cellier.gui.anywidget.visuals._points import (
     AnywidgetSizeSpaceCombo,
     AnywidgetSizeSpin,
 )
+from cellier.gui.anywidget.visuals._render_planes import (
+    AnywidgetRenderPlanesControls,
+)
 from cellier.gui.anywidget.visuals._trail import AnywidgetTrailControls
 from cellier.gui.anywidget.visuals._visible import AnywidgetVisibleToggle
 
@@ -86,6 +89,7 @@ __all__ = [
     "AnywidgetNodeSizeSpin",
     "AnywidgetNodeVisibleToggle",
     "AnywidgetOpacitySlider",
+    "AnywidgetRenderPlanesControls",
     "AnywidgetSaltSpin",
     "AnywidgetShininessSpin",
     "AnywidgetSideCombo",

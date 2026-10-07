@@ -159,6 +159,7 @@ def build_appearance_widgets(
     backend: object,
     clipping_gizmo_target: Callable[[list], tuple | None] | None = None,
     clipping_controls: bool = True,
+    render_planes_target: Callable[[list], object | None] | None = None,
 ) -> list:
     """Build and wire the appearance controls for *visual*, on any backend.
 
@@ -175,9 +176,17 @@ def build_appearance_widgets(
     *clipping_controls* ``False`` builds no clipping planes control whatever
     the config says: on an ``OrthoViewer`` they are in the
     ``OrthoClippingControls()`` dock, one per link group, and not here.
+
+    *render_planes_target* is how the viewer names what a render planes
+    control edits: given the control's visual ids it returns a
+    ``RenderPlanesTarget`` (the visuals whose planes it edits, the canvas of
+    its gizmo toggle, why it is disabled), or ``None`` for no control (an
+    ``OrthoViewer``'s 2D views).  Without it the control edits every visual
+    of the group and has no gizmo toggle.
     """
     from cellier.convenience.layout._shared import (
         STATIC_CONTROL_KINDS,
+        RenderPlanesTarget,
         _resolve_data_store,
         appearance_specs,
         warn_skipped_appearance_fields,
@@ -200,7 +209,18 @@ def build_appearance_widgets(
         if spec.kind == "clipping_planes" and not clipping_controls:
             continue
         builder = backend.builders.get(spec.kind)
-        if builder is not None and spec.kind == "clipping_planes":
+        if builder is not None and spec.kind == "render_planes":
+            target = (
+                RenderPlanesTarget(list(visual_ids))
+                if render_planes_target is None
+                else render_planes_target(list(visual_ids))
+            )
+            if target is None:
+                continue
+            widget = builder(spec, list(target.visual_ids), controller, target)
+            if target.watch is not None:
+                target.watch(widget.refresh)
+        elif builder is not None and spec.kind == "clipping_planes":
             gizmo = (
                 None
                 if clipping_gizmo_target is None
@@ -253,6 +273,7 @@ def _render_appearance_dock(
             backend=host.backend,
             clipping_gizmo_target=getattr(viewer, "_clipping_gizmo_target", None),
             clipping_controls=clipping_node == "AppearanceControls",
+            render_planes_target=getattr(viewer, "_render_planes_target", None),
         )
 
     dock = ControlsDock(

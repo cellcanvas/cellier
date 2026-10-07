@@ -13,7 +13,7 @@ back.
 A row can also carry a "Gizmo" toggle, which puts a gizmo on that plane in
 the viewer's 3D canvas.  A canvas has one gizmo, so the toggles of every
 control that names the canvas behave as one set of radio buttons: the
-controller says which plane has it (``ClippingPlaneGizmoChangedEvent``) and
+controller says which plane has it (``PlaneGizmoChangedEvent``) and
 each control draws that.
 
 A row is plain data, so the anywidget control syncs the whole list in one
@@ -36,12 +36,12 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import UUID, uuid4
 
 from cellier.events import (
-    ClippingPlaneGizmoChangedEvent,
-    ClippingPlaneGizmoUpdateEvent,
     ClippingPlanesChangedEvent,
     ClippingPlanesUpdateEvent,
     DataStoreMetadataChangedEvent,
     DimsChangedEvent,
+    PlaneGizmoChangedEvent,
+    PlaneGizmoUpdateEvent,
     SubscriptionSpec,
 )
 from cellier.gui._loading import error_message
@@ -323,8 +323,12 @@ def get_clipping_plane_gizmo_data(
             f"{controller.get_scene(scene_id).name!r}, the scene of visual "
             f"{visual_id}."
         )
-    session = controller.get_clipping_plane_gizmo(canvas_id)
-    on_this = session is not None and session.visual_id == visual_id
+    session = controller.get_plane_gizmo(canvas_id)
+    on_this = (
+        session is not None
+        and session.kind == "clipping"
+        and session.visual_id == visual_id
+    )
 
     def blocked(plane_id: str) -> str:
         return controller.clipping_plane_gizmo_blocked(
@@ -440,7 +444,7 @@ class ClippingPlanesEditor:
 
         And the store's ``DataStoreMetadataChangedEvent``, when the control
         was given a way to read the store's bounds.  With a gizmo toggle:
-        the canvas's ``ClippingPlaneGizmoChangedEvent`` and the scene's
+        the canvas's ``PlaneGizmoChangedEvent`` and the scene's
         ``DimsChangedEvent``.
         """
         specs = [
@@ -461,7 +465,7 @@ class ClippingPlanesEditor:
             _visual_id, canvas_id, scene_id = self._gizmo
             specs.append(
                 SubscriptionSpec(
-                    ClippingPlaneGizmoChangedEvent,
+                    PlaneGizmoChangedEvent,
                     self.on_gizmo_changed,
                     entity_id=canvas_id,
                 )
@@ -578,7 +582,7 @@ class ClippingPlanesEditor:
     def set_gizmo(self, index: int, enabled: bool) -> None:
         """Put the canvas's gizmo on plane *index*, or take it off.
 
-        Sends a ``ClippingPlaneGizmoUpdateEvent``.  The toggle is drawn from
+        Sends a ``PlaneGizmoUpdateEvent``.  The toggle is drawn from
         what the controller answers (:meth:`on_gizmo_changed`), not from the
         click: a refused request leaves it off, with the reason shown.
         """
@@ -588,11 +592,12 @@ class ClippingPlanesEditor:
         error = ""
         try:
             self._emit(
-                ClippingPlaneGizmoUpdateEvent(
+                PlaneGizmoUpdateEvent(
                     source_id=self._source_id,
                     visual_id=visual_id,
                     plane_id=UUID(self.rows[index]["id"]),
                     canvas_id=canvas_id,
+                    kind="clipping",
                     enabled=bool(enabled),
                 )
             )
@@ -610,12 +615,14 @@ class ClippingPlanesEditor:
         self.rows = rows
         self._show(list(self.rows), "")
 
-    def on_gizmo_changed(self, event: ClippingPlaneGizmoChangedEvent) -> None:
+    def on_gizmo_changed(self, event: PlaneGizmoChangedEvent) -> None:
         """The canvas's gizmo moved to another plane, or closed: show it."""
         if self._gizmo is None:
             return
         on_this = (
-            event.visual_id == self._gizmo.visual_id and event.plane_id is not None
+            event.kind == "clipping"
+            and event.visual_id == self._gizmo.visual_id
+            and event.plane_id is not None
         )
         plane = str(event.plane_id) if on_this else None
         if plane == self.gizmo_plane:

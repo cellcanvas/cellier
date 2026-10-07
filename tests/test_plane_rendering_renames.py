@@ -102,6 +102,36 @@ def test_the_interaction_event_is_renamed() -> None:
     assert "PlaneInteractionEvent" in cellier.events.__all__
 
 
+def test_the_clipping_gizmo_names_are_neutral() -> None:
+    """One gizmo per canvas serves both kinds of plane (design 8.3, Phase 8)."""
+    for old, new in (
+        ("Clipping" + "PlaneGizmoChangedEvent", "PlaneGizmoChangedEvent"),
+        ("Clipping" + "PlaneGizmoUpdateEvent", "PlaneGizmoUpdateEvent"),
+    ):
+        assert not hasattr(cellier.events, old)
+        assert new in cellier.events.__all__
+    for old, new in (
+        ("get_" + "clipping_plane_gizmo", "get_plane_gizmo"),
+        ("remove_" + "clipping_plane_gizmo", "remove_plane_gizmo"),
+        ("on_" + "clipping_plane_gizmo_changed", "on_plane_gizmo_changed"),
+    ):
+        assert not hasattr(CellierController, old)
+        assert hasattr(CellierController, new)
+    # Adding stays per kind: the two take different planes.
+    assert hasattr(CellierController, "add_clipping_plane_gizmo")
+    assert hasattr(CellierController, "add_render_plane_gizmo")
+
+
+def test_no_old_gizmo_name_is_left() -> None:
+    pattern = re.compile(
+        "Clipping" + "PlaneGizmo(Changed|Update)Event"
+        "|(get|remove)_" + "clipping_plane_gizmo(?!_data)"
+        "|on_" + "clipping_plane_gizmo_changed"
+    )
+    hits = _hits(pattern, set())
+    assert not hits, "\n".join(hits)
+
+
 def test_the_old_controls_key_is_refused() -> None:
     from cellier.convenience.gui._controls_config import (
         MultiscaleImageControlsConfig,

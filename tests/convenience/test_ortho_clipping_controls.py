@@ -256,7 +256,7 @@ def test_the_gizmo_toggle_follows_the_canvas_across_modes(
 
     (all_views,) = widget.widgets
     all_views.editor.set_gizmo(0, True)
-    session = controller.get_clipping_plane_gizmo(vol_canvas)
+    session = controller.get_plane_gizmo(vol_canvas)
     assert (session.visual_id, session.plane_id) == (visuals["vol"].id, plane.id)
     assert all_views.editor.gizmo_plane == str(plane.id)
 
@@ -268,7 +268,7 @@ def test_the_gizmo_toggle_follows_the_canvas_across_modes(
     assert not session.closed
 
     volume.editor.set_gizmo(0, False)
-    assert controller.get_clipping_plane_gizmo(vol_canvas) is None
+    assert controller.get_plane_gizmo(vol_canvas) is None
     ortho.clipping_controller.mode = "all"
     assert all_views.editor.gizmo_plane is None
 

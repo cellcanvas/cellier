@@ -29,3 +29,13 @@ from. See [Clip a visual with planes](../How_To/clipping_planes.md).
 ::: cellier.gui.get_axis_bounds_from_store
 ::: cellier.gui.ClippingPlaneGizmoTarget
 ::: cellier.gui.get_clipping_plane_gizmo_data
+
+## Render planes control
+
+The planes a visual in the `"plane"` render mode draws its data on: the
+clipping planes rows with the extents added, in world units.
+
+::: cellier.gui.qt.visuals.QtRenderPlanesControls
+::: cellier.gui.get_render_planes_data_from_visual
+::: cellier.gui.RenderPlaneGizmoTarget
+::: cellier.gui.get_render_plane_gizmo_data

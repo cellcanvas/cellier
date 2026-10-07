@@ -15,9 +15,9 @@ from cellier.clipping import handle_changes_plane, initial_anchor
 from cellier.data import ImageMemoryStore
 from cellier.data._axes import scale_and_translation_transform
 from cellier.events import (
-    ClippingPlaneGizmoChangedEvent,
-    ClippingPlaneGizmoUpdateEvent,
     ClippingPlanesChangedEvent,
+    PlaneGizmoChangedEvent,
+    PlaneGizmoUpdateEvent,
     PlaneInteractionEvent,
 )
 from cellier.visuals import ClippingPlane, InMemoryImageSingleAppearance
@@ -42,7 +42,7 @@ class GizmoRig(Rig):
             self.visual.id, self.log.append, owner_id=owner
         )
         for view in self.views:
-            self.controller.on_clipping_plane_gizmo_changed(
+            self.controller.on_plane_gizmo_changed(
                 view.canvas_id, self.log.append, owner_id=owner
             )
 
@@ -152,8 +152,8 @@ async def test_the_gizmo_is_placed_on_the_plane(make_rig):
     np.testing.assert_allclose(normal, (1.0, 0.0, 0.0), atol=1e-6)
     np.testing.assert_allclose(point, (12.0, 15.5, 15.5), atol=1e-3)
     assert session.anchor == pytest.approx(point)
-    assert rig.controller.get_clipping_plane_gizmo(rig.view.canvas_id) is session
-    (event,) = rig.of(ClippingPlaneGizmoChangedEvent)
+    assert rig.controller.get_plane_gizmo(rig.view.canvas_id) is session
+    (event,) = rig.of(PlaneGizmoChangedEvent)
     assert (event.visual_id, event.plane_id) == (rig.visual.id, item.id)
     assert rig.of(ClippingPlanesChangedEvent) == []
 
@@ -193,8 +193,8 @@ async def test_what_is_refused(make_rig):
     rig.scene.dims.selection.displayed_axes = (1, 2)
     with pytest.raises(ValueError, match="3D canvas"):
         controller.add_clipping_plane_gizmo(rig.visual.id, canvas_id, item.id)
-    assert controller.get_clipping_plane_gizmo(canvas_id) is None
-    assert rig.of(ClippingPlaneGizmoChangedEvent) == []
+    assert controller.get_plane_gizmo(canvas_id) is None
+    assert rig.of(PlaneGizmoChangedEvent) == []
     assert rig.view._plane_gizmos == {}
 
 
@@ -395,11 +395,11 @@ async def test_removing_the_plane_closes_the_session(make_rig):
     rig.visual.clipping_planes = (other,)
     assert session.closed
     assert rig.view._plane_gizmos == {}
-    assert rig.controller.get_clipping_plane_gizmo(rig.view.canvas_id) is None
-    (event,) = rig.of(ClippingPlaneGizmoChangedEvent)
+    assert rig.controller.get_plane_gizmo(rig.view.canvas_id) is None
+    (event,) = rig.of(PlaneGizmoChangedEvent)
     assert (event.visual_id, event.plane_id) == (None, None)
     session.close()  # again: nothing
-    assert len(rig.of(ClippingPlaneGizmoChangedEvent)) == 1
+    assert len(rig.of(PlaneGizmoChangedEvent)) == 1
 
 
 async def test_leaving_3d_closes_the_session(make_rig):
@@ -459,7 +459,7 @@ async def test_a_canvas_has_one_gizmo_and_a_new_one_replaces_it(make_rig):
     assert not second.closed
     assert list(rig.view._plane_gizmos) == [second.id]
     # One event for the replacement: the new plane.
-    (event,) = rig.of(ClippingPlaneGizmoChangedEvent)
+    (event,) = rig.of(PlaneGizmoChangedEvent)
     assert event.plane_id == other.id
 
     # A refused request leaves the gizmo there is.
@@ -468,7 +468,7 @@ async def test_a_canvas_has_one_gizmo_and_a_new_one_replaces_it(make_rig):
             rig.visual.id, rig.view.canvas_id, uuid4()
         )
     assert not second.closed
-    assert rig.controller.get_clipping_plane_gizmo(rig.view.canvas_id) is second
+    assert rig.controller.get_plane_gizmo(rig.view.canvas_id) is second
 
 
 async def test_the_request_event_opens_and_closes(make_rig):
@@ -481,26 +481,27 @@ async def test_the_request_event_opens_and_closes(make_rig):
 
     def request(plane, enabled):
         controller._incoming_events.emit(
-            ClippingPlaneGizmoUpdateEvent(
+            PlaneGizmoUpdateEvent(
                 source_id=widget,
                 visual_id=rig.visual.id,
                 plane_id=plane.id,
                 canvas_id=canvas_id,
+                kind="clipping",
                 enabled=enabled,
             )
         )
 
     request(item, True)
-    session = controller.get_clipping_plane_gizmo(canvas_id)
+    session = controller.get_plane_gizmo(canvas_id)
     assert session.plane_id == item.id
-    assert rig.of(ClippingPlaneGizmoChangedEvent)[-1].source_id == widget
+    assert rig.of(PlaneGizmoChangedEvent)[-1].source_id == widget
 
     # Switching off a plane that does not have the gizmo does nothing.
     request(other, False)
-    assert controller.get_clipping_plane_gizmo(canvas_id) is session
+    assert controller.get_plane_gizmo(canvas_id) is session
     request(item, False)
     assert session.closed
-    last = rig.of(ClippingPlaneGizmoChangedEvent)[-1]
+    last = rig.of(PlaneGizmoChangedEvent)[-1]
     assert (last.plane_id, last.source_id) == (None, widget)
 
 

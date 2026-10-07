@@ -421,20 +421,22 @@ class RenderPlanesUpdateEvent(NamedTuple):
     render_planes: Any
 
 
-class ClippingPlaneGizmoUpdateEvent(NamedTuple):
-    """Request to put a canvas's clipping plane gizmo on a plane, or close it.
+class PlaneGizmoUpdateEvent(NamedTuple):
+    """Request to put a canvas's plane gizmo on a plane, or close it.
 
     Fields
     ------
     source_id :
-        Caller's UUID.  Stamped on the outgoing
-        ``ClippingPlaneGizmoChangedEvent``.
+        Caller's UUID.  Stamped on the outgoing ``PlaneGizmoChangedEvent``.
     visual_id :
         The visual the plane belongs to.
     plane_id :
-        The ``id`` of the ``ClippingPlane``.
+        The ``id`` of the ``ClippingPlane`` or ``RenderPlane``.
     canvas_id :
         The 3D canvas to draw the gizmo in.
+    kind :
+        ``"clipping"`` or ``"render"``: which of the visual's tuples the
+        plane is in.
     enabled :
         ``True`` opens a gizmo on the plane, replacing the canvas's current
         one.  ``False`` closes the canvas's gizmo if it is on this plane.
@@ -444,6 +446,7 @@ class ClippingPlaneGizmoUpdateEvent(NamedTuple):
     visual_id: UUID
     plane_id: UUID
     canvas_id: UUID
+    kind: str
     enabled: bool = True
 
 
@@ -489,7 +492,7 @@ CellierUpdateEventTypes = (
     | LodConfigUpdateEvent
     | ClippingPlanesUpdateEvent
     | RenderPlanesUpdateEvent
-    | ClippingPlaneGizmoUpdateEvent
+    | PlaneGizmoUpdateEvent
     | TrailUpdateEvent
 )
 

@@ -24,7 +24,6 @@ from cellier.events._events import (
     CanvasMouseRelease2DEvent,
     CanvasMouseRelease3DEvent,
     ChannelAppearanceChangedEvent,
-    ClippingPlaneGizmoChangedEvent,
     ClippingPlanesChangedEvent,
     DataStoreContentsChangedEvent,
     DataStoreMetadataChangedEvent,
@@ -42,6 +41,7 @@ from cellier.events._events import (
     MeshSectionChangedEvent,
     OverlayChangedEvent,
     PickWriteChangedEvent,
+    PlaneGizmoChangedEvent,
     PlaneGizmoMovedEvent,
     PlaneInteractionEvent,
     PointsPickEvent,
@@ -89,7 +89,7 @@ _ENTITY_FIELD: dict[type, str] = {
     ClippingPlanesChangedEvent: "visual_id",
     RenderPlanesChangedEvent: "visual_id",
     PlaneInteractionEvent: "visual_id",
-    ClippingPlaneGizmoChangedEvent: "canvas_id",
+    PlaneGizmoChangedEvent: "canvas_id",
     PlaneGizmoMovedEvent: "gizmo_id",
     ResliceCancelledEvent: "visual_id",
     FrameRenderedEvent: "canvas_id",
@@ -530,7 +530,7 @@ class EventBus:
               ``ResliceCancelledEvent``
             - Canvas (keyed by ``canvas_id``) — ``FrameRenderedEvent``,
               ``CanvasConnectedEvent``,
-              ``ClippingPlaneGizmoChangedEvent``
+              ``PlaneGizmoChangedEvent``
             - Data store (keyed by ``data_store_id``) —
               ``DataStoreMetadataChangedEvent``,
               ``DataStoreContentsChangedEvent``

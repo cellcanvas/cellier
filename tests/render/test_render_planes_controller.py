@@ -810,22 +810,18 @@ def test_an_in_memory_plane_drag_is_announced_and_reads_nothing(
 # -- nothing is drawn differently yet ---------------------------------------------
 
 
-def test_the_gui_combos_do_not_offer_plane_yet(controller, image_volume, labels_volume):
+def test_the_gui_combos_offer_plane(controller, image_volume, labels_volume):
+    """Design 9.1: "plane" is a choice of every render-mode combo."""
     from cellier.gui._appearance_fields import literal_choices
     from cellier.gui._image_controls import image_control_values
 
     scene = controller.add_scene(dim="3d", name="scene")
-    image = controller.add_image(
-        data=image_volume,
-        scene_id=scene.id,
-        single=InMemoryImageSingleAppearance(render_mode="plane"),
-    )
+    image = controller.add_image(data=image_volume, scene_id=scene.id)
     labels = controller.add_labels(data=labels_volume, scene_id=scene.id)
     assert (
-        "plane"
-        not in image_control_values(image, fields=["render_mode"])["render_modes"]
+        "plane" in image_control_values(image, fields=["render_mode"])["render_modes"]
     )
-    assert "plane" not in literal_choices(labels.appearance, "render_mode")
+    assert "plane" in literal_choices(labels.appearance, "render_mode")
 
 
 @pytest.mark.parametrize("kind", ["image", "labels"])

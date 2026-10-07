@@ -351,7 +351,7 @@ def test_the_labels_combo_offers_the_models_own_render_modes(qtbot, labels_store
     spec = appearance_specs(visual, viewer._controls_configs[visual.id]).specs[0]
     widget = QtLabelsRenderModeCombo(visual.id, **spec.values)
 
-    assert widget.choices == ("iso_categorical", "flat_categorical")
+    assert widget.choices == ("iso_categorical", "flat_categorical", "plane")
     assert "mip" not in widget.choices
 
 
@@ -515,6 +515,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         AnywidgetLoadingIndicator,
         AnywidgetLodConfigControls,
         AnywidgetMeshSectionControls,
+        AnywidgetRenderPlanesControls,
         AnywidgetTrailControls,
     )
     from cellier.gui.qt import QtDatasetInfo
@@ -533,6 +534,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         QtLoadingIndicator,
         QtLodConfigControls,
         QtMeshSectionControls,
+        QtRenderPlanesControls,
         QtTrailControls,
     )
 
@@ -548,6 +550,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
             QtClippingPlanesControls,
             AnywidgetClippingPlanesControls,
         ),
+        "render_planes": (QtRenderPlanesControls, AnywidgetRenderPlanesControls),
         "lod_config": (QtLodConfigControls, AnywidgetLodConfigControls),
         "visual_outline": (QtVisualOutlineControls, AnywidgetVisualOutlineControls),
         "labels_outline": (QtLabelsOutlineControls, AnywidgetLabelsOutlineControls),

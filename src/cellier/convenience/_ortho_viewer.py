@@ -20,6 +20,7 @@ from cellier.convenience._ortho_clipping import (
     OrthoClippingController,
 )
 from cellier.convenience._ortho_dims import OrthoDimsController
+from cellier.convenience._ortho_planes import OrthoPlaneController
 from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
 from cellier.render._capture import write_png
@@ -39,7 +40,10 @@ if TYPE_CHECKING:
     import numpy as np
 
     from cellier._state import CameraState
-    from cellier.clipping import ClippingPlaneGizmoController
+    from cellier.clipping import (
+        ClippingPlaneGizmoController,
+        RenderPlaneGizmoController,
+    )
     from cellier.convenience.gui._controls_config import (
         BaseControlsConfig,
         GraphControlsConfig,
@@ -68,7 +72,7 @@ if TYPE_CHECKING:
     from cellier.render._config import RenderManagerConfig
     from cellier.scene._background import BackgroundAppearance
     from cellier.transform import BaseTransform, WorldCoordinateSystem
-    from cellier.visuals import ClippingPlane
+    from cellier.visuals import ClippingPlane, RenderPlane
     from cellier.visuals._base_visual import VisualOutline
     from cellier.visuals._graph_memory import (
         GraphAppearance,
@@ -297,6 +301,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._extra_axes = {i for i in range(self._ndim) if i not in self._spatial_axes}
         self._scenes = self._build_scenes(world)
         self._dims_controller: OrthoDimsController | None = None
+        self._plane_controller = self._build_plane_controller()
         # Per-visual controls configs, keyed by a representative visual id;
         # _visual_groups maps that id to the visuals one widget drives: the
         # three 2D panels, or the 3D panel (_CONTROLS_GROUPS).  Not
@@ -342,6 +347,17 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             )
             scenes[key] = self._controller.add_scene_model(scene)
         return scenes
+
+    def _build_plane_controller(self) -> OrthoPlaneController:
+        """The controller of the 3D panel's slice planes (mode ``None``)."""
+        return OrthoPlaneController(
+            self._controller,
+            self._scenes,
+            self._spatial_axes,
+            dims_controller=lambda: (
+                self._dims_controller if self.axis_sync_enabled else None
+            ),
+        )
 
     def _wire_axis_sync(self) -> None:
         """Mirror dims across the panels, xy first so it wins a disagreement."""
@@ -731,6 +747,25 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         return self._clipping_controller
 
     @property
+    def plane_controller(self) -> OrthoPlaneController:
+        """The controller tying the 3D panel's render planes to the 2D panels.
+
+        Its ``mode`` is ``None`` (the default: no link) or ``"slices"``:
+        every image and labels visual of the 3D panel then carries three
+        render planes, one per 2D panel, at that panel's slice position, and
+        a 2D slider moves its plane::
+
+            ortho.add_image_multiscale(
+                store, single=MultiscaleImageSingleAppearance(render_mode="plane")
+            )
+            ortho.plane_controller.mode = "slices"
+
+        The planes are drawn by the visuals that are in the ``"plane"``
+        render mode.
+        """
+        return self._plane_controller
+
+    @property
     def axis_sync_enabled(self) -> bool:
         """Whether dims edits are mirrored across the panels."""
         return self._dims_controller is not None and self._dims_controller.enabled
@@ -835,6 +870,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         obj._ndim = ndim
         obj._extra_axes = {i for i in range(ndim) if i not in vol_displayed}
         obj._dims_controller = None
+        obj._plane_controller = obj._build_plane_controller()
         obj._clipping_controller = OrthoClippingController(
             controller, link_clipping_planes
         )
@@ -1076,6 +1112,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         """
         visuals = {key: add_one(key, scene) for key, scene in self._scenes.items()}
         self._clipping_controller.add_group(visuals)
+        self._plane_controller.add_visual(visuals["vol"])
         return visuals
 
     # ------------------------------------------------------------------
@@ -1097,6 +1134,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> dict[str, ImageVisual]:
         """Add an in-memory image to every panel from a single data store.
 
@@ -1142,6 +1180,16 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the ``"plane"`` render mode draws the data on, in
+            the scene's world coordinates
+            (``RenderPlane.from_point_normal(viewer.scene.dims.
+            world_coordinate_system, ...)``).  Ignored in every other
+            render mode.  They can be changed later with
+            ``controller.set_render_planes``.  Default none.
+            Given to the 3D panel's visual only: the 2D panels show
+            their slices.  Replaced by the slice planes while
+            ``plane_controller.mode`` is ``"slices"``.
 
         Returns
         -------
@@ -1164,6 +1212,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 outline=outline,
                 ambient_occlusion=ambient_occlusion,
                 clipping_planes=clipping_planes,
+                render_planes=render_planes if key == "vol" else (),
             )
         )
         self._record_controls(visuals, controls, name)
@@ -1180,6 +1229,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         ambient_occlusion: bool | None = None,
         outline_selected_labels: dict[int, int] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> dict[str, LabelMemoryVisual]:
         """Add an in-memory label image to every panel from one data store.
 
@@ -1219,6 +1269,16 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the ``"plane"`` render mode draws the data on, in
+            the scene's world coordinates
+            (``RenderPlane.from_point_normal(viewer.scene.dims.
+            world_coordinate_system, ...)``).  Ignored in every other
+            render mode.  They can be changed later with
+            ``controller.set_render_planes``.  Default none.
+            Given to the 3D panel's visual only: the 2D panels show
+            their slices.  Replaced by the slice planes while
+            ``plane_controller.mode`` is ``"slices"``.
 
         Returns
         -------
@@ -1237,6 +1297,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
                 outline_selected_labels=outline_selected_labels,
                 clipping_planes=clipping_planes,
+                render_planes=render_planes if key == "vol" else (),
             )
         )
         self._record_controls(visuals, controls, name)
@@ -1618,6 +1679,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> dict[str, MultiscaleImageVisual]:
         """Add a multiscale image to every panel from a single data store.
 
@@ -1660,6 +1722,16 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the ``"plane"`` render mode draws the data on, in
+            the scene's world coordinates
+            (``RenderPlane.from_point_normal(viewer.scene.dims.
+            world_coordinate_system, ...)``).  Ignored in every other
+            render mode.  They can be changed later with
+            ``controller.set_render_planes``.  Default none.
+            Given to the 3D panel's visual only: the 2D panels show
+            their slices.  Replaced by the slice planes while
+            ``plane_controller.mode`` is ``"slices"``.
 
         Returns
         -------
@@ -1683,6 +1755,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 outline=outline,
                 ambient_occlusion=ambient_occlusion,
                 clipping_planes=clipping_planes,
+                render_planes=render_planes if key == "vol" else (),
             )
         )
         self._record_controls(visuals, controls, name)
@@ -1700,6 +1773,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         ambient_occlusion: bool | None = None,
         outline_selected_labels: dict[int, int] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> dict[str, MultiscaleLabelVisual]:
         """Add a multiscale label image to every panel from one data store.
 
@@ -1740,6 +1814,16 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the ``"plane"`` render mode draws the data on, in
+            the scene's world coordinates
+            (``RenderPlane.from_point_normal(viewer.scene.dims.
+            world_coordinate_system, ...)``).  Ignored in every other
+            render mode.  They can be changed later with
+            ``controller.set_render_planes``.  Default none.
+            Given to the 3D panel's visual only: the 2D panels show
+            their slices.  Replaced by the slice planes while
+            ``plane_controller.mode`` is ``"slices"``.
 
         Returns
         -------
@@ -1759,6 +1843,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
                 outline_selected_labels=outline_selected_labels,
                 clipping_planes=clipping_planes,
+                render_planes=render_planes if key == "vol" else (),
             )
         )
         self._record_controls(visuals, controls, name)
@@ -2028,9 +2113,89 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             getattr(plane, "id", plane),
         )
 
-    def remove_clipping_plane_gizmo(self) -> None:
-        """Close the 3D panel's clipping plane gizmo; nothing if it has none."""
-        self._controller.remove_clipping_plane_gizmo(self._panel_canvas("vol"))
+    def add_render_plane_gizmo(
+        self, visual: object, plane: RenderPlane | UUID
+    ) -> RenderPlaneGizmoController:
+        """Put a gizmo on one render plane of a visual, in the 3D panel.
+
+        Dragging the gizmo moves, turns and resizes the plane.  Mirrors
+        :meth:`CellierController.add_render_plane_gizmo`: the 3D panel has
+        one gizmo at a time, clipping planes included.
+
+        Parameters
+        ----------
+        visual : UUID, visual model, or dict
+            Any panel's visual, or the dict an ``add_*`` method returned.
+        plane : RenderPlane or UUID
+            One of the 3D panel's visual's ``render_planes``, or its ``id``.
+
+        Returns
+        -------
+        RenderPlaneGizmoController
+            The session.  ``close()`` ends it.
+
+        Raises
+        ------
+        KeyError
+            If the 3D panel's visual has no render plane with that id.
+        ValueError
+            If ``plane_controller.mode`` is ``"slices"`` (the slice planes
+            follow the 2D sliders and have no gizmo), the 3D panel has no
+            canvas yet, or its visual is not in the ``"plane"`` render mode.
+        """
+        if self._plane_controller.mode == "slices":
+            raise ValueError(
+                "The 3D panel's render planes are slice planes "
+                '(plane_controller.mode is "slices"): they follow the 2D '
+                "views' sliders and have no gizmo.  Set "
+                "plane_controller.mode = None to edit them freely."
+            )
+        group = self.image_group(visual)
+        return self._controller.add_render_plane_gizmo(
+            group[_PANEL_KEYS.index("vol")],
+            self._panel_canvas("vol"),
+            getattr(plane, "id", plane),
+        )
+
+    def remove_plane_gizmo(self) -> None:
+        """Close the 3D panel's plane gizmo, of either kind; nothing if none."""
+        self._controller.remove_plane_gizmo(self._panel_canvas("vol"))
+
+    def _render_planes_target(self, visual_ids: Sequence[UUID]) -> object | None:
+        """What a dock's render planes control edits, and where its gizmo is.
+
+        Asked by the layout walk when it builds the control.  Only the 3D
+        panel draws render planes, so the control of the 2D views' group is
+        not built (``None``), and the 3D view's edits the 3D panel's visual
+        alone.  In ``plane_controller.mode`` ``"slices"`` the control is
+        disabled with the reason: the planes follow the sliders.
+        """
+        from cellier.convenience.layout._shared import RenderPlanesTarget
+
+        vol_scene_id = self._scenes["vol"].id
+        vol_ids = [
+            visual_id
+            for visual_id in visual_ids
+            if self._controller.get_visual_scene_id(visual_id) == vol_scene_id
+        ]
+        if not vol_ids:
+            return None
+        planes = self._plane_controller
+        controller = self._controller
+
+        def blocked() -> str:
+            return planes.blocked_reason() or controller.render_planes_blocked(
+                vol_ids[0]
+            )
+
+        canvases = controller.get_canvas_ids(vol_scene_id)
+        return RenderPlanesTarget(
+            vol_ids,
+            canvases[0] if canvases else None,
+            blocked,
+            # A bound method is held weakly: the control can go away.
+            planes.mode_changed.connect,
+        )
 
     def _clipping_gizmo_target(
         self, visual_ids: Sequence[UUID]

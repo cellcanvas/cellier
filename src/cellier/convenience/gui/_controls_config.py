@@ -252,6 +252,14 @@ class InMemoryImageControlsConfig(BaseControlsConfig):
         (the handle and range labels) and the iso threshold, on the single
         page and on every channel.  Default 2.  Set it to suit the data,
         e.g. 0 for integer images; fractions such as opacity always show 2.
+    render_plane_controls : bool
+        Show the visual's render planes control: a row per plane of the
+        ``"plane"`` render mode (on or off, the normal, a position slider,
+        the extents) and a button to add one.  ``False`` (default) omits
+        it.  Values are in world units.  It is part of the appearance dock
+        and is disabled, with the reason shown, while the visual is not in
+        plane mode or the view is 2D.  On an ``OrthoViewer`` it is shown
+        for the 3D view only.
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
@@ -267,6 +275,7 @@ class InMemoryImageControlsConfig(BaseControlsConfig):
     clim_range: tuple[float, float] | None = None
     channel_labels: dict[int, str] | None = None
     decimals: int = 2
+    render_plane_controls: bool = False
 
     def __post_init__(self) -> None:
         """Check ``decimals`` as well as ``appearance``."""
@@ -346,6 +355,9 @@ class LabelsControlsConfig(BaseControlsConfig):
     ``colormap_mode`` is deliberately absent: it is ``frozen=True`` on
     ``BaseLabelsAppearance``, so a control wired to it could only raise
     (design section 6.5.1 proposal 4).
+
+    ``render_plane_controls`` (``False`` by default) shows the visual's
+    render planes control, as on :class:`InMemoryImageControlsConfig`.
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
@@ -354,6 +366,8 @@ class LabelsControlsConfig(BaseControlsConfig):
         "salt": "salt",
         "background_label": "background_label",
     }
+
+    render_plane_controls: bool = False
 
 
 @dataclass

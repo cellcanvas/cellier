@@ -5,6 +5,9 @@ type takes them: images and labels (in memory or multiscale), meshes,
 points, lines and graphs. Each visual has its own planes; there are no
 scene-wide ones.
 
+To draw a volume's data *on* a plane instead of cutting the volume with one,
+see [Draw a volume on planes](render_planes.md).
+
 ## The short version
 
 ```python
@@ -183,7 +186,7 @@ A gizmo in a 3D view moves and tilts one plane by dragging:
 ```python
 gizmo = viewer.add_clipping_plane_gizmo(visual, visual.clipping_planes[0])
 ...
-gizmo.close()            # or viewer.remove_clipping_plane_gizmo()
+gizmo.close()            # or viewer.remove_plane_gizmo()
 ```
 
 On an `OrthoViewer` the gizmo is drawn in the 3D panel and edits the 3D
@@ -249,8 +252,8 @@ A drag is announced by `PlaneInteractionEvent` (`controller.
 on_plane_interaction`): one start and one end, with the plane changes
 between them. A script can group its own changes the same way with
 `with controller.plane_interaction(visual.id): ...`. The plane a view's
-gizmo is on is announced by `ClippingPlaneGizmoChangedEvent`
-(`controller.on_clipping_plane_gizmo_changed`).
+gizmo is on is announced by `PlaneGizmoChangedEvent`
+(`controller.on_plane_gizmo_changed`).
 
 A multiscale image or labels visual in a 3D view plans nothing during a
 drag: it draws the bricks it already has, and its coarse backstop where the
