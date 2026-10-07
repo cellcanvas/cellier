@@ -1,7 +1,8 @@
 """Render planes on the controller: checks, API, events, planning.
 
-Plane rendering design v3, sections 4, 7.4 and 8 (Phase 5: nothing is drawn
-on a plane yet; a visual in plane mode draws its family's default volume).
+Plane rendering design v3, sections 4, 7.4 and 8.  What a plane draws is
+tested in ``test_plane_rendering_memory.py`` and
+``test_plane_rendering_multiscale.py``.
 """
 
 from __future__ import annotations
@@ -831,8 +832,10 @@ def test_the_gui_combos_do_not_offer_plane_yet(controller, image_volume, labels_
 async def test_a_plane_mode_visual_builds_and_draws(
     controller, render_scene, image_volume, labels_volume, kind
 ):
-    """Until the plane shaders arrive the visual draws as a volume, and no
-    shader is built for a mode it has no branch for."""
+    """A visual added in plane mode with a plane draws it on its first frame.
+
+    The pixels are checked in ``test_plane_rendering_memory.py``.
+    """
     scene = controller.add_scene(dim="3d", name="scene")
     world = _world(controller, scene)
     if kind == "image":
@@ -853,5 +856,5 @@ async def test_a_plane_mode_visual_builds_and_draws(
         )
     controller.add_canvas(scene_id=scene.id)
     await _loaded(controller, scene)
-    frame = render_scene(controller, scene.id)
-    assert np.isfinite(np.asarray(frame)).all()
+    frame = np.asarray(render_scene(controller, scene.id))
+    assert (frame[..., 3] > 0).any()

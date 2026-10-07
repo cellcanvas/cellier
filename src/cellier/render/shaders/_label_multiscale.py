@@ -25,10 +25,14 @@ from pygfx.renderers.wgpu import (
 from pygfx.renderers.wgpu.shaders.imageshader import ImageShader
 from pygfx.renderers.wgpu.shaders.volumeshader import BaseVolumeShader
 
-from cellier.render._plane_mode import volume_mode_until_planes_draw
+from cellier.render._render_planes import (
+    RENDER_PLANES_STRUCT,
+    make_render_planes_buffer,
+)
 from cellier.render.shaders._label_colormap import (
     build_outline_selection_texture,
 )
+from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 if TYPE_CHECKING:
     from pygfx.resources import Buffer
@@ -83,6 +87,9 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
     ray_steps_per_voxel : float
         Ray-march samples per voxel of the drawn level, measured along the
         ray.  Default is ``1.0``.
+    render_planes_buffer : Buffer or None
+        The visual's ``u_render_planes`` buffer, read in ``"plane"`` render
+        mode.  ``None`` gives the material one of its own with no plane.
     """
 
     uniform_type: ClassVar[dict] = dict(
@@ -107,11 +114,17 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
         n_entries: int = 0,
         outline_selection_texture: gfx.Texture | None = None,
         ray_steps_per_voxel: float = 1.0,
+        render_planes_buffer: Buffer | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.uniform_buffer.data["ray_steps_per_voxel"] = float(ray_steps_per_voxel)
         self.uniform_buffer.update_full()
+        self.render_planes_buffer = (
+            render_planes_buffer
+            if render_planes_buffer is not None
+            else make_render_planes_buffer()
+        )
         self.cache_texture = cache_texture
         self.lut_texture = lut_texture
         self.brick_max_texture = brick_max_texture
@@ -134,6 +147,15 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
             if outline_selection_texture is not None
             else build_outline_selection_texture()
         )
+
+    @property
+    def render_mode(self) -> str:
+        """The render mode; tracked, so a change rebuilds the shader."""
+        return self._store.render_mode
+
+    @render_mode.setter
+    def render_mode(self, value: str) -> None:
+        self._store.render_mode = value
 
     @property
     def ray_steps_per_voxel(self) -> float:
@@ -167,9 +189,7 @@ class LabelVolumeBrickShader(BaseVolumeShader):
         # stays valid on a canvas using the stock blender.
         self["write_outline_id"] = False
         self["has_outline_selection"] = m.outline_selection_texture is not None
-        self["render_mode"] = volume_mode_until_planes_draw(
-            m.render_mode, "iso_categorical"
-        )
+        self["render_mode"] = m.render_mode
         # Default for the ``normal`` render target.  ``write_normal`` is
         # overridden by CellierBlender.get_shader_kwargs when the target
         # exists; without it the write compiles away, so the same shader
@@ -271,6 +291,18 @@ class LabelVolumeBrickShader(BaseVolumeShader):
                     "texture/auto",
                     GfxTextureView(material.outline_selection_texture),
                     "FRAGMENT",
+                )
+            )
+        if material.render_mode == PLANE_RENDER_MODE:
+            # Bound for this mode only, so the other modes' shaders are
+            # what they were before the mode existed.
+            bindings.append(
+                Binding(
+                    "u_render_planes",
+                    "buffer/uniform",
+                    material.render_planes_buffer,
+                    "FRAGMENT",
+                    structname=RENDER_PLANES_STRUCT,
                 )
             )
         bindings = dict(enumerate(bindings))

@@ -39,10 +39,18 @@ class PyramidSpec:
     voxel_size: tuple[float, ...]
     dtype: str = "uint16"
     axes: tuple[str, ...] = AXES_ZYX
+    #: ``translations[k][axis]``: where level k's voxel 0 is centred, in
+    #: level-0 voxels.  ``None`` is block averaging, ``(factor - 1) / 2``.
+    translations: tuple[tuple[float, ...], ...] | None = None
 
     @property
     def n_levels(self) -> int:
         return len(self.factors)
+
+    def level_translation(self, level: int) -> tuple[float, ...]:
+        if self.translations is not None:
+            return tuple(self.translations[level])
+        return tuple((f - 1.0) / 2.0 for f in self.factors[level])
 
     def level_shape(self, level: int) -> tuple[int, ...]:
         return tuple(
@@ -130,7 +138,7 @@ def open_pyramid(root: Path, spec: PyramidSpec, *, name: str = "pyramid"):
     """Open the pyramid at *root* as a store; returns ``(store, voxel_size)``.
 
     Level-k voxel centres sit at ``(factor - 1) / 2`` level-0 voxels, as the
-    measured store's loader does.
+    measured store's loader does, unless the spec gives ``translations``.
     """
     system = DataCoordinateSystem(
         name="data",
@@ -143,7 +151,7 @@ def open_pyramid(root: Path, spec: PyramidSpec, *, name: str = "pyramid"):
         zarr_path=str(root),
         scale_names=[f"s{k}" for k in range(spec.n_levels)],
         level_scales=[tuple(f) for f in spec.factors],
-        level_translations=[tuple((v - 1.0) / 2.0 for v in f) for f in spec.factors],
+        level_translations=[spec.level_translation(k) for k in range(spec.n_levels)],
         data_coordinate_system=system,
         name=name,
     )

@@ -156,7 +156,12 @@ def _reaches_rows(grid: dict, rows: np.ndarray) -> np.ndarray:
     rows = np.asarray(rows, dtype=np.float64)
     normals = rows[:, :3]
     abs_normals = np.abs(normals)
-    reach = abs_normals @ grid["half_extents"]
+    half_extents = np.asarray(grid["half_extents"], dtype=np.float64)
+    if half_extents.ndim == 2:
+        # One box size per brick (``owned_cell_boxes``): (M, N).
+        reach = half_extents @ abs_normals.T
+    else:
+        reach = abs_normals @ half_extents
     signed = grid["centres"] @ normals.T + rows[:, 3]
     magnitude = abs_normals @ grid["centre_abs_max"] + reach + np.abs(rows[:, 3])
     return (signed + reach >= -1e-9 * magnitude).all(axis=1)
@@ -176,7 +181,9 @@ def cull_mask(
     Parameters
     ----------
     grid : dict
-        One level of ``build_level_grids``.
+        One level of ``build_level_grids``, or any dict with its ``arr``,
+        ``centres``, ``half_extents`` and ``centre_abs_max``;
+        ``half_extents`` may be ``(M, 3)``, one box size per brick.
     clip_rows : ndarray, shape (N, 4), or None
         Half-spaces ``n . p + d >= 0`` in the space of ``grid["centres"]``.
         A brick is kept when its box reaches the kept side of every row.
@@ -226,6 +233,7 @@ def select_levels_from_cache(
     thresholds: list[float] | None = None,
     base_layout: BlockLayout3D | None = None,
     keep: list[np.ndarray] | None = None,
+    metric: np.ndarray | None = None,
 ) -> np.ndarray:
     """Select LOD levels using precomputed coarse grid data.
 
@@ -261,6 +269,11 @@ def select_levels_from_cache(
     keep : list of ndarray of bool, or None
         Output of ``cull_masks``: per level, the bricks to rank.  The result
         is the unculled result with the other rows removed, in order.
+    metric : ndarray, shape (3,), or None
+        Per-axis factor applied to every offset from the camera before its
+        length is taken, so *thresholds* can be distances in another unit
+        than the grids' (world units, for the plane level rule).  ``None``
+        measures in the grids' own space.
 
     Returns
     -------
@@ -307,11 +320,15 @@ def select_levels_from_cache(
             arr_k = arr_k[kept]
 
         diff = centres - cam
+        half_extents = grid["half_extents"]
+        if metric is not None:
+            diff = diff * metric
+            half_extents = half_extents * metric
         dist = np.sqrt((diff * diff).sum(axis=1))
 
         if level > 1:
             abs_d = np.abs(diff)
-            max_corner_dist = np.sqrt(((abs_d + grid["half_extents"]) ** 2).sum(axis=1))
+            max_corner_dist = np.sqrt(((abs_d + half_extents) ** 2).sum(axis=1))
         else:
             max_corner_dist = dist
 
@@ -477,6 +494,7 @@ def sort_arr_by_distance(
     block_size: int,
     scale_vecs_shader: np.ndarray | list[np.ndarray] | None = None,
     translation_vecs_shader: np.ndarray | list[np.ndarray] | None = None,
+    metric: np.ndarray | None = None,
 ) -> np.ndarray:
     """Sort brick rows nearest-to-camera first.
 
@@ -503,6 +521,11 @@ def sort_arr_by_distance(
     translation_vecs_shader : list of ndarray, optional
         Per-level translation vectors in shader order ``(tx, ty, tz)``.
         Index 0 = level 1 (finest).
+    metric : ndarray, shape (3,), or None
+        Per-axis factor applied to every offset from the camera before its
+        length is taken: world units per level-0 voxel, to sort by world
+        distance (the plane render mode).  ``None`` sorts by distance in
+        level-0 voxels.
 
     Returns
     -------
@@ -524,7 +547,10 @@ def sort_arr_by_distance(
         scale, translation = s[:, None], t[:, None]
     centres = brick_centre_data(index, block_size, scale, translation)
 
-    distances = np.sqrt(((centres - cam[:3]) ** 2).sum(axis=1))
+    diff = centres - cam[:3]
+    if metric is not None:
+        diff = diff * metric
+    distances = np.sqrt((diff**2).sum(axis=1))
     order = np.argsort(distances, kind="stable")
     return arr[order]
 

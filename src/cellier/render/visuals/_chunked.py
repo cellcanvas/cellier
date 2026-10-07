@@ -124,6 +124,39 @@ def _pack(
     return pack_keys(levels, slice_ids, arr[:, 1:]), slice_ids
 
 
+def target_room(
+    residency: ImageResidency3D | ImageResidency2D | None,
+    backstop_arr: np.ndarray | None,
+    loading: ProgressiveLoadingConfig | None,
+) -> int | None:
+    """How many target bricks an atlas keeps beside its backstop.
+
+    The room :func:`desired_bricks` truncates the target to, for a planner
+    that would rather plan less than be truncated (an orthographic plane
+    plan, plane rendering design 6.3).
+
+    Parameters
+    ----------
+    residency : ImageResidency3D or ImageResidency2D or None
+        The atlas.
+    backstop_arr : np.ndarray or None
+        The planned backstop.
+    loading : ProgressiveLoadingConfig or None
+        For the backstop cap.
+
+    Returns
+    -------
+    int or None
+        ``None`` without an atlas.
+    """
+    if residency is None:
+        return None
+    budget = max(0, int(residency.n_slots) - 1)
+    n_backstop = 0 if backstop_arr is None else len(backstop_arr)
+    cap = max(0, int(backstop_cap_for(loading, residency)))
+    return budget - min(n_backstop, cap, budget)
+
+
 def desired_bricks(
     planner: MultiscaleRegionPlanner,
     residency: ImageResidency3D | ImageResidency2D,

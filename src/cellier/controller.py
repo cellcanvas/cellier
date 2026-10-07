@@ -2588,6 +2588,12 @@ class CellierController:
             self._render_manager.set_visual_clipping_planes(
                 visual_model.id, visual_model.clipping_planes
             )
+        if getattr(visual_model, "render_planes", ()):
+            # The bus carries later changes; a visual constructed with
+            # planes draws them on its first frame.
+            self._render_manager.set_visual_render_planes(
+                visual_model.id, visual_model.render_planes
+            )
 
         # psygnal bridges
         if hasattr(visual_model, "appearance"):

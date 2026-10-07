@@ -519,6 +519,9 @@ fn vs_main(in: VertexInput) -> Varyings {
 
 {$ include 'cellier.ray_clip.wgsl' $}
 
+$$ if render_mode == 'plane'
+{$ include 'cellier.render_planes.wgsl' $}
+$$ endif
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
     var out: FragmentOutput;
@@ -558,7 +561,53 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     t_end = clipped.y;
     if (t_start >= t_end) { discard; }
 
-    $$ if debug_mode == 'ray_dir'
+    $$ if render_mode == 'plane'
+    // ── Plane mode (plane rendering design v3, 5.1, 5.2) ───────────────
+    // One sample where the ray meets the nearest render plane inside the
+    // interval cut above, from the brick the LUT names there: the level
+    // planned for that place, or the backstop where it is not loaded yet.
+    let plane_ray_o = (u_wobject.world_transform * vec4<f32>(near_pos, 1.0)).xyz;
+    let plane_ray_d = (u_wobject.world_transform * vec4<f32>(ray_dir, 0.0)).xyz;
+    let plane = plane_nearest_hit(plane_ray_o, plane_ray_d, t_start, t_end, true);
+    if (!plane.hit) { discard; }
+    let plane_brick = setup_brick(
+        near_pos, ray_dir, inv_ray_dir, plane.t, t_end, norm_size, dataset_size);
+    if (!plane_brick.valid) { discard; }
+    let plane_pos = near_pos + ray_dir * plane.t;
+    let plane_value = sample_atlas(
+        norm_to_voxel(plane_pos, norm_size, dataset_size),
+        plane_brick.lut_entry, plane_brick.lod_scale, plane_brick.brick_corner_k);
+    // A value below the contrast limits is drawn, not skipped.
+    let plane_color = sampled_value_to_color(vec4<f32>(plane_value, 0.0, 0.0, 1.0));
+    $$ if colorspace == 'srgb'
+    let plane_physical = srgb2physical(plane_color.rgb);
+    $$ else
+    let plane_physical = plane_color.rgb;
+    $$ endif
+    let plane_opacity = plane_color.a * u_material.opacity;
+    do_alpha_test(plane_opacity);
+    let plane_world = u_wobject.world_transform * vec4<f32>(plane_pos, 1.0);
+    let plane_ndc = u_stdinfo.projection_transform * u_stdinfo.cam_transform * plane_world;
+    out.color = vec4<f32>(plane_physical, plane_opacity);
+    out.depth = plane_ndc.z / plane_ndc.w;
+    $$ if write_normal
+    // The plane's own normal, faced to the viewer by pack_view_normal.
+    out.normal = pack_view_normal(
+        plane_normal_local(plane.normal),
+        (u_stdinfo.cam_transform * plane_world).xyz);
+    $$ endif
+    $$ if write_pick
+    // The existing volume payload: the normalised position of the hit.
+    let plane_pick = (plane_pos / norm_size) + vec3<f32>(0.5);
+    out.pick = (
+        pick_pack(u32(u_wobject.global_id), 20) +
+        pick_pack(u32(clamp(plane_pick.x, 0.0, 1.0) * 16383.0), 14) +
+        pick_pack(u32(clamp(plane_pick.y, 0.0, 1.0) * 16383.0), 14) +
+        pick_pack(u32(clamp(plane_pick.z, 0.0, 1.0) * 16383.0), 14)
+    );
+    $$ endif
+
+    $$ elif debug_mode == 'ray_dir'
     // ── Debug: show ray direction as RGB ──────────────────────────────
     out.color = vec4<f32>((ray_dir + 1.0) * 0.5, 1.0);
     out.depth = 0.0;

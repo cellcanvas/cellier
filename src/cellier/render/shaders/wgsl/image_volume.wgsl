@@ -150,6 +150,9 @@ fn vs_main(in: VertexInput) -> Varyings {
 
 {$ include 'cellier.ray_clip.wgsl' $}
 
+$$ if mode == 'plane'
+{$ include 'cellier.render_planes.wgsl' $}
+$$ endif
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
 
@@ -184,6 +187,45 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     s_front = clipped.x;
     s_back = clipped.y;
     if (s_front >= s_back) { discard; }
+    $$ if mode == 'plane'
+    // Plane mode (plane rendering design v3, 5.1): one sample where the ray
+    // meets the nearest render plane inside the interval cut above.
+    let plane_ray_o = (u_wobject.world_transform * vec4<f32>(back_pos, 1.0)).xyz;
+    let plane_ray_d = (u_wobject.world_transform * vec4<f32>(view_ray, 0.0)).xyz;
+    let plane = plane_nearest_hit(plane_ray_o, plane_ray_d, s_front, s_back, true);
+    if (!plane.hit) { discard; }
+    let plane_pos = back_pos + view_ray * plane.t;
+    let plane_coord = (plane_pos + vec3<f32>(0.5)) / sizef;
+    // A value below the contrast limits is drawn, not skipped.
+    let plane_color = sampled_value_to_color(sample_vol(plane_coord, sizef));
+    $$ if colorspace == 'srgb'
+    let plane_physical = srgb2physical(plane_color.rgb);
+    $$ else
+    let plane_physical = plane_color.rgb;
+    $$ endif
+    let plane_world = u_wobject.world_transform * vec4<f32>(plane_pos, 1.0);
+    let plane_ndc = u_stdinfo.projection_transform * u_stdinfo.cam_transform * plane_world;
+
+    var out: FragmentOutput;
+    out.color = vec4<f32>(plane_physical, plane_color.a * u_material.opacity);
+    do_alpha_test(out.color.a);
+    out.depth = plane_ndc.z / plane_ndc.w;
+    $$ if write_normal
+    // The plane's own normal, faced to the viewer by pack_view_normal.
+    out.normal = pack_view_normal(
+        plane_normal_local(plane.normal),
+        (u_stdinfo.cam_transform * plane_world).xyz);
+    $$ endif
+    $$ if write_pick
+    out.pick = (
+        pick_pack(u32(u_wobject.global_id), 20) +
+        pick_pack(u32(clamp(plane_coord.x, 0.0, 1.0) * 16383.0), 14) +
+        pick_pack(u32(clamp(plane_coord.y, 0.0, 1.0) * 16383.0), 14) +
+        pick_pack(u32(clamp(plane_coord.z, 0.0, 1.0) * 16383.0), 14)
+    );
+    $$ endif
+    return out;
+    $$ else
     let front_pos = back_pos + view_ray * s_front;
     let end_pos = back_pos + view_ray * s_back;
 
@@ -231,6 +273,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     );
     $$ endif
     return out;
+    $$ endif
 }
 
 
@@ -483,6 +526,9 @@ $$ elif mode == 'iso'
         out.local_normal = local_normal;
         return out;
     }
+
+$$ elif mode == 'plane'
+    // Plane mode samples once in fs_main and marches no ray.
 
 $$ else
     fn raycast(sizef: vec3<f32>, nsteps: i32, start_coord: vec3<f32>, step_coord: vec3<f32>) -> RenderOutput {

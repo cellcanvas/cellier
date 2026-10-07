@@ -30,6 +30,12 @@ from cellier.render._level_of_detail_2d import (
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
 )
+from cellier.render._plane_planning import (
+    PlanePlanning,
+    build_plane_planning,
+    plan_plane_bricks,
+)
+from cellier.render._render_planes import RenderPlanesMixin
 from cellier.render._spaces import (
     RenderSpaces,
     node_matrix,
@@ -72,6 +78,7 @@ from cellier.render.visuals._chunked import (
     log_backstop_cap_once,
     make_residency_2d,
     make_residency_3d,
+    target_room,
     viewport_2d,
 )
 from cellier.render.visuals._image import (
@@ -97,6 +104,7 @@ from cellier.render.visuals._pick import (
     multiscale_image_data_coordinate,
     multiscale_volume_data_coordinate,
 )
+from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -133,7 +141,9 @@ _LABELS_SAMPLING_MARGIN_3D = 1.0
 _LABELS_SAMPLING_MARGIN_2D = 0.0
 
 
-class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
+class GFXMultiscaleLabelVisual(
+    RenderPlanesMixin, ClippingPlanesMixin, MultiscaleRegionPlanner
+):
     """Render-layer wrapper for one logical multiscale label visual.
 
     Owns GPU resources (int32 brick caches, LUT textures, label colormap
@@ -253,6 +263,8 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
         # The 2D atlas's adapter (see residency_2d).
         self._residency_2d: ImageResidency2D | None = None
         self._last_plan_stats: dict = {}
+        # What the last plane-mode plan was made of (``plan_plane_bricks``).
+        self._last_plane_plan: dict = {}
 
         self._data_ready_3d: bool = False
         self._data_ready_2d: bool = False
@@ -794,6 +806,8 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
         self._spaces = spaces
         if spaces is not None and self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
+        # Which planes are drawn follows the displayed axes.
+        self._apply_render_planes()
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
         """Place the nodes with the composition of design 3.9.
@@ -846,6 +860,8 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
         force_level: int | None = None,
         selection: RegionSelection | None = None,
         view_height_world: float = 0.0,
+        render_planes: PlanePlanning | None = None,
+        max_bricks: int | None = None,
     ) -> np.ndarray:
         """LOD selection, distance sort and frustum cull.
 
@@ -855,6 +871,12 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
         An orthographic view (``fov_y_rad`` of 0) takes one level for the
         whole visual, from ``view_height_world``, its visible height in world
         units.
+
+        With *render_planes* (the ``"plane"`` render mode) only the bricks
+        the planes cross are planned, at levels picked by the plane's own
+        rule (plane rendering design 6); *max_bricks* is the atlas's room
+        for the target, which an orthographic plane plan steps to a coarser
+        level rather than overrun.
         """
         t_plan_start = time.perf_counter()
         self._frame_number += 1
@@ -906,6 +928,34 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
             np.round(camera_pos_world, 1).tolist(),
             np.round(camera_pos_data, 1).tolist(),
         )
+
+        if render_planes is not None:
+            # Plane mode: its own cull, level rule and orthographic level.
+            brick_arr, plane_stats = plan_plane_bricks(
+                geo,
+                render_planes,
+                clip_rows=self._clip_rows(),
+                camera_pos_data=camera_pos_data,
+                frustum_planes=frustum_planes,
+                fov_y_rad=fov_y_rad,
+                screen_height_px=screen_height_px,
+                bias=lod_bias,
+                force_level=force_level,
+                view_height_world=view_height_world,
+                max_bricks=max_bricks,
+            )
+            self._last_plane_plan = plane_stats
+            self._last_plan_stats = {
+                "total_required": plane_stats["n_selected"],
+                "n_culled": plane_stats["n_selected"] - len(brick_arr),
+                "n_needed": len(brick_arr),
+                "cull_timings": {},
+                "lod_select_ms": 0.0,
+                "distance_sort_ms": 0.0,
+                "frustum_cull_ms": 0.0,
+                "plan_total_ms": (time.perf_counter() - t_plan_start) * 1000,
+            }
+            return brick_arr
 
         t0 = time.perf_counter()
         if force_level is None and fov_y_rad <= 0:
@@ -1080,6 +1130,20 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
             return []
         brick_arr = None
         if mode == PlanMode.FULL:
+            planes = self._plane_planning()
+            max_bricks = None
+            if planes is not None:
+                # The room an orthographic plane plan must fit: what the
+                # backstop leaves.  Planned again below, once the target
+                # has adopted the request.
+                self._adopt_request_3d(request)
+                max_bricks = target_room(
+                    self.residency_3d(),
+                    self._plan_backstop_3d(
+                        request.camera_pos, request.frustum_corners, config.loading
+                    ),
+                    config.loading,
+                )
             brick_arr = self._plan_bricks_3d(
                 request.camera_pos,
                 request.frustum_corners if config.frustum_cull else None,
@@ -1090,6 +1154,8 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
                 force_level=config.force_level,
                 selection=request.selection,
                 view_height_world=request.world_extent[1],
+                render_planes=planes,
+                max_bricks=max_bricks,
             )
         else:
             self._adopt_request_3d(request)
@@ -1100,6 +1166,19 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
         if residency is None:
             return []
         return self._finish_plan(residency, brick_arr, backstop, config.loading)
+
+    def _plane_planning(self) -> PlanePlanning | None:
+        """The render planes as the brick planner takes them, in plane mode.
+
+        ``None`` in a volume mode.
+        """
+        if self._render_mode != PLANE_RENDER_MODE:
+            return None
+        return build_plane_planning(
+            self.drawn_render_planes,
+            self._to_level0_displayed,
+            self._volume_geometry._scale_arr_shader,
+        )
 
     def _begin_region_planning(self, selection) -> None:
         """Start a planning call, applying the one-plane slicing rule first.
@@ -1817,6 +1896,7 @@ class GFXMultiscaleLabelVisual(ClippingPlanesMixin, MultiscaleRegionPlanner):
             n_entries=self._n_entries,
             pick_write=pick_write,
             ray_steps_per_voxel=self._ray_steps_per_voxel,
+            render_planes_buffer=self.render_planes_buffer,
         )
 
         geometry = gfx.Geometry(grid=proxy_tex)

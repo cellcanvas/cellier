@@ -1823,6 +1823,16 @@ class RenderManager:
         if setter is not None:
             setter(planes)
 
+    def set_visual_render_planes(self, visual_id: UUID, planes: Any) -> None:
+        """Hand a visual its render planes; ignored if it draws none."""
+        scene_id = self._visual_to_scene.get(visual_id)
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is None:
+            return
+        setter = getattr(scene_manager.get_visual(visual_id), "set_render_planes", None)
+        if setter is not None:
+            setter(planes)
+
     def clipping_planes_affect_request(self, visual_id: UUID) -> bool:
         """Whether a change of planes changes what *visual_id* reads."""
         scene_id = self._visual_to_scene.get(visual_id)
