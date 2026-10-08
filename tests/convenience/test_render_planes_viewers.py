@@ -678,3 +678,143 @@ async def test_a_2d_scrub_holds_the_vol_plan_and_loads_once(
     assert drags == []
     assert vol.render_planes[0].origin[0] == 56.0
     await drain_loading(controller)
+
+
+# -- the slice planes' outlines (plane outline design 8) --------------------------
+
+
+def _canvases(ortho) -> None:
+    """Give every panel its canvas: a visual is placed, and its planes'
+    outlines drawn, once its scene has one."""
+    for scene in ortho.scenes.values():
+        ortho.controller.add_canvas(scene.id)
+
+
+def _vol_outlines(ortho):
+    """The plane outlines drawn in the 3D panel's scene."""
+    scene_manager = ortho.controller._render_manager._scenes[ortho.scenes["vol"].id]
+    return scene_manager.plane_outlines.drawn
+
+
+async def test_the_slice_planes_have_no_outline_unless_given_one(make_viewer):
+    from cellier.visuals import PlaneOutline
+
+    ortho, visuals = _slices(make_viewer)
+    _canvases(ortho)
+    assert ortho.plane_controller.outlines == (PlaneOutline(),) * 3
+    assert all(not p.outline.enabled for p in visuals["vol"].render_planes)
+    assert _vol_outlines(ortho) == {}
+
+
+async def test_outlines_set_on_the_plane_controller_are_drawn_once_a_plane(
+    make_viewer,
+):
+    """Three outlines however many visuals carry the planes (5.4)."""
+    from cellier.visuals import PlaneOutline
+
+    ortho, visuals = _slices(make_viewer)
+    _canvases(ortho)
+    labels = ortho.add_labels(
+        LabelMemoryStore(data=np.ones(SHAPE, np.int32)),
+        appearance=InMemoryLabelsAppearance(render_mode="plane"),
+    )
+    colours = [(1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 1.0), (0.0, 0.0, 1.0, 1.0)]
+    outlines = tuple(PlaneOutline(enabled=True, color=c) for c in colours)
+
+    ortho.plane_controller.outlines = outlines
+    assert ortho.plane_controller.outlines == outlines
+    planes = visuals["vol"].render_planes
+    assert tuple(p.outline for p in planes) == outlines
+    assert tuple(p.id for p in planes) == ortho.plane_controller.plane_ids
+    assert labels["vol"].render_planes == planes
+    # The planes did not move, and the 2D panels have none.
+    assert _positions(planes) == [3.0, 5.0, 7.0]
+    assert visuals["xy"].render_planes == ()
+
+    drawn = _vol_outlines(ortho)
+    assert sorted(key[:1] + key[2:] for key in drawn) == [("render", 0)] * 3
+    by_plane = {key[1]: polygon.color for key, polygon in drawn.items()}
+    assert [by_plane[i] for i in ortho.plane_controller.plane_ids] == colours
+
+    # A slider moves a plane and its outline, and keeps the colour.
+    ortho.dims_controller.set_slice_position(0, 4.0)
+    assert visuals["vol"].render_planes[0].outline == outlines[0]
+    moved = _vol_outlines(ortho)[("render", ortho.plane_controller.plane_ids[0], 0)]
+    np.testing.assert_allclose(moved.vertices[:, 2], 4.0)
+
+    # One outline for all three; None for none.
+    grey = PlaneOutline(enabled=True, color=(0.5, 0.5, 0.5, 1.0))
+    ortho.plane_controller.outlines = grey
+    assert {p.outline for p in visuals["vol"].render_planes} == {grey}
+    ortho.plane_controller.outlines = None
+    assert _vol_outlines(ortho) == {}
+
+
+async def test_outlines_set_before_the_mode_are_the_planes_when_it_is_turned_on(
+    make_viewer,
+):
+    from cellier.visuals import PlaneOutline
+
+    ortho, visuals = _slices(make_viewer, mode=False)
+    _canvases(ortho)
+    white = PlaneOutline(enabled=True)
+    ortho.plane_controller.outlines = white
+    assert visuals["vol"].render_planes == ()  # nothing is written in mode None
+    ortho.plane_controller.mode = "slices"
+    assert {p.outline for p in visuals["vol"].render_planes} == {white}
+    assert len(_vol_outlines(ortho)) == 3
+    with pytest.raises(ValueError, match="one PlaneOutline"):
+        ortho.plane_controller.outlines = (white, white)
+
+
+async def test_an_outline_given_to_a_slice_plane_by_hand_is_copied_and_kept(
+    make_viewer,
+):
+    """As a plane's extents are: the planes are the source of truth."""
+    from cellier.visuals import PlaneOutline
+
+    ortho, visuals = _slices(make_viewer)
+    _canvases(ortho)
+    other = ortho.add_labels(LabelMemoryStore(data=np.ones(SHAPE, np.int32)))
+    vol = visuals["vol"]
+    red = PlaneOutline(enabled=True, color=(1.0, 0.0, 0.0, 1.0))
+    first = vol.render_planes[0]
+    ortho.controller.set_render_plane(
+        vol.id, first.id, first.model_copy(update={"outline": red})
+    )
+    assert other["vol"].render_planes == vol.render_planes
+    assert ortho.plane_controller.outlines == (red, PlaneOutline(), PlaneOutline())
+    ortho.dims_controller.set_slice_position(1, 6.0)
+    assert vol.render_planes[0].outline == red
+    # Off and on again: the planes are built with the outlines they had.
+    ortho.plane_controller.mode = None
+    ortho.controller.set_render_planes(vol.id, ())
+    ortho.controller.set_render_planes(other["vol"].id, ())
+    ortho.plane_controller.mode = "slices"
+    assert vol.render_planes[0].outline == red
+
+
+async def test_the_clipping_link_carries_a_plane_s_outline(make_viewer):
+    """``OrthoClippingController`` mirrors whole tuples: an outline set on
+    one panel's clipping plane reaches the others, and so does a restyle."""
+    from cellier.visuals import PlaneOutline
+
+    ortho = make_viewer(OrthoViewer)
+    visuals = ortho.add_image(_image())
+    _canvases(ortho)
+    store = ortho.controller.get_data_store(UUID(str(visuals["vol"].data_store_id)))
+    red = PlaneOutline(enabled=True, color=(1.0, 0.0, 0.0, 1.0))
+    item = ClippingPlane.from_point_normal(
+        store.data_coordinate_system, (4, 6, 8), (0, 0, 1), outline=red
+    )
+    visuals["xz"].clipping_planes = (item,)
+    assert {v.clipping_planes for v in visuals.values()} == {(item,)}
+
+    blue = red.model_copy(update={"color": (0.0, 0.0, 1.0, 1.0)})
+    restyled = item.model_copy(update={"outline": blue})
+    ortho.controller.set_clipping_planes(visuals["vol"].id, (restyled,))
+    assert {v.clipping_planes for v in visuals.values()} == {(restyled,)}
+    # Drawn in the 3D panel, as one line.
+    drawn = _vol_outlines(ortho)
+    assert list(drawn) == [("clipping", item.id, 0)]
+    assert drawn[("clipping", item.id, 0)].color == blue.color

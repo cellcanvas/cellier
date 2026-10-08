@@ -7,9 +7,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pygfx as gfx
 
+from cellier.render._gpu_lifetime import weak_callback
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render._spaces import data_slice_positions, visual_covers_position
 from cellier.render.scheduling import is_chunked_visual
+from cellier.render.visuals._plane_outline import (
+    GFXPlaneOutlines,
+    visual_plane_outlines,
+)
 from cellier.scene._background import BackgroundAppearance
 from cellier.transform import (
     NonAffineTransformError,
@@ -17,7 +22,7 @@ from cellier.transform import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Collection, Mapping, Sequence
     from uuid import UUID
 
     from cellier.data.image import ChunkRequest
@@ -82,6 +87,14 @@ class SceneManager:
         # same gfx.Scene as the visuals but are not visuals: they are never
         # sliced and never picked.
         self._overlays: dict[UUID, GFXSceneOverlay] = {}
+        # The outlines of the visuals' planes (plane outline design 6.1):
+        # lines in the scene that belong to no one visual, because a plane
+        # shared by two visuals has one outline.  ``_outline_kinds`` is
+        # which planes each visual shows now, as the controller last said.
+        self._plane_outlines = GFXPlaneOutlines()
+        self._scene.add(self._plane_outlines.node)
+        self._outline_kinds: dict[UUID, frozenset[str]] = {}
+        self._outlines_changed_listener: Callable[[], None] | None = None
         # Per-visual store extents, for the out-of-domain check in
         # build_slice_requests.  Absent means "not known", which never skips.
         self._axis_extents: dict[UUID, Sequence[tuple[float, float]] | None] = {}
@@ -174,6 +187,8 @@ class SceneManager:
         self._scene.add(node)
         self._visuals[visual.visual_model_id] = visual
         self._active_nodes[visual.visual_model_id] = node
+        # Told whenever the visual reduces its planes again.
+        visual._planes_placed_listener = weak_callback(self._on_planes_placed)
 
     def set_axis_extents(
         self,
@@ -259,6 +274,54 @@ class SceneManager:
         if overlay is not None:
             self._scene.remove(overlay.node)
 
+    # ── Plane outlines ──────────────────────────────────────────────────
+
+    @property
+    def plane_outlines(self) -> GFXPlaneOutlines:
+        """The outlines of the visuals' planes drawn in this scene."""
+        return self._plane_outlines
+
+    def set_plane_outline_kinds(self, kinds: Mapping[UUID, Collection[str]]) -> bool:
+        """Say which planes each visual shows outlines of, and redraw them.
+
+        Parameters
+        ----------
+        kinds : Mapping[UUID, Collection[str]]
+            ``{visual id: kinds}``, a kind being ``"render"`` for the
+            visual's render planes or ``"clipping"`` for its clipping
+            planes.  A visual left out shows none: it is hidden, or not
+            drawn in a way that shows its planes.
+
+        Returns
+        -------
+        bool
+            Whether anything drawn changed.
+        """
+        self._outline_kinds = {
+            visual_id: frozenset(shown) for visual_id, shown in kinds.items() if shown
+        }
+        return self._refresh_plane_outlines(notify=False)
+
+    def _on_planes_placed(self) -> None:
+        """A visual reduced its planes again: its outlines may have moved."""
+        self._refresh_plane_outlines()
+
+    def _refresh_plane_outlines(self, *, notify: bool = True) -> bool:
+        """Compute every outline of the scene again (design 6.4).
+
+        The visuals are asked in the order they were added, which is what
+        decides whose style a shared plane's outline takes.
+        """
+        polygons = []
+        for visual_id, visual in self._visuals.items():
+            kinds = self._outline_kinds.get(visual_id)
+            if kinds:
+                polygons.extend(visual_plane_outlines(visual, kinds))
+        changed = self._plane_outlines.update(polygons)
+        if changed and notify and self._outlines_changed_listener is not None:
+            self._outlines_changed_listener()
+        return changed
+
     def get_overlay(self, overlay_id: UUID) -> GFXSceneOverlay | None:
         """Return the render-layer scene overlay for *overlay_id*, if any."""
         return self._overlays.get(overlay_id)
@@ -282,6 +345,9 @@ class SceneManager:
         if active_node is not None:
             self._scene.remove(active_node)
         visual = self._visuals.pop(visual_id)
+        visual._planes_placed_listener = None
+        self._outline_kinds.pop(visual_id, None)
+        self._refresh_plane_outlines()
         # Explicit release for visuals that hold slots, caches or model
         # connections (unified image design 3.8), rather than trusting GC.
         close = getattr(visual, "close", None)
@@ -296,10 +362,14 @@ class SceneManager:
         visuals are released here rather than left for when the manager dies.
         Safe to call more than once.
         """
+        # Nobody is told of the outlines going: the scene is going too.
+        self._outlines_changed_listener = None
         for visual_id in list(self._visuals):
             self.remove_visual(visual_id)
         for overlay_id in list(self._overlays):
             self.remove_overlay(overlay_id)
+        self._outline_kinds.clear()
+        self._plane_outlines.clear()
 
     def get_visual_id_for_node(self, node: gfx.WorldObject) -> UUID | None:
         """Return the visual_id whose active scene-graph node is *node*.

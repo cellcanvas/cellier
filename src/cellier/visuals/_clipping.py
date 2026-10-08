@@ -8,6 +8,7 @@ from uuid import uuid4
 from pydantic import UUID4, BaseModel, ConfigDict, Field, TypeAdapter
 
 from cellier.transform import Plane
+from cellier.visuals._plane_outline import PlaneOutline
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -52,6 +53,10 @@ class ClippingPlane(BaseModel):
     enabled : bool
         A disabled plane stays in the list and clips nothing.  Toggling it
         costs no shader compile.  Default ``True``.
+    outline : PlaneOutline
+        The line around the plane's cut face: the plane where it crosses
+        the visual's data, inside the visual's other clipping planes.  Off
+        by default.  It is drawn in a 3D view, while the plane is enabled.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -59,6 +64,7 @@ class ClippingPlane(BaseModel):
     id: UUID4 = Field(default_factory=uuid4)
     plane: Plane
     enabled: bool = True
+    outline: PlaneOutline = Field(default_factory=PlaneOutline)
 
     @classmethod
     def from_point_normal(
@@ -69,6 +75,7 @@ class ClippingPlane(BaseModel):
         axes: Sequence[AxisRef] | None = None,
         *,
         enabled: bool = True,
+        outline: PlaneOutline | None = None,
     ) -> ClippingPlane:
         """Build the plane through *point* that keeps the side *normal* points to.
 
@@ -88,6 +95,8 @@ class ClippingPlane(BaseModel):
             ``None`` means every axis of the system.
         enabled : bool
             Whether the plane clips.  Default ``True``.
+        outline : PlaneOutline or None
+            The line around the plane's cut face.  ``None`` is no outline.
 
         Returns
         -------
@@ -96,6 +105,7 @@ class ClippingPlane(BaseModel):
         return cls(
             plane=Plane.from_point_normal(coordinate_system, point, normal, axes),
             enabled=enabled,
+            outline=PlaneOutline() if outline is None else outline,
         )
 
 

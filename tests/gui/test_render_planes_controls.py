@@ -112,7 +112,16 @@ def _make(toolkit, controller, visual, *, visual_ids=None, canvas_id=None, **ext
 
 
 def _act(widget, action, index=None, value=None) -> None:
-    """Do one thing as a user would."""
+    """Do one thing as a user would.
+
+    ``"position"`` puts the plane at position *value*.  A control shows and
+    sends the depth into the box, which differs from the position by a
+    constant, so it is done as the depth of that position.
+    """
+    if action == "position":
+        described = widget.editor.describe()[index]
+        action = "depth"
+        value = value - described["position"] + described["depth"]
     if hasattr(widget, "comm"):  # anywidget: what the front end sends
         widget.edit = {
             "action": action,
@@ -136,7 +145,7 @@ def _act(widget, action, index=None, value=None) -> None:
         row.enabled.setChecked(value)
     elif action == "facing":
         row.facing[tuple(value)].click()
-    elif action == "position":
+    elif action == "depth":
         row.position.setValue(value)
     elif action == "component":
         row.components[value[0]].setValue(value[1])
@@ -144,6 +153,34 @@ def _act(widget, action, index=None, value=None) -> None:
         row.sides[(value[0], value[1])].setValue(value[2])
     elif action == "bounded":
         row.unbounded[(value[0], value[1])].setChecked(not value[2])
+    elif action == "outline":
+        row.outline.enabled.setChecked(value)
+    elif action == "outline_color":
+        _pick_colour(row, value)
+
+
+def _pick_colour(row, colour) -> None:
+    """Choose *colour* in a Qt row's colour dialog; ``None`` cancels it."""
+    from qtpy.QtGui import QColor
+    from qtpy.QtWidgets import QColorDialog
+
+    original = QColorDialog.getColor
+    QColorDialog.getColor = staticmethod(
+        lambda *args, **kwargs: QColor() if colour is None else QColor(colour)
+    )
+    try:
+        row.outline.color.click()
+    finally:
+        QColorDialog.getColor = original
+
+
+def _outline_shown(widget, index) -> tuple[bool, str]:
+    """``(ticked, #rrggbb)`` as the row shows them."""
+    if hasattr(widget, "comm"):
+        row = widget.rows[index]
+        return bool(row["outline"]["enabled"]), row["outline_hex"]
+    row = widget.row(index)
+    return row.outline.enabled.isChecked(), row.outline.hex
 
 
 def _n_rows(widget) -> int:
@@ -197,6 +234,7 @@ def test_a_row_shows_the_normal_the_position_and_the_extents():
         "position": 3.0,
         "extent_0": [None, None],
         "extent_1": [-2.0, 6.0],
+        "outline": {"enabled": False, "color": [1.0, 1.0, 1.0, 1.0], "width": 2.0},
     }
 
 
@@ -372,6 +410,68 @@ def test_position_and_normal_edits_keep_the_frames_spin(controller, toolkit):
 
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_the_editor_describes_and_sets_the_depth(controller, toolkit):
+    scene, visual = _add_image(controller)
+    # z runs from -0.5 to 9.5; the plane is through the middle, at z == 4.5.
+    visual.render_planes = (_plane(controller, scene),)
+    widget = _make(toolkit, controller, visual)
+    editor = widget.editor
+    described = editor.describe()[0]
+    assert (described["depth"], described["span"]) == (5.0, 10.0)
+    assert described["outside"] is False
+
+    editor.set_depth(0, 2.0)
+    # Along the normal only: the origin keeps its in-plane coordinates.
+    np.testing.assert_allclose(visual.render_planes[0].origin, (1.5, *CENTRE[1:]))
+    assert editor.describe()[0]["depth"] == pytest.approx(2.0)
+
+    # A flip moves nothing and mirrors the depth.
+    _act(widget, "flip", 0)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (1.5, *CENTRE[1:]))
+    described = editor.describe()[0]
+    assert described["position"] == pytest.approx(-1.5)
+    assert (described["depth"], described["span"]) == pytest.approx((8.0, 10.0))
+    # Depth 0 is now the face z == 9.5, the one the normal points away from.
+    editor.set_depth(0, 0.0)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (9.5, *CENTRE[1:]))
+    assert editor.describe()[0]["outside"] is False
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_a_plane_outside_the_box_has_a_depth_past_the_span(controller, toolkit):
+    scene, visual = _add_image(controller)
+    visual.render_planes = (_plane(controller, scene),)
+    widget = _make(toolkit, controller, visual)
+    editor = widget.editor
+
+    editor.set_depth(0, 12.0)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (11.5, *CENTRE[1:]))
+    described = editor.describe()[0]
+    # The span is the box's, not widened to hold the plane.
+    assert (described["depth"], described["span"]) == pytest.approx((12.0, 10.0))
+    assert described["outside"] is True
+
+    editor.set_depth(0, -3.0)
+    described = editor.describe()[0]
+    assert (described["depth"], described["span"]) == pytest.approx((-3.0, 10.0))
+    assert described["outside"] is True
+
+
+def test_the_depth_of_a_tilted_plane_is_along_its_normal(controller):
+    scene, visual = _add_image(controller)
+    # Through the box's corner (-0.5, -0.5, 39.5), which is where a plane of
+    # this normal first touches the box.
+    corner = (-0.5, -0.5, 19.5)
+    visual.render_planes = (_plane(controller, scene, point=corner, normal=(1, 1, 0)),)
+    widget = _make("anywidget", controller, visual)
+    described = widget.editor.describe()[0]
+    assert described["depth"] == pytest.approx(0.0, abs=1e-9)
+    # The box is 10 along z and 20 along y.
+    assert described["span"] == pytest.approx(30 / np.sqrt(2))
+    assert described["outside"] is False
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
 def test_a_flip_changes_the_model_and_nothing_drawn(controller, toolkit):
     scene, visual = _add_image(controller)
     plane = _plane(controller, scene, extent_1=(-3.0, 8.0))
@@ -475,6 +575,72 @@ def test_a_refused_edit_shows_the_last_rows_and_the_error(controller, toolkit):
     assert widget.error == ""
 
 
+def _qt(controller):
+    """A Qt control on an image whose z runs from -0.5 to 9.5, one plane."""
+    scene, visual = _add_image(controller)
+    visual.render_planes = (_plane(controller, scene),)
+    widget = _make("qt", controller, visual)
+    return visual, widget, widget.row(0)
+
+
+def test_the_qt_slider_runs_from_one_face_of_the_box_to_the_other(controller):
+    visual, _widget, row = _qt(controller)
+    assert (row.slider.value(), row.position.value()) == (500, 5.0)
+    row.slider.setValue(0)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (-0.5, *CENTRE[1:]))
+    row.slider.setValue(row.slider.maximum())
+    np.testing.assert_allclose(visual.render_planes[0].origin, (9.5, *CENTRE[1:]))
+    assert row.position.value() == 10.0
+    assert not row.outside
+
+    # Flipped, the slider runs the other way: along the new normal.
+    row.flip.click()
+    assert (row.slider.value(), row.position.value()) == (0, 0.0)
+    row.slider.setValue(250)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (7.0, *CENTRE[1:]))
+    assert row.position.value() == 2.5
+
+
+def test_the_qt_number_is_the_depth_and_typing_it_moves_the_plane(controller):
+    visual, widget, row = _qt(controller)
+    row.flip.click()
+    # The plane z == 4.5, seen along -z: its position is -4.5, its depth 5.
+    assert widget.editor.rows[0]["position"] == -CENTRE[0]
+    assert row.position.value() == 5.0
+    row.position.setValue(2.0)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (7.5, *CENTRE[1:]))
+    assert row.slider.value() == 200
+
+
+def test_the_qt_row_marks_a_plane_outside_the_box(controller):
+    visual, widget, row = _qt(controller)
+    usual = row.position.toolTip()
+    assert row.slider.toolTip() == usual != ""
+
+    # Moved from elsewhere (a gizmo, code) to 2 past the far face.
+    plane = visual.render_planes[0]
+    visual.render_planes = (with_position(plane, 11.5),)
+    assert row.outside
+    assert row.slider.value() == row.slider.maximum()  # pinned
+    assert row.position.value() == 12.0  # the true depth
+    assert row.position.font().italic()
+    assert row.position.toolTip().startswith("The plane is outside")
+    assert widget.editor.describe()[0]["span"] == 10.0
+
+    # Before the near face: pinned at the other end, the number negative.
+    row.position.setValue(-3.0)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (-3.5, *CENTRE[1:]))
+    assert (row.slider.value(), row.position.value()) == (0, -3.0)
+    assert row.outside
+
+    # Touching the slider brings the plane back inside.
+    row.slider.setValue(100)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (0.5, *CENTRE[1:]))
+    assert not row.outside
+    assert not row.position.font().italic()
+    assert row.position.toolTip() == usual
+
+
 def test_the_qt_row_names_the_planes_own_axes(controller):
     scene = controller.add_scene(
         coordinate_system=[("t", "time"), *spatial_axes(*AXES)], dim="3d", name="tzyx"
@@ -513,7 +679,8 @@ def test_a_moved_plane_keeps_its_row_widgets(controller):
     )
     assert widget.row(0) is row
     assert widget.row(0).slider is slider
-    assert row.position.value() == 6.0
+    # The number is the depth: z == 6 is 6.5 into a box from z == -0.5.
+    assert row.position.value() == 6.5
 
 
 def test_the_anywidget_sends_one_update_for_an_edit_delivered_twice(controller):
@@ -522,7 +689,7 @@ def test_the_anywidget_sends_one_update_for_an_edit_delivered_twice(controller):
     _act(widget, "add")
     sent: list = []
     widget.changed.connect(sent.append)
-    edit = {"action": "position", "index": 0, "value": 3.0, "serial": 99}
+    edit = {"action": "depth", "index": 0, "value": 3.0, "serial": 99}
     widget.edit = edit
     widget.edit = dict(edit, serial=100)  # the same edit, delivered again
     assert len(sent) == 1
@@ -541,14 +708,44 @@ def test_the_anywidget_puts_back_what_a_host_overwrites(controller):
     assert len(widget.rows) == 1
 
 
+def test_the_anywidget_front_end_sends_the_depth(controller):
+    scene, visual = _add_image(controller)  # z runs from -0.5 to 9.5
+    visual.render_planes = (_plane(controller, scene),)
+    widget = _make("anywidget", controller, visual)
+    _act(widget, "flip", 0)
+    # Along -z, depth 2 is the plane z == 7.5.
+    _act(widget, "depth", 0, 2.0)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (7.5, *CENTRE[1:]))
+    row = widget.rows[0]
+    assert (row["depth"], row["span"]) == pytest.approx((2.0, 10.0))
+    assert row["outside"] is False
+    assert "low" not in row and "high" not in row
+    # Past the far face: the row says so, and its span is still the box's.
+    _act(widget, "depth", 0, 12.0)
+    np.testing.assert_allclose(visual.render_planes[0].origin, (-2.5, *CENTRE[1:]))
+    row = widget.rows[0]
+    assert (row["depth"], row["span"]) == pytest.approx((12.0, 10.0))
+    assert row["outside"] is True
+
+
+def test_the_anywidget_no_longer_takes_a_position(controller):
+    """The action a front end from before the depth would send."""
+    scene, visual = _add_image(controller)
+    visual.render_planes = (_plane(controller, scene),)
+    widget = _make("anywidget", controller, visual)
+    before = visual.render_planes
+    widget.edit = {"action": "position", "index": 0, "value": 3.0, "serial": 9999}
+    assert visual.render_planes == before
+
+
 def test_the_anywidget_ignores_a_malformed_edit(controller):
     _scene, visual = _add_image(controller)
     widget = _make("anywidget", controller, visual)
     _act(widget, "add")
     before = visual.render_planes
     for action, index, value in [
-        ("position", 5, 1.0),
-        ("position", "0", 1.0),
+        ("depth", 5, 1.0),
+        ("depth", "0", 1.0),
         ("facing", 0, [3, 1]),
         ("component", 0, 1.0),
         ("side", 0, [0, 2, 1.0]),
@@ -950,3 +1147,107 @@ def test_the_planes_control_shows_the_plane_a_combo_added(controller, toolkit):
     assert _blocked(widget) == ""
     assert _n_rows(widget) == 1
     assert widget.editor.rows[0]["position"] == CENTRE[0]
+
+
+# -- a plane's outline (plane outline design 4.1) -------------------------------
+
+
+def test_every_edit_of_a_plane_keeps_its_outline():
+    """The control edits planes, not rows: an edit must not drop a field it
+    has no entry for."""
+    from cellier.gui._render_planes import with_side
+    from cellier.visuals import PlaneOutline
+
+    outline = PlaneOutline(enabled=True, color=(1.0, 0.0, 0.0, 1.0), width=3.0)
+    plane = _free_plane(extent_0=(-4.0, 4.0)).model_copy(update={"outline": outline})
+    bounds = [[0.0, 10.0], [0.0, 10.0], [0.0, 10.0]]
+    edits = {
+        "position": with_position(plane, 5.0),
+        "normal": with_normal(plane, (0.0, 1.0, 1.0)),
+        "flip": flipped(plane),
+        "side": with_side(plane, 0, 1, 6.0),
+        "bound": with_side_bounded(plane, 1, 0, True, bounds),
+        "unbound": with_side_bounded(plane, 0, 0, False, bounds),
+    }
+    for name, edited in edits.items():
+        assert edited != plane, name
+        assert edited.outline == outline, name
+        assert edited.id == plane.id, name
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+async def test_a_row_draws_and_colours_its_plane_s_outline(controller, toolkit):
+    """Plane outline design 7: a box and a colour per row."""
+    from cellier.visuals import PlaneOutline
+
+    scene, visual = _add_image(controller, canvas=True)
+    faint = PlaneOutline(color=(1.0, 1.0, 1.0, 0.5), width=5.0)
+    plane = _plane(controller, scene, outline=faint)
+    controller.set_render_planes(visual.id, (plane,))
+    widget = _make(toolkit, controller, visual)
+    assert _outline_shown(widget, 0) == (False, "#ffffff")
+    outlines = controller._render_manager._scenes[scene.id].plane_outlines
+
+    _act(widget, "outline", 0, True)
+    assert visual.render_planes[0].outline.enabled is True
+    assert visual.render_planes[0].id == plane.id
+    assert len(outlines.drawn) == 1  # and it is drawn
+
+    _act(widget, "outline_color", 0, "#ff8000")
+    outline = visual.render_planes[0].outline
+    # The colour is the one chosen; the alpha and the width, which the row
+    # has no entry for, are the plane's own.
+    assert outline.color == pytest.approx((1.0, 128 / 255, 0.0, 0.5))
+    assert outline.width == 5.0
+    assert outline.enabled is True
+    assert _outline_shown(widget, 0) == (True, "#ff8000")
+    # Nothing else of the plane moved.
+    assert visual.render_planes[0].origin == plane.origin
+
+    _act(widget, "outline", 0, False)
+    assert visual.render_planes[0].outline.enabled is False
+    assert visual.render_planes[0].outline.color == pytest.approx(outline.color)
+    assert outlines.drawn == {}
+    assert widget.error == ""
+    widget.close()
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+async def test_an_outline_set_from_code_is_shown_and_sends_nothing(controller, toolkit):
+    from cellier.visuals import PlaneOutline
+
+    scene, visual = _add_image(controller)
+    plane = _plane(controller, scene)
+    controller.set_render_planes(visual.id, (plane,))
+    widget = _make(toolkit, controller, visual)
+    updates: list = []
+    widget.changed.connect(updates.append)
+
+    green = PlaneOutline(enabled=True, color=(0.0, 1.0, 0.0, 1.0))
+    controller.set_render_planes(
+        visual.id, (plane.model_copy(update={"outline": green}),)
+    )
+    assert _outline_shown(widget, 0) == (True, "#00ff00")
+    assert updates == []
+    widget.close()
+
+
+async def test_a_cancelled_colour_dialog_changes_nothing(controller):
+    scene, visual = _add_image(controller)
+    plane = _plane(controller, scene)
+    controller.set_render_planes(visual.id, (plane,))
+    widget = _make("qt", controller, visual)
+    _act(widget, "outline_color", 0, None)
+    assert visual.render_planes == (plane,)
+    widget.close()
+
+
+async def test_an_outline_colour_that_is_not_a_colour_is_refused(controller):
+    scene, visual = _add_image(controller)
+    plane = _plane(controller, scene)
+    controller.set_render_planes(visual.id, (plane,))
+    widget = _make("anywidget", controller, visual)
+    _act(widget, "outline_color", 0, "red")
+    assert visual.render_planes == (plane,)
+    assert "#rrggbb" in widget.error
+    widget.close()

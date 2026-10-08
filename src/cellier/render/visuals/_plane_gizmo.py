@@ -37,14 +37,16 @@ class PlaneTransformGizmo(gfx.TransformGizmo):
       clipping plane has no size; a render plane has one along each
       in-plane axis that is bounded on both sides (plane rendering design
       v3, 8.3).  Axis 0, the normal, never has one.
-    - A scale drag along a handle's arrow always grows the object, whatever
-      the camera angle (see :meth:`_handle_scale_move`).
     - The frame stays ``"object"``: axis 0 is the normal.
+    - The handles point along the object's own axes, whatever the camera
+      angle: the arrow of axis 0 is the plane's normal (see
+      :meth:`_update_gizmo_transform`).  So a scale drag along a handle's
+      arrow always grows the object.
     - It tells its owner when a handle is grabbed, moved and released.
 
     Relies on private pygfx names: ``_ref``, ``_camera``, ``_viewport``,
-    ``_update_visibility``, ``_highlight``, ``_center_sphere``,
-    ``_scale_children``, ``_handle_scale_move``, ``_object_to_control`` and
+    ``_update_visibility``, ``_update_gizmo_transform``, ``_highlight``,
+    ``_center_sphere``, ``_scale_children``, ``_object_to_control`` and
     ``gizmo_scale``.
 
     Parameters
@@ -67,6 +69,13 @@ class PlaneTransformGizmo(gfx.TransformGizmo):
         self.toggle_mode("object")
         for element in self.children:
             element.material.depth_test = False
+        # With no depth test the element drawn last is the one seen and the
+        # one picked.  A handle that points away from the camera can be
+        # behind an in-plane translate square on screen (pygfx turns its
+        # handles to the camera, so it never meets this): the one-axis
+        # handles are drawn after everything else, so they can be grabbed.
+        for element in (*self._translate1_children, *self._scale_children):
+            element.render_order = 1
 
     def _update_visibility(self) -> None:
         super()._update_visibility()
@@ -75,30 +84,25 @@ class PlaneTransformGizmo(gfx.TransformGizmo):
             if dim not in self.scale_axes:
                 element.visible = False
 
-    def _handle_scale_move(self, event: Any) -> None:
-        """Scale as pygfx does, with the drag's direction put right.
+    def _update_gizmo_transform(self) -> None:
+        """Place the gizmo as pygfx does, without turning it to the camera.
 
-        pygfx flips a handle that would point away from the camera and
-        means its scale drag to flip with it.  It reads the flip from the
-        sign of the gizmo's ``local.scale``, but a node's matrix is kept as
-        translation, rotation and scale, and a flip does not come back from
-        it as a negative scale on the axis that was flipped (two flipped
-        axes come back as a half turn).  ``gizmo_scale`` is the array the
-        flip was written to, so its sign is the truth: where the two
-        disagree, the factor pygfx applied is inverted.
+        pygfx flips every handle that would point away from the camera, so
+        an arrow shows where the viewer is and not which way its axis
+        goes: it does not turn over when the plane is flipped, and it does
+        when the camera passes the plane.  Here the flip is dropped and
+        the size on screen kept.
+
+        The rotation is written again, before the scale: a flip that was
+        written to the node's matrix does not come back out of it as a
+        scale, so a positive scale written over it would leave the gizmo
+        turned.
         """
-        super()._handle_scale_move(event)
-        dim = self._ref["dim"]
-        if dim is None:
-            return
-        assumed = self.local.scale[dim] < 0
-        flipped = self.gizmo_scale[dim] < 0
-        if assumed != flipped:
-            target = self._object_to_control
-            scale = np.array(target.local.scale, dtype=np.float64)
-            start = float(self._ref["scale"][dim])
-            scale[dim] = start * start / scale[dim]
-            target.local.scale = scale
+        super()._update_gizmo_transform()
+        np.abs(self.gizmo_scale, out=self.gizmo_scale)
+        self.world.scale = 1
+        self.world.rotation = self._object_to_control.world.rotation
+        self.world.scale = self.gizmo_scale
 
     def process_event(self, event: Any) -> None:
         """Handle the event as pygfx does, then report what it did."""

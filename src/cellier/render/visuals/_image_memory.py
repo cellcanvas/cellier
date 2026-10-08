@@ -699,6 +699,10 @@ class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
             self.node_2d.local.matrix = m
         self._apply_clipping_planes()
 
+    def _outline_shape(self):
+        """The store's shape: the box a plane's outline is cut by."""
+        return tuple(self._data_store.shape)
+
     def _clip_targets(self):
         """One group per channel slot (clipping planes design 4.1, 4.6).
 

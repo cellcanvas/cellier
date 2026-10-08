@@ -26,6 +26,14 @@ gizmo) keeps following it.  ``normal`` has one entry per data axis.  ``position`
 sits along its unit normal: the plane is ``normal . p == position *
 |normal|``.  Values are in data units (voxels for an image).
 
+**The slider does not show the position.**  The position is measured from
+the data's origin, so it is negative whenever the normal has a negative
+entry and changes sign when a plane is flipped.  A control shows the
+plane's depth into the data's bounding box instead (:func:`depth_of`): 0
+on the face the normal points away from, the box's size along the normal
+on the opposite face.  ``ClippingPlanesEditor.describe`` adds it to each
+row and ``set_depth`` takes it.
+
 Nothing here imports a toolkit.
 """
 
@@ -52,15 +60,118 @@ if TYPE_CHECKING:
 CLIPPING_PLANES_TITLE = "Clipping planes"
 """The control's name: its ``DEFAULT_TITLE`` on both toolkits."""
 
+OUTSIDE_TOOLTIP = "The plane is outside the bounding box."
+"""What a position shown as outside the box says of itself."""
+
 Row = dict[str, Any]
+
+
+def position_tooltip(units: str) -> str:
+    """What the position slider and its number mean, in *units* ("Data")."""
+    return (
+        "How far the plane is into the bounding box, along its normal. "
+        f"0 is the face the normal points away from. {units} units."
+    )
 
 
 def _length(normal: Sequence[float]) -> float:
     return math.sqrt(sum(float(v) * float(v) for v in normal))
 
 
+def outline_row(outline: Any = None) -> dict[str, Any]:
+    """A plane's outline as plain values: a row's ``"outline"`` entry.
+
+    *outline* is a ``PlaneOutline``, a mapping of its fields, or ``None``
+    for no outline.
+    """
+    from cellier.visuals import PlaneOutline
+
+    if outline is None:
+        outline = PlaneOutline()
+    elif not isinstance(outline, PlaneOutline):
+        outline = PlaneOutline(**dict(outline))
+    return {
+        "enabled": bool(outline.enabled),
+        "color": [float(v) for v in outline.color],
+        "width": float(outline.width),
+    }
+
+
+OUTLINE_TOOLTIP = (
+    "Draw a line around the plane where it crosses the data, in the 3D view."
+)
+"""What a row's "Outline" box does: the words of both toolkits."""
+
+OUTLINE_COLOR_TOOLTIP = "The outline's colour."
+
+
+def outline_hex(outline: Any) -> str:
+    """An outline's colour as ``#rrggbb``, for a colour picker.
+
+    *outline* is whatever :func:`outline_row` takes.  The alpha is not in
+    it: a picker edits the colour and the outline keeps its alpha.
+    """
+    red, green, blue = outline_row(outline)["color"][:3]
+    return "#{:02x}{:02x}{:02x}".format(
+        *(round(255.0 * min(max(v, 0.0), 1.0)) for v in (red, green, blue))
+    )
+
+
+def outline_color(color: Any, alpha: float = 1.0) -> list[float]:
+    """A colour from a front end as RGBA in ``[0, 1]``.
+
+    Parameters
+    ----------
+    color : str or sequence of float
+        ``#rrggbb`` (what a colour picker gives), or three or four numbers
+        in ``[0, 1]``.
+    alpha : float
+        The alpha to keep when *color* has none.
+
+    Raises
+    ------
+    ValueError
+        If *color* is neither.
+    """
+    if isinstance(color, str):
+        text = color.strip().lstrip("#")
+        if len(text) != 6:
+            raise ValueError(f"A colour is written #rrggbb; got {color!r}.")
+        try:
+            values = [int(text[i : i + 2], 16) / 255.0 for i in (0, 2, 4)]
+        except ValueError:
+            raise ValueError(f"A colour is written #rrggbb; got {color!r}.") from None
+        return [*values, float(alpha)]
+    values = [float(v) for v in color]
+    if len(values) == 3:
+        return [*values, float(alpha)]
+    if len(values) == 4:
+        return values
+    raise ValueError(f"A colour is three or four numbers; got {color!r}.")
+
+
+def with_outline_field(outline: Any, **changes: Any) -> dict[str, Any]:
+    """A row's ``"outline"`` entry with some of its fields replaced.
+
+    ``color=`` may be anything :func:`outline_color` takes; without an
+    alpha it keeps the outline's.
+
+    Raises
+    ------
+    ValueError
+        If the result is not an outline (a colour out of range).
+    """
+    entry = outline_row(outline)
+    if "color" in changes:
+        changes["color"] = outline_color(changes["color"], entry["color"][3])
+    return outline_row({**entry, **changes})
+
+
 def rows_from_planes(planes: Iterable[Any]) -> list[Row]:
-    """The rows that show *planes* (a visual's ``clipping_planes``)."""
+    """The rows that show *planes* (a visual's ``clipping_planes``).
+
+    A row carries its plane's outline, so an edit of the row keeps it.
+    """
     rows = []
     for item in planes:
         normal = [float(v) for v in item.plane.normal]
@@ -70,6 +181,7 @@ def rows_from_planes(planes: Iterable[Any]) -> list[Row]:
                 "enabled": bool(item.enabled),
                 "normal": normal,
                 "position": float(item.plane.offset) / _length(normal),
+                "outline": outline_row(item.outline),
             }
         )
     return rows
@@ -84,7 +196,7 @@ def planes_from_rows(rows: Iterable[Mapping[str, Any]], coordinate_system: UUID)
         If a row's normal is zero or not finite.
     """
     from cellier.transform import Plane
-    from cellier.visuals import ClippingPlane
+    from cellier.visuals import ClippingPlane, PlaneOutline
 
     planes = []
     for row in rows:
@@ -99,6 +211,7 @@ def planes_from_rows(rows: Iterable[Mapping[str, Any]], coordinate_system: UUID)
                     offset=float(row["position"]) * _length(normal),
                 ),
                 enabled=bool(row.get("enabled", True)),
+                outline=PlaneOutline(**outline_row(row.get("outline"))),
             )
         )
     return tuple(planes)
@@ -107,7 +220,8 @@ def planes_from_rows(rows: Iterable[Mapping[str, Any]], coordinate_system: UUID)
 def normalized_rows(rows: Iterable[Mapping[str, Any]]) -> list[Row]:
     """Rows as plain Python values, so two lists compare by value.
 
-    A row with no ``id`` is given a new one.
+    A row with no ``id`` is given a new one, and one with no ``outline``
+    has none.
     """
     return [
         {
@@ -115,6 +229,7 @@ def normalized_rows(rows: Iterable[Mapping[str, Any]]) -> list[Row]:
             "enabled": bool(row.get("enabled", True)),
             "normal": [float(v) for v in row["normal"]],
             "position": float(row["position"]),
+            "outline": outline_row(row.get("outline")),
         }
         for row in rows
     ]
@@ -153,6 +268,57 @@ def position_range(
     if high <= low:
         high = low + 1.0
     return low, high
+
+
+def depth_of(
+    position: float, normal: Sequence[float], bounds: Sequence[Sequence[float]]
+) -> tuple[float, float]:
+    """How far a plane is into the bounding box, and how deep the box is.
+
+    The position a row holds is measured from the coordinate origin, so it
+    is negative whenever the normal has a negative entry and changes sign
+    when a plane is flipped.  The depth is measured from the box instead,
+    and is what a control shows.
+
+    Parameters
+    ----------
+    position : float
+        Where the plane sits along its unit normal.
+    normal : Sequence[float]
+        One entry per axis.
+    bounds : Sequence[Sequence[float]]
+        ``(low, high)`` per axis.
+
+    Returns
+    -------
+    depth : float
+        The distance along the normal from where a plane first touches the
+        box (on the side the normal points away from) to the plane.  Below
+        0 or above *span* for a plane outside the box.
+    span : float
+        The depth at which a plane last touches the box: the size of the
+        box along the normal.  Never 0.
+    """
+    low, high = position_range(normal, bounds)
+    return float(position) - low, high - low
+
+
+def position_at(
+    depth: float, normal: Sequence[float], bounds: Sequence[Sequence[float]]
+) -> float:
+    """The position of the plane *depth* into the box (see :func:`depth_of`)."""
+    low, _high = position_range(normal, bounds)
+    return low + float(depth)
+
+
+def is_outside(depth: float, span: float) -> bool:
+    """Whether a plane at *depth* misses a box *span* deep.
+
+    A plane on a face of the box is not outside, whatever the rounding of
+    the sums that put it there.
+    """
+    tolerance = 1e-9 * max(abs(span), 1.0)
+    return depth < -tolerance or depth > span + tolerance
 
 
 def facing_of(normal: Sequence[float]) -> list[int] | None:
@@ -486,7 +652,15 @@ class ClippingPlanesEditor:
         twice (marimo does) sends one update.
         """
         try:
-            rows = normalized_rows(rows)
+            # A front end that sends a row back without its outline (it has
+            # no control for one) means the outline the plane has.
+            known = {row["id"]: row.get("outline") for row in self.rows}
+            rows = normalized_rows(
+                row
+                if row.get("outline") is not None
+                else {**row, "outline": known.get(str(row.get("id")))}
+                for row in rows
+            )
             if rows == self.rows:
                 return
             planes = planes_from_rows(rows, self._coordinate_system)
@@ -524,6 +698,11 @@ class ClippingPlanesEditor:
     def set_position(self, index: int, position: float) -> None:
         """Move plane *index* along its normal."""
         self.set_rows(self._edited(index, position=float(position)))
+
+    def set_depth(self, index: int, depth: float) -> None:
+        """Put plane *index* *depth* into the data's box (:func:`depth_of`)."""
+        normal = self.rows[index]["normal"]
+        self.set_position(index, position_at(depth, normal, self.bounds))
 
     def flip(self, index: int) -> None:
         """Keep the other side of plane *index*; the plane does not move."""
@@ -578,6 +757,26 @@ class ClippingPlanesEditor:
         normal = list(self.rows[index]["normal"])
         normal[axis] = float(value)
         self.set_normal(index, normal)
+
+    def set_outline_enabled(self, index: int, enabled: bool) -> None:
+        """Draw, or stop drawing, the outline of plane *index*'s cut face."""
+        self._set_outline(index, enabled=bool(enabled))
+
+    def set_outline_color(self, index: int, color: Any) -> None:
+        """Set the colour of plane *index*'s outline.
+
+        *color* is ``#rrggbb`` or three or four numbers in ``[0, 1]``;
+        without an alpha the outline keeps its own.
+        """
+        self._set_outline(index, color=color)
+
+    def _set_outline(self, index: int, **changes: Any) -> None:
+        try:
+            outline = with_outline_field(self.rows[index]["outline"], **changes)
+        except Exception as error:
+            self._show(list(self.rows), error_message(error))
+            return
+        self.set_rows(self._edited(index, outline=outline))
 
     def set_gizmo(self, index: int, enabled: bool) -> None:
         """Put the canvas's gizmo on plane *index*, or take it off.
@@ -648,19 +847,25 @@ class ClippingPlanesEditor:
     def describe(self) -> list[Row]:
         """The rows with what a front end needs to draw each one.
 
-        Adds ``facing`` (:func:`facing_of`) and the slider's ``low`` /
-        ``high``.  With a gizmo toggle, also ``gizmo`` (whether this plane
-        has the canvas's gizmo) and ``gizmo_blocked`` (why it cannot have
-        one, or ``""``); without, neither key.
+        Adds ``facing`` (:func:`facing_of`), ``outline_hex`` (the outline's
+        colour as a picker takes it) and what the position slider
+        shows (:func:`depth_of`): ``depth``, ``span`` (the slider runs from
+        0 to it) and ``outside`` (whether the plane misses the data's box,
+        where ``depth`` is below 0 or above ``span``).  With a gizmo
+        toggle, also ``gizmo`` (whether this plane has the canvas's gizmo)
+        and ``gizmo_blocked`` (why it cannot have one, or ``""``); without,
+        neither key.
         """
         described = []
         for row in self.rows:
-            low, high = position_range(row["normal"], self.bounds)
+            depth, span = depth_of(row["position"], row["normal"], self.bounds)
             entry = {
                 **row,
+                "outline_hex": outline_hex(row["outline"]),
                 "facing": facing_of(row["normal"]),
-                "low": min(low, row["position"]),
-                "high": max(high, row["position"]),
+                "depth": depth,
+                "span": span,
+                "outside": is_outside(depth, span),
             }
             if self._gizmo is not None:
                 entry["gizmo"] = row["id"] == self.gizmo_plane

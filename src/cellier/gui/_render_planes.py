@@ -26,6 +26,10 @@ trait and constructs nothing when a plane is added::
 
 ``normal`` and ``position`` are on the plane's own three world axes, named
 by ``axes``; ``position`` is where the plane sits along its unit normal.
+The slider does not show it: as in the "Clipping planes" control, it shows
+the plane's depth into the visual's bounding box
+(:func:`cellier.gui._clipping_planes.depth_of`), which ``describe`` adds to
+each row and ``set_depth`` takes.
 ``extent_0`` and ``extent_1`` are ``[min, max]`` distances from the plane's
 origin along its two in-plane axes, in world units; ``None`` is unbounded.
 
@@ -61,7 +65,15 @@ from cellier.events import (
     SubscriptionSpec,
     TransformChangedEvent,
 )
-from cellier.gui._clipping_planes import facing_of, position_range
+from cellier.gui._clipping_planes import (
+    depth_of,
+    facing_of,
+    is_outside,
+    outline_hex,
+    outline_row,
+    position_at,
+    with_outline_field,
+)
 from cellier.gui._loading import error_message
 from cellier.visuals._render_plane import MAX_RENDER_PLANES, RenderPlane
 
@@ -325,6 +337,7 @@ def rows_from_planes(
                 "position": float(np.asarray(plane.origin) @ normal),
                 "extent_0": _extent_row(plane.extent_0),
                 "extent_1": _extent_row(plane.extent_1),
+                "outline": outline_row(plane.outline),
             }
         )
     return rows
@@ -766,6 +779,12 @@ class RenderPlanesEditor:
         """Move plane *index* along its normal."""
         self._edit(index, lambda p: with_position(p, position))
 
+    def set_depth(self, index: int, depth: float) -> None:
+        """Put plane *index* *depth* into the visual's box (``depth_of``)."""
+        normal = self.rows[index]["normal"]
+        bounds = self._plane_bounds(self.planes[index])
+        self.set_position(index, position_at(depth, normal, bounds))
+
     def flip(self, index: int) -> None:
         """Reverse the normal of plane *index*; nothing drawn changes."""
         self._edit(index, flipped)
@@ -799,6 +818,27 @@ class RenderPlanesEditor:
     def set_side(self, index: int, axis: int, side: int, value: float) -> None:
         """Set one bounded extent side of plane *index*, in world units."""
         self._edit(index, lambda p: with_side(p, axis, side, value))
+
+    def set_outline_enabled(self, index: int, enabled: bool) -> None:
+        """Draw, or stop drawing, the outline of plane *index*."""
+        self._set_outline(index, enabled=bool(enabled))
+
+    def set_outline_color(self, index: int, color: Any) -> None:
+        """Set the colour of plane *index*'s outline.
+
+        *color* is ``#rrggbb`` or three or four numbers in ``[0, 1]``;
+        without an alpha the outline keeps its own.
+        """
+        self._set_outline(index, color=color)
+
+    def _set_outline(self, index: int, **changes: Any) -> None:
+        from cellier.visuals import PlaneOutline
+
+        def restyled(plane: RenderPlane) -> RenderPlane:
+            outline = PlaneOutline(**with_outline_field(plane.outline, **changes))
+            return plane.model_copy(update={"outline": outline})
+
+        self._edit(index, restyled)
 
     def set_gizmo(self, index: int, enabled: bool) -> None:
         """Put the canvas's gizmo on plane *index*, or take it off.
@@ -873,19 +913,24 @@ class RenderPlanesEditor:
         """The rows with what a front end needs to draw each one.
 
         Adds ``facing`` (the signed axis the normal lies along, or
-        ``None``) and the position slider's ``low`` / ``high``.  With a
-        gizmo toggle, also ``gizmo`` (whether this plane has the canvas's
-        gizmo) and ``gizmo_blocked`` (why it cannot have one, or ``""``);
-        without, neither key.
+        ``None``) and what the position slider shows (``depth_of``):
+        ``depth``, ``span`` (the slider runs from 0 to it) and ``outside``
+        (whether the plane misses the visual's box, where ``depth`` is
+        below 0 or above ``span``).  With a gizmo toggle, also ``gizmo``
+        (whether this plane has the canvas's gizmo) and ``gizmo_blocked``
+        (why it cannot have one, or ``""``); without, neither key.
         """
         described = []
         for plane, row in zip(self.planes, self.rows, strict=True):
-            low, high = position_range(row["normal"], self._plane_bounds(plane))
+            bounds = self._plane_bounds(plane)
+            depth, span = depth_of(row["position"], row["normal"], bounds)
             entry = {
                 **row,
+                "outline_hex": outline_hex(row["outline"]),
                 "facing": facing_of(row["normal"]),
-                "low": min(low, row["position"]),
-                "high": max(high, row["position"]),
+                "depth": depth,
+                "span": span,
+                "outside": is_outside(depth, span),
             }
             if self._gizmo is not None:
                 entry["gizmo"] = row["id"] == self.gizmo_plane

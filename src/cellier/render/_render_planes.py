@@ -23,6 +23,7 @@ import numpy as np
 import pygfx as gfx
 from pygfx.utils import array_from_shadertype
 
+from cellier.render._clipping import notify_planes_placed
 from cellier.visuals._render_plane import MAX_RENDER_PLANES
 
 if TYPE_CHECKING:
@@ -335,3 +336,33 @@ class RenderPlanesMixin:
         """Reduce the stored planes for the view and upload them."""
         self._reduced_render_planes = None
         write_render_planes(self.render_planes_buffer, self.drawn_render_planes)
+        notify_planes_placed(self)
+
+    def outline_box(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """The box this visual's planes are cut by, in data coordinates.
+
+        The voxel-edge box of the store's level 0 on the three data axes a
+        3D view keeps: the box the volume shaders cut a ray with (plane
+        outline design 5.3).
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray] or None
+            ``(low, high)`` as :func:`~cellier.render._plane_outline.box_frame`
+            takes them; ``None`` when the visual is not placed in a 3D view
+            or its store's shape is not known.
+        """
+        from cellier.render._plane_outline import voxel_edge_box
+
+        spaces = getattr(self, "_spaces", None)
+        shape = self._outline_shape()
+        if spaces is None or shape is None:
+            return None
+        retained = tuple(spaces.retained_axes)
+        if len(retained) != 3 or max(retained) >= len(shape):
+            return None
+        return voxel_edge_box(shape, retained)
+
+    def _outline_shape(self) -> Sequence[int] | None:
+        """The store's level-0 shape, one entry per data axis, if known."""
+        raise NotImplementedError

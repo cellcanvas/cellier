@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ import numpy as np
 from cellier.events._events import AABBChangedEvent, ViewRay, _CanvasRawPointerEvent
 from cellier.render._clipping import expand_rendered_plane, reduce_clipping_planes
 from cellier.render._config import RenderManagerConfig
+from cellier.render._gpu_lifetime import weak_callback
 from cellier.render._render_planes import expand_rendered_frame, rendered_plane_frame
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render._visual_lut import (
@@ -31,7 +33,7 @@ from cellier.render.slice_coordinator import SliceCoordinator
 from cellier.slicer import AsyncSlicer
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Collection, Mapping
     from uuid import UUID
 
     import pygfx as gfx
@@ -948,6 +950,10 @@ class RenderManager:
             scene_id=scene_id, lighting=lighting, background=background
         )
         self._scenes[scene_id] = scene_manager
+        # Held weakly: the scene manager must not keep this manager alive.
+        scene_manager._outlines_changed_listener = partial(
+            weak_callback(self._on_plane_outlines_changed), scene_id
+        )
         return scene_manager
 
     def scene_has_lighting(self, scene_id: UUID) -> bool:
@@ -1833,6 +1839,47 @@ class RenderManager:
         setter = getattr(scene_manager.get_visual(visual_id), "set_render_planes", None)
         if setter is not None:
             setter(planes)
+
+    def set_plane_outline_kinds(
+        self, scene_id: UUID, kinds: Mapping[UUID, Collection[str]]
+    ) -> bool:
+        """Say which planes each visual of a scene shows outlines of.
+
+        The outlines are computed again and drawn (plane outline design
+        6.4).  Between calls the scene keeps them up to date itself as its
+        visuals' planes and placement change.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            The scene.  An unknown scene is ignored.
+        kinds : Mapping[UUID, Collection[str]]
+            ``{visual id: kinds}``; ``"render"`` shows the outlines of the
+            visual's render planes and ``"clipping"`` those of its clipping
+            planes.  A visual left out shows none.
+
+        Returns
+        -------
+        bool
+            Whether anything drawn changed.
+        """
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is None:
+            return False
+        changed = scene_manager.set_plane_outline_kinds(kinds)
+        if changed:
+            self._on_plane_outlines_changed(scene_id)
+        return changed
+
+    def _on_plane_outlines_changed(self, scene_id: UUID) -> None:
+        """The outlines of a scene changed: draw it, from a clean history.
+
+        Accumulated frames would otherwise blend the old lines with the
+        new, as for a moved plane.
+        """
+        for canvas_view in self._find_canvases_for_scene(scene_id):
+            canvas_view.invalidate_accumulation()
+            canvas_view.request_draw()
 
     def clipping_planes_affect_request(self, visual_id: UUID) -> bool:
         """Whether a change of planes changes what *visual_id* reads."""

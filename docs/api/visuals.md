@@ -84,6 +84,13 @@ plane is in the scene's world space.
 
 ::: cellier.visuals.RenderPlane
 
+## Plane outlines
+
+A clipping plane and a render plane each carry an `outline`: a line round
+the polygon the plane makes in its visual, in a 3D view.
+
+::: cellier.visuals.PlaneOutline
+
 ## Common
 
 ::: cellier.visuals.AABBParams

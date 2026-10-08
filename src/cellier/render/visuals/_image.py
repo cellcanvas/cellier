@@ -3365,6 +3365,12 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self._apply_clipping_planes()
         return keys, slots
 
+    def _outline_shape(self):
+        """The store's level-0 shape: the box a plane's outline is cut by."""
+        if not self._full_level_shapes:
+            return None
+        return tuple(self._full_level_shapes[0])
+
     def _clip_targets(self):
         """One group per channel slot (clipping planes design 4.1, 4.6).
 

@@ -24,7 +24,7 @@ from cellier.data.mesh._mesh_requests import (
     MeshSectionRequest,
     MeshSliceRequest,
 )
-from cellier.render._clipping import GeometryClippingMixin
+from cellier.render._clipping import GeometryClippingMixin, notify_planes_placed
 from cellier.render._level_residency import LevelResidency
 from cellier.render._spaces import (
     RenderSpaces,
@@ -775,6 +775,17 @@ class GFXMeshVisual(GeometryClippingMixin):
         box = self._local_extent()
         return np.zeros(3) if box is None else box[0]
 
+    def _outline_node_box(self):
+        """The store's extent in the 3D node's frame.
+
+        The box the outlines of clipping planes are cut by: the box the
+        wireframe draws.
+        """
+        box = self._local_extent()
+        if box is None or self.node_3d is None:
+            return None
+        return (self.node_3d, *box)
+
     def _local_extent(self) -> tuple[np.ndarray, np.ndarray] | None:
         """The store's extent on the retained axes, in upload column order."""
         if self._axis_extents is None or self._spaces is None:
@@ -1129,6 +1140,8 @@ class GFXMeshVisual(GeometryClippingMixin):
         for nodes in self._levels.values():
             nodes.move_placeholder(corner)
         self._aabb_has_bounds = box is not None
+        # A clipping plane's outline is cut by this box.
+        notify_planes_placed(self)
         # Only the line of the current dimensionality: the extent is in that
         # node's frame, and the other node is not in the scene.
         line = self._aabb_line

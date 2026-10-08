@@ -840,6 +840,12 @@ class GFXMultiscaleLabelVisual(
             self.node_2d.local.matrix = plain
         self._apply_clipping_planes()
 
+    def _outline_shape(self):
+        """The store's level-0 shape: the box a plane's outline is cut by."""
+        if not self._full_level_shapes:
+            return None
+        return tuple(self._full_level_shapes[0])
+
     def _clip_targets(self):
         """Both materials, at the planes last planned (design 4.1, 4.6)."""
         collapsed = () if self._spaces is None else self._spaces.collapsed_axes

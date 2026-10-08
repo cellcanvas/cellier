@@ -460,9 +460,12 @@ async def test_each_handle_changes_exactly_its_model_fields(make_rig):
 
 
 async def test_a_scale_drag_along_the_arrow_grows_at_every_camera_angle(make_rig):
-    """The pygfx fix: 0 drags reversed, where pygfx as it is reverses many."""
-    import pygfx as gfx
+    """The handles are not turned to the camera, so pygfx's own drag is right.
 
+    pygfx reverses a scale drag on a handle it has flipped, and reads the
+    flip from a scale that does not hold it; with no flip there is nothing
+    to get wrong.
+    """
     rig = make_rig()
     await rig.start()
     plane = rig.plane()
@@ -470,37 +473,30 @@ async def test_a_scale_drag_along_the_arrow_grows_at_every_camera_angle(make_rig
     session = rig.session(plane)
     gizmo = rig.gizmo(session)
     widget, proxy = gizmo.gizmo, gizmo.proxy
-    drags = shrank = shrank_unfixed = disagreements = 0
+    drags = shrank = away = 0
     for direction in _directions(40):
         rig.look(direction)
+        assert (widget.gizmo_scale > 0).all()
         for dim in (1, 2):
             at, out, length = rig.arrow(session, "_scale_children", dim)
             if length < 15:
                 continue
             handle = widget._scale_children[dim]
-            disagreements += int(
-                (widget.local.scale[dim] < 0) != (widget.gizmo_scale[dim] < 0)
+            offset = np.asarray(handle.world.position) - np.asarray(
+                widget.world.position
             )
+            away += int(offset @ np.asarray(direction) < 0)
             end = SimpleNamespace(x=at[0] + 60 * out[0], y=at[1] + 60 * out[1])
-            for fixed in (True, False):
-                proxy.local.scale = (1.0, 1.0, 1.0)
-                widget._handle_start("scale", SimpleNamespace(x=at[0], y=at[1]), handle)
-                if fixed:
-                    widget._handle_scale_move(end)
-                else:
-                    gfx.TransformGizmo._handle_scale_move(widget, end)
-                widget._ref = None
-                small = proxy.local.scale[dim] < 1.0
-                if fixed:
-                    shrank += int(small)
-                else:
-                    shrank_unfixed += int(small)
+            widget._handle_start("scale", SimpleNamespace(x=at[0], y=at[1]), handle)
+            widget._handle_scale_move(end)
+            widget._ref = None
+            shrank += int(proxy.local.scale[dim] < 1.0)
             proxy.local.scale = (1.0, 1.0, 1.0)
             drags += 1
     assert drags >= 60
     assert shrank == 0
-    # The test would pass for the wrong reason if pygfx never got it wrong.
-    assert shrank_unfixed == disagreements > 0
+    # The test would pass for the wrong reason if no handle pointed away.
+    assert away >= 20
 
 
 # -- extents by the scale handles -----------------------------------------------

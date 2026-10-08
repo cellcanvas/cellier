@@ -7,7 +7,17 @@
 // destroyed while it is dragged.  Rows are only added or removed when the
 // number of planes changes.
 
+// The same words as ``position_tooltip`` and ``OUTSIDE_TOOLTIP`` in
+// ``cellier/gui/_clipping_planes.py``.
+const POSITION_TOOLTIP =
+  "How far the plane is into the bounding box, along its normal. " +
+  "0 is the face the normal points away from. Data units.";
+const OUTSIDE_TOOLTIP = "The plane is outside the bounding box.";
 const GIZMO_TOOLTIP = "Drag a gizmo in the 3D view to move and tilt this plane.";
+// The same words as ``OUTLINE_TOOLTIP`` and ``OUTLINE_COLOR_TOOLTIP`` there.
+const OUTLINE_TOOLTIP =
+  "Draw a line around the plane where it crosses the data, in the 3D view.";
+const OUTLINE_COLOR_TOOLTIP = "The outline's colour.";
 
 // A normal's entry as the number input shows it: at most three decimals.
 function shown(value) {
@@ -160,13 +170,15 @@ function render({ model, el }) {
     position.type = "range";
     position.step = "any";
     position.className = "cellier-clipping-planes-position";
-    position.title = "Where the plane sits along its normal. Data units.";
+    // The slider and its number are the depth into the bounding box: 0 on
+    // the face the normal points away from, row.span on the opposite one.
+    position.title = POSITION_TOOLTIP;
     position.dataset.role = "position";
     let dragging = false;
     position.addEventListener("input", () => {
       dragging = true;
       value.textContent = Number(position.value).toFixed(2);
-      send("position", index, Number(position.value));
+      send("depth", index, Number(position.value));
     });
     position.addEventListener("change", () => { dragging = false; });
 
@@ -175,10 +187,34 @@ function render({ model, el }) {
     value.dataset.role = "value";
     along.append(positionLabel, position, value);
 
-    root.append(header, normal, along);
+    // -- outline: a box that draws it, and its colour
+    const outline = document.createElement("div");
+    outline.className = "cellier-clipping-planes-outline";
+    const outlineLabel = document.createElement("label");
+    const outlineOn = document.createElement("input");
+    outlineOn.type = "checkbox";
+    outlineOn.title = OUTLINE_TOOLTIP;
+    outlineOn.dataset.role = "outline";
+    outlineOn.addEventListener("change", () => send("outline", index, outlineOn.checked));
+    outlineLabel.append(outlineOn, " Outline");
+    const outlineColor = document.createElement("input");
+    outlineColor.type = "color";
+    outlineColor.title = OUTLINE_COLOR_TOOLTIP;
+    outlineColor.dataset.role = "outline-color";
+    // `change`, not `input`: one edit when the picker closes, not one per
+    // colour the pointer passes over.
+    outlineColor.addEventListener("change", () =>
+      send("outline_color", index, outlineColor.value));
+    outline.append(outlineLabel, outlineColor);
+
+    root.append(header, normal, along, outline);
 
     function apply(row) {
       enabled.checked = Boolean(row.enabled);
+      outlineOn.checked = Boolean(row.outline && row.outline.enabled);
+      if (row.outline_hex && outlineColor.value !== row.outline_hex) {
+        outlineColor.value = row.outline_hex;
+      }
       gizmo.style.display = row.gizmo === undefined ? "none" : "";
       gizmoOn = Boolean(row.gizmo);
       gizmo.classList.toggle("cellier-clipping-planes-on", gizmoOn);
@@ -198,12 +234,19 @@ function render({ model, el }) {
           component.value = shown(current[axis]);
         }
       });
-      position.min = String(row.low);
-      position.max = String(row.high);
+      const span = Number(row.span);
+      const depth = Number(row.depth);
+      position.min = "0";
+      position.max = String(span);
       // While the thumb is held the element already shows the newest value;
       // writing an older echo back would make it jump.
-      if (!dragging) position.value = String(row.position);
-      value.textContent = Number(row.position).toFixed(2);
+      // Outside the box the thumb is pinned at the nearer end and the
+      // number shows how far past it the plane is.
+      if (!dragging) position.value = String(Math.min(Math.max(depth, 0), span));
+      value.textContent = depth.toFixed(2);
+      const outside = Boolean(row.outside);
+      value.classList.toggle("cellier-clipping-planes-outside", outside);
+      value.title = outside ? `${OUTSIDE_TOOLTIP} ${POSITION_TOOLTIP}` : POSITION_TOOLTIP;
     }
     return { root, apply };
   }

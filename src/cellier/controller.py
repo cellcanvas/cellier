@@ -225,6 +225,7 @@ from cellier.visuals._mesh_memory import (
     MeshVisual,
     MultiscaleMeshVisual,
 )
+from cellier.visuals._plane_outline import without_outlines
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 from cellier.visuals._render_plane import (
     MAX_RENDER_PLANES,
@@ -2628,6 +2629,7 @@ class CellierController:
         self._seed_visual_render(visual_model)
         self._check_slider_axes(scene_id)
         self._refresh_scene_overlays(scene_id)
+        self._refresh_plane_outlines(scene_id)
 
         # EventBus subscriptions — only subscribe when the GFX visual implements
         # the handler so new visual types get wired automatically.
@@ -4862,6 +4864,9 @@ class CellierController:
         number of planes changed).  A visual whose reads depend on the
         planes is resliced.  Emits ``ClippingPlanesChangedEvent``.
 
+        A change of the planes' outlines alone is not a move (plane outline
+        design 4.3): it is announced and drawn, and nothing is read again.
+
         A tuple that fails the check is put back to the last good one and
         the error raised.
         """
@@ -4875,12 +4880,16 @@ class CellierController:
                 with visual.events.clipping_planes.blocked():
                     visual.clipping_planes = accepted[0]
                 raise
-            accepted[0] = planes
+            previous, accepted[0] = accepted[0], planes
+            moved = without_outlines(previous) != without_outlines(planes)
             source_id = _clipping_source_id_override.get() or self._id
-            # A tick of a drag while a scope is open; otherwise a jump.  The
-            # tracker hears of it first, so a drag's start is announced ahead
-            # of its first change.
-            self._plane_interaction_driver.tick(visual_id, source_id, interactive=False)
+            if moved:
+                # A tick of a drag while a scope is open; otherwise a jump.
+                # The tracker hears of it first, so a drag's start is
+                # announced ahead of its first change.
+                self._plane_interaction_driver.tick(
+                    visual_id, source_id, interactive=False
+                )
             self._outgoing_events.emit(
                 ClippingPlanesChangedEvent(
                     source_id=source_id,
@@ -4889,14 +4898,17 @@ class CellierController:
                 )
             )
             if visual_id in self._visual_to_scene:
-                if self._render_manager.clipping_planes_affect_request(visual_id):
+                if moved and self._render_manager.clipping_planes_affect_request(
+                    visual_id
+                ):
                     # A tick of a drag keeps the last plan when the view
                     # plans coarsest while moving; the drag's end plans.
                     if not self._hold_plan_for_plane_drag(visual):
                         self.reslice_visual(visual_id)
                 self._request_draw_for_visual(visual_id)
-            # No event loop means no timer: the drag ends here.
-            self._plane_interaction_driver.settle_without_loop(visual_id)
+            if moved:
+                # No event loop means no timer: the drag ends here.
+                self._plane_interaction_driver.settle_without_loop(visual_id)
 
         visual.events.clipping_planes.connect(_on_clipping_planes)
         self._visual_psygnal_handlers.setdefault(visual_id, []).append(
@@ -5105,6 +5117,41 @@ class CellierController:
         if shown != was and reslice:
             self.reslice_visual(visual_id)
             self._request_draw_for_visual(visual_id)
+        self._refresh_plane_outlines(self._visual_to_scene[visual_id])
+
+    def _refresh_plane_outlines(self, scene_id: UUID) -> None:
+        """Tell the render layer which visuals show their planes' outlines.
+
+        Plane outline design 3.3 and 6.4.  In a 3D view a visible visual
+        shows the outlines of its clipping planes, and of its render planes
+        while it is drawn in plane mode.  A 2D view shows none.  What an
+        outline looks like, and where it is, the
+        render layer follows by itself: this is called when what is *shown*
+        may have changed (a visual added, shown or hidden; a render mode;
+        the displayed axes).
+
+        Parameters
+        ----------
+        scene_id : UUID
+            The scene.  An unregistered scene is ignored.
+        """
+        if scene_id not in self._model.scenes:
+            return
+        kinds: dict[UUID, tuple[str, ...]] = {}
+        if self._n_displayed_dims(scene_id) == 3:
+            for visual_id, visual_scene_id in self._visual_to_scene.items():
+                if visual_scene_id != scene_id:
+                    continue
+                visual = self.get_visual_model(visual_id)
+                appearance = getattr(visual, "appearance", None)
+                if not getattr(appearance, "visible", True):
+                    continue
+                kinds[visual_id] = (
+                    ("clipping", "render")
+                    if self._draws_planes(visual)
+                    else ("clipping",)
+                )
+        self._render_manager.set_plane_outline_kinds(scene_id, kinds)
 
     def _wire_render_planes(self, visual: BaseVisual) -> None:
         """Act on a replaced ``render_planes`` tuple (design 7.4, 8.2).
@@ -5115,6 +5162,9 @@ class CellierController:
         and a multiscale visual is resliced: at once for a jump, at the
         drag's end when the view plans coarsest while moving.  Otherwise the
         tuple is stored and announced and nothing else happens.
+
+        A change of the planes' outlines alone is not a move (plane outline
+        design 4.3): it is announced and drawn, and nothing is read again.
 
         A tuple that fails the check is put back to the last good one and
         the error raised.
@@ -5131,9 +5181,10 @@ class CellierController:
                     visual.render_planes = accepted[0]
                 raise
             previous, accepted[0] = accepted[0], planes
+            moved = without_outlines(previous) != without_outlines(planes)
             source_id = _render_planes_source_id_override.get() or self._id
             drawn = self._draws_planes(visual)
-            if drawn:
+            if drawn and moved:
                 # The tracker hears of it first, so a drag's start is
                 # announced ahead of its first change.
                 self._plane_interaction_driver.tick(
@@ -5147,6 +5198,9 @@ class CellierController:
                 )
             )
             if not drawn:
+                return
+            if not moved:
+                self._request_draw_for_visual(visual_id)
                 return
             self._warn_render_planes_not_displayed(visual)
             scene_id = self._visual_to_scene[visual_id]
@@ -6043,6 +6097,9 @@ class CellierController:
                     and isinstance(self.get_visual_model(visual_id), _SKIP_WHEN_HIDDEN)
                 ):
                     self.reslice_visual(visual_id)
+                if visual_id in self._visual_to_scene:
+                    # A hidden visual's planes have no outline.
+                    self._refresh_plane_outlines(self._visual_to_scene[visual_id])
             else:
                 self._outgoing_events.emit(
                     AppearanceChangedEvent(

@@ -365,6 +365,69 @@ async def test_the_validation_scene_lines_up_at_every_time_point(
                 assert _blob(of_image, dim)[1] == 0, (t, other, octant)
 
 
+def _plane_controls(module) -> dict:
+    """The dock's render planes control of the image and of the labels."""
+    import gc
+
+    from cellier.gui.qt.visuals import QtRenderPlanesControls
+
+    names = {module.image_visual.id: "image", module.labels_visual.id: "labels"}
+    return {
+        names[control.editor._visual_ids[0]]: control
+        for control in gc.get_objects()
+        if isinstance(control, QtRenderPlanesControls)
+        and control.editor._visual_ids[0] in names
+    }
+
+
+def _normal(visual) -> list[float]:
+    plane = visual.render_planes[0]
+    return np.round(np.cross(plane.in_plane_axis_0, plane.in_plane_axis_1), 6).tolist()
+
+
+@pytest.mark.parametrize("edited", ["image", "labels"])
+async def test_either_control_of_the_validation_scene_turns_the_one_plane(
+    edited, load_example, qtbot, offscreen_gpu
+):
+    module = load_example("plane_slicing_validation")
+    await _show(module, qtbot)
+    viewer, controller = module.viewer, module.viewer.controller
+    image, labels = module.image_visual, module.labels_visual
+    controls = _plane_controls(module)
+    assert set(controls) == {"image", "labels"}
+    session = controller.get_plane_gizmo(_canvas_id(viewer))
+    image.aabb.enabled = False
+    controller.update_background_field(viewer.scene.id, "visible", False)
+
+    # Face the plane along y, x and back along z, with the control's buttons.
+    for axis in (1, 2, 0):
+        controls[edited]._rows[0].facing[(axis, 1)].click()
+        expected = [float(k == axis) for k in range(3)]
+        assert _normal(image) == expected
+        assert _normal(labels) == expected
+        assert image.render_planes == labels.render_planes
+        # Both controls show it, and the gizmo is still on the plane.
+        for control in controls.values():
+            assert list(control.editor.rows[0]["normal"]) == expected
+        assert controller.get_plane_gizmo(_canvas_id(viewer)) is session
+        # The plane turned about a point, so it passes through the four
+        # points of the high half of that axis, and through no other sphere.
+        await drain_loading(controller)
+        of_labels = await _only(module, labels)
+        of_image = await _only(module, image)
+        for octant in range(8):
+            color = module.COLORS[0, octant]
+            on_plane = bool((octant >> (2 - axis)) & 1)
+            assert (_blob(of_labels, color)[1] > 0) == on_plane, (axis, octant)
+            dim = color * module.IMAGE_INTENSITY
+            assert (_blob(of_image, dim)[1] > 0) == on_plane, (axis, octant)
+
+    # A typed entry of the normal goes to both visuals as well.
+    controls[edited]._rows[0].components[1].setValue(1.0)
+    assert _normal(image) == _normal(labels)
+    assert _normal(image) == pytest.approx([2**-0.5, 2**-0.5, 0.0], abs=1e-6)
+
+
 def test_the_validation_scene_moves_its_points_and_changes_its_colours(
     load_example, qtbot
 ):
@@ -441,3 +504,46 @@ async def test_the_marimo_motion_is_one_interaction_and_one_plan(run_marimo_exam
         "plane interaction: end (release)",
         "plan",
     ]
+
+
+# -- Plane outlines in the examples (plane outline design 8) --------------------
+
+
+def _outlines(viewer, scene) -> dict:
+    scene_manager = viewer.controller._render_manager._scenes[scene.id]
+    return scene_manager.plane_outlines.drawn
+
+
+async def test_the_ortho_example_outlines_each_slice_in_the_3d_panel(
+    load_example, qtbot
+):
+    module = load_example("ortho_slice_planes")
+    await _show(module, qtbot)
+    viewer = module.viewer
+    drawn = _outlines(viewer, viewer.scenes["vol"])
+    # One line a slice plane, each in its own colour.
+    assert {key[1] for key in drawn} == set(viewer.plane_controller.plane_ids)
+    assert len({polygon.color for polygon in drawn.values()}) == 3
+    for name in ("xy", "xz", "yz"):
+        assert _outlines(viewer, viewer.scenes[name]) == {}
+    # A slider moves its slice's outline.
+    viewer.set_slice_positions({0: 20.0})
+    first = viewer.plane_controller.plane_ids[0]
+    moved = _outlines(viewer, viewer.scenes["vol"])[("render", first, 0)]
+    np.testing.assert_allclose(moved.vertices[:, 2], 20.0)
+
+
+async def test_the_validation_scene_has_one_outline_for_its_shared_plane(
+    load_example, qtbot
+):
+    """The image and the labels carry the same plane and have the same box."""
+    module = load_example("plane_slicing_validation")
+    await _show(module, qtbot)
+    viewer = module.viewer
+    drawn = _outlines(viewer, viewer.scene)
+    assert list(drawn) == [("render", module.plane.id, 0)]
+    assert module.image_visual.render_planes[0].outline.enabled
+    assert module.labels_visual.render_planes[0].outline.enabled
+    # The plane's square through the volume: four corners on its box.
+    (polygon,) = drawn.values()
+    assert len(polygon.vertices) == 4

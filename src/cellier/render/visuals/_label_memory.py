@@ -270,6 +270,10 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
             self.node_2d.local.matrix = m
         self._apply_clipping_planes()
 
+    def _outline_shape(self):
+        """The store's shape: the box a plane's outline is cut by."""
+        return tuple(self._data_store.shape)
+
     def _clip_targets(self):
         """Both materials, at the slice the nodes are drawn at (design 4.6)."""
         if self._spaces is None:

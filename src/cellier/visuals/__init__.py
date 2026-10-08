@@ -51,6 +51,7 @@ from cellier.visuals._mesh_memory import (
     MultiscaleMeshVisual,
 )
 from cellier.visuals._overlay_types import CanvasOverlayType, SceneOverlayType
+from cellier.visuals._plane_outline import PlaneOutline
 from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 from cellier.visuals._render_plane import MAX_RENDER_PLANES, RenderPlane
 from cellier.visuals._scene_overlay import (
@@ -98,6 +99,7 @@ __all__ = [
     "MultiscaleLabelsAppearance",
     "MultiscaleMeshVisual",
     "OutlineMode",
+    "PlaneOutline",
     "PointsMarkerAppearance",
     "PointsVisual",
     "ProgressiveLoadingConfig",

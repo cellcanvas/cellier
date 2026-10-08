@@ -111,6 +111,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The plane is outside the bounding box. */
+.cellier-render-planes-outside {
+  color: #d08020;
+  font-style: italic;
+}
+
 .cellier-render-planes-add {
   margin-top: 8px;
 }
@@ -155,4 +161,17 @@
 .cellier-render-planes-rows.cellier-render-planes-blocked {
   opacity: 0.5;
   pointer-events: none;
+}
+
+/* The plane's outline: a box that draws it, and its colour. */
+.cellier-render-planes-outline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cellier-render-planes-outline input[type="color"] {
+  width: 2.4em;
+  height: 1.5em;
+  padding: 0;
 }

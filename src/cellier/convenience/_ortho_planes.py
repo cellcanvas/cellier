@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import numpy as np
 from psygnal import Signal
 
-from cellier.visuals import RenderPlane
+from cellier.visuals import PlaneOutline, RenderPlane
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -39,6 +39,23 @@ SLICES_REASON = (
     '(plane_controller.mode is "slices"). Move a slider to move a plane.'
 )
 """Why a render planes control is read-only in ``"slices"`` mode."""
+
+
+def _three_outlines(
+    outlines: PlaneOutline | Sequence[PlaneOutline] | None,
+) -> tuple[PlaneOutline, PlaneOutline, PlaneOutline]:
+    """One outline per slice plane, from one for all, three, or none."""
+    if outlines is None:
+        return (PlaneOutline(), PlaneOutline(), PlaneOutline())
+    if isinstance(outlines, PlaneOutline):
+        return (outlines, outlines, outlines)
+    given = tuple(outlines)
+    if len(given) != 3 or not all(isinstance(o, PlaneOutline) for o in given):
+        raise ValueError(
+            "The slice planes' outlines are one PlaneOutline, for all three "
+            "planes, or three: one each for the xy, xz and yz panels' planes."
+        )
+    return given
 
 
 def _check_mode(mode: object) -> None:
@@ -77,8 +94,8 @@ class OrthoPlaneController:
       on a slice plane, and the render planes control shows them
       read-only): the change is carried over.  A plane moved along its
       normal moves its panel's slider, on every panel when the panels'
-      axes are linked.  Its extents, its ``enabled`` flag and its spin are
-      copied to the other visuals.  A tuple that is not the three slice
+      axes are linked.  Its extents, its ``enabled`` flag, its spin and
+      its outline are copied to the other visuals.  A tuple that is not the three slice
       planes (a plane tilted off its axis, added, removed or replaced)
       cannot be carried over: the visual is given the slice planes back,
       with a warning.
@@ -107,6 +124,9 @@ class OrthoPlaneController:
         that slices that axis, and the 3D panel.
     mode : {"slices"} or None
         The starting mode.
+    outlines : PlaneOutline, three of them, or None
+        The outlines of the slice planes (:attr:`outlines`).  ``None`` is
+        no outline.
 
     Attributes
     ----------
@@ -123,8 +143,10 @@ class OrthoPlaneController:
         spatial_axes: Sequence[int],
         dims_controller: Callable[[], Any] | None = None,
         mode: OrthoPlaneMode = None,
+        outlines: PlaneOutline | Sequence[PlaneOutline] | None = None,
     ) -> None:
         _check_mode(mode)
+        self._outlines = _three_outlines(outlines)
         self._id: UUID = uuid4()
         self._controller = controller
         self._scenes = dict(scenes)
@@ -189,6 +211,37 @@ class OrthoPlaneController:
         self.mode_changed.emit(mode)
 
     @property
+    def outlines(self) -> tuple[PlaneOutline, PlaneOutline, PlaneOutline]:
+        """The outlines of the slice planes of the ``xy``, ``xz`` and ``yz`` panels.
+
+        A line around each slice where it crosses the data, in the 3D
+        panel.  Set one ``PlaneOutline`` for all three planes, or three, or
+        ``None`` for no outline.  In ``"slices"`` mode the planes of every
+        visual are given them at once; in mode ``None`` they are what the
+        slice planes are built with when the mode is next turned on.
+
+        The render planes control shows the slice planes read-only, so
+        this is where their outlines are set.  An outline assigned to a
+        slice plane of one visual from code is copied to the others, as a
+        plane's extents are, and is then what this returns.
+        """
+        return self._outlines
+
+    @outlines.setter
+    def outlines(self, outlines: PlaneOutline | Sequence[PlaneOutline] | None) -> None:
+        self._outlines = _three_outlines(outlines)
+        if self._mode != "slices" or not self._visuals:
+            return
+        planes = tuple(
+            plane.model_copy(update={"outline": outline})
+            for plane, outline in zip(
+                self._current_planes(), self._outlines, strict=True
+            )
+        )
+        for visual_id in self._visuals:
+            self._write(visual_id, planes)
+
+    @property
     def visual_ids(self) -> tuple[UUID, ...]:
         """The 3D panel's visuals whose planes the mode writes."""
         return tuple(self._visuals)
@@ -222,8 +275,9 @@ class OrthoPlaneController:
         ----------
         like : Sequence[RenderPlane] or None
             Slice planes to keep everything of but the position along the
-            normal (their extents, ``enabled`` and spin).  ``None`` builds
-            new ones: through the point the three slices meet at, unbounded.
+            normal (their extents, ``enabled``, spin and outline).  ``None``
+            builds new ones: through the point the three slices meet at,
+            unbounded, with :attr:`outlines`.
 
         Returns
         -------
@@ -255,6 +309,7 @@ class OrthoPlaneController:
                 # axis k.
                 in_plane_axis_0=tuple(unit[(k + 1) % 3]),
                 in_plane_axis_1=tuple(unit[(k + 2) % 3]),
+                outline=self._outlines[k],
             )
             for k in range(3)
         )
@@ -390,6 +445,8 @@ class OrthoPlaneController:
                 )
             self._write(visual_id, self._current_planes(skip=visual_id))
             return
+        # An outline given to a plane by hand is the planes' outline now.
+        self._outlines = tuple(plane.outline for plane in like)
         # The planes' positions become the panels' slice positions...
         moved = {
             axis: float(plane.origin[k])

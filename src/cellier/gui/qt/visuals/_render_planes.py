@@ -13,11 +13,13 @@ from uuid import uuid4
 from psygnal import Signal
 
 from cellier.gui._appearance_fields import VisualIdGroup
+from cellier.gui._clipping_planes import OUTSIDE_TOOLTIP, position_tooltip
 from cellier.gui._render_planes import (
     RENDER_PLANE_GIZMO_TOOLTIP,
     RENDER_PLANES_TITLE,
     RenderPlanesEditor,
 )
+from cellier.gui.qt.visuals._plane_outline import OutlineInputs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -28,6 +30,9 @@ if TYPE_CHECKING:
 
 #: Steps of the position slider (Qt sliders are integers).
 _SLIDER_STEPS = 1000
+#: The colour of the position's number when the plane is outside the
+#: bounding box (it is also set in italics).
+_OUTSIDE_COLOR = "#d08020"
 #: The label of each extent side, by ``side`` (0 the minimum, 1 the maximum).
 _SIDE_NAMES = ("min", "max")
 
@@ -38,7 +43,8 @@ class _PlaneRow:
     The normal is laid out one column per axis of the plane: two buttons
     named after the axis (``+z`` and ``-z`` for an axis ``z``) that face the
     plane along it, and under them the normal's entry on it.  Under the
-    position, one line per in-plane axis with its two extent sides.
+    position, one line per in-plane axis with its two extent sides, and
+    last the plane's outline: a box that draws it and its colour.
     """
 
     def __init__(self, owner: QtRenderPlanesControls, index: int, parent) -> None:
@@ -56,7 +62,8 @@ class _PlaneRow:
         )
 
         self.index = index
-        self._range = (0.0, 1.0)
+        #: The slider's far end: the box's size along the normal.
+        self._span = 1.0
         editor = owner._editor
         self._editor = editor
         self.widget = QWidget(parent)
@@ -133,14 +140,21 @@ class _PlaneRow:
 
         self.slider = QSlider(Qt.Orientation.Horizontal, self.widget)
         self.slider.setRange(0, _SLIDER_STEPS)
-        self.slider.setToolTip("Where the plane sits along its normal. World units.")
+        self._tooltip = position_tooltip("World")
+        self.slider.setToolTip(self._tooltip)
         self.slider.valueChanged.connect(self._on_slider)
 
+        # The number is the depth into the box (see ``depth_of``).  Its range
+        # is not the slider's: a gizmo can take a plane out of the box, and
+        # a spin box cannot show a value outside its range.
         self.position = QDoubleSpinBox(self.widget)
         self.position.setDecimals(2)
         self.position.setRange(-1e9, 1e9)
         self.position.setKeyboardTracking(False)
-        self.position.valueChanged.connect(lambda v: editor.set_position(self.index, v))
+        self.position.setToolTip(self._tooltip)
+        self.position.valueChanged.connect(lambda v: editor.set_depth(self.index, v))
+        #: Whether the number is drawn as a plane's outside the box.
+        self.outside = False
 
         grid.addWidget(QLabel("Position", self.widget), 3, 0)
         along = QHBoxLayout()
@@ -187,6 +201,15 @@ class _PlaneRow:
                 self.unbounded[(axis, side)] = box
             grid.addLayout(line, 4 + axis, 1, 1, 3)
 
+        #: The outline's check box and colour button.
+        self.outline = OutlineInputs(
+            self.widget,
+            lambda on: editor.set_outline_enabled(self.index, on),
+            lambda color: editor.set_outline_color(self.index, color),
+        )
+        grid.addWidget(self.outline.enabled, 6, 0)
+        grid.addLayout(self.outline.layout, 6, 1, 1, 3)
+
         self._inputs = (
             self.enabled,
             *self.facing.values(),
@@ -198,8 +221,27 @@ class _PlaneRow:
         )
 
     def _on_slider(self, step: int) -> None:
-        low, high = self._range
-        self._editor.set_position(self.index, low + (high - low) * step / _SLIDER_STEPS)
+        self._editor.set_depth(self.index, self._span * step / _SLIDER_STEPS)
+
+    def _mark_outside(self, outside: bool) -> None:
+        """Draw the number as a plane's that misses the box, or as usual."""
+        if outside == self.outside:
+            return
+        from qtpy.QtGui import QColor, QPalette
+
+        self.outside = outside
+        # Through the palette and the font, not a style sheet: a style
+        # sheet would take the spin box out of the platform's own style.
+        palette = QPalette()
+        if outside:
+            palette.setColor(QPalette.ColorRole.Text, QColor(_OUTSIDE_COLOR))
+        self.position.setPalette(palette)
+        font = self.position.font()
+        font.setItalic(outside)
+        self.position.setFont(font)
+        self.position.setToolTip(
+            f"{OUTSIDE_TOOLTIP} {self._tooltip}" if outside else self._tooltip
+        )
 
     def _on_facing(self, axis: int, sign: int) -> None:
         # A click on the button already shown un-checks it and changes
@@ -225,17 +267,15 @@ class _PlaneRow:
             ):
                 component.setToolTip(f"The normal's entry on {names[axis]}.")
                 component.setValue(float(value))
-            low, high = float(row["low"]), float(row["high"])
-            self._range = (low, high)
-            span = high - low
-            step = (
-                0
-                if span <= 0
-                else round((row["position"] - low) / span * _SLIDER_STEPS)
-            )
+            depth, span = float(row["depth"]), float(row["span"])
+            self._span = span
+            # Outside the box the slider is pinned at the nearer end and
+            # the number shows how far past it the plane is.
+            step = 0 if span <= 0 else round(depth / span * _SLIDER_STEPS)
             self.slider.setValue(int(min(max(step, 0), _SLIDER_STEPS)))
             self.position.setSingleStep(max(span / 200.0, 0.01))
-            self.position.setValue(float(row["position"]))
+            self.position.setValue(depth)
+            self._mark_outside(bool(row["outside"]))
             for (axis, side), value in self.sides.items():
                 amount = row[f"extent_{axis}"][side]
                 self.unbounded[(axis, side)].setChecked(amount is None)
@@ -243,6 +283,7 @@ class _PlaneRow:
                 value.setSingleStep(max(span / 200.0, 0.01))
                 if amount is not None:
                     value.setValue(float(amount))
+            self.outline.show(row)
             blocked = str(row.get("gizmo_blocked", ""))
             self.gizmo.setChecked(bool(row.get("gizmo", False)))
             self.gizmo.setEnabled(not blocked)

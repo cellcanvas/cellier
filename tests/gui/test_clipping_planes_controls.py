@@ -17,10 +17,13 @@ from cellier.data import PointsMemoryStore
 from cellier.gui._clipping_planes import (
     CLIPPING_PLANES_TITLE,
     ClippingPlaneGizmoTarget,
+    depth_of,
     facing_of,
     get_clipping_plane_gizmo_data,
     get_clipping_planes_data_from_visual,
+    is_outside,
     planes_from_rows,
+    position_at,
     position_range,
     rows_from_planes,
 )
@@ -76,7 +79,16 @@ def _make(toolkit, visual_ids, visual, store):
 
 
 def _act(widget, action, index=None, value=None) -> None:
-    """Do one thing as a user would."""
+    """Do one thing as a user would.
+
+    ``"position"`` puts the plane at position *value*.  A control shows and
+    sends the depth into the box, which differs from the position by a
+    constant, so it is done as the depth of that position.
+    """
+    if action == "position":
+        described = widget.editor.describe()[index]
+        action = "depth"
+        value = value - described["position"] + described["depth"]
     if hasattr(widget, "comm"):  # anywidget: what the front end sends
         widget.edit = {
             "action": action,
@@ -100,10 +112,38 @@ def _act(widget, action, index=None, value=None) -> None:
         row.enabled.setChecked(value)
     elif action == "facing":
         row.facing[tuple(value)].click()
-    elif action == "position":
+    elif action == "depth":
         row.position.setValue(value)
     elif action == "component":
         row.components[value[0]].setValue(value[1])
+    elif action == "outline":
+        row.outline.enabled.setChecked(value)
+    elif action == "outline_color":
+        _pick_colour(row, value)
+
+
+def _pick_colour(row, colour) -> None:
+    """Choose *colour* in a Qt row's colour dialog; ``None`` cancels it."""
+    from qtpy.QtGui import QColor
+    from qtpy.QtWidgets import QColorDialog
+
+    original = QColorDialog.getColor
+    QColorDialog.getColor = staticmethod(
+        lambda *args, **kwargs: QColor() if colour is None else QColor(colour)
+    )
+    try:
+        row.outline.color.click()
+    finally:
+        QColorDialog.getColor = original
+
+
+def _outline_shown(widget, index) -> tuple[bool, str]:
+    """``(ticked, #rrggbb)`` as the row shows them."""
+    if hasattr(widget, "comm"):
+        row = widget.rows[index]
+        return bool(row["outline"]["enabled"]), row["outline_hex"]
+    row = widget.row(index)
+    return row.outline.enabled.isChecked(), row.outline.hex
 
 
 def _set_normal(widget, index, normal) -> None:
@@ -151,6 +191,60 @@ def test_the_position_range_is_the_box_projected_on_the_normal():
     assert position_range([0, 0, -2], bounds) == (-40.0, 0.0)
     low, high = position_range([0, 1, 1], bounds)
     assert (low, high) == pytest.approx((0.0, 60 / np.sqrt(2)))
+
+
+#: A box that does not start at the coordinate origin.
+_OFFSET_BOX = [[2, 10], [0, 20], [5, 40]]
+
+
+@pytest.mark.parametrize(
+    ("normal", "near", "far", "span"),
+    [
+        ([0, 0, 1], 5.0, 40.0, 35.0),
+        # Flipped: the same two faces, the other one first.
+        ([0, 0, -1], -40.0, -5.0, 35.0),
+        # Not a unit normal: the depth is along the unit one.
+        ([0, 0, -3], -40.0, -5.0, 35.0),
+        ([0, 1, 1], 5 / np.sqrt(2), 60 / np.sqrt(2), 55 / np.sqrt(2)),
+    ],
+)
+def test_the_depth_is_0_on_the_near_face_and_the_span_on_the_far_one(
+    normal, near, far, span
+):
+    assert depth_of(near, normal, _OFFSET_BOX) == pytest.approx((0.0, span))
+    assert depth_of(far, normal, _OFFSET_BOX) == pytest.approx((span, span))
+    assert position_at(0.0, normal, _OFFSET_BOX) == pytest.approx(near)
+    assert position_at(span, normal, _OFFSET_BOX) == pytest.approx(far)
+
+
+def test_a_depth_and_its_position_convert_both_ways():
+    normal = [1, -2, 0.5]
+    for depth in (-4.0, 0.0, 3.25, 100.0):
+        position = position_at(depth, normal, _OFFSET_BOX)
+        assert depth_of(position, normal, _OFFSET_BOX)[0] == pytest.approx(depth)
+
+
+def test_a_flip_mirrors_the_depth_in_the_box():
+    # The plane x == 12, seen from each side.
+    depth, span = depth_of(12.0, [0, 0, 1], _OFFSET_BOX)
+    flipped_depth, flipped_span = depth_of(-12.0, [0, 0, -1], _OFFSET_BOX)
+    assert (depth, span) == (7.0, 35.0)
+    assert (flipped_depth, flipped_span) == (span - depth, span)
+
+
+def test_the_depth_of_a_zero_normal_has_a_span():
+    assert depth_of(0.25, [0, 0, 0], _OFFSET_BOX) == (0.25, 1.0)
+
+
+def test_a_plane_on_a_face_is_not_outside():
+    assert not is_outside(0.0, 35.0)
+    assert not is_outside(35.0, 35.0)
+    assert not is_outside(17.0, 35.0)
+    # The rounding of the sums that put a plane on a face.
+    assert not is_outside(-1e-12, 35.0)
+    assert not is_outside(35.0 + 1e-12, 35.0)
+    assert is_outside(-0.01, 35.0)
+    assert is_outside(35.01, 35.0)
 
 
 def test_the_facing_of_a_normal():
@@ -220,6 +314,57 @@ def test_it_adds_moves_toggles_and_removes_planes(controller, toolkit):
 
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_the_editor_describes_and_sets_the_depth(controller, toolkit):
+    visual, store = _add_points(controller)  # x runs from 0 to 40
+    widget = _make(toolkit, [visual.id], visual, store)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    editor = widget.editor
+
+    _act(widget, "add")  # across x, through the middle
+    described = editor.describe()[0]
+    assert (described["depth"], described["span"]) == (20.0, 40.0)
+    assert described["outside"] is False
+
+    editor.set_depth(0, 10.0)
+    assert visual.clipping_planes[0].plane.offset == 10.0
+    assert editor.describe()[0]["depth"] == 10.0
+
+    # A flip keeps the plane and mirrors its depth.
+    _act(widget, "flip", 0)
+    assert visual.clipping_planes[0].plane.offset == -10.0
+    described = editor.describe()[0]
+    assert (described["position"], described["depth"]) == (-10.0, 30.0)
+    assert described["span"] == 40.0
+    # Depth 0 is now the face x == 40, the one the normal points away from.
+    editor.set_depth(0, 0.0)
+    assert visual.clipping_planes[0].plane.offset == -40.0
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_a_plane_outside_the_box_has_a_depth_past_the_span(controller, toolkit):
+    visual, store = _add_points(controller)
+    widget = _make(toolkit, [visual.id], visual, store)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    editor = widget.editor
+    _act(widget, "add")
+
+    editor.set_depth(0, 46.0)
+    assert visual.clipping_planes[0].plane.offset == 46.0
+    described = editor.describe()[0]
+    # The span is the box's, not widened to hold the plane.
+    assert (described["depth"], described["span"]) == (46.0, 40.0)
+    assert described["outside"] is True
+
+    editor.set_depth(0, -3.0)
+    described = editor.describe()[0]
+    assert (described["depth"], described["span"]) == (-3.0, 40.0)
+    assert described["outside"] is True
+
+    editor.set_depth(0, 40.0)
+    assert editor.describe()[0]["outside"] is False
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
 def test_turning_the_normal_keeps_the_plane_through_the_middle(controller, toolkit):
     visual, store = _add_points(controller)
     widget = _make(toolkit, [visual.id], visual, store)
@@ -249,6 +394,77 @@ def test_a_change_from_elsewhere_is_shown_and_sends_nothing(controller, toolkit)
     assert widget.editor.rows[1]["enabled"] is False
     assert sent == []
     widget.close()
+
+
+def _qt(controller):
+    """A Qt control on points whose x runs from 0 to 40, with one plane."""
+    visual, store = _add_points(controller)
+    widget = _make("qt", [visual.id], visual, store)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    _act(widget, "add")  # across x, through the middle
+    return visual, store, widget, widget.row(0)
+
+
+def test_the_qt_slider_runs_from_one_face_of_the_box_to_the_other(controller):
+    visual, _store, _widget, row = _qt(controller)
+    assert (row.slider.value(), row.position.value()) == (500, 20.0)
+    row.slider.setValue(0)
+    assert visual.clipping_planes[0].plane.offset == 0.0
+    row.slider.setValue(row.slider.maximum())
+    assert visual.clipping_planes[0].plane.offset == 40.0
+    assert row.position.value() == 40.0
+    assert not row.outside
+
+    # Flipped, the slider runs the other way: along the new normal.
+    row.flip.click()
+    assert (row.slider.value(), row.position.value()) == (0, 0.0)
+    row.slider.setValue(250)
+    np.testing.assert_array_equal(visual.clipping_planes[0].plane.normal, [0, 0, -1])
+    assert visual.clipping_planes[0].plane.offset == -30.0  # the plane x == 30
+    assert row.position.value() == 10.0
+
+
+def test_the_qt_number_is_the_depth_and_typing_it_moves_the_plane(controller):
+    visual, _store, _widget, row = _qt(controller)
+    row.flip.click()
+    # The plane x == 20, seen along -x: its position is -20, its depth 20.
+    assert visual.clipping_planes[0].plane.offset == -20.0
+    assert row.position.value() == 20.0
+    row.position.setValue(5.0)
+    assert visual.clipping_planes[0].plane.offset == -35.0
+    assert row.slider.value() == 125
+
+
+def test_the_qt_row_marks_a_plane_outside_the_box(controller):
+    visual, store, widget, row = _qt(controller)
+    usual = row.position.toolTip()
+    assert row.slider.toolTip() == usual != ""
+
+    # Moved from elsewhere (a gizmo, code) to 6 past the far face.
+    visual.clipping_planes = (
+        ClippingPlane.from_point_normal(
+            store.data_coordinate_system, (0, 0, 46), (0, 0, 1)
+        ),
+    )
+    assert row.outside
+    assert row.slider.value() == row.slider.maximum()  # pinned
+    assert row.position.value() == 46.0  # the true depth
+    assert row.position.font().italic()
+    assert row.position.toolTip().startswith("The plane is outside")
+    assert widget.editor.describe()[0]["span"] == 40.0
+
+    # Before the near face: pinned at the other end, the number negative.
+    row.position.setValue(-3.0)
+    assert visual.clipping_planes[0].plane.offset == -3.0
+    assert (row.slider.value(), row.position.value()) == (0, -3.0)
+    assert row.outside
+
+    # Touching the slider brings the plane back inside.
+    row.slider.setValue(100)
+    assert visual.clipping_planes[0].plane.offset == 4.0
+    assert not row.outside
+    assert not row.position.font().italic()
+    assert row.position.toolTip() == usual
 
 
 def test_the_qt_row_labels_the_normal_with_the_stores_axis_names(controller):
@@ -317,6 +533,36 @@ def test_a_zeroed_normal_is_refused_with_a_reason(controller, toolkit):
     widget.close()
 
 
+def test_the_anywidget_front_end_sends_the_depth(controller):
+    visual, store = _add_points(controller)  # x runs from 0 to 40
+    widget = _make("anywidget", [visual.id], visual, store)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    _act(widget, "add")
+    _act(widget, "flip", 0)
+    # Along -x, depth 5 is the plane x == 35.
+    _act(widget, "depth", 0, 5.0)
+    assert visual.clipping_planes[0].plane.offset == -35.0
+    assert (widget.rows[0]["depth"], widget.rows[0]["span"]) == (5.0, 40.0)
+    # Past the far face: the row says so, and its span is still the box's.
+    _act(widget, "depth", 0, 46.0)
+    assert visual.clipping_planes[0].plane.offset == 6.0
+    assert widget.rows[0]["outside"] is True
+    assert (widget.rows[0]["depth"], widget.rows[0]["span"]) == (46.0, 40.0)
+    widget.close()
+
+
+def test_the_anywidget_no_longer_takes_a_position(controller):
+    """The action a front end from before the depth would send."""
+    visual, store = _add_points(controller)
+    widget = _make("anywidget", [visual.id], visual, store)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    _act(widget, "add")
+    before = visual.clipping_planes
+    widget.edit = {"action": "position", "index": 0, "value": 5.0, "serial": 9999}
+    assert visual.clipping_planes == before
+    widget.close()
+
+
 def test_the_anywidget_ignores_a_malformed_edit(controller):
     visual, store = _add_points(controller)
     widget = _make("anywidget", [visual.id], visual, store)
@@ -355,13 +601,14 @@ async def test_the_position_range_follows_the_stores_extent(controller, toolkit)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
     _act(widget, "add")
     described = widget.editor.describe()[0]
-    assert (described["low"], described["high"]) == (0.0, 40.0)
+    assert (described["depth"], described["span"]) == (20.0, 40.0)
 
     sent: list = []
     widget.changed.connect(sent.append)
     store.positions = np.array([[0, 0, 0], [10, 20, 80]], dtype=np.float32)
     described = widget.editor.describe()[0]
-    assert (described["low"], described["high"]) == (0.0, 80.0)
+    # The plane stayed at x == 20, in a box now twice as deep.
+    assert (described["depth"], described["span"]) == (20.0, 80.0)
     assert sent == []  # the plane did not move
     widget.close()
 
@@ -392,7 +639,9 @@ def test_the_anywidget_sends_one_update_for_an_edit_delivered_twice(controller):
     assert len(sent) == 1
     # What the front end draws a row from.
     assert widget.rows[0]["facing"] == [2, 1]
-    assert (widget.rows[0]["low"], widget.rows[0]["high"]) == (0.0, 40.0)
+    assert (widget.rows[0]["depth"], widget.rows[0]["span"]) == (5.0, 40.0)
+    assert widget.rows[0]["outside"] is False
+    assert "low" not in widget.rows[0] and "high" not in widget.rows[0]
     assert widget.axis_names == ["z", "y", "x"]
     widget.close()
 
@@ -446,9 +695,7 @@ def test_a_control_for_five_axes(controller, toolkit):
     described = widget.editor.describe()[0]
     assert described["normal"] == [0.0, 0.0, 1.0, 1.0, 1.0]
     assert described["facing"] is None
-    assert (described["low"], described["high"]) == pytest.approx(
-        (0.0, (10 + 20 + 40) / np.sqrt(3))
-    )
+    assert described["span"] == pytest.approx((10 + 20 + 40) / np.sqrt(3))
     widget.close()
 
 
@@ -791,3 +1038,161 @@ def test_the_explicit_api_is_exported_from_cellier_gui():
     ):
         assert name in gui.__all__
         assert getattr(gui, name) is getattr(_clipping_planes, name)
+
+
+# -- a plane's outline (plane outline design 4.1) -------------------------------
+
+
+def _outlined_plane():
+    from cellier.transform import Axis, CoordinateSystem
+    from cellier.visuals import ClippingPlane, PlaneOutline
+
+    system = CoordinateSystem(
+        name="data", axes=tuple(Axis(name=n, axis_type="space") for n in "zyx")
+    )
+    outline = PlaneOutline(enabled=True, color=(1.0, 0.0, 0.0, 1.0), width=3.0)
+    plane = ClippingPlane.from_point_normal(
+        system, (4, 0, 0), (1, 0, 0), outline=outline
+    )
+    return system, plane, outline
+
+
+def test_a_row_carries_its_plane_s_outline_both_ways():
+    system, plane, outline = _outlined_plane()
+    rows = rows_from_planes([plane])
+    assert rows[0]["outline"] == {
+        "enabled": True,
+        "color": [1.0, 0.0, 0.0, 1.0],
+        "width": 3.0,
+    }
+    assert planes_from_rows(rows, system.id)[0].outline == outline
+    # A row with no outline entry is a plane with none.
+    del rows[0]["outline"]
+    assert planes_from_rows(rows, system.id)[0].outline.enabled is False
+
+
+def test_an_edit_of_a_row_keeps_the_plane_s_outline():
+    """The front ends have no control for an outline yet and may send a row
+    back without one: the plane keeps the outline it has."""
+    from cellier.gui._clipping_planes import ClippingPlanesEditor
+
+    system, plane, outline = _outlined_plane()
+    sent: list = []
+    editor = ClippingPlanesEditor(
+        visual_ids=[uuid4()],
+        coordinate_system=system.id,
+        axis_names=["z", "y", "x"],
+        bounds=[[0, 10], [0, 10], [0, 10]],
+        planes=rows_from_planes([plane]),
+        source_id=uuid4(),
+        emit=sent.append,
+        show=lambda rows, error: None,
+    )
+    editor.set_position(0, 6.0)
+    assert sent[-1].clipping_planes[0].outline == outline
+    assert sent[-1].clipping_planes[0].id == plane.id
+
+    bare = [{k: v for k, v in row.items() if k != "outline"} for row in editor.rows]
+    bare[0]["enabled"] = False
+    editor.set_rows(bare)
+    assert sent[-1].clipping_planes[0].enabled is False
+    assert sent[-1].clipping_planes[0].outline == outline
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_a_row_draws_and_colours_its_plane_s_outline(controller, toolkit):
+    """Plane outline design 7: a box and a colour per row."""
+    from cellier.visuals import PlaneOutline
+
+    visual, store = _add_points(controller)
+    faint = PlaneOutline(color=(1.0, 1.0, 1.0, 0.5), width=5.0)
+    plane = ClippingPlane.from_point_normal(
+        store.data_coordinate_system, (0, 0, 20), (0, 0, 1), outline=faint
+    )
+    controller.set_clipping_planes(visual.id, (plane,))
+    widget = _make(toolkit, [visual.id], visual, store)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    assert _outline_shown(widget, 0) == (False, "#ffffff")
+
+    _act(widget, "outline", 0, True)
+    assert visual.clipping_planes[0].outline.enabled is True
+    assert visual.clipping_planes[0].id == plane.id
+
+    _act(widget, "outline_color", 0, "#ff8000")
+    outline = visual.clipping_planes[0].outline
+    # The alpha and the width, which the row has no entry for, are kept.
+    assert outline.color == pytest.approx((1.0, 128 / 255, 0.0, 0.5))
+    assert outline.width == 5.0
+    assert outline.enabled is True
+    assert _outline_shown(widget, 0) == (True, "#ff8000")
+    assert visual.clipping_planes[0].plane == plane.plane  # it did not move
+
+    # A move from the control keeps the outline.
+    _act(widget, "position", 0, 5.0)
+    assert visual.clipping_planes[0].plane.offset == 5.0
+    assert visual.clipping_planes[0].outline == outline
+
+    _act(widget, "outline", 0, False)
+    assert visual.clipping_planes[0].outline.enabled is False
+    assert visual.clipping_planes[0].outline.color == pytest.approx(outline.color)
+    assert widget.error == ""
+    widget.close()
+
+
+@pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
+def test_an_outline_set_from_code_is_shown_and_sends_nothing(controller, toolkit):
+    from cellier.visuals import PlaneOutline
+
+    visual, store = _add_points(controller)
+    plane = ClippingPlane.from_point_normal(
+        store.data_coordinate_system, (0, 0, 20), (0, 0, 1)
+    )
+    controller.set_clipping_planes(visual.id, (plane,))
+    widget = _make(toolkit, [visual.id], visual, store)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    updates: list = []
+    widget.changed.connect(updates.append)
+
+    green = PlaneOutline(enabled=True, color=(0.0, 1.0, 0.0, 1.0))
+    controller.set_clipping_planes(
+        visual.id, (plane.model_copy(update={"outline": green}),)
+    )
+    assert _outline_shown(widget, 0) == (True, "#00ff00")
+    assert updates == []
+    widget.close()
+
+
+def test_a_cancelled_colour_dialog_changes_nothing(controller):
+    visual, store = _add_points(controller)
+    plane = ClippingPlane.from_point_normal(
+        store.data_coordinate_system, (0, 0, 20), (0, 0, 1)
+    )
+    controller.set_clipping_planes(visual.id, (plane,))
+    widget = _make("qt", [visual.id], visual, store)
+    controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
+    _act(widget, "outline_color", 0, None)
+    assert visual.clipping_planes == (plane,)
+    widget.close()
+
+
+def test_outline_colours_convert_between_a_picker_and_a_plane():
+    from cellier.gui._clipping_planes import (
+        outline_color,
+        outline_hex,
+        with_outline_field,
+    )
+
+    assert outline_hex({"color": [1.0, 0.5, 0.0, 0.25]}) == "#ff8000"
+    assert outline_hex(None) == "#ffffff"
+    assert outline_color("#ff8000", alpha=0.25) == pytest.approx(
+        [1.0, 128 / 255, 0.0, 0.25]
+    )
+    assert outline_color((0.1, 0.2, 0.3), alpha=0.5) == [0.1, 0.2, 0.3, 0.5]
+    assert outline_color((0.1, 0.2, 0.3, 0.9), alpha=0.5) == [0.1, 0.2, 0.3, 0.9]
+    for bad in ("red", "#12345", "#gggggg", (1.0, 0.0)):
+        with pytest.raises(ValueError, match="colour"):
+            outline_color(bad)
+    entry = with_outline_field({"color": [0, 0, 0, 0.5], "width": 4.0}, color="#ffffff")
+    assert entry == {"enabled": False, "color": [1.0, 1.0, 1.0, 0.5], "width": 4.0}
+    with pytest.raises(ValueError):
+        with_outline_field(None, color=(2.0, 0.0, 0.0))

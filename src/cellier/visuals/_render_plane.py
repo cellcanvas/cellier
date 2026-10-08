@@ -25,6 +25,7 @@ from pydantic import (
 from typing_extensions import Self
 
 from cellier.transform import AxisRef
+from cellier.visuals._plane_outline import PlaneOutline
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -139,6 +140,10 @@ class RenderPlane(BaseModel):
     enabled : bool
         A disabled plane stays in the tuple and is not drawn.  Default
         ``True``.
+    outline : PlaneOutline
+        The line around what is drawn of the plane.  Off by default.  It is
+        drawn while the plane is: in a 3D view of the plane's axes, with
+        the visual in the ``"plane"`` render mode.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -152,6 +157,7 @@ class RenderPlane(BaseModel):
     extent_0: Extent = (None, None)
     extent_1: Extent = (None, None)
     enabled: bool = True
+    outline: PlaneOutline = Field(default_factory=PlaneOutline)
 
     @field_validator("axes", mode="before")
     @classmethod
@@ -255,7 +261,7 @@ class RenderPlane(BaseModel):
             A direction, on *axes*, whose projection into the plane becomes
             ``in_plane_axis_0``.  It must not be parallel to the normal.
         **kwargs :
-            ``extent_0``, ``extent_1``, ``enabled``, ``id``.
+            ``extent_0``, ``extent_1``, ``enabled``, ``outline``, ``id``.
 
         Returns
         -------
@@ -312,7 +318,7 @@ class RenderPlane(BaseModel):
             The world axes the pose is given on.  ``None`` means the
             system's axes, which must then be three.
         **kwargs :
-            ``extent_0``, ``extent_1``, ``enabled``, ``id``.
+            ``extent_0``, ``extent_1``, ``enabled``, ``outline``, ``id``.
 
         Returns
         -------
