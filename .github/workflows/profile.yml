@@ -1,0 +1,158 @@
+name: Profile
+
+# Measures why the tests take longer on one platform than another. Not part of
+# CI: run it by hand (Actions -> Profile -> Run workflow), or push a change to
+# this file or to scripts/ci_profiling/ in a pull request.
+#
+# Each platform uploads a `profile-<platform>` artifact; compare them with
+# scripts/ci_profiling/compare.py (see its docstring).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: "Test files to profile (space separated)"
+        default: >-
+          tests/convenience/test_plane_rendering_examples.py
+          tests/render/test_render_plane_gizmo.py
+          tests/render/test_multiscale_level_alignment.py
+          tests/render/test_plane_planning.py
+      full_suite:
+        description: "Also run the whole suite as CI does, with per-test times"
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - ".github/workflows/profile.yml"
+      - "scripts/ci_profiling/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  profile:
+    name: profile ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, macos-latest, windows-latest]
+
+    env:
+      # As in ci.yml.
+      WGPU_BACKEND_TYPE: ${{ matrix.platform == 'windows-latest' && 'Vulkan' || '' }}
+      SPATIAL_GRAPH_NO_PREBUILT: "1"
+      DEFAULT_TESTS: >-
+        tests/convenience/test_plane_rendering_examples.py
+        tests/render/test_render_plane_gizmo.py
+        tests/render/test_multiscale_level_alignment.py
+        tests/render/test_plane_planning.py
+      INPUT_TESTS: ${{ inputs.tests }}
+      OUT: profile_out
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The environment below is ci.yml's, step for step, so the numbers are
+      # the ones CI sees.
+      - name: Set up headless GUI
+        uses: pyvista/setup-headless-display-action@v5
+        with:
+          qt: true
+
+      - name: Install llvmpipe and lavapipe for offscreen canvas
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt install -y libegl1-mesa-dev libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+
+      - name: Install lavapipe for offscreen canvas
+        if: matrix.platform == 'windows-latest'
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          install_lavapipe: true
+          stripdown: true
+          cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache-dependency-path: "pyproject.toml"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install .[test,pyside,remote,anywidget,examples,graph]
+
+      - name: Machine
+        run: |
+          mkdir -p "$OUT/junit" "$OUT/prof"
+          echo "TESTS=${INPUT_TESTS:-$DEFAULT_TESTS}" >> "$GITHUB_ENV"
+          python -c "import os, platform, tempfile; print(platform.platform()); print('cpus:', os.cpu_count()); print('temp:', tempfile.gettempdir()); print('cwd:', os.getcwd())"
+          python -c "from pygfx.renderers.wgpu import get_shared; print('adapter:', get_shared().device.adapter.summary)"
+
+      # --- Micro-probes: seconds each, no cellier code involved -------------
+
+      - name: Probe - file writes
+        if: always()
+        run: python scripts/ci_profiling/probe_file_io.py --out "$OUT/probe_file_io.json"
+
+      - name: Probe - frame time
+        if: always()
+        run: python scripts/ci_profiling/probe_render.py --thread-sweep default,1,2,4 --out "$OUT/probe_render.json"
+
+      # --- cProfile of each test file ---------------------------------------
+      # Also warms every cache, so the timed runs below start equal.
+
+      - name: cProfile each test file
+        if: always()
+        run: |
+          for test in $TESTS; do
+            name=$(basename "$test" .py)
+            echo "::group::$name"
+            python -m cProfile -o "$OUT/prof/$name.prof" -m pytest "$test" -q --durations=10 || true
+            echo "::endgroup::"
+          done
+
+      # --- The same test files, one thing changed at a time -----------------
+
+      - name: Timed - baseline (no coverage)
+        if: always()
+        run: pytest $TESTS -q --junitxml="$OUT/junit/baseline.xml" || true
+
+      - name: Timed - with coverage
+        if: always()
+        run: pytest $TESTS -q --cov --cov-report= --junitxml="$OUT/junit/coverage.xml" || true
+
+      # pytest's tmp_path is under the system temp directory, which on the
+      # Windows runner is on C:; the workspace is on another drive.
+      - name: Timed - tmp_path on the workspace drive
+        if: always()
+        run: pytest $TESTS -q --basetemp="${{ github.workspace }}/.pytest_basetemp" --junitxml="$OUT/junit/basetemp_workspace.xml" || true
+
+      - name: Timed - llvmpipe on one thread
+        if: always() && matrix.platform != 'macos-latest'
+        env:
+          LP_NUM_THREADS: "1"
+        run: pytest $TESTS -q --junitxml="$OUT/junit/lp_threads_1.xml" || true
+
+      # --- The whole suite, as CI runs it, with every test's time -----------
+
+      - name: Timed - full suite as CI
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.full_suite)
+        run: pytest --color=yes --durations=50 --cov --cov-report= --junitxml="$OUT/junit/full.xml" || true
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: profile-${{ matrix.platform }}
+          path: ${{ env.OUT }}
+          if-no-files-found: error
