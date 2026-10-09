@@ -61,12 +61,13 @@ def _modes(plans: list[tuple], visual_id) -> list[str]:
 class Rig:
     """A 3D scene with one multiscale visual of a small pyramid, one canvas."""
 
-    def __init__(self, controller, tmp_path, *, kind="image", spec=fx.ANISO, **moving):
+    def __init__(
+        self, controller, pyramid_root, *, kind="image", spec=fx.ANISO, **moving
+    ):
         self.controller = controller
         controller._render_manager.config.scheduler.dims_settle_s = SETTLE_S
         labels = kind == "labels"
-        fx.write_pyramid(tmp_path, spec, labels=labels)
-        self.store, _voxel = fx.open_pyramid(tmp_path, spec)
+        self.store, _voxel = fx.open_pyramid(pyramid_root(spec, labels=labels), spec)
         self.system = self.store.data_coordinate_systems[0]
         if "t" in spec.axes:
             self.scene = controller.add_scene(
@@ -150,9 +151,9 @@ class Rig:
 
 
 @pytest.fixture
-def make_rig(controller, tmp_path):
+def make_rig(controller, pyramid_root):
     def _make(**kwargs) -> Rig:
-        return Rig(controller, tmp_path, **kwargs)
+        return Rig(controller, pyramid_root, **kwargs)
 
     return _make
 
@@ -504,10 +505,9 @@ async def test_an_eager_3d_scrub_plans_in_full_per_tick(make_rig, monkeypatch):
 
 
 async def test_a_2d_view_plans_a_clipping_change_on_every_tick(
-    controller, tmp_path, monkeypatch
+    controller, pyramid_root, monkeypatch
 ):
-    fx.write_pyramid(tmp_path, fx.ISO)
-    store, _ = fx.open_pyramid(tmp_path, fx.ISO)
+    store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
     scene = controller.add_scene(dim="2d", name="scene")
     system = store.data_coordinate_systems[0]
 

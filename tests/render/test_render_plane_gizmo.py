@@ -569,12 +569,11 @@ async def test_a_drag_is_one_plane_interaction(make_rig):
 class MultiscaleRig(PlaneRig):
     """A multiscale image in plane mode: a drag holds its plan."""
 
-    def __init__(self, tmp_path, *, n_canvases: int = 1) -> None:
+    def __init__(self, pyramid_root, *, n_canvases: int = 1) -> None:
         self.controller = CellierController(gui="offscreen")
         self.controller.camera_reslice_enabled = False
         self.controller._render_manager.config.scheduler.dims_settle_s = SETTLE_S
-        fx.write_pyramid(tmp_path, fx.ISO)
-        store, _ = fx.open_pyramid(tmp_path, fx.ISO)
+        store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
         self.scene = self.controller.add_scene(dim="3d", name="scene")
         self.world = self.controller._model.scenes[
             self.scene.id
@@ -630,10 +629,10 @@ def _record_plans(monkeypatch) -> list[str]:
 
 
 async def test_a_gizmo_drag_holds_the_plan_and_loads_once_at_release(
-    make_rig, tmp_path, monkeypatch
+    make_rig, pyramid_root, monkeypatch
 ):
     """B1, through the real gizmo callbacks: counts only."""
-    rig = make_rig(MultiscaleRig, tmp_path=tmp_path)
+    rig = make_rig(MultiscaleRig, pyramid_root=pyramid_root)
     plane = rig.plane()
     rig.controller.set_render_planes(rig.visual.id, (plane,))
     await rig.start()
@@ -663,9 +662,9 @@ async def test_a_gizmo_drag_holds_the_plan_and_loads_once_at_release(
 
 
 async def test_a_pause_ends_the_motion_and_the_next_move_starts_another(
-    make_rig, tmp_path, monkeypatch
+    make_rig, pyramid_root, monkeypatch
 ):
-    rig = make_rig(MultiscaleRig, tmp_path=tmp_path)
+    rig = make_rig(MultiscaleRig, pyramid_root=pyramid_root)
     plane = rig.plane()
     rig.controller.set_render_planes(rig.visual.id, (plane,))
     await rig.start()

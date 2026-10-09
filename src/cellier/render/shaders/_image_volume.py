@@ -40,7 +40,7 @@ from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 _WGSL_DIR = Path(__file__).parent / "wgsl"
 
-IMAGE_VOLUME_WGSL: str = (_WGSL_DIR / "image_volume.wgsl").read_text()
+IMAGE_VOLUME_WGSL: str = (_WGSL_DIR / "image_volume.wgsl").read_text(encoding="utf-8")
 
 
 class ImageVolumeMipMaterial(gfx.VolumeMipMaterial):

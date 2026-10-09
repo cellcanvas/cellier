@@ -25,7 +25,7 @@ from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 _WGSL_DIR = Path(__file__).parent / "wgsl"
 
-_LABEL_VOLUME_WGSL = (_WGSL_DIR / "label_volume.wgsl").read_text()
+_LABEL_VOLUME_WGSL = (_WGSL_DIR / "label_volume.wgsl").read_text(encoding="utf-8")
 
 _VERTEX_AND_FRAGMENT = wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT
 

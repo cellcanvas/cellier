@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from pygfx.resources import Buffer
 
 _WGSL_DIR = Path(__file__).parent / "wgsl"
-IMAGE_BLOCK_WGSL = (_WGSL_DIR / "image_block.wgsl").read_text()
+IMAGE_BLOCK_WGSL = (_WGSL_DIR / "image_block.wgsl").read_text(encoding="utf-8")
 
 
 class ImageBlockMaterial(gfx.ImageBasicMaterial):

@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from cellier.render.lut_indirection import BlockLayout3D
 
 _WGSL_PATH = Path(__file__).parent / "wgsl" / "multiscale_volume_brick.wgsl"
-_WGSL_SOURCE = _WGSL_PATH.read_text()
+_WGSL_SOURCE = _WGSL_PATH.read_text(encoding="utf-8")
 
 _vertex_and_fragment = wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT
 

@@ -27,11 +27,10 @@ RED = PlaneOutline(enabled=True, color=(1.0, 0.0, 0.0, 1.0), width=3.0)
 SETTLE_S = 0.03
 
 
-async def _image(controller, tmp_path, *, render_mode="plane"):
+async def _image(controller, pyramid_root, *, render_mode="plane"):
     """A loaded multiscale image with one render plane and one clipping plane."""
     controller._render_manager.config.scheduler.dims_settle_s = SETTLE_S
-    fx.write_pyramid(tmp_path, fx.ISO)
-    store, _ = fx.open_pyramid(tmp_path, fx.ISO)
+    store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
     scene = controller.add_scene(dim="3d", name="scene")
     world = controller._model.scenes[scene.id].dims.world_coordinate_system
     visual = controller.add_image_multiscale(
@@ -116,9 +115,9 @@ def _set(controller, visual, kind, planes) -> None:
 
 @pytest.mark.parametrize("kind", ["render", "clipping"])
 async def test_a_new_outline_is_announced_and_drawn_and_reads_nothing(
-    controller, tmp_path, monkeypatch, kind
+    controller, pyramid_root, monkeypatch, kind
 ):
-    _scene, visual = await _image(controller, tmp_path)
+    _scene, visual = await _image(controller, pyramid_root)
     spy = _Spy(controller, visual, monkeypatch)
     plane = _planes(visual, kind)[0]
 
@@ -136,8 +135,8 @@ async def test_a_new_outline_is_announced_and_drawn_and_reads_nothing(
 
 
 @pytest.mark.parametrize("kind", ["render", "clipping"])
-async def test_the_render_visual_is_given_the_outline(controller, tmp_path, kind):
-    scene, visual = await _image(controller, tmp_path)
+async def test_the_render_visual_is_given_the_outline(controller, pyramid_root, kind):
+    scene, visual = await _image(controller, pyramid_root)
     plane = _planes(visual, kind)[0]
     _set(controller, visual, kind, (plane.model_copy(update={"outline": RED}),))
     gfx_visual = controller._render_manager._scenes[scene.id].get_visual(visual.id)
@@ -145,9 +144,9 @@ async def test_the_render_visual_is_given_the_outline(controller, tmp_path, kind
 
 
 @pytest.mark.parametrize("kind", ["render", "clipping"])
-async def test_a_move_still_reads_again(controller, tmp_path, monkeypatch, kind):
+async def test_a_move_still_reads_again(controller, pyramid_root, monkeypatch, kind):
     """The other half of the rule: a pose change is treated as before."""
-    _scene, visual = await _image(controller, tmp_path)
+    _scene, visual = await _image(controller, pyramid_root)
     spy = _Spy(controller, visual, monkeypatch)
     plane = _planes(visual, kind)[0]
     if kind == "render":
@@ -170,9 +169,9 @@ async def test_a_move_still_reads_again(controller, tmp_path, monkeypatch, kind)
 
 @pytest.mark.parametrize("kind", ["render", "clipping"])
 async def test_a_move_with_a_new_outline_is_a_move(
-    controller, tmp_path, monkeypatch, kind
+    controller, pyramid_root, monkeypatch, kind
 ):
-    _scene, visual = await _image(controller, tmp_path)
+    _scene, visual = await _image(controller, pyramid_root)
     spy = _Spy(controller, visual, monkeypatch)
     plane = _planes(visual, kind)[0]
     _set(
@@ -188,11 +187,11 @@ async def test_a_move_with_a_new_outline_is_a_move(
 
 @pytest.mark.parametrize("kind", ["render", "clipping"])
 async def test_a_new_outline_inside_a_drag_is_not_a_tick_of_it(
-    controller, tmp_path, monkeypatch, kind
+    controller, pyramid_root, monkeypatch, kind
 ):
     """A drag's scope is open (a gizmo is held): restyling does not extend
     the drag or plan."""
-    _scene, visual = await _image(controller, tmp_path)
+    _scene, visual = await _image(controller, pyramid_root)
     spy = _Spy(controller, visual, monkeypatch)
     plane = _planes(visual, kind)[0]
     with controller.plane_interaction(visual.id):
@@ -203,10 +202,10 @@ async def test_a_new_outline_inside_a_drag_is_not_a_tick_of_it(
 
 
 async def test_a_new_outline_on_a_plane_that_is_not_drawn_is_only_announced(
-    controller, tmp_path, monkeypatch
+    controller, pyramid_root, monkeypatch
 ):
     """Outside plane mode the render planes are stored and nothing more."""
-    _scene, visual = await _image(controller, tmp_path, render_mode="mip")
+    _scene, visual = await _image(controller, pyramid_root, render_mode="mip")
     spy = _Spy(controller, visual, monkeypatch)
     plane = visual.render_planes[0]
     controller.set_render_planes(
@@ -218,9 +217,9 @@ async def test_a_new_outline_on_a_plane_that_is_not_drawn_is_only_announced(
 
 
 async def test_a_direct_assignment_follows_the_same_rule(
-    controller, tmp_path, monkeypatch
+    controller, pyramid_root, monkeypatch
 ):
-    _scene, visual = await _image(controller, tmp_path)
+    _scene, visual = await _image(controller, pyramid_root)
     spy = _Spy(controller, visual, monkeypatch)
     visual.render_planes = (
         visual.render_planes[0].model_copy(update={"outline": RED}),

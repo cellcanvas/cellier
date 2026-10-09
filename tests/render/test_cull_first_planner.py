@@ -35,7 +35,7 @@ from cellier.visuals import (
     MultiscaleLabelsAppearance,
 )
 from tests._gpu_budget import SMALL_BUDGETS
-from tests._plane_fixtures import ANISO, open_pyramid, write_pyramid
+from tests._plane_fixtures import ANISO, open_pyramid
 
 BLOCK_SIZE = 8
 SHAPES = [(40, 96, 96), (40, 48, 48), (40, 24, 24), (40, 12, 12)]
@@ -167,9 +167,8 @@ def _clip(store, point, normal):
     )
 
 
-def _build(controller, tmp_path, *, labels, clipped):
-    write_pyramid(tmp_path, ANISO, labels=labels)
-    store, _ = open_pyramid(tmp_path, ANISO)
+def _build(controller, pyramid_root, *, labels, clipped):
+    store, _ = open_pyramid(pyramid_root(ANISO, labels=labels), ANISO)
     scene = controller.add_scene(dim="3d", name="s")
     controller._ensure_data_coordinate_systems(scene.id, store)
     planes = (_clip(store, (32, 128, 128), (-0.6, 0.5, 1.0)),) if clipped else ()
@@ -228,10 +227,10 @@ def _plan_counting(controller, scene, visual, monkeypatch, module):
 
 @pytest.mark.parametrize("labels", [False, True], ids=["image", "labels"])
 def test_a_clipped_visual_ranks_only_the_bricks_the_cull_kept(
-    controller, tmp_path, monkeypatch, labels
+    controller, pyramid_root, monkeypatch, labels
 ):
     module = _label_multiscale if labels else _image
-    scene, visual = _build(controller, tmp_path, labels=labels, clipped=True)
+    scene, visual = _build(controller, pyramid_root, labels=labels, clipped=True)
     ranked, kept, total = _plan_counting(controller, scene, visual, monkeypatch, module)
     assert ranked <= kept
     assert 0 < kept < total
@@ -239,9 +238,9 @@ def test_a_clipped_visual_ranks_only_the_bricks_the_cull_kept(
 
 @pytest.mark.parametrize("labels", [False, True], ids=["image", "labels"])
 def test_an_unclipped_visual_ranks_every_brick(
-    controller, tmp_path, monkeypatch, labels
+    controller, pyramid_root, monkeypatch, labels
 ):
     module = _label_multiscale if labels else _image
-    scene, visual = _build(controller, tmp_path, labels=labels, clipped=False)
+    scene, visual = _build(controller, pyramid_root, labels=labels, clipped=False)
     ranked, kept, total = _plan_counting(controller, scene, visual, monkeypatch, module)
     assert ranked == kept == total

@@ -52,7 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from cellier.render._visual_lut import VisualLut
 
 _WGSL_DIR = Path(__file__).parent / "shaders" / "wgsl"
-OUTLINE_WGSL: str = (_WGSL_DIR / "outline.wgsl").read_text()
+OUTLINE_WGSL: str = (_WGSL_DIR / "outline.wgsl").read_text(encoding="utf-8")
 
 RGBA = tuple[float, float, float, float]
 

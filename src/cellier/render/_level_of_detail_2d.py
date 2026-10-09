@@ -228,7 +228,9 @@ def sort_tiles_by_distance_2d(
     dy = centres[:, 1] - float(camera_pos[1])
     dist_sq = dx * dx + dy * dy
 
-    order = np.argsort(dist_sq)
+    # Stable: tiles symmetric about the camera tie, and the default sort breaks
+    # ties differently on each platform.
+    order = np.argsort(dist_sq, kind="stable")
     return arr[order]
 
 

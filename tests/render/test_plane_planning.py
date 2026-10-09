@@ -615,7 +615,7 @@ async def test_labels_plan_the_same_bricks_as_an_image(controller, tmp_path):
 
 
 async def test_a_composite_splits_the_cache_and_every_channel_plans_the_same_bricks(
-    controller, tmp_path
+    controller, pyramid_root
 ):
     """B4: the budget is split between the drawn channels, so a plan that
     fits one channel is truncated with two; each channel gets the same
@@ -635,10 +635,7 @@ async def test_a_composite_splits_the_cache_and_every_channel_plans_the_same_bri
     plans = {}
     for n_channels in (1, 2):
         spec = fx.channel_spec(n_channels)
-        root = tmp_path / f"c{n_channels}"
-        root.mkdir()
-        fx.write_pyramid(root, spec)
-        store, voxel = fx.open_pyramid(root, spec, name=f"c{n_channels}")
+        store, voxel = fx.open_pyramid(pyramid_root(spec), spec, name=f"c{n_channels}")
         scene = controller.add_scene(
             coordinate_system=spatial_axes("c", "z", "y", "x"),
             dim="3d",

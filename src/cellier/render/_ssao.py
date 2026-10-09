@@ -56,7 +56,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from cellier.render._config import AmbientOcclusionConfig
 
 _WGSL_DIR = Path(__file__).parent / "shaders" / "wgsl"
-SSAO_WGSL: str = (_WGSL_DIR / "ssao.wgsl").read_text()
+SSAO_WGSL: str = (_WGSL_DIR / "ssao.wgsl").read_text(encoding="utf-8")
 
 #: Entries the kernel uniform always carries, whatever ``n_samples`` is.
 #: Fixing the array size keeps a sample-count change from altering the

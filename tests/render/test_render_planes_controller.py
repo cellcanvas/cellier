@@ -82,11 +82,10 @@ def _scene(controller, spec=fx.ISO, dim="3d"):
     return controller.add_scene(dim=dim, name="scene")
 
 
-def _multiscale_image(controller, tmp_path, *, spec=fx.ISO, dim="3d", **kwargs):
+def _multiscale_image(controller, pyramid_root, *, spec=fx.ISO, dim="3d", **kwargs):
     """A multiscale image in ``"plane"`` mode; returns ``(scene, visual)``."""
     controller._render_manager.config.scheduler.dims_settle_s = SETTLE_S
-    fx.write_pyramid(tmp_path, spec)
-    store, _ = fx.open_pyramid(tmp_path, spec)
+    store, _ = fx.open_pyramid(pyramid_root(spec), spec)
     scene = _scene(controller, spec, dim)
     kwargs.setdefault(
         "single",
@@ -142,12 +141,10 @@ async def _loaded(controller, scene) -> None:
 
 
 def test_the_four_visuals_take_render_planes_and_plane_mode(
-    controller, tmp_path, image_volume, labels_volume
+    controller, pyramid_root, image_volume, labels_volume
 ):
-    fx.write_pyramid(tmp_path / "i", fx.ISO)
-    fx.write_pyramid(tmp_path / "l", fx.ISO, labels=True)
-    image_store, _ = fx.open_pyramid(tmp_path / "i", fx.ISO)
-    label_store, _ = fx.open_pyramid(tmp_path / "l", fx.ISO)
+    image_store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
+    label_store, _ = fx.open_pyramid(pyramid_root(fx.ISO, labels=True), fx.ISO)
     scene = controller.add_scene(dim="3d", name="scene")
     plane = _plane(_world(controller, scene))
 
@@ -420,11 +417,10 @@ def test_only_an_image_has_a_channel_render_mode(controller, labels_volume):
 
 
 async def test_the_multiscale_channels_follow_the_rule_and_reslice_once(
-    controller, tmp_path, monkeypatch
+    controller, pyramid_root, monkeypatch
 ):
     spec = fx.channel_spec(2, fx.ISO)
-    fx.write_pyramid(tmp_path, spec)
-    store, _ = fx.open_pyramid(tmp_path, spec)
+    store, _ = fx.open_pyramid(pyramid_root(spec), spec)
     scene = controller.add_scene(
         coordinate_system=spatial_axes("c", "z", "y", "x"), dim="3d", name="scene"
     )
@@ -511,10 +507,12 @@ def test_set_render_plane_replaces_one_plane_and_keeps_its_id(controller, image_
 # -- 8.2: a change while not in plane mode is stored, announced, inert -------------
 
 
-async def test_a_change_outside_plane_mode_is_inert(controller, tmp_path, monkeypatch):
+async def test_a_change_outside_plane_mode_is_inert(
+    controller, pyramid_root, monkeypatch
+):
     scene, visual = _multiscale_image(
         controller,
-        tmp_path,
+        pyramid_root,
         single=MultiscaleImageSingleAppearance(
             color_map="viridis", clim=(0.0, 65535.0), render_mode="mip"
         ),
@@ -532,9 +530,11 @@ async def test_a_change_outside_plane_mode_is_inert(controller, tmp_path, monkey
     await drain_loading(controller)
 
 
-async def test_plane_mode_is_ignored_in_a_2d_view(controller, tmp_path, monkeypatch):
+async def test_plane_mode_is_ignored_in_a_2d_view(
+    controller, pyramid_root, monkeypatch
+):
     """D-P19: a 2D view shows the normal slice, planes or not."""
-    scene, visual = _multiscale_image(controller, tmp_path, dim="2d")
+    scene, visual = _multiscale_image(controller, pyramid_root, dim="2d")
     assert visual.plane_mode() is True
     assert controller._draws_planes(visual) is False
     world = _world(controller, scene)
@@ -552,9 +552,9 @@ async def test_plane_mode_is_ignored_in_a_2d_view(controller, tmp_path, monkeypa
 
 
 async def test_plane_mode_with_no_plane_is_not_sliced_until_one_appears(
-    controller, tmp_path, monkeypatch
+    controller, pyramid_root, monkeypatch
 ):
-    scene, visual = _multiscale_image(controller, tmp_path)
+    scene, visual = _multiscale_image(controller, pyramid_root)
     world = _world(controller, scene)
     plans = _record_plans(monkeypatch)
     await _loaded(controller, scene)
@@ -583,11 +583,11 @@ async def test_plane_mode_with_no_plane_is_not_sliced_until_one_appears(
 
 
 async def test_entering_and_leaving_plane_mode_reslices(
-    controller, tmp_path, monkeypatch
+    controller, pyramid_root, monkeypatch
 ):
     scene, visual = _multiscale_image(
         controller,
-        tmp_path,
+        pyramid_root,
         single=MultiscaleImageSingleAppearance(
             color_map="viridis", clim=(0.0, 65535.0), render_mode="mip"
         ),
@@ -635,9 +635,9 @@ async def test_an_in_memory_visual_is_sliced_when_its_first_plane_appears(
 
 
 async def test_a_plane_off_the_displayed_axes_is_not_drawn_and_warns_once(
-    controller, tmp_path, monkeypatch
+    controller, pyramid_root, monkeypatch
 ):
-    scene, visual = _multiscale_image(controller, tmp_path, spec=fx.TZYX)
+    scene, visual = _multiscale_image(controller, pyramid_root, spec=fx.TZYX)
     world = _world(controller, scene)
     zyx = RenderPlane.from_point_normal(
         world, (8, 0, 0), (1, 0, 0), axes=("z", "y", "x")
@@ -691,8 +691,10 @@ async def test_a_plane_off_the_displayed_axes_is_not_drawn_and_warns_once(
 # -- 7.4: a render plane change is a tick, and holds the plan ----------------------
 
 
-async def test_a_render_plane_drag_holds_the_plan(controller, tmp_path, monkeypatch):
-    scene, visual = _multiscale_image(controller, tmp_path)
+async def test_a_render_plane_drag_holds_the_plan(
+    controller, pyramid_root, monkeypatch
+):
+    scene, visual = _multiscale_image(controller, pyramid_root)
     world = _world(controller, scene)
     plane = _plane(world, 20.0)
     controller.set_render_planes(visual.id, (plane,))
@@ -729,12 +731,12 @@ async def test_a_render_plane_drag_holds_the_plan(controller, tmp_path, monkeypa
 
 
 async def test_a_render_plane_and_a_clipping_plane_share_one_drag(
-    controller, tmp_path, monkeypatch
+    controller, pyramid_root, monkeypatch
 ):
     """One tracker per visual serves both kinds of plane (D-P17)."""
     from cellier.visuals import ClippingPlane
 
-    scene, visual = _multiscale_image(controller, tmp_path)
+    scene, visual = _multiscale_image(controller, pyramid_root)
     world = _world(controller, scene)
     plane = _plane(world, 20.0)
     controller.set_render_planes(visual.id, (plane,))
@@ -766,9 +768,9 @@ async def test_a_render_plane_and_a_clipping_plane_share_one_drag(
 
 
 async def test_an_eager_render_plane_drag_plans_every_tick(
-    controller, tmp_path, monkeypatch
+    controller, pyramid_root, monkeypatch
 ):
-    scene, visual = _multiscale_image(controller, tmp_path)
+    scene, visual = _multiscale_image(controller, pyramid_root)
     visual.appearance.coarsest_while_moving_3d = False
     world = _world(controller, scene)
     controller.set_render_planes(visual.id, (_plane(world, 20.0),))

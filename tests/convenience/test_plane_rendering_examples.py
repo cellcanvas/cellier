@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import pytest_asyncio
 
 from cellier.convenience import screenshot_window
 from cellier.convenience.layout._qt_renderer import render_qt
@@ -32,6 +33,14 @@ QT_EXAMPLES = (
 
 #: The examples that keep a marimo twin (``<name>_marimo.py``).
 MARIMO_TWINS = ("plane_slicing_validation",)
+
+
+def _import_example(name: str):
+    path = EXAMPLES / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"_example_{name}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture
@@ -53,10 +62,7 @@ def load_example(monkeypatch, tmp_path, qtbot):
     loaded = []
 
     def _load(name: str):
-        path = EXAMPLES / f"{name}.py"
-        spec = importlib.util.spec_from_file_location(f"_example_{name}", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = _import_example(name)
         loaded.append(module)
         return module
 
@@ -94,13 +100,17 @@ def _scenes(viewer) -> list:
     return list(scenes.values()) if scenes is not None else [viewer.scene]
 
 
-async def _show(module, qtbot):
-    """Do what ``run`` does up to the first loaded frame; return the window."""
+async def _show(module, qtbot=None):
+    """Do what ``run`` does up to the first loaded frame; return the window.
+
+    Without a *qtbot* the caller closes the window.
+    """
     viewer = module.viewer
     controller = viewer.controller
     window = render_qt(module.layout, viewer)
     module.window = window
-    qtbot.addWidget(window)
+    if qtbot is not None:
+        qtbot.addWidget(window)
     window.resize(1000, 700)
     window.show()
     for scene in _scenes(viewer):
@@ -261,6 +271,60 @@ async def test_the_ortho_example_ties_three_planes_to_the_sliders(load_example, 
 _SHOT = 480
 
 
+@pytest.fixture(scope="module")
+def validation_module(tmp_path_factory, qapp):
+    """The validation example, imported once for every test of its scene.
+
+    Importing it renders and writes two pyramids and builds the viewer, which
+    is most of what a test of the scene costs on the CI runners.
+    """
+    root = tmp_path_factory.mktemp("validation")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(tempfile, "mkdtemp", lambda *args, **kwargs: str(root))
+        module = _import_example("plane_slicing_validation")
+    yield module
+    window = getattr(module, "window", None)
+    if window is not None:
+        window.close()
+    module.viewer.controller.close()
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def _shown_validation(validation_module):
+    """The example in its window with its data loaded, and its first camera."""
+    module = validation_module
+    await _show(module)
+    viewer = module.viewer
+    return module, viewer.controller.get_camera_state(_canvas_id(viewer))
+
+
+@pytest_asyncio.fixture(loop_scope="module")
+async def validation_scene(_shown_validation):
+    """The shown example, put back to how ``run`` leaves it.
+
+    The tests of the scene share one window (and one event loop, which the
+    controller's loading tasks are on), so each starts by undoing what the
+    ones before it changed: the time point, the plane, the camera, the gizmo
+    and what is drawn.
+    """
+    module, camera = _shown_validation
+    viewer, controller = module.viewer, module.viewer.controller
+    canvas_id = _canvas_id(viewer)
+    for visual in (module.image_visual, module.labels_visual, module.points_visual):
+        visual.appearance.visible = True
+    module.image_visual.aabb.enabled = True
+    controller.update_background_field(viewer.scene.id, "visible", True)
+    viewer.set_slice_positions({0: 0.0})
+    # The example carries the labels' planes over to the image.
+    controller.set_render_planes(module.labels_visual.id, (module.plane,))
+    controller.set_camera_state(canvas_id, camera)
+    if controller.get_plane_gizmo(canvas_id) is None:
+        viewer.add_render_plane_gizmo(module.labels_visual, module.plane)
+    controller.reslice_scene(viewer.scene.id)
+    await drain_loading(controller)
+    return module
+
+
 def _look_down_z(module) -> None:
     """Look at the volume along -z.
 
@@ -296,11 +360,11 @@ def _blob(picture: np.ndarray, color) -> tuple[np.ndarray, int]:
     return np.array([rows.mean(), cols.mean()]), int(rows.size)
 
 
+@pytest.mark.asyncio(loop_scope="module")
 async def test_the_validation_scene_lines_up_at_every_time_point(
-    load_example, qtbot, offscreen_gpu
+    validation_scene, qtbot, offscreen_gpu
 ):
-    module = load_example("plane_slicing_validation")
-    await _show(module, qtbot)
+    module = validation_scene
     viewer, controller = module.viewer, module.viewer.controller
     image, labels, points = (
         module.image_visual,
@@ -389,11 +453,11 @@ def _normal(visual) -> list[float]:
 
 
 @pytest.mark.parametrize("edited", ["image", "labels"])
+@pytest.mark.asyncio(loop_scope="module")
 async def test_either_control_of_the_validation_scene_turns_the_one_plane(
-    edited, load_example, qtbot, offscreen_gpu
+    edited, validation_scene, qtbot, offscreen_gpu
 ):
-    module = load_example("plane_slicing_validation")
-    await _show(module, qtbot)
+    module = validation_scene
     viewer, controller = module.viewer, module.viewer.controller
     image, labels = module.image_visual, module.labels_visual
     controls = _plane_controls(module)
@@ -432,9 +496,9 @@ async def test_either_control_of_the_validation_scene_turns_the_one_plane(
 
 
 def test_the_validation_scene_moves_its_points_and_changes_its_colours(
-    load_example, qtbot
+    validation_module,
 ):
-    module = load_example("plane_slicing_validation")
+    module = validation_module
     positions, colors = module.POSITIONS, module.COLORS
     for t in range(module.N_TIMES):
         for octant in range(8):
@@ -509,12 +573,12 @@ async def test_the_ortho_example_outlines_each_slice_in_the_3d_panel(
     np.testing.assert_allclose(moved.vertices[:, 2], 20.0)
 
 
+@pytest.mark.asyncio(loop_scope="module")
 async def test_the_validation_scene_has_one_outline_for_its_shared_plane(
-    load_example, qtbot
+    validation_scene, qtbot
 ):
     """The image and the labels carry the same plane and have the same box."""
-    module = load_example("plane_slicing_validation")
-    await _show(module, qtbot)
+    module = validation_scene
     viewer = module.viewer
     drawn = _outlines(viewer, viewer.scene)
     assert list(drawn) == [("render", module.plane.id, 0)]

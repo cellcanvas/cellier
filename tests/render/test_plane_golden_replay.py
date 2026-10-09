@@ -13,6 +13,11 @@ leave every one of these equal.
 
 The golden files are written only with ``PLANE_GOLDEN_WRITE=1`` and must
 never be regenerated to make a test pass: a difference is the finding.
+
+One exception is on record: the two ``2d_*/fit::0_keys`` arrays were captured
+again when the 2D tile sort became stable.  They held the same keys in the tie
+order of the machine that wrote them (256 tiles at 32 distinct distances), an
+order no other platform reproduced.
 """
 
 from __future__ import annotations
@@ -38,7 +43,7 @@ from cellier.visuals import (
     MultiscaleLabelsAppearance,
 )
 from tests._gpu_budget import SMALL_BUDGETS
-from tests._plane_fixtures import ANISO, ISO, open_pyramid, write_pyramid
+from tests._plane_fixtures import ANISO, ISO, open_pyramid
 
 GOLDEN = Path(__file__).resolve().parents[1] / "data" / "plane_golden"
 WRITE = os.environ.get("PLANE_GOLDEN_WRITE") == "1"
@@ -74,11 +79,8 @@ def _transform(controller, scene_id, store, voxel):
     )
 
 
-def _add(controller, tmp_path, spec, *, dim, labels=False, bias=1.0, planes=()):
-    root = tmp_path / ("labels" if labels else "image")
-    root.mkdir()
-    write_pyramid(root, spec, labels=labels)
-    store, voxel = open_pyramid(root, spec)
+def _add(controller, pyramid_root, spec, *, dim, labels=False, bias=1.0, planes=()):
+    store, voxel = open_pyramid(pyramid_root(spec, labels=labels), spec)
     scene = controller.add_scene(dim=dim, name="s")
     transform = _transform(controller, scene.id, store, voxel)
     system = store.data_coordinate_systems[0]
@@ -155,15 +157,14 @@ def _place(view, spec, which):
     camera.look_at(tuple(centre))
 
 
-def _cases(controller, tmp_path_factory):
+def _cases(controller, pyramid_root):
     """Yield ``(name, arrays)`` for every plan case."""
     # 3D perspective: image, clipped and not, two biases, three cameras.
     for clip, planes in CLIPPING.items():
         for bias in (1.0, 0.5):
             for which in ("fit", "side", "close"):
-                path = tmp_path_factory.mktemp("g")
                 scene, visual, spec = _add(
-                    controller, path, ANISO, dim="3d", bias=bias, planes=planes
+                    controller, pyramid_root, ANISO, dim="3d", bias=bias, planes=planes
                 )
                 view = controller._render_manager._canvases[
                     controller.get_canvas_ids(scene.id)[0]
@@ -177,9 +178,13 @@ def _cases(controller, tmp_path_factory):
     # 3D labels, with and without a clip.
     for clip in ("none", "oblique"):
         for which in ("fit", "side"):
-            path = tmp_path_factory.mktemp("g")
             scene, visual, spec = _add(
-                controller, path, ANISO, dim="3d", labels=True, planes=CLIPPING[clip]
+                controller,
+                pyramid_root,
+                ANISO,
+                dim="3d",
+                labels=True,
+                planes=CLIPPING[clip],
             )
             view = controller._render_manager._canvases[
                 controller.get_canvas_ids(scene.id)[0]
@@ -188,8 +193,7 @@ def _cases(controller, tmp_path_factory):
             yield f"3d_labels/{clip}/{which}", _plan(controller, scene, visual)
             controller.remove_scene(scene.id)
     # An isotropic pyramid.
-    path = tmp_path_factory.mktemp("g")
-    scene, visual, spec = _add(controller, path, ISO, dim="3d")
+    scene, visual, spec = _add(controller, pyramid_root, ISO, dim="3d")
     view = controller._render_manager._canvases[controller.get_canvas_ids(scene.id)[0]]
     _place(view, spec, "side")
     yield "3d_iso/none/side", _plan(controller, scene, visual)
@@ -197,9 +201,8 @@ def _cases(controller, tmp_path_factory):
     # Orthographic 3D at three zooms (view height scales the camera).
     for zoom in (1.0, 2.0, 4.0):
         for clip in ("none", "oblique"):
-            path = tmp_path_factory.mktemp("g")
             scene, visual, spec = _add(
-                controller, path, ANISO, dim="3d", planes=CLIPPING[clip]
+                controller, pyramid_root, ANISO, dim="3d", planes=CLIPPING[clip]
             )
             view = controller._render_manager._canvases[
                 controller.get_canvas_ids(scene.id)[0]
@@ -211,8 +214,9 @@ def _cases(controller, tmp_path_factory):
             controller.remove_scene(scene.id)
     # 2D slices.
     for labels in (False, True):
-        path = tmp_path_factory.mktemp("g")
-        scene, visual, spec = _add(controller, path, ANISO, dim="2d", labels=labels)
+        scene, visual, spec = _add(
+            controller, pyramid_root, ANISO, dim="2d", labels=labels
+        )
         yield (
             f"2d_{'labels' if labels else 'image'}/fit",
             _plan(controller, scene, visual),
@@ -228,8 +232,8 @@ def _flatten(cases):
     return flat
 
 
-def test_plans_equal_the_golden(controller, tmp_path_factory):
-    flat = _flatten(_cases(controller, tmp_path_factory))
+def test_plans_equal_the_golden(controller, pyramid_root):
+    flat = _flatten(_cases(controller, pyramid_root))
     path = GOLDEN / "plans.npz"
     if WRITE:
         GOLDEN.mkdir(parents=True, exist_ok=True)
@@ -270,7 +274,7 @@ def _capture_wgsl(controller, build):
     return seen
 
 
-def _wgsl_cases(controller, tmp_path_factory, render_scene):
+def _wgsl_cases(controller, pyramid_root, render_scene):
     """``{case: {shader class: (sha256, length)}}``."""
     out = {}
 
@@ -315,9 +319,7 @@ def _wgsl_cases(controller, tmp_path_factory, render_scene):
     for mode in ("iso", "mip", "smooth_iso", "attenuated_mip"):
         # The mode lives on the single appearance; build with it directly.
         def build_mode(mode=mode):
-            path = tmp_path_factory.mktemp("w")
-            write_pyramid(path, ANISO)
-            store, _ = open_pyramid(path, ANISO)
+            store, _ = open_pyramid(pyramid_root(ANISO), ANISO)
             scene = controller.add_scene(dim="3d", name=mode)
             controller.add_image_multiscale(
                 data=store,
@@ -337,9 +339,7 @@ def _wgsl_cases(controller, tmp_path_factory, render_scene):
     for mode in ("iso_categorical", "flat_categorical", "gradient_debug", "smooth_iso"):
 
         def build_mode(mode=mode):
-            path = tmp_path_factory.mktemp("w")
-            write_pyramid(path, ANISO, labels=True)
-            store, _ = open_pyramid(path, ANISO)
+            store, _ = open_pyramid(pyramid_root(ANISO, labels=True), ANISO)
             scene = controller.add_scene(dim="3d", name=mode)
             controller.add_labels_multiscale(
                 data=store,
@@ -357,8 +357,8 @@ def _wgsl_cases(controller, tmp_path_factory, render_scene):
     return out
 
 
-def test_shader_text_equals_the_golden(controller, tmp_path_factory, render_scene):
-    cases = _wgsl_cases(controller, tmp_path_factory, render_scene)
+def test_shader_text_equals_the_golden(controller, pyramid_root, render_scene):
+    cases = _wgsl_cases(controller, pyramid_root, render_scene)
     empty = [k for k, v in cases.items() if not v]
     assert not empty, f"no shader captured for {empty}"
     path = GOLDEN / "wgsl.json"

@@ -122,6 +122,31 @@ def offscreen_gpu() -> None:
         pytest.skip(f"no usable wgpu offscreen adapter: {exc}")
 
 
+@pytest.fixture(scope="session")
+def pyramid_root(tmp_path_factory):
+    """Return ``root_of(spec, labels=False)``: where a pyramid is on disk.
+
+    Each ``(spec, labels)`` pyramid of ``tests/_plane_fixtures`` is written once
+    per session and shared: a pyramid is thousands of chunk files, and writing
+    one per test dominated the plane tests on the Windows runners.  The stores
+    are for reading only; a test that writes to its store must write its own
+    with ``write_pyramid``.
+    """
+    from tests._plane_fixtures import write_pyramid
+
+    written = {}
+
+    def root_of(spec, *, labels: bool = False):
+        key = (spec, labels)
+        if key not in written:
+            root = tmp_path_factory.mktemp("pyramid")
+            write_pyramid(root, spec, labels=labels)
+            written[key] = root
+        return written[key]
+
+    return root_of
+
+
 @pytest.fixture
 def small_zarr_store(tmp_path):
     """A minimal 2-level multiscale zarr v3 store on disk (zeros, float32).

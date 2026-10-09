@@ -39,8 +39,10 @@ if TYPE_CHECKING:
 
 _WGSL_DIR = Path(__file__).parent / "wgsl"
 
-_LABEL_VOLUME_BRICK_WGSL = (_WGSL_DIR / "label_volume_brick.wgsl").read_text()
-_LABEL_BLOCK_WGSL = (_WGSL_DIR / "label_block.wgsl").read_text()
+_LABEL_VOLUME_BRICK_WGSL = (_WGSL_DIR / "label_volume_brick.wgsl").read_text(
+    encoding="utf-8"
+)
+_LABEL_BLOCK_WGSL = (_WGSL_DIR / "label_block.wgsl").read_text(encoding="utf-8")
 
 _vertex_and_fragment = wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT
 

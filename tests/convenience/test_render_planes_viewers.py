@@ -113,12 +113,11 @@ def test_the_viewer_passes_render_planes_and_the_mode(make_viewer):
 
 
 def test_the_viewer_passes_render_planes_to_the_multiscale_visuals(
-    make_viewer, tmp_path
+    make_viewer, pyramid_root
 ):
     viewer = make_viewer()
     plane = _plane(viewer)
-    fx.write_pyramid(tmp_path / "image", fx.ISO)
-    store, _ = fx.open_pyramid(tmp_path / "image", fx.ISO)
+    store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
     image = viewer.add_image_multiscale(
         store,
         single=MultiscaleImageSingleAppearance(render_mode="plane"),
@@ -611,13 +610,12 @@ def _record_plans(monkeypatch, visual_id) -> list[str]:
 
 
 async def test_a_2d_scrub_holds_the_vol_plan_and_loads_once(
-    make_viewer, tmp_path, monkeypatch
+    make_viewer, pyramid_root, monkeypatch
 ):
     ortho = make_viewer(OrthoViewer)
     controller = ortho.controller
     controller._render_manager.config.scheduler.dims_settle_s = SETTLE_S
-    fx.write_pyramid(tmp_path, fx.ISO)
-    store, _ = fx.open_pyramid(tmp_path, fx.ISO)
+    store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
     visuals = ortho.add_image_multiscale(
         store,
         appearance=MultiscaleImageAppearance(force_level=1),
