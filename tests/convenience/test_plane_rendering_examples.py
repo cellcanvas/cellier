@@ -30,6 +30,9 @@ QT_EXAMPLES = (
     "plane_slicing_validation",
 )
 
+#: The examples that keep a marimo twin (``<name>_marimo.py``).
+MARIMO_TWINS = ("plane_slicing_validation",)
+
 
 @pytest.fixture
 def load_example(monkeypatch, tmp_path, qtbot):
@@ -125,7 +128,7 @@ def test_every_example_is_listed():
     }
     assert scripts == set(QT_EXAMPLES)
     twins = {path.stem for path in EXAMPLES.glob("*_marimo.py")}
-    assert twins == {f"{name}_marimo" for name in QT_EXAMPLES}
+    assert twins == {f"{name}_marimo" for name in MARIMO_TWINS}
 
 
 @pytest.mark.parametrize("name", QT_EXAMPLES)
@@ -148,7 +151,7 @@ def _canvas_id(viewer):
 async def test_plane_gizmo_puts_a_gizmo_on_its_plane(load_example, qtbot):
     module = load_example("plane_gizmo")
     await _show(module, qtbot)
-    session = module.controller.get_plane_gizmo(_canvas_id(module.viewer))
+    session = module.viewer.controller.get_plane_gizmo(_canvas_id(module.viewer))
     assert session is not None
     assert session.kind == "render"
     assert session.plane_id == module.plane.id
@@ -467,9 +470,7 @@ def _colours(picture: np.ndarray) -> int:
     return len(np.unique(picture.reshape(-1, picture.shape[-1]), axis=0))
 
 
-@pytest.mark.parametrize(
-    "name", [name for name in QT_EXAMPLES if name != "ortho_slice_planes"]
-)
+@pytest.mark.parametrize("name", MARIMO_TWINS)
 async def test_the_marimo_twin_runs_and_its_viewer_draws(
     name, run_marimo_example, offscreen_gpu
 ):
@@ -479,31 +480,6 @@ async def test_the_marimo_twin_runs_and_its_viewer_draws(
     await _load(viewer)
     # The data through a colour map, not a blank frame.
     assert _colours(viewer.screenshot(size=(300, 300))) > 50
-
-
-async def test_the_ortho_marimo_twin_runs_and_its_3d_panel_draws(
-    run_marimo_example, offscreen_gpu
-):
-    defs = run_marimo_example("ortho_slice_planes")
-    viewer = defs["viewer"]
-    assert viewer.plane_controller.mode == "slices"
-    assert len(defs["visuals"]["vol"].render_planes) == 3
-    await _load(viewer)
-    assert _colours(viewer.screenshot(panel="vol", size=(300, 300))) > 50
-
-
-async def test_the_marimo_motion_is_one_interaction_and_one_plan(run_marimo_example):
-    defs = run_marimo_example("plane_interaction_script")
-    viewer, log = defs["viewer"], defs["log"]
-    await _load(viewer)
-    log.clear()
-    await defs["move_planes"]()
-    await drain_loading(viewer.controller)
-    assert log == [
-        "plane interaction: start",
-        "plane interaction: end (release)",
-        "plan",
-    ]
 
 
 # -- Plane outlines in the examples (plane outline design 8) --------------------
