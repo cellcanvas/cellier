@@ -72,6 +72,7 @@ test = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov",
     "pytest-qt",
+    "pytest-timeout",
 ]
 # add anything else you like to have in your dev environment here
 dev = [
@@ -176,6 +177,13 @@ asyncio_default_fixture_loop_scope = "function"
 # A test still running after this many seconds dumps every thread's stack to
 # stderr (it is not stopped).
 faulthandler_timeout = 300
+# A test still running after this many seconds fails the run (pytest-timeout).
+# "thread" dumps every stack and exits the process: the default signal method
+# raises inside whatever Python is running, and an exception raised inside a
+# Qt callback is swallowed, so a test spinning in the Qt event loop would not
+# stop.
+timeout = 600
+timeout_method = "thread"
 
 # https://coverage.readthedocs.io/
 [tool.coverage.report]
