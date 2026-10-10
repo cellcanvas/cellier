@@ -49,6 +49,21 @@ MIDDLE = (15.5, 15.5, 15.5)
 SETTLE_S = 0.03
 
 
+#: Camera directions (rendered ``xyz``) the every-handle test drags from: two
+#: along an axis, where some handles are seen edge-on, and three oblique ones
+#: in different octants.  Five, not the forty this test once used: the frames
+#: it drew made it the slowest test on every CI platform, and the fields a
+#: handle changes do not depend on the view.  Not along z: from exactly there
+#: no handle is grabbed at all.
+VIEW_DIRECTIONS = (
+    (1.0, 0.0, 0.0),
+    (0.0, 1.0, 0.0),
+    (0.5, 0.6, 0.62),
+    (-0.6, 0.4, 0.7),
+    (0.4, -0.7, -0.6),
+)
+
+
 def _directions(n: int) -> np.ndarray:
     """*n* unit camera directions, the same every run."""
     vectors = np.random.default_rng(0).normal(size=(n, 3))
@@ -157,8 +172,12 @@ class PlaneRig(Rig):
         length = float(np.linalg.norm(out))
         return at, (out / length if length > 0 else out), length
 
-    def drag(self, session, at, delta) -> tuple[str, object] | None:
-        """Press at *at*, move by *delta* in two framed steps, release.
+    def drag(self, session, at, delta, steps=(0.5, 1.0)) -> tuple[str, object] | None:
+        """Press at *at*, move by *delta* in framed steps, release.
+
+        *steps* are the fractions of *delta* the pointer is moved to, a frame
+        drawn after each: two by default, one (``(1.0,)``) for a test that
+        only reads where the drag ended.
 
         Returns the handle pygfx grabbed, ``(kind, axis)``, or ``None`` when
         the press landed on no handle.
@@ -169,7 +188,7 @@ class PlaneRig(Rig):
             return None
         gizmo = self.gizmo(session)
         grabbed = (gizmo.handle_kind, gizmo.handle_axis)
-        for step in (0.5, 1.0):
+        for step in steps:
             self.send("pointer_move", at[0] + delta[0] * step, at[1] + delta[1] * step)
             self.frame()
         self.send("pointer_up", at[0] + delta[0], at[1] + delta[1], buttons=())
@@ -408,7 +427,11 @@ def _wrong_fields(before: RenderPlane, after: RenderPlane, kind, axis, along) ->
 
 
 async def test_each_handle_changes_exactly_its_model_fields(make_rig):
-    """C6: every handle, through pygfx's own picking and handlers, 40 views."""
+    """C6: every handle, through pygfx's own picking and handlers, 5 views.
+
+    Three frames a drag: one for the move, one for the release, one after
+    the plane is put back.
+    """
     rig = make_rig()
     await rig.start()
     plane = rig.plane()
@@ -416,8 +439,8 @@ async def test_each_handle_changes_exactly_its_model_fields(make_rig):
     session = rig.session(plane)
     drags: dict[str, int] = {}
     wrong: list = []
-    for direction in _directions(40):
-        rig.look(direction)
+    for direction in VIEW_DIRECTIONS:
+        rig.look(np.asarray(direction) / np.linalg.norm(direction))
         for group, index in HANDLES:
             at, out, length = rig.arrow(session, group, index)
             if length < 12:
@@ -427,7 +450,7 @@ async def test_each_handle_changes_exactly_its_model_fields(make_rig):
                 delta = 30 * np.array([-out[1], out[0]])
             else:
                 delta = 30 * out
-            grabbed = rig.drag(session, at, delta)
+            grabbed = rig.drag(session, at, delta, steps=(1.0,))
             if grabbed is None:
                 continue  # hidden at this angle, or behind another handle
             kind, axis = grabbed
@@ -445,9 +468,10 @@ async def test_each_handle_changes_exactly_its_model_fields(make_rig):
             drags[label] = drags.get(label, 0) + 1
             # Back to the start for the next handle.
             rig.controller.set_render_plane(rig.visual.id, plane.id, plane)
-            rig.frame(n=2)
+            rig.frame()
     assert wrong == []
-    # Every kind of handle was exercised from many of the 40 views.
+    # Every kind of handle was exercised, from most of the views (51 drags
+    # as written; the fewest of a kind is 5, the handle along the normal).
     assert set(drags) == {
         "translate normal",
         "translate in plane",
@@ -455,8 +479,8 @@ async def test_each_handle_changes_exactly_its_model_fields(make_rig):
         "rotate in plane",
         "scale",
     }
-    assert min(drags.values()) >= 20, drags
-    assert sum(drags.values()) >= 250, drags
+    assert min(drags.values()) >= 3, drags
+    assert sum(drags.values()) >= 35, drags
 
 
 async def test_a_scale_drag_along_the_arrow_grows_at_every_camera_angle(make_rig):
