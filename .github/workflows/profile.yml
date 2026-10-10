@@ -1,8 +1,16 @@
 name: Profile
 
 # Measures why the tests take longer on one platform than another. Not part of
-# CI: run it by hand (Actions -> Profile -> Run workflow), or push a change to
-# this file or to scripts/ci_profiling/ in a pull request.
+# CI, and it never starts by itself: run it by hand (Actions -> Profile -> Run
+# workflow, or `gh workflow run profile.yml --ref <branch>`). GitHub only
+# offers that for a workflow file that is on the default branch.
+#
+# To have it run on a pull request again while investigating, add back:
+#
+#   pull_request:
+#     paths:
+#       - ".github/workflows/profile.yml"
+#       - "scripts/ci_profiling/**"
 #
 # Each platform uploads a `probes-<platform>` artifact (the micro-probes, a
 # few minutes) and a `profile-<platform>` one; compare them with
@@ -21,10 +29,6 @@ on:
         description: "Also run the whole suite as CI does, with per-test times"
         type: boolean
         default: true
-  pull_request:
-    paths:
-      - ".github/workflows/profile.yml"
-      - "scripts/ci_profiling/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
