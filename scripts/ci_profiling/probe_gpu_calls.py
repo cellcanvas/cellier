@@ -17,6 +17,13 @@ which of them the driver is slow at and whether it grows with texture size.
     first time part of it is used, so the difference is the cost of that
     clear: it lands in ``write_texture`` or ``submit``, not in
     ``create_texture``.
+``render_target``
+    What a new renderer costs: creating the colour, pick and depth targets
+    of a 1920 x 1920 frame (the size ``test_multiscale_level_alignment.py``
+    draws at, 88 times over), clearing them in a first pass, clearing them
+    again, and destroying them.  Unlike the textures above these have the
+    ``RENDER_ATTACHMENT`` usage, and a software rasteriser keeps them in
+    main memory: 59 MB a set.
 ``create_view``
     Creating a view of a texture.
 ``submit``
@@ -169,6 +176,60 @@ def measure(repeats: int) -> dict:
             "max_ms": round(max(second), 4),
             "megabytes": megabytes,
         }
+
+    # --- a renderer's targets: create, first clear, second clear, destroy --
+    target_usage = usage.RENDER_ATTACHMENT | usage.COPY_SRC | usage.TEXTURE_BINDING
+    for edge in (320, 1920):
+        timings = {"create": [], "first_clear": [], "second_clear": [], "destroy": []}
+        for _ in range(10):
+            start = time.perf_counter()
+            targets = [
+                device.create_texture(
+                    size=(edge, edge, 1),
+                    dimension="2d",
+                    format=texture_format,
+                    usage=target_usage,
+                )
+                for texture_format in ("rgba8unorm-srgb", "rgba16uint", "depth32float")
+            ]
+            timings["create"].append((time.perf_counter() - start) * 1000)
+
+            def clear(targets=targets):
+                encoder = device.create_command_encoder()
+                encoder.begin_render_pass(
+                    color_attachments=[
+                        {
+                            "view": target.create_view(),
+                            "resolve_target": None,
+                            "clear_value": (0.0, 0.0, 0.0, 0.0),
+                            "load_op": "clear",
+                            "store_op": "store",
+                        }
+                        for target in targets[:2]
+                    ],
+                    depth_stencil_attachment={
+                        "view": targets[2].create_view(),
+                        "depth_clear_value": 1.0,
+                        "depth_load_op": "clear",
+                        "depth_store_op": "store",
+                    },
+                ).end()
+                queue.submit([encoder.finish()])
+                read_texel(targets[0])
+
+            timings["first_clear"].append(_ms(clear, 1)["median_ms"])
+            timings["second_clear"].append(_ms(clear, 1)["median_ms"])
+            start = time.perf_counter()
+            for target in targets:
+                target.destroy()
+            timings["destroy"].append((time.perf_counter() - start) * 1000)
+        megabytes = round(edge * edge * 16 / 1e6, 1)
+        for step, times in timings.items():
+            calls[f"render_target {edge}x{edge} {step}"] = {
+                "median_ms": round(statistics.median(times), 4),
+                "max_ms": round(max(times), 4),
+                "megabytes": megabytes,
+            }
 
     # --- create_view ------------------------------------------------------
     colour = device.create_texture(
