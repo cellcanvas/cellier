@@ -1,5 +1,6 @@
 """Test fixtures for Cellier."""
 
+import asyncio
 import sys
 import weakref
 
@@ -59,11 +60,63 @@ def pytest_pyfunc_call(pyfuncitem):
     This runs between the test body and that ``processEvents``.  An app is not
     exposed: ``QtAsyncio`` leaves the hooks alone, and its loop lasts as long
     as the app does.
+
+    The same start has a second, later cost, dealt with first: see
+    `_forget_finished_asyncio_hooks`.
     """
     try:
         return (yield)
     finally:
+        _forget_finished_asyncio_hooks()
         _restore_rendercanvas_asyncgen_hooks()
+
+
+def _is_finished_asyncio_hook(hook) -> bool:
+    """Whether an asyncgen hook belongs to an asyncio loop that is not running.
+
+    asyncio installs a loop's hooks only while the loop runs, so such a hook
+    is one somebody else saved and would put back.
+    """
+    owner = getattr(hook, "__self__", None)
+    return isinstance(owner, asyncio.AbstractEventLoop) and not owner.is_running()
+
+
+def _forget_finished_asyncio_hooks() -> None:
+    """Stop rendercanvas from putting a finished test's asyncio hooks back.
+
+    A rendercanvas loop saves the asyncgen hooks it finds when it starts and
+    puts them back when it stops, and it stops by itself a moment after the
+    last canvas closes.  Started inside an async test, what it saved is that
+    test's asyncio loop; stopped any time later (between two tests, when every
+    canvas has been closed and Qt events are pumped), it installs the hooks of
+    a loop that is closed by then.  wgpu reads those hooks to decide where a
+    promise resolves, so from then on every synchronous read-back in a test
+    without a loop of its own raises ``RuntimeError: Event loop is closed``
+    inside wgpu's map callback.  Whether the loop gets to stop depends on
+    timing: on CI it failed 56 render tests of one macOS job and none of the
+    re-run (``scripts/ci_profiling/repro_stale_asyncgen_hooks.py`` shows it
+    without pytest).
+
+    So, after each test body: drop such hooks from what each rendercanvas loop
+    would restore, and from the interpreter if they are already installed.
+    """
+    current = sys.get_asyncgen_hooks()
+    if _is_finished_asyncio_hook(current.firstiter):
+        sys.set_asyncgen_hooks(None, None)
+    for name, module in list(sys.modules.items()):
+        if not name.startswith("rendercanvas."):
+            continue
+        loop = getattr(module, "loop", None)
+        # Name-mangled private state, as below: the saved hooks have no
+        # public accessor.
+        saved = getattr(loop, "_BaseLoop__hook_data", None)
+        if saved is None:
+            continue
+        saved_asyncgen_hooks, saved_interrupt_hooks = saved
+        if saved_asyncgen_hooks is not None and _is_finished_asyncio_hook(
+            saved_asyncgen_hooks[0]
+        ):
+            loop._BaseLoop__hook_data = ((None, None), saved_interrupt_hooks)
 
 
 def _restore_rendercanvas_asyncgen_hooks() -> None:
