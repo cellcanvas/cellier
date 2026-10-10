@@ -76,6 +76,21 @@ planes](../How_To/clipping_planes.md).
 
 ::: cellier.visuals.ClippingPlane
 
+## Render planes
+
+An image or labels visual whose render mode is `"plane"` draws its data on
+its `render_planes` tuple in a 3D view, instead of as a volume.  A render
+plane is in the scene's world space.
+
+::: cellier.visuals.RenderPlane
+
+## Plane outlines
+
+A clipping plane and a render plane each carry an `outline`: a line round
+the polygon the plane makes in its visual, in a 3D view.
+
+::: cellier.visuals.PlaneOutline
+
 ## Common
 
 ::: cellier.visuals.AABBParams

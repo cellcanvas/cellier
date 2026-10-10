@@ -158,7 +158,7 @@ An interaction ends **on release or on stillness, whichever comes first**. Holdi
 | Events | `DimsInteractionEvent`; `DimsChangedEvent.interactive` | `CameraInteractionEvent`; `CameraChangedEvent.interactive` |
 | State | `controller.dims_interaction_state(scene_id)` | `controller.camera_interaction_state(canvas_id)` |
 
-Visuals do not subscribe to these events. Each visual model says through its own explicit config what it does during a scrub (`BaseVisual.plans_coarse_on_scrub`, which a multiscale image or labels visual answers from `render_config.loading.dims_drag == "backstop"`), and the controller turns transitions into plan modes and reslices. The events are for GUIs (a "loading full resolution" indicator) and tests.
+Visuals do not subscribe to these events. Each visual model says through its own explicit config what it does during a scrub (`BaseVisual.plans_coarse_while_moving(n_displayed_dims)`, which a multiscale image or labels visual answers from `appearance.coarsest_while_moving_3d` in a 3D view and `appearance.coarsest_while_moving_2d` in a 2D one), and the controller turns transitions into plan modes and reslices. The events are for GUIs (a "loading full resolution" indicator) and tests.
 
 ### What a script gets
 
@@ -207,10 +207,12 @@ A loop that wants every position at full resolution does not open a scope. That 
 1. **`CellierController.update_slice_indices`**: if a *sliced* axis moves, ticks the scene's dims tracker **before** writing the positions, so a scrub's start event reaches its listeners ahead of the tick's own consequences. Then writes the new positions onto the dims model (a psygnal field).
 2. **`CellierController._make_dims_handler`**: the controller event bridge emits a `DimsChangedEvent` on the outgoing bus, with `interactive` set for a scrub tick.
 3. **`CellierController._on_dims_changed_bus`**: calls `reslice_scene` for the whole scene. A displayed-axes change cancels a scrub first. A region change that did not come through `update_slice_indices` (a thickness) is a tick with no `interactive` flag.
-4. **`CellierController._render_config_for`**: the one place a plan mode is decided. While the scene's tracker is `ACTIVE`, a visual with `plans_coarse_on_scrub` gets `PlanMode.BACKSTOP_ONLY` and joins the scene's pending set.
+4. **`CellierController._render_config_for`**: the one place a plan mode is decided. While the scene's tracker is `ACTIVE`, a visual whose `plans_coarse_while_moving` is true for the scene's view gets `PlanMode.BACKSTOP_ONLY` and joins the scene's pending set.
 5. **`CellierController._on_dims_transition`**: at a scrub's end by release or stillness, plans the pending set in full with `target_visual_ids`.
 
-`dims_drag="eager"` (the default) plans in full on every tick. `"backstop"` saves most of a scrub's reads and is recommended for remote stores. Both show the slider's slice, blurry, about one read behind it.
+A `coarsest_while_moving` setting that is `False` plans in full on every tick. `True` loads the backstop only on each tick, and the target when the scrub ends; it saves most of a scrub's reads. The 3D setting defaults to `True`, because a full 3D plan per tick never catches up with the slider; the 2D one defaults to `False`, because a slice is a few hundred tiles, and `True` is recommended there for remote stores. Both show the slider's slice, blurry, about one read behind it.
+
+In a 3D view the same setting covers a drag of the visual's clipping planes: with it on, nothing is planned until the drag ends (see the interaction tracker explanation).
 
 A slider sends more than ticks. On press it opens a scope and on release it closes it, so the target loads on release instead of 0.15 s later. The release first flushes the slider's throttle: the end plans in full, and it must plan the final position. The anywidget panel's release message carries the final position itself, because in a notebook a custom message can overtake the traitlet sync sent before it.
 

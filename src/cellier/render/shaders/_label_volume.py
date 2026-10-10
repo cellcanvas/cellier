@@ -14,13 +14,18 @@ from pygfx.renderers.wgpu import (
 )
 from pygfx.renderers.wgpu.shaders.volumeshader import BaseVolumeShader
 
+from cellier.render._render_planes import (
+    RENDER_PLANES_STRUCT,
+    make_render_planes_buffer,
+)
 from cellier.render.shaders._label_colormap import (
     build_outline_selection_texture,
 )
+from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 _WGSL_DIR = Path(__file__).parent / "wgsl"
 
-_LABEL_VOLUME_WGSL = (_WGSL_DIR / "label_volume.wgsl").read_text()
+_LABEL_VOLUME_WGSL = (_WGSL_DIR / "label_volume.wgsl").read_text(encoding="utf-8")
 
 _VERTEX_AND_FRAGMENT = wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT
 
@@ -36,8 +41,9 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
         Frozen after construction.
     salt : int
         Hash seed for random mode.
-    render_mode : "iso_categorical" or "flat_categorical"
-        Whether to apply Lambertian shading.
+    render_mode : "iso_categorical", "flat_categorical" or "plane"
+        Whether to apply Lambertian shading; ``"plane"`` draws the labels
+        on the render planes instead.  A change rebuilds the shader.
     label_keys_texture : gfx.Texture or None
         Sorted int32 label-ID texture for direct mode.
     label_colors_texture : gfx.Texture or None
@@ -46,6 +52,9 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
         Number of entries in the direct-mode LUT.
     label_params_buffer : gfx.Buffer
         Uniform buffer containing background_label, salt, n_entries, _pad.
+    render_planes_buffer : gfx.Buffer or None
+        The visual's ``u_render_planes`` buffer, read in ``"plane"`` mode.
+        ``None`` gives the material one of its own with no plane.
     """
 
     def __init__(
@@ -59,6 +68,7 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
         n_entries: int = 0,
         label_params_buffer=None,
         outline_selection_texture=None,
+        render_planes_buffer=None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -66,6 +76,11 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
         self.colormap_mode = colormap_mode
         self.salt = salt
         self.render_mode = render_mode
+        self.render_planes_buffer = (
+            render_planes_buffer
+            if render_planes_buffer is not None
+            else make_render_planes_buffer()
+        )
         self.label_keys_texture = label_keys_texture
         self.label_colors_texture = label_colors_texture
         self.n_entries = n_entries
@@ -79,6 +94,15 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
             if outline_selection_texture is not None
             else build_outline_selection_texture()
         )
+
+    @property
+    def render_mode(self) -> str:
+        """The render mode; tracked, so a change rebuilds the shader."""
+        return self._store.render_mode
+
+    @render_mode.setter
+    def render_mode(self, value: str) -> None:
+        self._store.render_mode = value
 
 
 @register_wgpu_render_function(Volume, LabelVolumeMaterial)
@@ -159,6 +183,18 @@ class LabelVolumeShader(BaseVolumeShader):
                     "FRAGMENT",
                 )
             )
+        if material.render_mode == PLANE_RENDER_MODE:
+            # Bound for this mode only, so the other modes' shaders are
+            # what they were before the mode existed.
+            bindings.append(
+                Binding(
+                    "u_render_planes",
+                    "buffer/uniform",
+                    material.render_planes_buffer,
+                    "FRAGMENT",
+                    structname=RENDER_PLANES_STRUCT,
+                )
+            )
         bindings = dict(enumerate(bindings))
         self.define_bindings(0, bindings)
         return {0: bindings}
@@ -166,7 +202,11 @@ class LabelVolumeShader(BaseVolumeShader):
     def get_pipeline_info(self, wobject, shared):
         return {
             "primitive_topology": wgpu.PrimitiveTopology.triangle_list,
-            "cull_mode": wgpu.CullMode.none,
+            # One face per pixel: both faces would march the same ray, and a
+            # material that does not write depth would blend it twice.  The
+            # back faces are the ones kept, as in pygfx's volume shader, so
+            # the box still draws with the camera inside it.
+            "cull_mode": wgpu.CullMode.front,
         }
 
     def get_render_info(self, wobject, shared):

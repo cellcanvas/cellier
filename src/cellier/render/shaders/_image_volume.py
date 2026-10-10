@@ -29,12 +29,18 @@ from pathlib import Path
 
 import pygfx as gfx
 from pygfx.objects import Volume
-from pygfx.renderers.wgpu import register_wgpu_render_function
+from pygfx.renderers.wgpu import Binding, register_wgpu_render_function
 from pygfx.renderers.wgpu.shaders.volumeshader import VolumeRayShader
+
+from cellier.render._render_planes import (
+    RENDER_PLANES_STRUCT,
+    make_render_planes_buffer,
+)
+from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 _WGSL_DIR = Path(__file__).parent / "wgsl"
 
-IMAGE_VOLUME_WGSL: str = (_WGSL_DIR / "image_volume.wgsl").read_text()
+IMAGE_VOLUME_WGSL: str = (_WGSL_DIR / "image_volume.wgsl").read_text(encoding="utf-8")
 
 
 class ImageVolumeMipMaterial(gfx.VolumeMipMaterial):
@@ -54,14 +60,44 @@ class ImageVolumeIsoMaterial(gfx.VolumeIsoMaterial):
     """
 
 
+class ImageVolumePlaneMaterial(gfx.VolumeRayMaterial):
+    """The ``"plane"`` render mode: the volume drawn on its render planes.
+
+    One sample per fragment where the view ray meets the nearest plane
+    (plane rendering design v3, 5.1).  The planes are not state of the
+    material: they are read from ``render_planes_buffer``, which the render
+    visual owns and shares between its materials.
+
+    Parameters
+    ----------
+    render_planes_buffer : gfx.Buffer or None
+        The visual's ``u_render_planes`` buffer.  ``None`` gives the
+        material a buffer of its own with no plane, which draws nothing.
+    **kwargs :
+        As for ``gfx.VolumeRayMaterial``.
+    """
+
+    render_mode = PLANE_RENDER_MODE
+
+    def __init__(self, render_planes_buffer: gfx.Buffer | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self.render_planes_buffer = (
+            render_planes_buffer
+            if render_planes_buffer is not None
+            else make_render_planes_buffer()
+        )
+
+
 #: ``InMemoryImageAppearance.render_mode`` -> material class.
 IMAGE_VOLUME_MATERIALS: dict[str, type] = {
     "mip": ImageVolumeMipMaterial,
     "iso": ImageVolumeIsoMaterial,
     "minip": ImageVolumeMinipMaterial,
+    PLANE_RENDER_MODE: ImageVolumePlaneMaterial,
 }
 
 
+@register_wgpu_render_function(Volume, ImageVolumePlaneMaterial)
 @register_wgpu_render_function(Volume, ImageVolumeMipMaterial)
 @register_wgpu_render_function(Volume, ImageVolumeMinipMaterial)
 @register_wgpu_render_function(Volume, ImageVolumeIsoMaterial)
@@ -80,6 +116,25 @@ class ImageVolumeShader(VolumeRayShader):
         # exists; without it the write compiles away, so the same shader
         # stays valid on a canvas using the stock blender.
         self["write_normal"] = False
+
+    def get_bindings(self, wobject, shared, scene):
+        """The inherited bindings, plus the render planes in plane mode."""
+        bindings = super().get_bindings(wobject, shared, scene)
+        material = wobject.material
+        if material.render_mode == PLANE_RENDER_MODE:
+            # Bound for this mode only, so the other modes' shaders are
+            # what they were before the mode existed.
+            group = bindings[0]
+            index = len(group)
+            group[index] = Binding(
+                "u_render_planes",
+                "buffer/uniform",
+                material.render_planes_buffer,
+                "FRAGMENT",
+                structname=RENDER_PLANES_STRUCT,
+            )
+            self.define_binding(0, index, group[index])
+        return bindings
 
     def get_code(self) -> str:
         """Return cellier's volume raycasting WGSL."""

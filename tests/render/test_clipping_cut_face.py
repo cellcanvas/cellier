@@ -16,6 +16,7 @@ from rendercanvas.offscreen import RenderCanvas as OffscreenRenderCanvas
 from cellier.render._cellier_blender import NORMAL_TARGET, install_cellier_blender
 from cellier.render._clipping import reduce_clipping_planes
 from tests.render import _clipping as h
+from tests.render._pick import PickFrame
 
 SIZE = 192
 KINDS = [
@@ -78,8 +79,28 @@ def _look_at_the_cut(camera, world_planes) -> None:
     camera.look_at(tuple(h.CENTRE))
 
 
-@pytest.mark.parametrize("case", list(CASES))
-@pytest.mark.parametrize("kind", KINDS)
+#: Kinds every arrangement is drawn for: one image and one labels kind, both
+#: multiscale.
+ALL_ARRANGEMENTS = ("image_multiscale_iso", "labels_multiscale")
+
+
+def _cases() -> list:
+    """Every kind at the corner; two kinds with every arrangement.
+
+    Three planes meeting at a corner is the arrangement with the most to get
+    wrong (which plane a face belongs to), so every kind has it.  The plane
+    arithmetic is shared by the volume shaders, so one plane on an axis, one
+    oblique and two at an edge are drawn for the kinds of `ALL_ARRANGEMENTS`
+    only.  The full cross was 24 cases.
+    """
+    cases = [(kind, "corner") for kind in KINDS]
+    cases += [
+        (kind, case) for kind in ALL_ARRANGEMENTS for case in CASES if case != "corner"
+    ]
+    return [pytest.param(*case, id="-".join(case)) for case in cases]
+
+
+@pytest.mark.parametrize(("kind", "case"), _cases())
 async def test_the_cut_face_is_on_the_plane_with_its_normal(
     kind, case, controller, reslice, tmp_path
 ):
@@ -111,6 +132,8 @@ async def test_the_cut_face_is_on_the_plane_with_its_normal(
     canvas.request_draw(lambda: renderer.render(gfx_scene, camera))
     frame = np.asarray(canvas.draw())
     normals = _read_normal_target(renderer, SIZE)
+    # One read-back for every pixel picked below, not one each.
+    picks = PickFrame(renderer)
 
     manager = controller._render_manager._scenes[scene.id]
     render_visual = manager.get_visual(visual.id)
@@ -129,7 +152,7 @@ async def test_the_cut_face_is_on_the_plane_with_its_normal(
     take = rng.choice(len(rows), size=min(500, len(rows)), replace=False)
     angles, behind = [], []
     for row, col in zip(rows[take], cols[take]):
-        info = renderer.get_pick_info((col + 0.5, row + 0.5))
+        info = picks.info((col + 0.5, row + 0.5))
         hit = info.get("world_object")
         if hit is None:
             continue

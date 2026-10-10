@@ -69,6 +69,15 @@ def frustum_planes_from_corners(corners: np.ndarray) -> np.ndarray:
         A point ``p`` is *inside* the frustum when
         ``dot(plane[:3], p) + plane[3] >= 0`` for all 6 planes.
         Normals all point *inward*.
+
+    Notes
+    -----
+    The corner winding gives inward normals only for a right-handed set
+    of corners.  Callers map the corners from world to data space first,
+    and a mirroring transform (negative determinant) reverses the winding,
+    which would turn every normal outward and reject every brick.  Each
+    plane is therefore oriented toward the centroid of the corners, which
+    is inside the frustum whatever the handedness.
     """
     n = corners[0]  # near: lb, rb, rt, lt
     f = corners[1]  # far:  lb, rb, rt, lt
@@ -80,6 +89,10 @@ def frustum_planes_from_corners(corners: np.ndarray) -> np.ndarray:
     planes[3] = _compute_plane_parameters(n[1], n[2], f[2])  # right
     planes[4] = _compute_plane_parameters(n[2], n[3], f[3])  # top
     planes[5] = _compute_plane_parameters(n[0], n[1], f[1])  # bottom
+
+    centroid = np.asarray(corners, dtype=np.float64).reshape(-1, 3).mean(axis=0)
+    outward = planes[:, :3] @ centroid + planes[:, 3] < 0.0
+    planes[outward] *= -1.0
     return planes
 
 

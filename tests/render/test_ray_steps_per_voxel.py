@@ -15,7 +15,6 @@ import tensorstore as ts
 from pydantic import ValidationError
 
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
-from cellier.visuals import ProgressiveLoadingConfig
 from cellier.visuals._image import (
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
@@ -68,7 +67,6 @@ def _write_slab(root, dtype: str, value) -> MultiscaleZarrDataStore:
 
 
 def _add_visual(controller, scene_id, root, kind):
-    loading = ProgressiveLoadingConfig(backstop=False)
     if kind == "labels":
         return controller.add_labels_multiscale(
             data=_write_slab(root, "int32", 1),
@@ -76,17 +74,13 @@ def _add_visual(controller, scene_id, root, kind):
             appearance=MultiscaleLabelsAppearance(
                 force_level=1, render_mode="flat_categorical"
             ),
-            render_config=MultiscaleLabelRenderConfig(
-                **SMALL_BUDGETS, block_size=8, loading=loading
-            ),
+            render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
         )
     return controller.add_image_multiscale(
         data=_write_slab(root, "float32", 1.0),
         scene_id=scene_id,
         appearance=MultiscaleImageAppearance(force_level=1),
-        render_config=MultiscaleImageRenderConfig(
-            **SMALL_BUDGETS, block_size=8, loading=loading
-        ),
+        render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS, block_size=8),
         single=MultiscaleImageSingleAppearance(
             color_map="gray", clim=(0.0, 1.0), render_mode="mip"
         ),

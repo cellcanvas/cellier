@@ -123,8 +123,8 @@ async def _loaded(rig, reads, *stores, **kwargs):
 def test_the_scrub_opt_in_follows_dims_drag(rig):
     coarse = _add(rig, _static_store("a"))
     full = _add(rig, _static_store("b"), lod=GeometryLodConfig(dims_drag="full"))
-    assert coarse.plans_coarse_on_scrub
-    assert not full.plans_coarse_on_scrub
+    assert coarse.plans_coarse_while_moving(3)
+    assert not full.plans_coarse_while_moving(3)
 
 
 # -- a mesh the scrub changes -------------------------------------------------

@@ -82,7 +82,8 @@ def indicator_state(
     - then the target: ``"Detail: 12 / 40"``;
     - done: ``"Loaded"``, or ``"Loaded, 2 failed"``;
     - done, but the plan was the backstop only (a slider drag with
-      ``dims_drag="backstop"``): ``"Overview ready. Detail on stop."``.
+      ``coarsest_while_moving`` on for the view):
+      ``"Overview ready. Detail on stop."``.
 
     Chunks the plan dropped to fit the cache (``truncated_target``) are
     reported after either, since they will never load at this cache size.
@@ -190,11 +191,9 @@ LOADING_CONFIG_TITLE = "Progressive loading"
 
 #: The row label of each ``ProgressiveLoadingConfig`` field, in display order.
 _LOADING_CONFIG_LABELS: dict[str, str] = {
-    "backstop": "Backstop",
     "backstop_level": "Backstop level",
     "backstop_extent": "Backstop extent",
     "backstop_max_slot_fraction": "Backstop max slots",
-    "dims_drag": "Dims drag",
 }
 
 #: Shown for ``backstop_level=None``: the coarsest level.
@@ -289,8 +288,6 @@ def from_control_value(field: str, value: Any) -> Any:
         return None if int(value) == 0 else int(value)
     if field == "backstop_max_slot_fraction":
         return float(value)
-    if field == "backstop":
-        return bool(value)
     return value
 
 

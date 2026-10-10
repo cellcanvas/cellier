@@ -44,7 +44,7 @@ import cellier.gui.anywidget.visuals as anywidget_visuals
 import cellier.gui.qt.visuals as qt_visuals
 
 # (field-class stem, field name, label) -- the section 10.4 catalog, minus
-# ``visible`` (stage 0) and ``lod_bias`` (an existing widget, not a new class).
+# ``visible`` (stage 0) and ``settled_lod_bias`` (an existing widget, not a new class).
 CATALOG = [
     ("OpacitySlider", "opacity", "Opacity"),
     ("LabelsRenderModeCombo", "render_mode", "Render mode"),
@@ -393,8 +393,13 @@ def test_choices_come_from_the_models_literal_not_a_restated_list(qtbot):
     in_memory = literal_choices(InMemoryLabelsAppearance(), "render_mode")
     multiscale = literal_choices(MultiscaleLabelsAppearance(), "render_mode")
 
-    assert in_memory == ("iso_categorical", "flat_categorical")
-    assert multiscale == ("iso_categorical", "flat_categorical", "smooth_iso")
+    assert in_memory == ("iso_categorical", "flat_categorical", "plane")
+    assert multiscale == (
+        "iso_categorical",
+        "flat_categorical",
+        "smooth_iso",
+        "plane",
+    )
 
     visual_id = uuid4()
     widget = _qt("LabelsRenderModeCombo")(visual_id, choices=multiscale)

@@ -226,6 +226,19 @@ def drawn_materials(*nodes: Any) -> list[Any]:
     return found
 
 
+def notify_planes_placed(visual: Any) -> None:
+    """Tell whoever draws *visual*'s plane outlines that they may be stale.
+
+    Called by the render planes and clipping planes mixins whenever a
+    visual has reduced its planes again: new planes, a new outline, a new
+    view, a node placed at another slice.  The scene manager sets
+    ``_planes_placed_listener`` on the visuals it holds.
+    """
+    listener = getattr(visual, "_planes_placed_listener", None)
+    if listener is not None:
+        listener()
+
+
 class ClippingPlanesMixin:
     """The one way clipping planes reach a render visual's materials.
 
@@ -281,6 +294,38 @@ class ClippingPlanesMixin:
             return spaces, transform, dict(constants)
         return None
 
+    def outline_box(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """The visual's data box in level-0 data coordinates, if it has one.
+
+        ``(low, high)`` over the retained data axes, as
+        :func:`~cellier.render._plane_outline.box_frame` takes them.  The
+        volume visuals give the voxel-edge box their shaders cut with.
+        """
+        return None
+
+    def outline_frame(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """The box this visual's plane outlines are cut by, in rendered space.
+
+        Plane outline design 5.1 and 5.3.
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray] or None
+            ``(rows, corners)``: six half-space rows and eight corners, in
+            pygfx ``(x, y, z)``.  ``None`` when the visual is not placed in
+            a 3D view or its box is not known.
+        """
+        from cellier.render._plane_outline import box_frame
+
+        frame = self.clip_frame()
+        box = self.outline_box()
+        if frame is None or box is None:
+            return None
+        spaces, transform, constants = frame
+        if len(spaces.retained_axes) != 3:
+            return None
+        return box_frame(spaces, transform, constants, *box)
+
     def _clip_targets(self) -> Iterable[tuple[Iterable[Any], Mapping[int, float]]]:
         """Yield ``(materials, constants)`` groups.
 
@@ -314,6 +359,9 @@ class ClippingPlanesMixin:
                 if not reduced and not material.clipping_planes:
                     continue
                 material.clipping_planes = reduced
+        # A render plane's outline is cut by these planes (plane outline
+        # design 3.1), at the slice they were just reduced for.
+        notify_planes_placed(self)
 
 
 class GeometryClippingMixin(ClippingPlanesMixin):
@@ -330,6 +378,32 @@ class GeometryClippingMixin(ClippingPlanesMixin):
 
     #: Whether the last request was clipped in the read.
     _clip_on_cpu: bool = False
+
+    def outline_frame(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """The box of the geometry drawn, in rendered space.
+
+        A geometry visual has no shape: its box is the bounding box of the
+        vertices it draws, in its node's frame, as its bounding-box
+        wireframe is.  ``None`` in a 2D view, before there is geometry, and
+        while the read clips: geometry flattened along an axis a plane
+        acts on has no one cut face.
+        """
+        from cellier.render._plane_outline import node_box_frame
+
+        if self._clip_on_cpu:
+            return None
+        frame = self.clip_frame()
+        if frame is None or len(frame[0].retained_axes) != 3:
+            return None
+        found = self._outline_node_box()
+        if found is None:
+            return None
+        node, low, high = found
+        return node_box_frame(np.asarray(node.world.matrix), low, high)
+
+    def _outline_node_box(self) -> tuple[Any, Any, Any] | None:
+        """``(node, low, high)``: the drawn geometry's box in a node's frame."""
+        raise NotImplementedError
 
     def _wants_cpu_clip(self) -> bool:
         """Whether an enabled plane has a component on a collapsed axis."""

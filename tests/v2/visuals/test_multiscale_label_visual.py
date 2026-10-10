@@ -24,7 +24,7 @@ def test_appearance_defaults():
     assert a.color_dict == {}
     assert a.render_mode == "iso_categorical"
     assert a.opacity == 1.0
-    assert a.lod_bias == 1.0
+    assert a.settled_lod_bias == 1.0
     assert a.force_level is None
     assert a.frustum_cull is True
 
@@ -37,7 +37,7 @@ def test_appearance_json_roundtrip():
         color_dict={1: (1.0, 0.0, 0.0, 1.0), 2: (0.0, 1.0, 0.0, 1.0)},
         render_mode="flat_categorical",
         opacity=0.7,
-        lod_bias=2.0,
+        settled_lod_bias=2.0,
         force_level=1,
         frustum_cull=False,
     )
@@ -49,7 +49,7 @@ def test_appearance_json_roundtrip():
     assert b.color_dict == {1: (1.0, 0.0, 0.0, 1.0), 2: (0.0, 1.0, 0.0, 1.0)}
     assert b.render_mode == "flat_categorical"
     assert abs(b.opacity - 0.7) < 1e-6
-    assert b.lod_bias == 2.0
+    assert b.settled_lod_bias == 2.0
     assert b.force_level == 1
     assert b.frustum_cull is False
 

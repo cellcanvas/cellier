@@ -34,13 +34,13 @@ from cellier.gui.qt.visuals._labels import (
     QtLabelsRenderModeCombo,
     QtSaltSpin,
 )
+from cellier.gui.qt.visuals._level_of_detail import QtLevelOfDetailControls
 from cellier.gui.qt.visuals._lines import (
     QtThicknessSpaceCombo,
     QtThicknessSpin,
 )
 from cellier.gui.qt.visuals._loading import QtLoadingIndicator
 from cellier.gui.qt.visuals._loading_config import QtLoadingConfigControls
-from cellier.gui.qt.visuals._lod_bias import QtLodBiasSlider
 from cellier.gui.qt.visuals._lod_config import QtLodConfigControls
 from cellier.gui.qt.visuals._mesh import (
     QtFlatShadingToggle,
@@ -55,6 +55,7 @@ from cellier.gui.qt.visuals._points import (
     QtSizeSpaceCombo,
     QtSizeSpin,
 )
+from cellier.gui.qt.visuals._render_planes import QtRenderPlanesControls
 from cellier.gui.qt.visuals._trail import QtTrailControls
 from cellier.gui.qt.visuals._visible import QtVisibleToggle
 
@@ -75,9 +76,9 @@ __all__ = [
     "QtImageControls",
     "QtIntSpin",
     "QtLabelsRenderModeCombo",
+    "QtLevelOfDetailControls",
     "QtLoadingConfigControls",
     "QtLoadingIndicator",
-    "QtLodBiasSlider",
     "QtLodConfigControls",
     "QtMeshSectionControls",
     "QtNodeColorPicker",
@@ -85,6 +86,7 @@ __all__ = [
     "QtNodeSizeSpin",
     "QtNodeVisibleToggle",
     "QtOpacitySlider",
+    "QtRenderPlanesControls",
     "QtSaltSpin",
     "QtShininessSpin",
     "QtSideCombo",

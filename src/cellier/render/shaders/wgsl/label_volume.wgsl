@@ -113,6 +113,8 @@ fn intersect_aabb(
 }
 
 // ── Vertex shader ─────────────────────────────────────────────────────────
+{$ include 'cellier.box_winding.wgsl' $}
+
 struct VertexInput { @builtin(vertex_index) vertex_index: u32 };
 
 @vertex
@@ -133,7 +135,8 @@ fn vs_main(in: VertexInput) -> Varyings {
         vec3<f32>(lo.x, hi.y, hi.z),
         vec3<f32>(hi.x, hi.y, hi.z),
     );
-    // 12 triangles (36 indices), cull_mode = none.
+    // 12 triangles (36 indices), outward faces counter-clockwise.  The
+    // pipeline culls front faces (cellier.box_winding.wgsl).
     let face_idx = array<u32, 36>(
         0u,2u,1u, 1u,2u,3u,
         4u,5u,6u, 5u,7u,6u,
@@ -143,17 +146,15 @@ fn vs_main(in: VertexInput) -> Varyings {
         1u,3u,5u, 3u,7u,5u,
     );
 
-    let local_pos = corners[face_idx[in.vertex_index]];
+    let local_pos = corners[face_idx[box_winding_index(in.vertex_index)]];
     let world_pos = u_wobject.world_transform * vec4<f32>(local_pos, 1.0);
     let ndc_pos   = u_stdinfo.projection_transform * u_stdinfo.cam_transform * world_pos;
 
     // Pass near/far clip-plane positions in local space for ray reconstruction.
     let ndc_to_local  = u_wobject.world_transform_inv * u_stdinfo.cam_transform_inv * u_stdinfo.projection_transform_inv;
-    let cam_sign = sign(
-        u_stdinfo.cam_transform[0][0] *
-        u_stdinfo.cam_transform[1][1] *
-        u_stdinfo.cam_transform[2][2]
-    );
+    // The determinant, not the product of the diagonal: that product is
+    // negative or zero for some pure rotations, which reverses the ray.
+    let cam_sign = sign(determinant(u_stdinfo.cam_transform));
 
     var varyings: Varyings;
     varyings.position      = vec4<f32>(ndc_pos);
@@ -166,6 +167,9 @@ fn vs_main(in: VertexInput) -> Varyings {
 // ── Fragment shader ───────────────────────────────────────────────────────
 {$ include 'cellier.ray_clip.wgsl' $}
 
+$$ if render_mode == "plane"
+{$ include 'cellier.render_planes.wgsl' $}
+$$ endif
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
     let vol_dims  = vec3<i32>(textureDimensions(t_img));
@@ -191,6 +195,64 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     t_start = clipped.x;
     t_end = clipped.y;
     if (t_start >= t_end) { discard; }
+    $$ if render_mode == "plane"
+    // Plane mode (plane rendering design v3, 5.1, 5.2): the label at the
+    // nearest render plane the ray meets.  Background is passed over and
+    // the next plane along the ray tried.
+    let plane_ray_o = (u_wobject.world_transform * vec4<f32>(near_pos, 1.0)).xyz;
+    let plane_ray_d = (u_wobject.world_transform * vec4<f32>(ray_dir, 0.0)).xyz;
+    var plane_found = false;
+    var plane_t = t_start;
+    var plane_normal = vec3<f32>(0.0);
+    var plane_lid = u_label_params.background_label;
+    var plane_color = vec4<f32>(0.0);
+    for (var pass_i = 0; pass_i < u_render_planes.count; pass_i = pass_i + 1) {
+        let plane = plane_nearest_hit(
+            plane_ray_o, plane_ray_d, plane_t, t_end, pass_i == 0);
+        if (!plane.hit) { break; }
+        plane_t = plane.t;
+        let hit_voxel = clamp(
+            vec3<i32>(floor(near_pos + ray_dir * plane.t + vec3<f32>(0.5))),
+            vec3<i32>(0), vol_dims - vec3<i32>(1));
+        let lid = load_label(hit_voxel);
+        if (lid == u_label_params.background_label) { continue; }
+        let lid_color = get_label_color(lid);
+        if (lid_color.a < 0.001) { continue; }
+        plane_found = true;
+        plane_normal = plane.normal;
+        plane_lid = lid;
+        plane_color = lid_color;
+        break;
+    }
+    if (!plane_found) { discard; }
+    let plane_pos = near_pos + ray_dir * plane_t;
+    let plane_coord = (plane_pos + vec3<f32>(0.5)) / vol_dimsf;
+    let plane_world = u_wobject.world_transform * vec4<f32>(plane_pos, 1.0);
+    let plane_ndc = u_stdinfo.projection_transform * u_stdinfo.cam_transform * plane_world;
+
+    var out: FragmentOutput;
+    // Flat label colour: a plane is not shaded.
+    out.color = vec4<f32>(plane_color.rgb, plane_color.a * u_material.opacity);
+    out.depth = plane_ndc.z / plane_ndc.w;
+    $$ if write_normal
+    // The plane's own normal, faced to the viewer by pack_view_normal.
+    out.normal = pack_view_normal(
+        plane_normal_local(plane_normal),
+        (u_stdinfo.cam_transform * plane_world).xyz);
+    $$ endif
+    $$ if write_outline_id
+    out.outline_id = label_outline_key(plane_lid);
+    $$ endif
+    $$ if write_pick
+    out.pick = (
+        pick_pack(u32(u_wobject.global_id), 20) +
+        pick_pack(u32(clamp(plane_coord.x, 0.0, 1.0) * 16383.0), 14) +
+        pick_pack(u32(clamp(plane_coord.y, 0.0, 1.0) * 16383.0), 14) +
+        pick_pack(u32(clamp(plane_coord.z, 0.0, 1.0) * 16383.0), 14)
+    );
+    $$ endif
+    return out;
+    $$ else
     // True when the ray entered through a box face (vs. the near clip plane
     // sitting inside the volume, which clamps t_near < 0 to t_start = 0).
     // A ray that starts on a clipping plane did not enter through one either.
@@ -369,4 +431,5 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     $$ endif
 
     return out;
+    $$ endif
 }

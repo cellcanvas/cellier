@@ -124,7 +124,7 @@ def test_add_labels_multiscale_takes_the_multiscale_config(multiscale_labels_sto
     from cellier.visuals._labels import MultiscaleLabelsAppearance
 
     viewer = Viewer(spatial_axes("z", "y", "x"))
-    config = MultiscaleLabelsControlsConfig(appearance=["lod_bias"])
+    config = MultiscaleLabelsControlsConfig(appearance=["level_of_detail"])
 
     visual = viewer.add_labels_multiscale(
         multiscale_labels_store,
@@ -351,7 +351,7 @@ def test_the_labels_combo_offers_the_models_own_render_modes(qtbot, labels_store
     spec = appearance_specs(visual, viewer._controls_configs[visual.id]).specs[0]
     widget = QtLabelsRenderModeCombo(visual.id, **spec.values)
 
-    assert widget.choices == ("iso_categorical", "flat_categorical")
+    assert widget.choices == ("iso_categorical", "flat_categorical", "plane")
     assert "mip" not in widget.choices
 
 
@@ -453,12 +453,12 @@ def test_a_field_from_another_visual_family_is_rejected(kind, field):
         CONFIGS[kind](appearance=[field])
 
 
-def test_lod_bias_is_multiscale_labels_only():
-    with pytest.raises(ValueError, match="lod_bias"):
-        LabelsControlsConfig(appearance=["lod_bias"])
-    assert MultiscaleLabelsControlsConfig(appearance=["lod_bias"]).appearance == [
-        "lod_bias"
-    ]
+def test_level_of_detail_is_multiscale_labels_only():
+    with pytest.raises(ValueError, match="level_of_detail"):
+        LabelsControlsConfig(appearance=["level_of_detail"])
+    assert MultiscaleLabelsControlsConfig(
+        appearance=["level_of_detail"]
+    ).appearance == ["level_of_detail"]
 
 
 def test_colormap_mode_is_not_in_the_labels_vocabulary():
@@ -510,11 +510,12 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         AnywidgetAABBWidget,
         AnywidgetClippingPlanesControls,
         AnywidgetImageControls,
+        AnywidgetLevelOfDetailControls,
         AnywidgetLoadingConfigControls,
         AnywidgetLoadingIndicator,
-        AnywidgetLodBiasSlider,
         AnywidgetLodConfigControls,
         AnywidgetMeshSectionControls,
+        AnywidgetRenderPlanesControls,
         AnywidgetTrailControls,
     )
     from cellier.gui.qt import QtDatasetInfo
@@ -528,17 +529,18 @@ def test_composite_default_titles_match_the_shared_vocabulary():
         QtAABBWidget,
         QtClippingPlanesControls,
         QtImageControls,
+        QtLevelOfDetailControls,
         QtLoadingConfigControls,
         QtLoadingIndicator,
-        QtLodBiasSlider,
         QtLodConfigControls,
         QtMeshSectionControls,
+        QtRenderPlanesControls,
         QtTrailControls,
     )
 
     composites = {
         "image": (QtImageControls, AnywidgetImageControls),
-        "lod_bias": (QtLodBiasSlider, AnywidgetLodBiasSlider),
+        "level_of_detail": (QtLevelOfDetailControls, AnywidgetLevelOfDetailControls),
         "aabb": (QtAABBWidget, AnywidgetAABBWidget),
         "trail": (QtTrailControls, AnywidgetTrailControls),
         "loading": (QtLoadingIndicator, AnywidgetLoadingIndicator),
@@ -548,6 +550,7 @@ def test_composite_default_titles_match_the_shared_vocabulary():
             QtClippingPlanesControls,
             AnywidgetClippingPlanesControls,
         ),
+        "render_planes": (QtRenderPlanesControls, AnywidgetRenderPlanesControls),
         "lod_config": (QtLodConfigControls, AnywidgetLodConfigControls),
         "visual_outline": (QtVisualOutlineControls, AnywidgetVisualOutlineControls),
         "labels_outline": (QtLabelsOutlineControls, AnywidgetLabelsOutlineControls),
@@ -577,7 +580,7 @@ def test_every_valid_field_name_has_a_widget():
     from cellier.convenience.gui import _controls_config
     from cellier.gui._appearance_fields import APPEARANCE_FIELD_WIDGETS
 
-    bespoke = {"image", "lod_bias"}
+    bespoke = {"image", "level_of_detail"}
     config_classes = [
         value
         for value in vars(_controls_config).values()
@@ -682,3 +685,95 @@ def test_both_front_ends_agree_on_matrix_formatting(qtbot):
         for row in range(table.rowCount())
     ]
     assert qt_values == any_values
+
+
+# -- Long values must not widen the dock ---------------------------------------
+
+LONG_PATH = "https://example.org/" + "/".join(["a-long-path-segment"] * 20)
+
+
+class _PathStore:
+    """The least a store needs for ``QtDatasetInfo.from_store``."""
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+
+    def dataset_info(self):
+        from cellier.data._dataset_info import DatasetInfo, RowSection
+
+        return DatasetInfo(
+            sections=[
+                RowSection(None, [("Path", self._path), ("Data type", "uint16")]),
+                RowSection("Scale levels", [("s0", self._path)], collapsed=True),
+            ]
+        )
+
+
+def test_a_long_path_does_not_widen_the_dataset_info_block(qtbot):
+    """A store's URL is elided, not allowed to set the width of the block."""
+    from PySide6.QtCore import QEvent, QPoint
+    from PySide6.QtGui import QHelpEvent
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from cellier.gui.qt import QtDatasetInfo
+
+    short = QtDatasetInfo.from_store(_PathStore("a-long-path-segment"))
+    long = QtDatasetInfo.from_store(_PathStore(LONG_PATH))
+
+    assert long.widget.minimumSizeHint().width() == (
+        short.widget.minimumSizeHint().width()
+    )
+    # The preferred width is bounded too: past the cap, length adds nothing.
+    medium = QtDatasetInfo.from_store(_PathStore(LONG_PATH[:60]))
+    assert long.widget.sizeHint().width() == medium.widget.sizeHint().width()
+
+    # The full value is still there to read and copy.
+    label = next(
+        child for child in long.widget.findChildren(QLabel) if child.text() == LONG_PATH
+    )
+
+    def ask_for_tooltip() -> str:
+        point = QPoint(2, 2)
+        help_event = QHelpEvent(QEvent.Type.ToolTip, point, label.mapToGlobal(point))
+        QApplication.sendEvent(label, help_event)
+        return label.toolTip()
+
+    label.resize(120, label.sizeHint().height())
+    assert label.is_elided()
+    assert ask_for_tooltip() == LONG_PATH
+    label.resize(label.fontMetrics().horizontalAdvance(LONG_PATH) + 20, 20)
+    assert not label.is_elided()
+    assert ask_for_tooltip() == ""
+
+
+def test_a_long_path_does_not_widen_the_qt_dock(qtbot, multiscale_image_store):
+    """The side dock asks for the same width whatever the path's length.
+
+    The dock is as wide as its content's minimum size hint, so one unbroken
+    value used to push it across most of the window, block collapsed or not.
+    """
+    from cellier.convenience.layout._qt_renderer import (
+        _scroll_dock_widget,
+        _wrap_dock_widget,
+    )
+
+    def dock_width(path: str) -> int:
+        viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+        viewer.add_image_multiscale(
+            multiscale_image_store,
+            appearance=MultiscaleImageAppearance(),
+            controls=MultiscaleImageControlsConfig(
+                appearance=["color_map"],
+                dataset_info=[("Path", path), ("Data type", "float32")],
+            ),
+            single=MultiscaleImageSingleAppearance(
+                color_map="viridis", clim=(0.0, 1.0)
+            ),
+        )
+        container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
+        content = _wrap_dock_widget(container, "left")
+        content.setMinimumWidth(QtLayoutHost.DEFAULT_DOCK_MIN_WIDTH)
+        area = _scroll_dock_widget(content)
+        return area.minimumSizeHint().width()
+
+    assert dock_width(LONG_PATH) == dock_width("a.zarr")

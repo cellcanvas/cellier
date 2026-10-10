@@ -188,7 +188,7 @@ image_visual = viewer.add_image_multiscale(
     transform=beside(image_store, 0),
     clipping_planes=half(image_store, (0, 0, 1)),
     controls=MultiscaleImageControlsConfig(
-        appearance=["visible", "render_mode", "iso_threshold", "lod_bias"],
+        appearance=["visible", "render_mode", "iso_threshold", "level_of_detail"],
         clipping_controls=True,
         # How much of the plan is loaded: watch it while a plane moves.
         loading_indicator=True,

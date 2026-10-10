@@ -8,7 +8,7 @@ import numpy as np
 import pygfx as gfx
 
 from cellier.data.points._points_requests import PointsSliceRequest
-from cellier.render._clipping import GeometryClippingMixin
+from cellier.render._clipping import GeometryClippingMixin, notify_planes_placed
 from cellier.render._spaces import (
     RenderSpaces,
     data_slice_positions,
@@ -17,6 +17,7 @@ from cellier.render._spaces import (
 )
 from cellier.render.shaders._alpha_modulated import AlphaPointsMaterial
 from cellier.render.visuals._aabb import (
+    geometry_bounds,
     make_aabb_line,
     refresh_aabb_line,
 )
@@ -553,6 +554,11 @@ class GFXPointsMemoryVisual(GeometryClippingMixin):
     def on_pick_write_changed(self, event: PickWriteChangedEvent) -> None:
         self._material.pick_write = event.pick_write
 
+    def _outline_node_box(self):
+        """The drawn vertices' box, for the outlines of clipping planes."""
+        bounds = geometry_bounds((self.node,))
+        return None if bounds is None else (self.node, *bounds)
+
     def _refresh_aabb(self) -> None:
         """Resize the bounding box to the data that just committed.
 
@@ -563,6 +569,8 @@ class GFXPointsMemoryVisual(GeometryClippingMixin):
         self._aabb_has_bounds = refresh_aabb_line(
             self._aabb_line, (self.node,), enabled=self._aabb_enabled
         )
+        # A clipping plane's outline is cut by this box.
+        notify_planes_placed(self)
 
     def on_aabb_changed(self, event: AABBChangedEvent) -> None:
         """Store AABB param changes; apply to line node if it exists."""

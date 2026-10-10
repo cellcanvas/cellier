@@ -724,12 +724,10 @@ def test_layout_single_preset_with_docks():
 # ---------------------------------------------------------------------------
 
 
-def _make_lod_bias_slider(**kwargs):
-    from cellier.gui.anywidget.visuals import AnywidgetLodBiasSlider
+def _make_level_of_detail_controls(**values):
+    from cellier.gui.anywidget.visuals import AnywidgetLevelOfDetailControls
 
-    defaults = {"initial_lod_bias": 1.0}
-    defaults.update(kwargs)
-    return AnywidgetLodBiasSlider(uuid4(), **defaults)
+    return AnywidgetLevelOfDetailControls(uuid4(), {"settled_lod_bias": 1.0, **values})
 
 
 def _make_aabb_widget(**kwargs):
@@ -756,20 +754,20 @@ def _appearance_changed_event(source_id, visual_id, field, value):
     )
 
 
-def test_lod_bias_slider_user_change_emits_appearance_update():
-    """A user-driven lod_bias change emits AppearanceUpdateEvent."""
+def test_level_of_detail_bias_change_emits_appearance_update():
+    """A user-driven settled_lod_bias change emits AppearanceUpdateEvent."""
     from cellier.events import AppearanceUpdateEvent
 
-    slider = _make_lod_bias_slider()
+    slider = _make_level_of_detail_controls()
     emitted = []
     slider.changed.connect(emitted.append)
 
-    slider.lod_bias = 2.0
+    slider.settled_lod_bias = 2.0
 
     assert len(emitted) == 1
     event = emitted[0]
     assert isinstance(event, AppearanceUpdateEvent)
-    assert event.field == "lod_bias"
+    assert event.field == "settled_lod_bias"
     assert event.value == 2.0
 
 

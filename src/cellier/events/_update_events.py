@@ -330,8 +330,7 @@ class LoadingConfigUpdateEvent(NamedTuple):
     Only multiscale image and labels visuals load progressively
     (``render_config.loading``).  The controller merges the field into the
     visual's current config and validates the result, so an invalid
-    combination (``dims_drag="backstop"`` with ``backstop=False``) raises
-    rather than being corrected.
+    value (``backstop_level=0``) raises rather than being corrected.
 
     Fields
     ------
@@ -341,7 +340,7 @@ class LoadingConfigUpdateEvent(NamedTuple):
     visual_id :
         Target visual.
     field :
-        A ``ProgressiveLoadingConfig`` field name, e.g. ``"dims_drag"``.
+        A ``ProgressiveLoadingConfig`` field name, e.g. ``"backstop_level"``.
     value :
         New value for the field.
     """
@@ -401,20 +400,43 @@ class ClippingPlanesUpdateEvent(NamedTuple):
     clipping_planes: Any
 
 
-class ClippingPlaneGizmoUpdateEvent(NamedTuple):
-    """Request to put a canvas's clipping plane gizmo on a plane, or close it.
+class RenderPlanesUpdateEvent(NamedTuple):
+    """Request to replace a visual's render planes.
 
     Fields
     ------
     source_id :
-        Caller's UUID.  Stamped on the outgoing
-        ``ClippingPlaneGizmoChangedEvent``.
+        Caller's UUID.  Stamped on the outgoing ``RenderPlanesChangedEvent``
+        so the caller can echo-filter on its own subscription.
+    visual_id :
+        Target visual: an image or labels visual.
+    render_planes :
+        The complete new tuple of ``RenderPlane``.  The whole tuple rather
+        than one plane, so adding, removing, moving and toggling are one
+        kind of request.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    render_planes: Any
+
+
+class PlaneGizmoUpdateEvent(NamedTuple):
+    """Request to put a canvas's plane gizmo on a plane, or close it.
+
+    Fields
+    ------
+    source_id :
+        Caller's UUID.  Stamped on the outgoing ``PlaneGizmoChangedEvent``.
     visual_id :
         The visual the plane belongs to.
     plane_id :
-        The ``id`` of the ``ClippingPlane``.
+        The ``id`` of the ``ClippingPlane`` or ``RenderPlane``.
     canvas_id :
         The 3D canvas to draw the gizmo in.
+    kind :
+        ``"clipping"`` or ``"render"``: which of the visual's tuples the
+        plane is in.
     enabled :
         ``True`` opens a gizmo on the plane, replacing the canvas's current
         one.  ``False`` closes the canvas's gizmo if it is on this plane.
@@ -424,6 +446,7 @@ class ClippingPlaneGizmoUpdateEvent(NamedTuple):
     visual_id: UUID
     plane_id: UUID
     canvas_id: UUID
+    kind: str
     enabled: bool = True
 
 
@@ -468,7 +491,8 @@ CellierUpdateEventTypes = (
     | LoadingConfigUpdateEvent
     | LodConfigUpdateEvent
     | ClippingPlanesUpdateEvent
-    | ClippingPlaneGizmoUpdateEvent
+    | RenderPlanesUpdateEvent
+    | PlaneGizmoUpdateEvent
     | TrailUpdateEvent
 )
 

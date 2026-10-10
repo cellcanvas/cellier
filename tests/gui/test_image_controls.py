@@ -82,7 +82,7 @@ def test_values_follow_the_storage_type():
 
     assert memory["storage"] == "memory"
     assert "attenuation" not in memory["shared"]
-    assert set(memory["render_modes"]) == {"mip", "iso", "minip"}
+    assert set(memory["render_modes"]) == {"mip", "iso", "minip", "plane"}
     assert multiscale["storage"] == "multiscale"
     assert "attenuation" in multiscale["shared"]
     assert {"smooth_iso", "attenuated_mip"} <= set(multiscale["render_modes"])

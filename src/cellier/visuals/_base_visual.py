@@ -8,6 +8,7 @@ from pydantic import UUID4, AfterValidator, ConfigDict, Field
 from cellier.render._config import MAX_OUTLINE_SLOT
 from cellier.transform import TransformType
 from cellier.visuals._clipping import ClippingPlane, validate_clipping_planes
+from cellier.visuals._render_plane import validate_render_planes
 
 
 class AABBParams(EventedModel):
@@ -181,7 +182,7 @@ class BaseVisual(EventedModel):
     )
 
     def __setattr__(self, name: str, value: object) -> None:
-        """Validate ``clipping_planes`` on assignment.
+        """Validate ``clipping_planes`` and ``render_planes`` on assignment.
 
         The model does not validate assignments in general; without this a
         list would stay a list and a wrong element would be found only when
@@ -189,15 +190,22 @@ class BaseVisual(EventedModel):
         """
         if name == "clipping_planes":
             value = validate_clipping_planes(value)
+        elif name == "render_planes":
+            value = validate_render_planes(value)
         super().__setattr__(name, value)
 
-    @property
-    def plans_coarse_on_scrub(self) -> bool:
+    def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:
         """Whether an interactive dims tick plans this visual ``BACKSTOP_ONLY``.
 
         While the scene's dims are being scrubbed, the controller plans a
         visual that returns ``True`` coarse only, and plans it in full once
         when the scrub ends.  A subclass derives the answer from its own
         explicit config; the base answer is ``False``.
+
+        Parameters
+        ----------
+        n_displayed_dims : int
+            Displayed dimensions of the view being planned (2 or 3): a
+            visual may have a setting for each.
         """
         return False

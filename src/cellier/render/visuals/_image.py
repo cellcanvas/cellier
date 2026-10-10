@@ -25,6 +25,9 @@ from cellier.render._gpu_lifetime import destroy_textures, weak_callback
 from cellier.render._level_mapping import base_cell_range
 from cellier.render._level_of_detail import (
     build_level_grids,
+    cull_masks,
+    orthographic_voxels_per_pixel,
+    select_level_orthographic,
     select_levels_arr_forced,
     select_levels_from_cache,
     sort_arr_by_distance,
@@ -36,6 +39,12 @@ from cellier.render._level_of_detail_2d import (
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
 )
+from cellier.render._plane_planning import (
+    PlanePlanning,
+    build_plane_planning,
+    plan_plane_bricks,
+)
+from cellier.render._render_planes import RenderPlanesMixin
 from cellier.render._spaces import (
     RenderSpaces,
     axis_correspondence,
@@ -79,6 +88,7 @@ from cellier.render.visuals._chunked import (
     log_backstop_cap_once,
     make_residency_2d,
     make_residency_3d,
+    target_room,
     viewport_2d,
 )
 from cellier.render.visuals._image_memory import (
@@ -96,6 +106,7 @@ from cellier.render.visuals._slicing import (
     image_plane_selection,
 )
 from cellier.visuals._image_memory import effective_transparency_mode
+from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -1260,11 +1271,11 @@ class MultiscaleRegionPlanner:
     ) -> np.ndarray | None:
         """The backstop bricks for this view, nearest first (design 5.9).
 
-        ``None`` when the backstop is off.  Extent ``"view"`` culls to the
+        ``None`` before the 3D geometry exists.  Extent ``"view"`` culls to the
         request's frustum whether or not the target is frustum-culled.
         """
         geo = self._volume_geometry
-        if not loading.backstop or geo is None:
+        if geo is None:
             return None
         camera_pos_data = self._to_level0_displayed(
             np.asarray(camera_pos_world).reshape(1, -1)
@@ -1294,12 +1305,12 @@ class MultiscaleRegionPlanner:
     ) -> np.ndarray | None:
         """The backstop tiles for this view, centre first (design 5.9).
 
-        ``None`` when the backstop is off.  Extent ``"view"`` culls to the
+        ``None`` before the 2D geometry exists.  Extent ``"view"`` culls to the
         viewport plus one backstop tile, whether or not the target is
         viewport-culled.
         """
         geo2d = self._image_geometry_2d
-        if not loading.backstop or geo2d is None:
+        if geo2d is None:
             return None
         camera_pos, view_min, view_max, _ = self._view_2d(
             camera_pos_world, world_width, view_min_world, view_max_world
@@ -1397,8 +1408,13 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         aabb_line_width: float = 2.0,
         render_order: int = 0,
         pick_write: bool = True,
+        render_planes_buffer: gfx.Buffer | None = None,
     ) -> None:
         self.visual_model_id = visual_model_id
+        # The owning visual's render planes, bound by the 3D material in
+        # the "plane" render mode.  ``None`` leaves the material a buffer
+        # of its own with no plane.
+        self._render_planes_buffer = render_planes_buffer
 
         # ndim of the original data (not the displayed subspace).
         if full_level_shapes is not None:
@@ -1451,6 +1467,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         self._gpu_budget_bytes = gpu_budget_bytes_3d
         self._frame_number = 0
         self._last_plan_stats: dict = {}
+        # What the last plane-mode plan was made of (``plan_plane_bricks``).
+        self._last_plane_plan: dict = {}
         # The chunk scheduler's view of the 3D atlas; rebuilt whenever the
         # atlas, its LUT or the displayed axes change (a new cache id).
         self._residency_3d: ImageResidency3D | None = None
@@ -2125,6 +2143,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         screen_height_px: float,
         lod_bias: float,
         force_level: int | None,
+        view_height_world: float = 0.0,
+        render_planes: PlanePlanning | None = None,
+        max_bricks: int | None = None,
     ) -> np.ndarray:
         """Run LOD selection, distance sort, frustum cull, and budget truncation.
 
@@ -2147,6 +2168,19 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             levels; values < 1 prefer finer. Clamped to a minimum of 1e-6.
         force_level : int or None
             Override level; ``None`` lets LOD selection choose.
+        view_height_world : float
+            Visible height in world units of an orthographic view
+            (``fov_y_rad`` of 0), which selects one level for the whole
+            visual.  Unused with a perspective camera.
+        render_planes : PlanePlanning or None
+            The visual's render planes, in the ``"plane"`` render mode: only
+            the bricks they cross are planned, at levels picked by the
+            plane's own rule (plane rendering design 6).  ``None`` plans
+            the volume.
+        max_bricks : int or None
+            The room the atlas has for the target.  Read only for an
+            orthographic plane plan, which steps to a coarser level rather
+            than overrun it.
 
         Returns
         -------
@@ -2185,10 +2219,47 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         else:
             frustum_planes = None
 
+        if render_planes is not None:
+            # Plane mode: its own cull, level rule and orthographic level.
+            brick_arr, self._last_plane_plan = plan_plane_bricks(
+                geo,
+                render_planes,
+                clip_rows=self._clip_rows(),
+                camera_pos_data=camera_pos_data,
+                frustum_planes=frustum_planes,
+                fov_y_rad=fov_y_rad,
+                screen_height_px=screen_height_px,
+                bias=lod_bias,
+                force_level=force_level,
+                view_height_world=view_height_world,
+                max_bricks=max_bricks,
+            )
+            return brick_arr
+
         # 1. LOD selection
+        if force_level is None and fov_y_rad <= 0:
+            # Orthographic: a pixel covers the same world size everywhere, so
+            # the whole visual takes one level, by the 2D transition rule.
+            voxels_per_pixel = orthographic_voxels_per_pixel(
+                self._to_level0_displayed,
+                camera_pos_world,
+                view_height_world,
+                screen_height_px,
+            )
+            if voxels_per_pixel > 0:
+                force_level = select_level_orthographic(
+                    geo._level_scale_factors, voxels_per_pixel, lod_bias
+                )
+
+        # Cull first: a clipped visual ranks and sorts only the bricks its
+        # clipping planes keep.  The exact test still runs in the frustum
+        # cull, so the plan is the same rows in the same order.
+        clip_rows = self._clip_rows()
+        keep = cull_masks(geo._level_grids, clip_rows)
+
         if force_level is not None:
             brick_arr = select_levels_arr_forced(
-                geo.base_layout, force_level, geo._level_grids
+                geo.base_layout, force_level, geo._level_grids, keep=keep
             )
         else:
             brick_arr = select_levels_from_cache(
@@ -2197,6 +2268,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                 camera_pos_data,
                 thresholds=thresholds,
                 base_layout=geo.base_layout,
+                keep=keep,
             )
 
         # 2. Distance sort
@@ -2210,7 +2282,6 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
         # 3. Frustum cull, with the clipping planes as further half-spaces.
         # They apply with no frustum too: a clipped brick is never drawn.
-        clip_rows = self._clip_rows()
         if clip_rows is not None:
             frustum_planes = (
                 clip_rows
@@ -2812,6 +2883,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             threshold=threshold,
             attenuation=attenuation,
             pick_write=pick_write,
+            render_planes_buffer=self._render_planes_buffer,
         )
 
         geometry = gfx.Geometry(grid=proxy_tex)
@@ -2908,7 +2980,7 @@ def _slot_geometries(
     return volume_geometry, image_geometry_2d
 
 
-class GFXMultiscaleImageVisual(ClippingPlanesMixin):
+class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     """Render-layer visual for one ``MultiscaleImageVisual``.
 
     Draws the image single-channel or composited from a pool of
@@ -3012,6 +3084,7 @@ class GFXMultiscaleImageVisual(ClippingPlanesMixin):
                 aabb_line_width=visual_model.aabb.line_width,
                 render_order=visual_model.appearance.render_order,
                 pick_write=self._pick_write,
+                render_planes_buffer=self.render_planes_buffer,
             )
             slot._block_size = config.block_size
             # Weakly: the slots are this visual's, so a strong bound method
@@ -3292,6 +3365,12 @@ class GFXMultiscaleImageVisual(ClippingPlanesMixin):
         self._apply_clipping_planes()
         return keys, slots
 
+    def _outline_shape(self):
+        """The store's level-0 shape: the box a plane's outline is cut by."""
+        if not self._full_level_shapes:
+            return None
+        return tuple(self._full_level_shapes[0])
+
     def _clip_targets(self):
         """One group per channel slot (clipping planes design 4.1, 4.6).
 
@@ -3432,7 +3511,7 @@ class GFXMultiscaleImageVisual(ClippingPlanesMixin):
                     world_width=request.world_extent[0],
                     view_min_world=view_min if config.frustum_cull else None,
                     view_max_world=view_max if config.frustum_cull else None,
-                    lod_bias=config.lod_bias,
+                    lod_bias=config.settled_lod_bias,
                     force_level=config.force_level,
                     use_culling=config.frustum_cull,
                 )
@@ -3451,18 +3530,26 @@ class GFXMultiscaleImageVisual(ClippingPlanesMixin):
                 loading,
             )
         else:
+            backstop = planner._plan_backstop_3d(
+                request.camera_pos, request.frustum_corners, loading
+            )
             if plan_target:
+                planes = self._plane_planning(planner, keys[0])
                 arr = planner._plan_bricks(
                     request.camera_pos,
                     request.frustum_corners if config.frustum_cull else None,
                     request.fov_y_rad,
                     request.screen_size_px[1],
-                    config.lod_bias,
+                    config.settled_lod_bias,
                     config.force_level,
+                    view_height_world=request.world_extent[1],
+                    render_planes=planes,
+                    max_bricks=(
+                        None
+                        if planes is None
+                        else target_room(planner.residency_3d(), backstop, loading)
+                    ),
                 )
-            backstop = planner._plan_backstop_3d(
-                request.camera_pos, request.frustum_corners, loading
-            )
         base_coord = planner._block_key_slice_coord()
         composite = self._composite()
         n_target = 0 if arr is None else len(arr)
@@ -3484,6 +3571,24 @@ class GFXMultiscaleImageVisual(ClippingPlanesMixin):
                 desired.append(wanted)
         log_backstop_cap_once(self, desired)
         return desired
+
+    def _plane_planning(
+        self, planner: _MultiscaleImageSlot, key: int
+    ) -> PlanePlanning | None:
+        """The render planes as the brick planner takes them, in plane mode.
+
+        Every channel of an image has the same render mode, so one drawn
+        channel answers for the visual and the planes are planned once.
+        ``None`` in a volume mode.
+        """
+        mode_appearance = self._mode_appearance(key)
+        if mode_appearance is None or mode_appearance.render_mode != PLANE_RENDER_MODE:
+            return None
+        return build_plane_planning(
+            self.drawn_render_planes,
+            planner._to_level0_displayed,
+            planner._volume_geometry._scale_arr_shader,
+        )
 
     def residencies(self) -> dict[int, ImageResidency3D | ImageResidency2D]:
         """``cache_id -> adapter`` for every slot's 3D and 2D atlas."""
@@ -3539,6 +3644,8 @@ class GFXMultiscaleImageVisual(ClippingPlanesMixin):
         for slot in self._slots:
             slot.set_render_spaces(spaces)
         self._apply_clipping_planes()
+        # Which planes are drawn follows the displayed axes.
+        self._apply_render_planes()
 
     def on_appearance_changed(self, event: AppearanceChangedEvent) -> None:
         """A shared field changed: restyle every drawn slot."""

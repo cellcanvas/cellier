@@ -101,7 +101,7 @@ def test_add_image_multiscale_records_the_config_and_the_group(multiscale_image_
     visuals = ortho.add_image_multiscale(
         multiscale_image_store,
         appearance=MultiscaleImageAppearance(),
-        controls=MultiscaleImageControlsConfig(appearance=["lod_bias"]),
+        controls=MultiscaleImageControlsConfig(appearance=["level_of_detail"]),
         single=MultiscaleImageSingleAppearance(color_map="viridis"),
         render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
     )
@@ -476,10 +476,10 @@ def test_the_renderer_warns_about_a_field_the_model_does_not_have(qtbot):
         _store(),
         appearance=_appearance(),
         # Valid for the multiscale config class; absent from the in-memory model.
-        controls=MultiscaleImageControlsConfig(appearance=["clim", "lod_bias"]),
+        controls=MultiscaleImageControlsConfig(appearance=["clim", "level_of_detail"]),
     )
 
-    with pytest.warns(UserWarning, match="lod_bias"):
+    with pytest.warns(UserWarning, match="level_of_detail"):
         container = render_dock(AppearanceControls(), ortho, QtLayoutHost(), [])
 
     assert container is not None

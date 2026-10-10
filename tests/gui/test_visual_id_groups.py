@@ -48,10 +48,14 @@ def _qt_widgets(visual_id):
     Returns ``(name, widget, edit, expected_field)`` where ``edit()`` performs
     a single user-level change.
     """
-    from cellier.gui.qt.visuals import QtAABBWidget, QtImageControls, QtLodBiasSlider
+    from cellier.gui.qt.visuals import (
+        QtAABBWidget,
+        QtImageControls,
+        QtLevelOfDetailControls,
+    )
 
     image = QtImageControls(visual_id, _image_values())
-    lod = QtLodBiasSlider(visual_id, initial_lod_bias=1.0)
+    lod = QtLevelOfDetailControls(visual_id)
     aabb = QtAABBWidget(visual_id)
 
     return [
@@ -62,10 +66,16 @@ def _qt_widgets(visual_id):
             "clim",
         ),
         (
-            "lod_bias",
+            "level_of_detail",
             lod,
             lambda: (lod._slider.setValue(2.5), lod._on_slider_released()),
-            "lod_bias",
+            "settled_lod_bias",
+        ),
+        (
+            "level_of_detail moving",
+            lod,
+            lambda: lod._moving_check.setChecked(False),
+            "coarsest_while_moving_3d",
         ),
         ("aabb", aabb, lambda: aabb._enabled_check.setChecked(True), "enabled"),
     ]
@@ -109,10 +119,10 @@ def test_qt_widgets_subscribe_to_every_visual(qtbot, n_ids):
 
 def test_qt_a_single_uuid_still_works_unchanged(qtbot):
     """The compatible signature: one id in, one event out, one subscription."""
-    from cellier.gui.qt.visuals import QtLodBiasSlider
+    from cellier.gui.qt.visuals import QtLevelOfDetailControls
 
     visual_id = uuid4()
-    widget = QtLodBiasSlider(visual_id, initial_lod_bias=1.0)
+    widget = QtLevelOfDetailControls(visual_id)
 
     assert widget.visual_ids == (visual_id,)
     assert widget._visual_id == visual_id
@@ -146,11 +156,11 @@ def _anywidget_widgets(visual_id):
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
         AnywidgetImageControls,
-        AnywidgetLodBiasSlider,
+        AnywidgetLevelOfDetailControls,
     )
 
     image = AnywidgetImageControls(visual_id, _image_values())
-    lod = AnywidgetLodBiasSlider(visual_id, initial_lod_bias=1.0)
+    lod = AnywidgetLevelOfDetailControls(visual_id)
     aabb = AnywidgetAABBWidget(visual_id)
 
     def _set(widget, name, value):
@@ -163,7 +173,12 @@ def _anywidget_widgets(visual_id):
             _set(image, "single", {**image.single, "clim": [0.2, 0.8]}),
             "clim",
         ),
-        ("lod_bias", lod, _set(lod, "lod_bias", 2.5), "lod_bias"),
+        (
+            "settled_lod_bias",
+            lod,
+            _set(lod, "settled_lod_bias", 2.5),
+            "settled_lod_bias",
+        ),
         ("aabb", aabb, _set(aabb, "enabled", True), "enabled"),
     ]
 
@@ -199,10 +214,10 @@ def test_anywidget_widgets_subscribe_to_every_visual(n_ids):
 
 
 def test_anywidget_a_single_uuid_still_works_unchanged():
-    from cellier.gui.anywidget.visuals import AnywidgetLodBiasSlider
+    from cellier.gui.anywidget.visuals import AnywidgetLevelOfDetailControls
 
     visual_id = uuid4()
-    widget = AnywidgetLodBiasSlider(visual_id, initial_lod_bias=1.0)
+    widget = AnywidgetLevelOfDetailControls(visual_id)
 
     assert widget.visual_ids == (visual_id,)
     assert widget._visual_id == visual_id
@@ -216,27 +231,27 @@ def test_anywidget_a_single_uuid_still_works_unchanged():
 
 def test_an_empty_sequence_is_rejected():
     """A widget driving nothing would silently do nothing on every edit."""
-    from cellier.gui.anywidget.visuals import AnywidgetLodBiasSlider
+    from cellier.gui.anywidget.visuals import AnywidgetLevelOfDetailControls
 
     with pytest.raises(ValueError, match="must not be empty"):
-        AnywidgetLodBiasSlider([], initial_lod_bias=1.0)
+        AnywidgetLevelOfDetailControls([])
 
 
 def test_the_event_type_is_unchanged_by_the_group_form():
     """Fanning out changes how many events, never which kind."""
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
-        AnywidgetLodBiasSlider,
+        AnywidgetLevelOfDetailControls,
     )
 
-    clim = AnywidgetLodBiasSlider(_ids(3), initial_lod_bias=1.0)
+    clim = AnywidgetLevelOfDetailControls(_ids(3))
     aabb = AnywidgetAABBWidget(_ids(3))
     clim_events: list = []
     aabb_events: list = []
     clim.changed.connect(clim_events.append)
     aabb.changed.connect(aabb_events.append)
 
-    clim.lod_bias = 2.0
+    clim.settled_lod_bias = 2.0
     aabb.enabled = True
 
     assert all(isinstance(e, AppearanceUpdateEvent) for e in clim_events)

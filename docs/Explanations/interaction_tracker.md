@@ -126,11 +126,11 @@ Only a **sliced** axis ticks. A scene keeps a position for every world axis, dis
 
 ### What a scrub does
 
-Visuals do not subscribe to the tracker. Each visual model answers one question through its own explicit config, `BaseVisual.plans_coarse_on_scrub`:
+Visuals do not subscribe to the tracker. Each visual model answers one question through its own explicit config, `BaseVisual.plans_coarse_while_moving(n_displayed_dims)`, asked with the scene's view (2D or 3D):
 
-| Visual | `plans_coarse_on_scrub` |
+| Visual | `plans_coarse_while_moving` |
 |---|---|
-| Multiscale image, multiscale labels | `render_config.loading.dims_drag == "backstop"` (the default is `"eager"`, which is `False`) |
+| Multiscale image, multiscale labels | `appearance.coarsest_while_moving_3d` in a 3D view, `appearance.coarsest_while_moving_2d` in a 2D view (`True` by default in 3D, `False` in 2D) |
 | Multiscale mesh | `lod.dims_drag == "coarse"` (the default, which is `True`), when the mesh has more than one level |
 | Everything else | `False` |
 
@@ -138,6 +138,10 @@ The controller turns the tracker's state into a plan mode in one place, `Cellier
 
 - While the scene's tracker is `ACTIVE`, a visual that opted in plans `BACKSTOP_ONLY` (its coarse backstop level) and joins the scene's *pending set*. This applies to **every** reslice during the scrub, not only the scrub's own ticks: a visual shown, a config change, a store change, and a camera reslice all plan coarse.
 - Visuals that did not opt in plan in full on every tick, as they always have.
+
+A drag of a visual's planes (`controller.plane_interaction`, which a clipping plane gizmo opens) is the visual's other motion, with a tracker per visual. It has no plan mode. While the tracker is `ACTIVE`, a multiscale image or labels visual in a 3D view with `coarsest_while_moving_3d` on is **not planned at all**: its last plan stays the desired set, so the bricks it has are still drawn, and the always-loaded backstop shows where the planes reveal more. (A `BACKSTOP_ONLY` plan would drop those bricks.) The drag's end, by release or stillness, plans the target.
+
+The target is planned only when every motion of the visual has stopped. A scrub that ends during a plane drag leaves the visual on its backstop, and the drag's end plans it; a drag that ends during a scrub is planned by the scrub's end; a camera motion that ends during a drag does not plan the visual, and a drag that ends while a camera moves is planned by the camera's end. A visibility, render mode or displayed-axes change is a jump: it ends the drag and plans in full.
 - When the scrub ends by release or stillness, the pending set is planned in full, once.
 
 ### Timeline: a slider drag
@@ -371,6 +375,6 @@ A loop that wants every position at full resolution does not open a scope. Each 
 | Camera: `_on_camera_changed`, `_on_camera_transition`, `_after_programmatic_camera_move`, `camera_interaction`, `set_camera_state` | `cellier/controller.py` |
 | Frame-by-frame camera detection, `accept_camera_state`, `camera_moving` | `cellier/render/canvas_view.py` |
 | The events | `cellier/events/_events.py`, `cellier/events/_update_events.py` |
-| `plans_coarse_on_scrub` | `cellier/visuals/_base_visual.py` |
+| `plans_coarse_while_moving` | `cellier/visuals/_base_visual.py` |
 | Slider press and release | `cellier/gui/qt/_scene.py`, `cellier/gui/anywidget/_dims_panel.py` |
 | Ortho scope forwarding | `cellier/convenience/_ortho_dims.py` |

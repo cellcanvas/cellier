@@ -9,6 +9,7 @@ import pygfx as gfx
 
 from cellier.data.image._image_requests import ChunkRequest
 from cellier.render._clipping import ClippingPlanesMixin
+from cellier.render._render_planes import RenderPlanesMixin
 from cellier.render._spaces import RenderSpaces, node_matrix
 from cellier.render.shaders._image_volume import IMAGE_VOLUME_MATERIALS
 from cellier.render.visuals._pick import memory_image_data_coordinate
@@ -17,6 +18,7 @@ from cellier.render.visuals._slicing import (
     image_plane_selection,
 )
 from cellier.visuals._image_memory import effective_transparency_mode
+from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 if TYPE_CHECKING:
     from cellier._state import DimsState
@@ -72,6 +74,11 @@ def _make_colormap(color_map) -> gfx.TextureMap:
 _VOLUME_MATERIALS: dict[str, type] = IMAGE_VOLUME_MATERIALS
 
 
+def _volume_material_class(render_mode: str) -> type:
+    """The material class that draws *render_mode*."""
+    return _VOLUME_MATERIALS[render_mode]
+
+
 def _make_volume_material(appearance, colormap, pick_write: bool):
     """Build the pygfx volume material for an in-memory image appearance.
 
@@ -94,7 +101,7 @@ def _make_volume_material(appearance, colormap, pick_write: bool):
     gfx.VolumeRayMaterial
         A configured volume material.
     """
-    material_cls = _VOLUME_MATERIALS[appearance.render_mode]
+    material_cls = _volume_material_class(appearance.render_mode)
     material = material_cls(
         clim=appearance.clim,
         map=colormap,
@@ -316,6 +323,7 @@ class _ImageMemorySlot:
         pick_write: bool,
         alpha_mode: str,
         planes_overlap: bool,
+        render_planes_buffer: gfx.Buffer | None = None,
     ) -> None:
         """Draw with *shared* plus the mode's own appearance (design 3.3).
 
@@ -334,6 +342,9 @@ class _ImageMemorySlot:
             the same depth, so depth testing and writing are turned off on the
             2D materials or the first plane would hide the rest.  The 3D
             volumes stop writing depth for the same reason.
+        render_planes_buffer : gfx.Buffer or None
+            The visual's render planes, for a material built for the
+            ``"plane"`` render mode.
         """
         colormap = self._colormap_for(mode_appearance.color_map)
         for node in self.nodes():
@@ -350,16 +361,20 @@ class _ImageMemorySlot:
             material.depth_test = shared.depth_test and not planes_overlap
             material.depth_write = shared.depth_write and not planes_overlap
         if self.node_3d is not None:
-            material_cls = _VOLUME_MATERIALS[mode_appearance.render_mode]
+            material_cls = _volume_material_class(mode_appearance.render_mode)
             material = self.node_3d.material
             if not isinstance(material, material_cls) or type(material) is not (
                 material_cls
             ):
+                extra = {}
+                if mode_appearance.render_mode == PLANE_RENDER_MODE:
+                    extra["render_planes_buffer"] = render_planes_buffer
                 material = material_cls(
                     clim=mode_appearance.clim,
                     map=colormap,
                     interpolation=shared.interpolation,
                     pick_write=pick_write,
+                    **extra,
                 )
                 self.node_3d.material = material
             material.clim = mode_appearance.clim
@@ -378,7 +393,7 @@ class _ImageMemorySlot:
                 material.threshold = mode_appearance.iso_threshold
 
 
-class GFXImageMemoryVisual(ClippingPlanesMixin):
+class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
     """Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
     Draws the image single-channel or composited from a pool of
@@ -629,6 +644,7 @@ class GFXImageMemoryVisual(ClippingPlanesMixin):
                 pick_write=self._pick_write,
                 alpha_mode=alpha_mode,
                 planes_overlap=overlap,
+                render_planes_buffer=self.render_planes_buffer,
             )
         # A render-mode change gives a slot a new volume material, which
         # starts with no planes (clipping planes design 4.6).
@@ -657,6 +673,8 @@ class GFXImageMemoryVisual(ClippingPlanesMixin):
         self._spaces = spaces
         if spaces is not None and self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
+        # Which planes are drawn follows the displayed axes.
+        self._apply_render_planes()
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
         """Place both groups with the composition of design 3.9.
@@ -680,6 +698,10 @@ class GFXImageMemoryVisual(ClippingPlanesMixin):
         if self.node_2d is not None:
             self.node_2d.local.matrix = m
         self._apply_clipping_planes()
+
+    def _outline_shape(self):
+        """The store's shape: the box a plane's outline is cut by."""
+        return tuple(self._data_store.shape)
 
     def _clip_targets(self):
         """One group per channel slot (clipping planes design 4.1, 4.6).

@@ -219,6 +219,12 @@ class CanvasView:
         # Both camera/controller pairs are created upfront so toggling only
         # requires enabling/disabling — no construction or destruction.
         self._camera_3d = gfx.PerspectiveCamera(fov, 16 / 9, depth_range=depth_range)
+        # The configured 3D depth range, and the one last written to the
+        # camera; they differ at a field of view of 0.  See
+        # ``_sync_depth_range_3d``.
+        self._depth_range_3d: tuple[float, float] | None = depth_range
+        self._applied_depth_range_3d: tuple[float, float] | None = depth_range
+        self._sync_depth_range_3d()
         # ``auto_update=False``: the controllers still turn input into
         # actions, but ``_draw_frame`` ticks them and applies the camera
         # state, and ``_on_controller_input`` requests the draws.
@@ -614,15 +620,39 @@ class CanvasView:
         screen_w: float,
         screen_h: float,
     ) -> ReslicingRequest:
-        """Build a ReslicingRequest for a perspective camera."""
-        frustum = np.asarray(self._camera.frustum, dtype=np.float64)
+        """Build a ReslicingRequest for a perspective camera.
+
+        At a field of view of 0 the camera is orthographic, and the request
+        carries the visible world extent that level selection needs.  It is
+        worked out from the canvas size, as for the 2D camera, and not read
+        off the frustum: the frustum only takes the canvas's aspect once a
+        frame has been drawn.
+        """
+        cam = self._camera
+        # Ahead of the frustum: a positive near plane at a field of view of
+        # 0 would cull the bricks on the camera's side of the scene centre.
+        self._sync_depth_range_3d()
+        frustum = np.asarray(cam.frustum, dtype=np.float64)
+        fov = float(cam.fov)
+        if fov == 0 and screen_w > 0 and screen_h > 0:
+            canvas_aspect = screen_w / screen_h
+            zoom = cam.zoom if cam.zoom > 0 else 1.0
+            if not cam.maintain_aspect:
+                world_width, world_height = cam.width, cam.height
+            elif canvas_aspect >= cam.width / cam.height:
+                world_width, world_height = cam.height * canvas_aspect, cam.height
+            else:
+                world_width, world_height = cam.width, cam.width / canvas_aspect
+            world_extent = (float(world_width / zoom), float(world_height / zoom))
+        else:
+            world_extent = (0.0, 0.0)
         return ReslicingRequest(
             camera_type="perspective",
-            camera_pos=np.array(self._camera.world.position, dtype=np.float64),
+            camera_pos=np.array(cam.world.position, dtype=np.float64),
             frustum_corners=frustum.copy(),
-            fov_y_rad=float(np.radians(self._camera.fov)),
+            fov_y_rad=float(np.radians(fov)),
             screen_size_px=(float(screen_w), float(screen_h)),
-            world_extent=(0.0, 0.0),
+            world_extent=world_extent,
             dims_state=dims_state,
             selection=selection,
             request_id=uuid4(),
@@ -679,15 +709,48 @@ class CanvasView:
             target_visual_ids=target_visual_ids,
         )
 
+    def _sync_depth_range_3d(self) -> None:
+        """Give the 3D camera the depth range its field of view needs.
+
+        pygfx places a camera with a field of view of 0 *at* the centre of
+        what it is fitted to, and not in front of it, so the near plane has
+        to be behind the camera: a positive one cuts away everything on the
+        camera's side of the centre.  At a field of view of 0 the configured
+        range ``(near, far)`` is therefore widened to ``(-far, far)``; above
+        0 it is used as given.  The configured range is what
+        :meth:`capture_camera_state` reports, so a round trip through the
+        camera model brings the same range back when the field of view
+        changes.
+
+        A range written straight to the pygfx camera since the last call is
+        taken as the configured one.
+        """
+        camera = self._camera_3d
+        current = camera.depth_range
+        if current is not None:
+            current = (float(current[0]), float(current[1]))
+        if current != self._applied_depth_range_3d:
+            self._depth_range_3d = current
+        effective = self._depth_range_3d
+        if effective is not None and float(camera.fov) == 0:
+            near, far = effective
+            effective = (min(near, -far), far)
+        if current != effective:
+            camera.depth_range = effective
+        self._applied_depth_range_3d = effective
+
     def set_depth_range(self, depth_range: tuple[float, float]) -> None:
         """Set the active camera near/far clip distances.
+
+        On the 3D camera this is the configured range, which is widened
+        while the field of view is 0; see :meth:`_sync_depth_range_3d`.
 
         Parameters
         ----------
         depth_range : tuple[float, float]
             ``(near, far)`` clip distances in world units.
         """
-        self._camera.depth_range = depth_range
+        self.set_depth_range_for_dim(self._dim, depth_range)
 
     def set_depth_range_for_dim(
         self, dim: str, depth_range: tuple[float, float]
@@ -709,8 +772,12 @@ class CanvasView:
         depth_range : tuple[float, float]
             ``(near, far)`` clip distances in world units.
         """
-        camera = self._camera_2d if dim == "2d" else self._camera_3d
-        camera.depth_range = depth_range
+        if dim == "2d":
+            self._camera_2d.depth_range = depth_range
+            return
+        self._sync_depth_range_3d()
+        self._depth_range_3d = (float(depth_range[0]), float(depth_range[1]))
+        self._sync_depth_range_3d()
 
     def show_object(self, scene: gfx.Scene) -> bool:
         """Fit the camera to the scene bounding box, if there is one.
@@ -886,6 +953,7 @@ class CanvasView:
         if self._event_bus is None:
             return
         point, normal = gizmo.pose()
+        axis_0, axis_1, scale = gizmo.frame()
         self._event_bus.emit(
             PlaneGizmoMovedEvent(
                 source_id=self._canvas_id,
@@ -896,6 +964,9 @@ class CanvasView:
                 phase=phase,
                 handle_kind=gizmo.handle_kind,
                 handle_axis=gizmo.handle_axis,
+                in_plane_axis_0=axis_0,
+                in_plane_axis_1=axis_1,
+                scale=scale,
             )
         )
 
@@ -1030,6 +1101,8 @@ class CanvasView:
 
         Only the fields of the active camera's kind are applied: a
         perspective camera takes ``fov``, an orthographic one ``extent``.
+        A perspective camera with a ``fov`` of 0 takes ``extent`` as well,
+        where the state has one: it is what an orthographic zoom changes.
         ``up`` is not applied: it is the up direction the rotation already
         gives.  The caller reports the move; see :meth:`accept_camera_state`.
 
@@ -1054,10 +1127,13 @@ class CanvasView:
             camera.width, camera.height = state.extent
         else:
             camera.fov = state.fov
+            # A state saved before the 3D extent was recorded has none.
+            if state.fov == 0 and state.extent[0] > 0 and state.extent[1] > 0:
+                camera.width, camera.height = state.extent
         camera.world.position = state.position
         camera.world.rotation = state.rotation
         camera.zoom = state.zoom
-        camera.depth_range = state.depth_range
+        self.set_depth_range_for_dim(self._dim, state.depth_range)
 
     def set_event_bus(self, event_bus: EventBus) -> None:
         """Wire the EventBus after construction."""
@@ -1210,8 +1286,16 @@ class CanvasView:
         self._ssao_pass.set_scene_extent(diagonal)
 
     def capture_camera_state(self) -> CameraState:
-        """Snapshot the current pygfx camera into a CameraState NamedTuple."""
+        """Snapshot the current pygfx camera into a CameraState NamedTuple.
+
+        For the 3D camera ``depth_range`` is the configured range, not the
+        one widened for a field of view of 0 (see
+        :meth:`_sync_depth_range_3d`), and ``extent`` is the camera's width
+        and height at a field of view of 0 and ``(0.0, 0.0)`` above it.
+        """
         cam = self._camera
+        if self._dim != "2d":
+            self._sync_depth_range_3d()
         pos = cam.world.position
         rot = cam.world.rotation  # quaternion (x, y, z, w)
         dr = cam.depth_range
@@ -1230,14 +1314,20 @@ class CanvasView:
             )
         else:
             up = cam.world.up
+            fov = float(cam.fov)
+            if self._depth_range_3d is not None:
+                depth_range = self._depth_range_3d
+            # An orthographic zoom changes the width and height and nothing
+            # else, so they are part of the state there.
+            extent = (float(cam.width), float(cam.height)) if fov == 0 else (0.0, 0.0)
             return CameraState(
                 camera_type="perspective",
                 position=(float(pos[0]), float(pos[1]), float(pos[2])),
                 rotation=(float(rot[0]), float(rot[1]), float(rot[2]), float(rot[3])),
                 up=(float(up[0]), float(up[1]), float(up[2])),
-                fov=float(cam.fov),
+                fov=fov,
                 zoom=float(cam.zoom),
-                extent=(0.0, 0.0),
+                extent=extent,
                 depth_range=depth_range,
             )
 

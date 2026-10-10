@@ -17,6 +17,7 @@
 .cellier-dataset-info table {
   border-collapse: collapse;
   margin-top: 4px;
+  max-width: 100%;
 }
 
 .cellier-dataset-info td,
@@ -24,6 +25,17 @@
   padding: 1px 6px;
   border: 1px solid #ccc;
   text-align: left;
+}
+
+/* A long value (a store's URL has no spaces to break at) wraps inside its
+   cell instead of pushing the table, and the dock with it, wider.  The row
+   label keeps to one line so the wrapping all lands in the value. */
+.cellier-dataset-info td {
+  overflow-wrap: anywhere;
+}
+
+.cellier-dataset-info th {
+  white-space: nowrap;
 }
 
 /* Nested section blocks (axes, scale levels, geff properties). */
@@ -36,4 +48,6 @@
 .cellier-dataset-info table.cellier-matrix td {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: normal;
+  white-space: nowrap;
 }

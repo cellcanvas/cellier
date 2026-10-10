@@ -56,8 +56,9 @@ class SchedulerConfig(BaseModel):
         not drawing, or a slow client).
     dims_settle_s : float
         The dims tracker's stillness time: seconds without a slice-position
-        change after which a dims scrub ends, and visuals in
-        ``dims_drag="backstop"`` mode load their target.  A scrub also ends,
+        change after which a dims scrub ends, and visuals planned coarse
+        while moving (``coarsest_while_moving_3d`` or ``_2d``) load their
+        target.  A scrub also ends,
         sooner, when its slider is released.
     store_change_max_hz : float
         Most reslices per second a changing store triggers.  A store that

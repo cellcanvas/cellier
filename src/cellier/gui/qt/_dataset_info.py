@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING
 
 from cellier.gui._dataset_info import (
@@ -20,6 +21,97 @@ __all__ = [
     "QtOmeZarrMetadataWidget",
     "dataset_info_from_path",
 ]
+
+
+#: The least a value cell asks for, in average characters.  Below this a
+#: middle-elided value stops being recognisable.
+VALUE_MIN_CHARS = 8
+
+#: The most a value cell asks for, in average characters.  A longer value is
+#: elided in the middle unless the layout has spare width to give it.
+VALUE_PREFERRED_CHARS = 28
+
+
+@functools.cache
+def _value_label_class() -> type:
+    """Return the ``QLabel`` subclass used for a row's value.
+
+    Built on first use so importing this module does not import Qt, like
+    every other Qt import in the file.
+    """
+    from qtpy.QtCore import QEvent, QSize, Qt
+    from qtpy.QtGui import QPainter
+    from qtpy.QtWidgets import QApplication, QLabel, QMenu
+
+    class _ElidedValueLabel(QLabel):
+        """A value that elides in the middle rather than widening its parent.
+
+        A plain ``QLabel`` is never narrower than its text, and a side dock
+        is as wide as the widest thing in it, so one long value (a store's
+        URL) set the width of the whole dock, even with the block collapsed.
+        This label asks for a bounded width, draws what fits with the middle
+        elided (both ends of a path are worth reading), and gives the whole
+        value in a tooltip while it is cut short.
+
+        ``text()`` is always the full value.  The drawn text may be elided,
+        so it is not mouse-selectable; the context menu copies the full
+        value instead.
+        """
+
+        def __init__(self, text: str = "", parent=None) -> None:
+            super().__init__(parent)
+            # Displayed, never interpreted as markup.
+            self.setTextFormat(Qt.TextFormat.PlainText)
+            self.setText(text)
+
+        def _text_width(self) -> int:
+            return self.fontMetrics().horizontalAdvance(self.text())
+
+        def _bounded_width(self, n_chars: int) -> int:
+            margins = self.contentsMargins()
+            limit = self.fontMetrics().averageCharWidth() * n_chars
+            return (
+                min(self._text_width(), limit)
+                + margins.left()
+                + margins.right()
+                + 2 * self.margin()
+            )
+
+        def minimumSizeHint(self) -> QSize:
+            height = super().minimumSizeHint().height()
+            return QSize(self._bounded_width(VALUE_MIN_CHARS), height)
+
+        def sizeHint(self) -> QSize:
+            height = super().sizeHint().height()
+            return QSize(self._bounded_width(VALUE_PREFERRED_CHARS), height)
+
+        def is_elided(self) -> bool:
+            """Whether the value is currently drawn cut short."""
+            return self._text_width() > self.contentsRect().width()
+
+        def event(self, event) -> bool:
+            # Decided when the tooltip is asked for, so it follows the width
+            # the label has now rather than the last resize it was sent.
+            if event.type() == QEvent.Type.ToolTip:
+                self.setToolTip(self.text() if self.is_elided() else "")
+            return super().event(event)
+
+        def paintEvent(self, event) -> None:
+            rect = self.contentsRect()
+            drawn = self.fontMetrics().elidedText(
+                self.text(), Qt.TextElideMode.ElideMiddle, rect.width()
+            )
+            painter = QPainter(self)
+            painter.drawText(rect, int(self.alignment()), drawn)
+            painter.end()
+
+        def contextMenuEvent(self, event) -> None:
+            menu = QMenu(self)
+            copy = menu.addAction("Copy")
+            if menu.exec(event.globalPos()) is copy:
+                QApplication.clipboard().setText(self.text())
+
+    return _ElidedValueLabel
 
 
 class QtDatasetInfo:
@@ -113,13 +205,16 @@ class QtDatasetInfo:
 
     def _form_widget(self, rows: Sequence[tuple[str, str]]):
         """A ``(label, value)`` block as one widget."""
-        from qtpy.QtWidgets import QFormLayout, QLabel, QWidget
+        from qtpy.QtWidgets import QFormLayout, QWidget
 
         content = QWidget()
         form = QFormLayout(content)
         form.setContentsMargins(4, 4, 4, 4)
+        # Some styles (macOS) keep a field at its size hint.  A value cell's
+        # hint is bounded, so let it take spare width and elide less.
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         for label, value in rows:
-            form.addRow(str(label), QLabel(str(value)))
+            form.addRow(str(label), _value_label_class()(str(value)))
         return content, form
 
     def _add_rows(self, rows: Sequence[tuple[str, str]], *, label: str | None) -> None:
@@ -129,14 +224,14 @@ class QtDatasetInfo:
         list, which is what a store means by declaring rows with no label.
         A labelled block always starts a new one.
         """
-        from qtpy.QtWidgets import QLabel
-
         if label is None:
             if self._inline_form is None:
                 content, self._inline_form = self._form_widget(())
                 self._collapsible.addWidget(content)
             for row_label, value in rows:
-                self._inline_form.addRow(str(row_label), QLabel(str(value)))
+                self._inline_form.addRow(
+                    str(row_label), _value_label_class()(str(value))
+                )
             self._section_labels.append(str(rows[0][0]) if rows else "")
             return
 

@@ -20,7 +20,7 @@ from cellier.render.shaders._label_colormap import (
 
 _WGSL_DIR = Path(__file__).parent / "wgsl"
 
-_LABEL_IMAGE_WGSL = (_WGSL_DIR / "label_image.wgsl").read_text()
+_LABEL_IMAGE_WGSL = (_WGSL_DIR / "label_image.wgsl").read_text(encoding="utf-8")
 
 _VERTEX_AND_FRAGMENT = wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT
 

@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import Field
 
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
+from cellier.visuals._render_plane import PLANE_RENDER_MODE, RenderPlane
 
 OutlineMode = Literal["per_label", "whole_object", "all_boundaries"]
 """How a labels visual is outlined; see ``BaseLabelsVisual``."""
@@ -23,8 +24,9 @@ class BaseLabelsAppearance(BaseAppearance):
         Hash seed for random colormap mode. Default 0.
     color_dict : dict
         Explicit label-ID → RGBA mapping for direct mode.
-    render_mode : "iso_categorical" or "flat_categorical"
-        3D rendering mode.
+    render_mode : "iso_categorical", "flat_categorical" or "plane"
+        3D rendering mode.  ``"plane"`` draws the labels on the visual's
+        ``render_planes`` instead of as a volume.
     """
 
     colormap_mode: Literal["random", "direct"] = Field(default="random", frozen=True)
@@ -33,7 +35,9 @@ class BaseLabelsAppearance(BaseAppearance):
     color_dict: dict[int, tuple[float, float, float, float]] = Field(
         default_factory=dict
     )
-    render_mode: Literal["iso_categorical", "flat_categorical"] = "iso_categorical"
+    render_mode: Literal["iso_categorical", "flat_categorical", "plane"] = (
+        "iso_categorical"
+    )
 
 
 class InMemoryLabelsAppearance(BaseLabelsAppearance):
@@ -99,6 +103,10 @@ class BaseLabelsVisual(BaseVisual):
     ``all_boundaries``  label field    ``outline.slot``
     ==================  =============  ==========================
 
+    ``render_planes`` are the planes the visual draws its labels on in a 3D
+    view while ``appearance.render_mode`` is ``"plane"``; ignored otherwise.
+    World space, at most four; see :class:`~cellier.visuals.RenderPlane`.
+
     ``outline_selected_labels`` is kept on the visual rather than pushed
     straight to the GPU because a labels material can be rebuilt underneath
     it -- the multiscale visual rebuilds its materials whenever the
@@ -108,6 +116,11 @@ class BaseLabelsVisual(BaseVisual):
 
     outline_mode: OutlineMode = "per_label"
     outline_selected_labels: dict[int, int] = Field(default_factory=dict)
+    render_planes: tuple[RenderPlane, ...] = ()
+
+    def plane_mode(self) -> bool:
+        """Whether a 3D view draws this visual on its ``render_planes``."""
+        return self.appearance.render_mode == PLANE_RENDER_MODE
 
 
 class LabelMemoryVisual(BaseLabelsVisual):

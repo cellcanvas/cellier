@@ -344,7 +344,7 @@ class LoadingProgress(NamedTuple):
         Every wanted chunk is resident or given up.
     target_deferred : bool
         The latest plan was the backstop only: a tick of a dims scrub with
-        ``loading.dims_drag="backstop"``.  The target is planned once the
+        ``coarsest_while_moving`` on for the view.  The target is planned once the
         scrub ends, so ``complete`` here does not mean full detail.
     """
 
@@ -444,11 +444,19 @@ class PlaneGizmoMovedEvent(NamedTuple):
     phase : str
         ``"start"``, ``"move"`` or ``"end"``.
     handle_kind : str
-        ``"translate"`` or ``"rotate"``: the handle being dragged.
+        ``"translate"``, ``"rotate"`` or ``"scale"``: the handle being
+        dragged.  Only a gizmo on a render plane shows scale handles.
     handle_axis : int or tuple[int, int]
         The axis of the handle in the gizmo's own frame, where axis 0 is
-        the normal: the axis a one-axis handle moves along or turns about,
-        or the pair of axes a two-axis translate handle moves in.
+        the normal and axes 1 and 2 are the in-plane axes: the axis a
+        one-axis handle moves along, turns about or scales, or the pair of
+        axes a two-axis translate handle moves in.
+    in_plane_axis_0, in_plane_axis_1 : tuple[float, float, float]
+        The gizmo's two in-plane axes, unit vectors.  With ``normal`` they
+        are the gizmo's whole frame: ``normal`` is their cross product.
+    scale : tuple[float, float]
+        The gizmo's scale along the two in-plane axes: 1.0 unless a scale
+        handle is held, when it is the factor of the drag so far.
     """
 
     source_id: UUID
@@ -459,6 +467,9 @@ class PlaneGizmoMovedEvent(NamedTuple):
     phase: str
     handle_kind: str
     handle_axis: Any
+    in_plane_axis_0: tuple[float, float, float] = (0.0, 1.0, 0.0)
+    in_plane_axis_1: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    scale: tuple[float, float] = (1.0, 1.0)
 
 
 class ClippingPlanesChangedEvent(NamedTuple):
@@ -485,15 +496,44 @@ class ClippingPlanesChangedEvent(NamedTuple):
     clipping_planes: Any
 
 
-class ClippingInteractionEvent(NamedTuple):
-    """A clipping plane drag started or ended on a visual.
+class RenderPlanesChangedEvent(NamedTuple):
+    """A visual's ``render_planes`` changed.
 
-    A drag is a run of ``clipping_planes`` changes made inside
-    ``CellierController.clipping_interaction`` (a gizmo opens one for the
-    length of a drag).  The start is emitted with the first change, ahead
-    of its ``ClippingPlanesChangedEvent``.  No event is emitted per change.
+    Emitted for every change, whether it came from
+    ``CellierController.set_render_planes`` (or a
+    ``RenderPlanesUpdateEvent``) or from assigning ``visual.render_planes``
+    directly, and whether or not the visual is in ``"plane"`` render mode.
 
-    It announces only: a plane change plans the same way inside a drag as
+    Parameters
+    ----------
+    source_id : UUID
+        Who asked for the change: the widget's id for a GUI edit, otherwise
+        the controller's.
+    visual_id : UUID
+        The visual.  The routing key.
+    render_planes : tuple[RenderPlane, ...]
+        The complete tuple after the change.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    render_planes: Any
+
+
+class PlaneInteractionEvent(NamedTuple):
+    """A drag of a visual's planes started or ended.
+
+    One tracker per visual serves its clipping planes and its render planes.
+    A drag is a run of ``clipping_planes`` or ``render_planes`` changes made
+    inside ``CellierController.plane_interaction`` (a gizmo opens one for
+    the length of a drag).  The start is emitted with the first change,
+    ahead of its ``ClippingPlanesChangedEvent`` or
+    ``RenderPlanesChangedEvent``.  No event is emitted per change.
+
+    A multiscale image or labels visual in a 3D view with
+    ``appearance.coarsest_while_moving_3d`` on (the default) plans nothing
+    between the start and the end, and its target is planned at the end.
+    Every other visual plans a plane change the same way inside a drag as
     outside one.
 
     Attributes
@@ -516,13 +556,14 @@ class ClippingInteractionEvent(NamedTuple):
     reason: Literal["release", "settle", "jump", "cancel"] | None = None
 
 
-class ClippingPlaneGizmoChangedEvent(NamedTuple):
-    """The plane a canvas's clipping plane gizmo edits changed.
+class PlaneGizmoChangedEvent(NamedTuple):
+    """The plane a canvas's plane gizmo edits changed.
 
-    A canvas has at most one clipping plane gizmo.  Emitted when one is
-    added, when it is replaced by one on another plane, and when it is
-    closed, by its owner or by itself (its plane or visual was removed, the
-    canvas left 3D).
+    A canvas has at most one plane gizmo, on a clipping plane or on a
+    render plane.  Emitted when one is added, when it is replaced by one on
+    another plane, and when it is closed, by its owner or by itself (its
+    plane or visual was removed, the canvas left 3D, a render plane's
+    visual left plane mode).
 
     Parameters
     ----------
@@ -534,6 +575,9 @@ class ClippingPlaneGizmoChangedEvent(NamedTuple):
     visual_id : UUID or None
         The visual whose plane the gizmo edits; ``None`` when the canvas
         has no gizmo.
+    kind : {"clipping", "render"} or None
+        Which of the visual's tuples the plane is in: ``clipping_planes``
+        or ``render_planes``.  ``None`` when the canvas has no gizmo.
     plane_id : UUID or None
         That plane's id; ``None`` when the canvas has no gizmo.
     """
@@ -541,6 +585,7 @@ class ClippingPlaneGizmoChangedEvent(NamedTuple):
     source_id: UUID
     canvas_id: UUID
     visual_id: UUID | None = None
+    kind: Literal["clipping", "render"] | None = None
     plane_id: UUID | None = None
 
 
@@ -1569,8 +1614,9 @@ CellierEventTypes = (
     | LoadingConfigChangedEvent
     | LodConfigChangedEvent
     | ClippingPlanesChangedEvent
-    | ClippingInteractionEvent
-    | ClippingPlaneGizmoChangedEvent
+    | RenderPlanesChangedEvent
+    | PlaneInteractionEvent
+    | PlaneGizmoChangedEvent
     | PlaneGizmoMovedEvent
     | ResliceCancelledEvent
     | FrameRenderedEvent

@@ -99,7 +99,12 @@ def _paths(kind: str) -> tuple[str, ...]:
 SLICE_Z = 16
 SLICE_SPHERES = (1,)
 
-SIZE = (960, 960)
+#: Frame size.  The error does not grow from 960 down to 640 (worst 3D error
+#: 0.123 voxels at 640, 0.128 at 960; 2D 0.048 and 0.033), and each frame is
+#: rendered at twice this, about 90 of them: on a software rasteriser the
+#: pixels are this file's time.  At 480 the 3D error is 0.177, too near
+#: ``TOL_VOXELS``.
+SIZE = (640, 640)
 
 #: 3D field of view, degrees.  Near-orthographic, so a symmetric blob projects
 #: to a symmetric silhouette wherever it sits in the frame.  (``fov = 0``,
@@ -110,7 +115,7 @@ THRESHOLD = 100.0
 
 #: Pass threshold, in level-0 voxels per axis.  Every convention error this
 #: test exists to catch is at least half a level-0 voxel.  Measured noise
-#: (Phase 0, 960 px): 2D <= 0.06; 3D <= 0.10 once ray steps are adequate
+#: (Phase 0, at 960 px): 2D <= 0.06; 3D <= 0.10 once ray steps are adequate
 #: (with today's step starvation, S1, up to 0.27 at level 2).  0.2 is twice
 #: the 3D noise and 2.5x below the smallest error.
 TOL_VOXELS = 0.2

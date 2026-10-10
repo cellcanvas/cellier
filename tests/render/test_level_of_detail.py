@@ -12,6 +12,8 @@ import pytest
 
 from cellier.render._level_of_detail import (
     build_level_grids,
+    orthographic_voxels_per_pixel,
+    select_level_orthographic,
     select_levels_arr_forced,
     select_levels_from_cache,
     sort_arr_by_distance,
@@ -379,3 +381,53 @@ def test_sort_arr_stable_for_equidistant():
     arr[1, 0] = 1
     out = sort_arr_by_distance(arr, np.array([4.0, 4.0, 4.0]), BLOCK_SIZE)
     np.testing.assert_array_equal(out, arr)
+
+
+# ---------------------------------------------------------------------------
+# Orthographic level selection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("voxels_per_pixel", "lod_bias", "expected"),
+    [
+        (0.01, 1.0, 1),
+        (1.0, 1.0, 1),
+        (1.41, 1.0, 1),
+        (1.42, 1.0, 2),
+        # Non power-of-two factors (1, 2, 6): sqrt(12) = 3.46...
+        (3.4, 1.0, 2),
+        (3.5, 1.0, 3),
+        (1000.0, 1.0, 3),
+        # A higher bias is coarser, a lower one finer.
+        (1.0, 2.0, 2),
+        (2.0, 0.5, 1),
+    ],
+)
+def test_select_level_orthographic_switches_at_geometric_mean(
+    voxels_per_pixel, lod_bias, expected
+):
+    assert select_level_orthographic([1.0, 2.0, 6.0], voxels_per_pixel, lod_bias) == (
+        expected
+    )
+
+
+def test_select_level_orthographic_single_level():
+    assert select_level_orthographic([1.0], 50.0) == 1
+
+
+def test_orthographic_voxels_per_pixel_uses_geometric_mean_scale():
+    # World units per voxel of (4, 1, 2) along (x, y, z): 0.5 voxels per
+    # world unit in the geometric mean, with an offset that must not matter.
+    def to_level0(points):
+        return (points - 3.0) / np.array([4.0, 1.0, 2.0])
+
+    result = orthographic_voxels_per_pixel(
+        to_level0, np.array([10.0, 20.0, 30.0]), 300.0, 100.0
+    )
+    assert result == pytest.approx(1.5)
+
+
+@pytest.mark.parametrize(("height", "screen"), [(0.0, 100.0), (300.0, 0.0)])
+def test_orthographic_voxels_per_pixel_degenerate_view_is_zero(height, screen):
+    assert orthographic_voxels_per_pixel(lambda p: p, np.zeros(3), height, screen) == 0

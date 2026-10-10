@@ -154,28 +154,6 @@ async def test_a_slice_move_shows_the_new_slice_blurry_not_the_old_one_sharp(
     assert {k.slice_coord for k in tilemap if k.level == TARGET_LEVEL} == {((0, 6),)}
 
 
-@pytest.mark.parametrize("dim", ["3d", "2d"])
-async def test_with_the_backstop_off_only_the_target_loads(
-    controller, multiscale_image_store, monkeypatch, dim
-):
-    gate = _Gate(monkeypatch, multiscale_image_store)
-    gate.open.set()
-    scene, _visual, gfx = _add(
-        controller,
-        multiscale_image_store,
-        dim=dim,
-        loading=ProgressiveLoadingConfig(backstop=False),
-    )
-    controller.fit_camera(scene.id)
-    controller.reslice_all()
-    await drain_loading(controller)
-    progress = controller._render_manager.scheduler.progress(
-        _residency(gfx, dim).cache_id
-    )
-    assert progress.needed_backstop == 0
-    assert {r.scale_index for r in gate.reads} == {TARGET_SCALE}
-
-
 async def test_changing_only_loading_reslices_and_keeps_the_atlas(
     controller, multiscale_image_store
 ):
@@ -186,16 +164,18 @@ async def test_changing_only_loading_reslices_and_keeps_the_atlas(
     scheduler = controller._render_manager.scheduler
     cache_id = _residency(gfx, "3d").cache_id
     atlas = gfx.slots[0]._block_cache_3d
-    assert scheduler.progress(cache_id).needed_backstop > 0
+    coarsest = scheduler.progress(cache_id).needed_backstop
+    assert coarsest > 0
 
+    # The finest level as the backstop: more bricks than the coarsest.
     visual.render_config = visual.render_config.model_copy(
-        update={"loading": ProgressiveLoadingConfig(backstop=False)}
+        update={"loading": ProgressiveLoadingConfig(backstop_level=1)}
     )
     await drain_loading(controller)
 
     assert _residency(gfx, "3d").cache_id == cache_id
     assert gfx.slots[0]._block_cache_3d is atlas
-    assert scheduler.progress(cache_id).needed_backstop == 0
+    assert scheduler.progress(cache_id).needed_backstop > coarsest
 
 
 async def test_changing_another_render_config_field_warns(

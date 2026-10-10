@@ -28,6 +28,8 @@ import numpy as np
 from cellier.render._level_mapping import brick_centre_data, implied_power_of_two
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from cellier.render.lut_indirection import BlockLayout3D
 
 # Pre-computed (8, 3) offset table for AABB corner construction.
@@ -84,6 +86,8 @@ def build_level_grids(
             World-space ``(x, y, z)`` centre of each coarse brick.
         ``half_extents`` : ndarray, shape (3,), dtype float64
             Half-brick-width per axis in world space ``(x, y, z)``.
+        ``centre_abs_max`` : ndarray, shape (3,), dtype float64
+            Largest absolute centre coordinate per axis, for ``cull_mask``.
     """
     bs = base_layout.block_size
     gd, gh, gw = base_layout.grid_dims
@@ -124,9 +128,97 @@ def build_level_grids(
         centres = brick_centre_data(np.stack([gx_c, gy_c, gz_c], axis=1), bs, sv, tv)
 
         half_extents = (bs * sv / 2.0).astype(np.float64)
-        grids.append({"arr": arr, "centres": centres, "half_extents": half_extents})
+        grids.append(
+            {
+                "arr": arr,
+                "centres": centres,
+                "half_extents": half_extents,
+                "centre_abs_max": np.abs(centres).max(axis=0),
+            }
+        )
 
     return grids
+
+
+# ---------------------------------------------------------------------------
+# Cull first: drop the bricks no half-space keeps before ranking them
+# ---------------------------------------------------------------------------
+
+
+def _reaches_rows(grid: dict, rows: np.ndarray) -> np.ndarray:
+    """Mask of a level's bricks whose box reaches the kept side of every row.
+
+    A box reaches ``n . p + d >= 0`` when its farthest corner along ``n``
+    does: ``n . centre + d + |n| . half_extents >= 0``.  The test is on the
+    cached centres, so it carries a small slack and never drops a brick the
+    corner test of ``bricks_in_frustum_arr`` keeps.
+    """
+    rows = np.asarray(rows, dtype=np.float64)
+    normals = rows[:, :3]
+    abs_normals = np.abs(normals)
+    half_extents = np.asarray(grid["half_extents"], dtype=np.float64)
+    if half_extents.ndim == 2:
+        # One box size per brick (``owned_cell_boxes``): (M, N).
+        reach = half_extents @ abs_normals.T
+    else:
+        reach = abs_normals @ half_extents
+    signed = grid["centres"] @ normals.T + rows[:, 3]
+    magnitude = abs_normals @ grid["centre_abs_max"] + reach + np.abs(rows[:, 3])
+    return (signed + reach >= -1e-9 * magnitude).all(axis=1)
+
+
+def cull_mask(
+    grid: dict,
+    clip_rows: np.ndarray | None = None,
+    plane_row_sets: list[np.ndarray] | None = None,
+) -> np.ndarray | None:
+    """Mask of one level's bricks worth ranking, or ``None`` to keep all.
+
+    Run before level selection so a clipped visual ranks and sorts only the
+    bricks it can draw.  The mask is conservative: the exact half-space test
+    still runs on what is left.
+
+    Parameters
+    ----------
+    grid : dict
+        One level of ``build_level_grids``, or any dict with its ``arr``,
+        ``centres``, ``half_extents`` and ``centre_abs_max``;
+        ``half_extents`` may be ``(M, 3)``, one box size per brick.
+    clip_rows : ndarray, shape (N, 4), or None
+        Half-spaces ``n . p + d >= 0`` in the space of ``grid["centres"]``.
+        A brick is kept when its box reaches the kept side of every row.
+    plane_row_sets : list of ndarray, shape (N_i, 4), or None
+        One set of rows per plane.  A brick is kept when it reaches every
+        row of at least one set: a union, which a row list cannot express.
+
+    Returns
+    -------
+    keep : ndarray of bool, shape (M_k,), or None
+        ``None`` with nothing to cull by.
+    """
+    if clip_rows is None and plane_row_sets is None:
+        return None
+    if clip_rows is None:
+        keep = np.ones(len(grid["arr"]), dtype=bool)
+    else:
+        keep = _reaches_rows(grid, clip_rows)
+    if plane_row_sets is not None:
+        on_a_plane = np.zeros(len(keep), dtype=bool)
+        for rows in plane_row_sets:
+            on_a_plane |= _reaches_rows(grid, rows)
+        keep &= on_a_plane
+    return keep
+
+
+def cull_masks(
+    level_grids: list[dict],
+    clip_rows: np.ndarray | None = None,
+    plane_row_sets: list[np.ndarray] | None = None,
+) -> list[np.ndarray] | None:
+    """``cull_mask`` for every level, or ``None`` with nothing to cull by."""
+    if clip_rows is None and plane_row_sets is None:
+        return None
+    return [cull_mask(grid, clip_rows, plane_row_sets) for grid in level_grids]
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +232,8 @@ def select_levels_from_cache(
     camera_pos: np.ndarray,
     thresholds: list[float] | None = None,
     base_layout: BlockLayout3D | None = None,
+    keep: list[np.ndarray] | None = None,
+    metric: np.ndarray | None = None,
 ) -> np.ndarray:
     """Select LOD levels using precomputed coarse grid data.
 
@@ -172,6 +266,14 @@ def select_levels_from_cache(
         diagonal (measured from ``level_grids``), so they honour
         anisotropic scale/translation.  When None, ``thresholds`` stays
         empty and all bricks fall to the finest level.
+    keep : list of ndarray of bool, or None
+        Output of ``cull_masks``: per level, the bricks to rank.  The result
+        is the unculled result with the other rows removed, in order.
+    metric : ndarray, shape (3,), or None
+        Per-axis factor applied to every offset from the camera before its
+        length is taken, so *thresholds* can be distances in another unit
+        than the grids' (world units, for the plane level rule).  ``None``
+        measures in the grids' own space.
 
     Returns
     -------
@@ -201,7 +303,8 @@ def select_levels_from_cache(
     # ``n_levels >= 2`` case, where the per-level loop below would otherwise
     # index an empty threshold list; it also handles an explicit ``[]``.
     if not thresholds:
-        return level_grids[0]["arr"]
+        arr0 = level_grids[0]["arr"]
+        return arr0 if keep is None else arr0[keep[0]]
 
     parts: list[np.ndarray] = []
 
@@ -209,13 +312,23 @@ def select_levels_from_cache(
         grid = level_grids[level - 1]
         centres = grid["centres"]  # (M_k, 3) — precomputed, no alloc
         arr_k = grid["arr"]  # (M_k, 4)
+        if keep is not None:
+            kept = keep[level - 1]
+            if not kept.any():
+                continue
+            centres = centres[kept]
+            arr_k = arr_k[kept]
 
         diff = centres - cam
+        half_extents = grid["half_extents"]
+        if metric is not None:
+            diff = diff * metric
+            half_extents = half_extents * metric
         dist = np.sqrt((diff * diff).sum(axis=1))
 
         if level > 1:
             abs_d = np.abs(diff)
-            max_corner_dist = np.sqrt(((abs_d + grid["half_extents"]) ** 2).sum(axis=1))
+            max_corner_dist = np.sqrt(((abs_d + half_extents) ** 2).sum(axis=1))
         else:
             max_corner_dist = dist
 
@@ -238,10 +351,84 @@ def select_levels_from_cache(
     return np.concatenate(parts, axis=0)
 
 
+def select_level_orthographic(
+    level_scale_factors: list[float],
+    voxels_per_pixel: float,
+    lod_bias: float = 1.0,
+) -> int:
+    """Select the one LOD level an orthographic 3D view draws.
+
+    An orthographic screen pixel covers the same world size everywhere, so
+    distance bands do not apply: the whole visual takes the level whose voxel
+    size best matches the pixel.  The transition rule is ``select_lod_2d``'s:
+    switch levels at the geometric mean of consecutive scale factors.
+
+    Parameters
+    ----------
+    level_scale_factors : list[float]
+        Effective isotropic scale factor per level (geometric mean of the
+        per-axis scales).  ``level_scale_factors[0]`` is the finest.
+    voxels_per_pixel : float
+        Level-0 voxels covered by one screen pixel.
+    lod_bias : float
+        Multiplicative bias. 1.0 = neutral (default); higher is coarser.
+
+    Returns
+    -------
+    level : int
+        1-indexed level, as ``select_levels_arr_forced`` takes it.
+    """
+    biased = voxels_per_pixel * max(lod_bias, 1e-6)
+    level = 1
+    for k in range(len(level_scale_factors) - 1):
+        threshold = float(np.sqrt(level_scale_factors[k] * level_scale_factors[k + 1]))
+        if biased < threshold:
+            break
+        level = k + 2
+    return level
+
+
+def orthographic_voxels_per_pixel(
+    to_level0: Callable[[np.ndarray], np.ndarray],
+    camera_pos_world: np.ndarray,
+    view_height_world: float,
+    screen_height_px: float,
+) -> float:
+    """Level-0 voxels covered by one screen pixel of an orthographic view.
+
+    Parameters
+    ----------
+    to_level0 : callable
+        Maps ``(N, 3)`` world points to level-0 voxel coordinates.
+    camera_pos_world : np.ndarray
+        Camera world-space position ``(x, y, z)``; the scale is measured
+        there.
+    view_height_world : float
+        Visible height in world units.
+    screen_height_px : float
+        Viewport height in pixels.
+
+    Returns
+    -------
+    voxels_per_pixel : float
+        The geometric mean over the three axes, so anisotropic voxels are
+        weighed as ``level_scale_factors`` weighs them.  ``0.0`` when the
+        view or the map is degenerate.
+    """
+    if view_height_world <= 0 or screen_height_px <= 0:
+        return 0.0
+    origin = np.asarray(camera_pos_world, dtype=np.float64).reshape(1, 3)
+    points = np.concatenate([origin, origin + np.eye(3)])
+    mapped = np.asarray(to_level0(points), dtype=np.float64)
+    voxels_per_world = abs(np.linalg.det(mapped[1:] - mapped[0])) ** (1.0 / 3.0)
+    return float(voxels_per_world * view_height_world / screen_height_px)
+
+
 def select_levels_arr_forced(
     base_layout: BlockLayout3D,
     force_level: int,
     level_grids: list[dict] | None = None,
+    keep: list[np.ndarray] | None = None,
 ) -> np.ndarray:
     """Return the full coarse grid for a forced single LOD level.
 
@@ -264,12 +451,16 @@ def select_levels_arr_forced(
     level_grids : list[dict] or None
         If provided, returns ``level_grids[level - 1]["arr"]``
         directly (zero-copy view).
+    keep : list of ndarray of bool, or None
+        Output of ``cull_masks``; needs ``level_grids``.  Only the kept rows
+        of the level are returned.
     """
     level = max(force_level, 1)
 
     if level_grids is not None:
         level = min(level, len(level_grids))
-        return level_grids[level - 1]["arr"]
+        arr = level_grids[level - 1]["arr"]
+        return arr if keep is None else arr[keep[level - 1]]
 
     # The uncached branch has no ``n_levels`` to clamp against, so only the
     # lower bound applies here.
@@ -303,6 +494,7 @@ def sort_arr_by_distance(
     block_size: int,
     scale_vecs_shader: np.ndarray | list[np.ndarray] | None = None,
     translation_vecs_shader: np.ndarray | list[np.ndarray] | None = None,
+    metric: np.ndarray | None = None,
 ) -> np.ndarray:
     """Sort brick rows nearest-to-camera first.
 
@@ -329,6 +521,11 @@ def sort_arr_by_distance(
     translation_vecs_shader : list of ndarray, optional
         Per-level translation vectors in shader order ``(tx, ty, tz)``.
         Index 0 = level 1 (finest).
+    metric : ndarray, shape (3,), or None
+        Per-axis factor applied to every offset from the camera before its
+        length is taken: world units per level-0 voxel, to sort by world
+        distance (the plane render mode).  ``None`` sorts by distance in
+        level-0 voxels.
 
     Returns
     -------
@@ -350,7 +547,10 @@ def sort_arr_by_distance(
         scale, translation = s[:, None], t[:, None]
     centres = brick_centre_data(index, block_size, scale, translation)
 
-    distances = np.sqrt(((centres - cam[:3]) ** 2).sum(axis=1))
+    diff = centres - cam[:3]
+    if metric is not None:
+        diff = diff * metric
+    distances = np.sqrt((diff**2).sum(axis=1))
     order = np.argsort(distances, kind="stable")
     return arr[order]
 

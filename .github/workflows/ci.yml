@@ -43,6 +43,19 @@ jobs:
       # Empty elsewhere, which wgpu treats as unset.
       WGPU_BACKEND_TYPE: ${{ matrix.platform == 'windows-latest' && 'Vulkan' || '' }}
 
+      # Put pytest's tmp_path in the workspace (D:) on Windows. The default,
+      # the temp directory on C:, takes about 7 ms to sync a file, and the
+      # render tests write a few hundred zarr chunks each: 1.4 s a pyramid
+      # against 0.5 s here (scripts/ci_profiling/ci_profiling_investigation.md).
+      # A relative path, because pytest splits this like a shell would and a
+      # Windows path's backslashes would not survive.
+      PYTEST_ADDOPTS: ${{ matrix.platform == 'windows-latest' && '--basetemp=.pytest_basetemp' || '' }}
+
+      # Where spatial-graph (through witty) keeps the C++ modules it compiles on
+      # first use; saved between runs by the "Restore compiled graph modules"
+      # step below.
+      WITTY_CACHE_DIR: ${{ github.workspace }}/.witty_cache
+
       # spatial-graph >=0.1.0 ships prebuilt rtree wheels,
       # but I was getting incompatible CPython errors.
       SPATIAL_GRAPH_NO_PREBUILT: "1"
@@ -84,6 +97,34 @@ jobs:
           python -m pip install -U pip
           python -m pip install .[test,pyside,remote,anywidget,examples,graph]
 
+      # spatial-graph compiles a Cython/C++ module the first time each graph or
+      # rtree configuration is used. With nothing cached that is 30 to 50 s a
+      # job, all of it charged to whichever tests come first
+      # (test_roi_edge_pick_resolves_the_row_on_demand and
+      # test_mask_and_roi_agree[1-1-extent0]). witty finds a module by the hash
+      # of its source, so a stale cache only means compiling again. The key
+      # holds the versions the modules were built against; a new version starts
+      # from the last cache of the same Python and adds to it.
+      - name: Compiled graph modules - versions
+        id: witty
+        shell: bash
+        run: |
+          python -c "
+          import hashlib, sys
+          from importlib.metadata import version
+          v = ' '.join(f'{p}={version(p)}' for p in ('spatial-graph', 'witty', 'cython', 'numpy'))
+          print(v, file=sys.stderr)
+          print('versions=' + hashlib.sha256((v + sys.version).encode()).hexdigest()[:16])
+          " >> "$GITHUB_OUTPUT"
+
+      - name: Restore compiled graph modules
+        uses: actions/cache@v5
+        with:
+          path: .witty_cache
+          key: witty-${{ runner.os }}-${{ runner.arch }}-py${{ matrix.python-version }}-${{ steps.witty.outputs.versions }}
+          restore-keys: |
+            witty-${{ runner.os }}-${{ runner.arch }}-py${{ matrix.python-version }}-
+
       # The render tests skip themselves when no adapter resolves, so a backend
       # that fails to load would turn ~450 tests into a silent green. Fail here
       # instead, and log which adapter each platform actually picked.
@@ -91,6 +132,14 @@ jobs:
         shell: bash
         run: |
           python -c "from pygfx.renderers.wgpu import get_shared; print('adapter:', get_shared().device.adapter.summary)"
+
+      # Two jobs on the same code have differed by 1.6 times. This logs what
+      # could explain it: the CPU the runner drew, a fixed piece of work timed
+      # on it, and the coverage core (pytest's header repeats the core the run
+      # itself uses).
+      - name: Machine and coverage core
+        shell: bash
+        run: python scripts/ci_profiling/machine_info.py
 
       - name: 🧪 Run Tests
         run: pytest --color=yes --durations=25 --cov --cov-report=xml --cov-report=term-missing

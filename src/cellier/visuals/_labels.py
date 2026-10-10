@@ -1,12 +1,16 @@
 """Visuals for representing multiscale label data."""
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cellier.transform import AffineTransform
 from cellier.visuals._label_memory import BaseLabelsAppearance, BaseLabelsVisual
 from cellier.visuals._loading import ProgressiveLoadingConfig
+from cellier.visuals._removed import (
+    REMOVED_APPEARANCE_FIELDS,
+    refuse_removed_fields,
+)
 
 
 class MultiscaleLabelsAppearance(BaseLabelsAppearance):
@@ -27,9 +31,23 @@ class MultiscaleLabelsAppearance(BaseLabelsAppearance):
         Inherited from ``BaseLabelsAppearance``.
     render_mode : str
         Overrides ``BaseLabelsAppearance`` to widen the Literal to include
-        ``"gradient_debug"`` and ``"smooth_iso"``. Not frozen — live-mutable.
-    lod_bias : float
-        Multiplier on the screen-space LOD threshold. Default 1.0.
+        ``"gradient_debug"`` and ``"smooth_iso"`` (and ``"plane"``, as on
+        the base). Not frozen — live-mutable.
+    settled_lod_bias : float
+        Level-of-detail bias of a settled view, 2D and 3D.  Divisor on the
+        screen-space LOD threshold: higher is coarser.  Default 1.0.
+    coarsest_while_moving_3d : bool
+        In a 3D view, plan no target while the visual moves.  A visual moves
+        while its scene's dims are scrubbed, or while its clipping planes
+        are dragged (``CellierController.plane_interaction``).  A dims tick
+        then loads the new slice's coarse backstop only; a plane drag plans
+        nothing and keeps the last plan.  The target is planned once every
+        motion has ended.  ``False`` plans in full on every tick and nothing
+        more at the end.  Default ``True``.
+    coarsest_while_moving_2d : bool
+        The same, for a 2D view, whose only motion is a dims scrub.
+        ``True`` saves most of a scrub's reads and is the setting for a slow
+        store.  Default ``False``.
     force_level : int | None
         Overrides automatic LOD selection when set. Default None.
     frustum_cull : bool
@@ -41,10 +59,17 @@ class MultiscaleLabelsAppearance(BaseLabelsAppearance):
         overshoot the brick's ghost border.  Default 1.0.
     """
 
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_removed_fields(cls, data: Any) -> Any:
+        return refuse_removed_fields(data, REMOVED_APPEARANCE_FIELDS, cls.__name__)
+
     render_mode: Literal[
-        "iso_categorical", "flat_categorical", "gradient_debug", "smooth_iso"
+        "iso_categorical", "flat_categorical", "gradient_debug", "smooth_iso", "plane"
     ] = "iso_categorical"
-    lod_bias: float = 1.0
+    settled_lod_bias: float = 1.0
+    coarsest_while_moving_3d: bool = True
+    coarsest_while_moving_2d: bool = False
     force_level: int | None = None
     frustum_cull: bool = True
     ray_steps_per_voxel: float = Field(default=1.0, ge=0.5, le=8.0)
@@ -99,7 +124,12 @@ class MultiscaleLabelVisual(BaseLabelsVisual):
     )
     requires_camera_reslice: bool = Field(default=True, frozen=True)
 
-    @property
-    def plans_coarse_on_scrub(self) -> bool:
-        """``True`` when ``render_config.loading.dims_drag`` is ``"backstop"``."""
-        return self.render_config.loading.dims_drag == "backstop"
+    def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:
+        """The moving setting of the view being planned.
+
+        ``appearance.coarsest_while_moving_3d`` for a 3D view,
+        ``appearance.coarsest_while_moving_2d`` for a 2D one.
+        """
+        if n_displayed_dims == 3:
+            return self.appearance.coarsest_while_moving_3d
+        return self.appearance.coarsest_while_moving_2d

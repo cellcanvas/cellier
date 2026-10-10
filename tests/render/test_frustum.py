@@ -134,6 +134,68 @@ def test_frustum_planes_reject_exterior_points():
         assert not _inside(planes, outside)
 
 
+def _mirrored_x_corners(lo: float, hi: float, offset: float) -> np.ndarray:
+    """Corners of the box frustum ``[lo, hi]^3`` after ``x -> offset - x``.
+
+    This is what a data->world transform with a negative determinant does
+    to the frustum corners when they are mapped into data space: the same
+    eight points, with the winding of every face reversed.
+    """
+    near = np.array([[lo, lo, hi], [hi, lo, hi], [hi, hi, hi], [lo, hi, hi]])
+    far = np.array([[lo, lo, lo], [hi, lo, lo], [hi, hi, lo], [lo, hi, lo]])
+    corners = np.stack([near, far]).astype(np.float64)
+    corners[..., 0] = offset - corners[..., 0]
+    return corners
+
+
+def test_frustum_planes_inward_for_mirrored_corners():
+    # x -> 15 - x maps the box [-4, 20]^3 to x in [-5, 19].
+    planes = frustum_planes_from_corners(_mirrored_x_corners(-4.0, 20.0, 15.0))
+    assert _inside(planes, np.array([7.0, 8.0, 8.0]))
+    for outside in [
+        np.array([30.0, 8.0, 8.0]),
+        np.array([-30.0, 8.0, 8.0]),
+        np.array([7.0, 30.0, 8.0]),
+        np.array([7.0, 8.0, -30.0]),
+    ]:
+        assert not _inside(planes, outside)
+
+
+#: Stored result: the level-1 bricks of a 2x2x2 grid of 8-voxel bricks, plus
+#: one brick far outside, that survive a frustum enclosing the grid.  Rows
+#: are ``[level, gz, gy, gx]``.
+EXPECTED_MIRRORED_SURVIVORS = [
+    [1, 0, 0, 0],
+    [1, 0, 0, 1],
+    [1, 0, 1, 0],
+    [1, 0, 1, 1],
+    [1, 1, 0, 0],
+    [1, 1, 0, 1],
+    [1, 1, 1, 0],
+    [1, 1, 1, 1],
+]
+
+
+@pytest.mark.parametrize("mirrored", [False, True])
+def test_bricks_in_frustum_arr_mirrored_corners_select_same_bricks(mirrored):
+    """A mirrored frustum keeps the bricks the unmirrored one keeps.
+
+    Regression: with the corners mirrored, every plane normal pointed
+    outward and no brick survived, so a 3D multiscale visual with a
+    negative-determinant transform loaded nothing.
+    """
+    if mirrored:
+        corners = _mirrored_x_corners(-4.0, 20.0, 15.0)
+    else:
+        corners = _mirrored_x_corners(-4.0, 20.0, 0.0)
+        corners[..., 0] *= -1.0
+    planes = frustum_planes_from_corners(corners)
+    grid = [[1, gz, gy, gx] for gz in (0, 1) for gy in (0, 1) for gx in (0, 1)]
+    arr = np.array([*grid, [1, 9, 9, 9]], dtype=np.int32)
+    visible, _ = bricks_in_frustum_arr(arr, block_size=8, frustum_planes=planes)
+    assert visible.tolist() == EXPECTED_MIRRORED_SURVIVORS
+
+
 # ---------------------------------------------------------------------------
 # compute_brick_aabb_corners
 # ---------------------------------------------------------------------------

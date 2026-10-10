@@ -184,12 +184,17 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
             editor.remove(index)
         elif action == "enabled":
             editor.set_enabled(index, bool(value))
-        elif action == "position":
-            editor.set_position(index, float(value))
+        elif action == "depth":
+            editor.set_depth(index, float(value))
         elif action == "flip":
             editor.flip(index)
         elif action == "gizmo":
             editor.set_gizmo(index, bool(value))
+        elif action == "outline":
+            editor.set_outline_enabled(index, bool(value))
+        elif action == "outline_color":
+            # ``#rrggbb``, as a colour input gives it.
+            editor.set_outline_color(index, str(value))
         elif action in ("facing", "component"):
             # ``[axis index, sign]`` or ``[axis index, entry]``.
             if not isinstance(value, (list, tuple)) or len(value) != 2:

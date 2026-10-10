@@ -1,0 +1,177 @@
+.cellier-render-planes {
+  font-family: var(--jp-ui-font-family, sans-serif);
+  font-size: 12px;
+  min-width: 260px;
+}
+
+/* A host may reset the browser's own button and input borders (marimo
+   does), which leaves them looking like plain text: draw them here. */
+.cellier-render-planes button,
+.cellier-render-planes input[type="number"] {
+  border: 1px solid rgba(128, 128, 128, 0.6);
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.cellier-render-planes button {
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
+.cellier-render-planes input[type="number"] {
+  padding: 1px 4px;
+}
+
+.cellier-render-planes-title {
+  font-weight: 600;
+  margin: 2px 0 4px;
+}
+
+.cellier-render-planes-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cellier-render-planes-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cellier-render-planes-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cellier-render-planes-spacer {
+  flex: 1;
+}
+
+/* Column 1 is the label, beside both rows; then one column per data axis. */
+.cellier-render-planes-normal {
+  display: grid;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.cellier-render-planes-normal > .cellier-render-planes-label {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.cellier-render-planes-facing {
+  grid-row: 1;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+}
+
+.cellier-render-planes-facing > button {
+  padding: 1px 5px;
+}
+
+.cellier-render-planes button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.cellier-render-planes-header > button.cellier-render-planes-on,
+.cellier-render-planes-facing > button.cellier-render-planes-on {
+  background: var(--jp-brand-color1, #3b82f6);
+  border-color: var(--jp-brand-color1, #3b82f6);
+  color: #fff;
+}
+
+.cellier-render-planes-normal > input {
+  grid-row: 2;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cellier-render-planes-along {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cellier-render-planes-position {
+  flex: 1;
+  min-width: 0;
+}
+
+.cellier-render-planes-value {
+  min-width: 4em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The plane is outside the bounding box. */
+.cellier-render-planes-outside {
+  color: #d08020;
+  font-style: italic;
+}
+
+.cellier-render-planes-add {
+  margin-top: 8px;
+}
+
+.cellier-render-planes-error {
+  color: #d04040;
+  margin-top: 4px;
+}
+
+/* One line per in-plane axis: a label, then min and max with their boxes. */
+.cellier-render-planes-extent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cellier-render-planes-extent input[type="number"] {
+  flex: 1;
+  min-width: 4em;
+  width: 4em;
+  box-sizing: border-box;
+}
+
+.cellier-render-planes-extent input[type="number"]:disabled {
+  opacity: 0.45;
+}
+
+.cellier-render-planes-side {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.cellier-render-planes-reason {
+  font-style: italic;
+  margin: 2px 0 6px;
+}
+
+/* Disabled while the planes are not drawn: nothing in the rows reacts. */
+.cellier-render-planes-rows.cellier-render-planes-blocked {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* The plane's outline: a box that draws it, and its colour. */
+.cellier-render-planes-outline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cellier-render-planes-outline input[type="color"] {
+  width: 2.4em;
+  height: 1.5em;
+  padding: 0;
+}

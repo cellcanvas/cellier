@@ -11,6 +11,7 @@ import pygfx as gfx
 import cellier.render.shaders._label_volume  # noqa: F401
 from cellier.data.image._image_requests import ChunkRequest
 from cellier.render._clipping import ClippingPlanesMixin
+from cellier.render._render_planes import RenderPlanesMixin
 from cellier.render._spaces import RenderSpaces, node_matrix
 from cellier.render.shaders._label_colormap import (
     build_direct_lut_textures,
@@ -45,7 +46,7 @@ def _make_placeholder_label_params() -> gfx.Buffer:
     return build_label_params_buffer(background_label=0, salt=0, n_entries=0)
 
 
-class GFXLabelMemoryVisual(ClippingPlanesMixin):
+class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
     """Render-layer visual for a LabelMemoryVisual backed by LabelMemoryStore.
 
     Owns gfx.Image (2D) and/or gfx.Volume (3D) nodes with custom label shaders.
@@ -174,6 +175,7 @@ class GFXLabelMemoryVisual(ClippingPlanesMixin):
                 label_params_buffer=label_params_buf,
                 opacity=appearance.opacity,
                 pick_write=visual_model.pick_write,
+                render_planes_buffer=self.render_planes_buffer,
             )
             self._inner_node_3d = gfx.Volume(gfx.Geometry(grid=tex), mat3d)
             placeholder_pos = _box_wireframe_positions(np.zeros(3), np.ones(3))
@@ -242,6 +244,8 @@ class GFXLabelMemoryVisual(ClippingPlanesMixin):
         self._spaces = spaces
         if spaces is not None and self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
+        # Which planes are drawn follows the displayed axes.
+        self._apply_render_planes()
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
         """Place the nodes with the composition of design 3.9.
@@ -265,6 +269,10 @@ class GFXLabelMemoryVisual(ClippingPlanesMixin):
         if self.node_2d is not None:
             self.node_2d.local.matrix = m
         self._apply_clipping_planes()
+
+    def _outline_shape(self):
+        """The store's shape: the box a plane's outline is cut by."""
+        return tuple(self._data_store.shape)
 
     def _clip_targets(self):
         """Both materials, at the slice the nodes are drawn at (design 4.6)."""

@@ -22,6 +22,7 @@ import pytest
 
 from cellier.data._tensorstore_cache import (
     DEFAULT_CACHE_POOL_BYTES,
+    DEFAULT_REQUEST_CONCURRENCY,
     build_context,
     cache_metrics,
 )
@@ -696,6 +697,227 @@ def test_mixin_does_not_swallow_the_base_model_post_init(single_chunk_uri: str) 
 def test_build_context_sets_the_limit() -> None:
     context = build_context(1234)
     assert context["cache_pool"].to_json()["total_bytes_limit"] == 1234
+
+
+def test_build_context_sets_the_request_limit_for_every_remote_driver() -> None:
+    context = build_context(0, request_concurrency=96)
+    for resource in (
+        "gcs_request_concurrency",
+        "s3_request_concurrency",
+        "http_request_concurrency",
+    ):
+        assert context[resource].to_json()["limit"] == 96
+
+
+def test_build_context_defaults_to_tensorstores_request_limit() -> None:
+    context = build_context(0)
+    limit = context["http_request_concurrency"].to_json()["limit"]
+    assert limit == DEFAULT_REQUEST_CONCURRENCY
+
+
+def test_build_context_sets_the_file_io_limit() -> None:
+    context = build_context(0, file_io_concurrency=7)
+    assert context["file_io_concurrency"].to_json()["limit"] == 7
+
+
+def test_build_context_leaves_the_file_io_limit_alone_by_default() -> None:
+    assert "file_io_concurrency" not in build_context(0).spec.to_json()
+
+
+# ---------------------------------------------------------------------------
+# Concurrency fields
+# ---------------------------------------------------------------------------
+
+
+def _opened_contexts(monkeypatch) -> list[object]:
+    """Record the context of every ``ts.open`` the image store makes."""
+    import cellier.data.image._ome_zarr_image_store as module
+
+    seen: list[object] = []
+    original = module.ts.open
+
+    def _spy(spec, *args, **kwargs):
+        seen.append(kwargs.get("context"))
+        return original(spec, *args, **kwargs)
+
+    monkeypatch.setattr(module.ts, "open", _spy)
+    return seen
+
+
+def test_concurrency_defaults(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    assert store.request_concurrency == DEFAULT_REQUEST_CONCURRENCY
+    assert store.file_io_concurrency is None
+
+
+def test_concurrency_fields_reach_the_context(
+    single_chunk_uri: str, monkeypatch
+) -> None:
+    seen = _opened_contexts(monkeypatch)
+    OMEZarrImageDataStore.from_path(
+        single_chunk_uri, request_concurrency=128, file_io_concurrency=6
+    )
+    context = seen[0]
+    assert context["http_request_concurrency"].to_json()["limit"] == 128
+    assert context["file_io_concurrency"].to_json()["limit"] == 6
+
+
+def test_label_store_takes_the_concurrency_fields(
+    single_chunk_label_uri: str,
+) -> None:
+    store = OMEZarrLabelDataStore.from_path(
+        single_chunk_label_uri, request_concurrency=64, file_io_concurrency=3
+    )
+    assert store.request_concurrency == 64
+    assert store.file_io_concurrency == 3
+    limit = store._ts_context["gcs_request_concurrency"].to_json()["limit"]
+    assert limit == 64
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("request_concurrency", 128), ("file_io_concurrency", 4)],
+)
+def test_concurrency_assignment_rebuilds_the_context(
+    single_chunk_uri: str, field: str, value: int
+) -> None:
+    """Assigning either limit reopens the handles on a new, empty context."""
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    _read_windows(store, 2)
+    handle_before = store._ts_stores[0]
+    context_before = store._ts_context
+
+    setattr(store, field, value)
+
+    assert getattr(store, field) == value
+    assert store._ts_stores[0] is not handle_before
+    assert store._ts_context is not context_before
+    # The warm pool went with the old context: the first read misses.
+    hits, misses = _hits_and_misses(store, 3)
+    assert misses == 1
+    assert hits == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("request_concurrency", DEFAULT_REQUEST_CONCURRENCY),
+        ("file_io_concurrency", None),
+    ],
+)
+def test_assigning_the_same_concurrency_keeps_the_warm_cache(
+    single_chunk_uri: str, field: str, value: int | None
+) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    _read_windows(store, 1)
+    handle_before = store._ts_stores[0]
+
+    setattr(store, field, value)
+
+    assert store._ts_stores[0] is handle_before
+    hits, misses = _hits_and_misses(store, 3)
+    assert hits == 3
+    assert misses == 0
+
+
+def test_file_io_concurrency_can_be_reset_to_the_default(
+    single_chunk_uri: str,
+) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri, file_io_concurrency=4)
+    store.file_io_concurrency = None
+    assert store.file_io_concurrency is None
+    assert "file_io_concurrency" not in store._ts_context.spec.to_json()
+
+
+@pytest.mark.parametrize("field", ["request_concurrency", "file_io_concurrency"])
+def test_zero_concurrency_rejected_at_construction(
+    single_chunk_uri: str, field: str
+) -> None:
+    with pytest.raises(Exception, match=field):
+        OMEZarrImageDataStore.from_path(single_chunk_uri, **{field: 0})
+
+
+@pytest.mark.parametrize("field", ["request_concurrency", "file_io_concurrency"])
+def test_zero_concurrency_rejected_on_assignment(
+    single_chunk_uri: str, field: str
+) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    handle_before = store._ts_stores[0]
+    before = getattr(store, field)
+    with pytest.raises(ValueError, match=f"{field} must be >= 1"):
+        setattr(store, field, 0)
+    assert getattr(store, field) == before
+    assert store._ts_stores[0] is handle_before
+
+
+def test_concurrency_assignment_refused_during_a_paint_transaction(
+    single_chunk_uri: str,
+) -> None:
+    store = OMEZarrImageDataStore.from_path(single_chunk_uri)
+    writer = _FakeWriteBuffer()
+    store.register_paint_writer(writer)
+    writer.transaction = object()
+    with pytest.raises(RuntimeError, match="request_concurrency"):
+        store.request_concurrency = 64
+    assert store.request_concurrency == DEFAULT_REQUEST_CONCURRENCY
+
+
+def test_concurrency_roundtrips_through_serialization(single_chunk_uri: str) -> None:
+    store = OMEZarrImageDataStore.from_path(
+        single_chunk_uri, request_concurrency=48, file_io_concurrency=5
+    )
+    dumped = store.model_dump()
+    assert dumped["request_concurrency"] == 48
+    assert dumped["file_io_concurrency"] == 5
+    restored = OMEZarrImageDataStore.model_validate(dumped)
+    assert restored.request_concurrency == 48
+    assert restored.file_io_concurrency == 5
+
+
+# ---------------------------------------------------------------------------
+# Anonymous access
+# ---------------------------------------------------------------------------
+
+
+def _specs_opened_for(uri: str, monkeypatch, *, anonymous: bool) -> list[dict]:
+    """Return the specs ``_open_ome_ts_stores`` would open, without any I/O."""
+    import cellier.data.image._ome_zarr_image_store as module
+
+    specs: list[dict] = []
+
+    class _Done:
+        def result(self):
+            return object()
+
+    def _fake_open(spec, *args, **kwargs):
+        specs.append(spec)
+        return _Done()
+
+    monkeypatch.setattr(module, "_detect_zarr_driver", lambda *_: "zarr3")
+    monkeypatch.setattr(module.ts, "open", _fake_open)
+    module._open_ome_ts_stores(uri, ["0"], build_context(0), anonymous=anonymous)
+    return specs
+
+
+def test_anonymous_s3_spec_is_one_tensorstore_accepts(monkeypatch) -> None:
+    """The credentials resource must parse: a bad one fails every open."""
+    import tensorstore as ts
+
+    (spec,) = _specs_opened_for(
+        "s3://bucket/image.ome.zarr", monkeypatch, anonymous=True
+    )
+    resource = ts.Context(spec["context"])["aws_credentials"]
+    assert resource.to_json() == {"type": "anonymous"}
+
+
+@pytest.mark.parametrize("scheme", ["gs", "gcs"])
+def test_anonymous_gcs_adds_no_context(monkeypatch, scheme: str) -> None:
+    """GCS reads unauthenticated on its own; it once got a spec that failed."""
+    (spec,) = _specs_opened_for(
+        f"{scheme}://bucket/image.ome.zarr", monkeypatch, anonymous=True
+    )
+    assert "context" not in spec
+    assert spec["kvstore"]["driver"] == "gcs"
 
 
 def test_cache_metrics_returns_two_counts() -> None:

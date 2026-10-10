@@ -124,7 +124,7 @@ viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d")
 viewer.add_image_multiscale(
     store,
     appearance=MultiscaleImageAppearance(
-        lod_bias=1.0,
+        settled_lod_bias=1.0,
         attenuation=1.0,
     ),
     single=MultiscaleImageSingleAppearance(
@@ -143,7 +143,7 @@ viewer.add_image_multiscale(
             "render_mode",
             "iso_threshold",
             "attenuation",
-            "lod_bias",
+            "level_of_detail",
         ],
         colormap_names=[
             "grays",

@@ -45,14 +45,14 @@ _ALL_MULTISCALE_FIELDS = [
     "render_mode",
     "iso_threshold",
     "attenuation",
-    "lod_bias",
+    "level_of_detail",
 ]
 
 
 def test_multiscale_panel_control_names_in_order(qtbot, multiscale_image_store):
     """Every field requested, so this is the maximal panel Qt builds today.
 
-    ``lod_bias`` and the three render fields are multiscale-only; the render
+    ``level_of_detail`` and the three render fields are multiscale-only; the render
     trio collapses into the single "Render mode" group.  The bounding box is
     not requested by name -- ``aabb`` is on ``BaseVisual`` with a default
     factory, so every configured panel gets it, on both toolkits.
@@ -67,9 +67,11 @@ def test_multiscale_panel_control_names_in_order(qtbot, multiscale_image_store):
 
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
+    # "Level of detail" is a group; the walk reports its labelled row too.
     assert control_labels(container) == [
         "Image",
-        "LOD bias",
+        "Level of detail",
+        "Settled bias",
         "Bounding box",
         "Data fetch status",
     ]
@@ -77,7 +79,7 @@ def test_multiscale_panel_control_names_in_order(qtbot, multiscale_image_store):
 
 
 def test_in_memory_panel_control_names_in_order(qtbot, image_store):
-    """The in-memory model has no ``lod_bias``/``attenuation``.
+    """The in-memory model has no ``settled_lod_bias``/``attenuation``.
 
     This is the one drop stage 3's validation cannot catch, and so the reason
     ``appearance_specs`` still reports ``skipped``: a **multiscale** config is

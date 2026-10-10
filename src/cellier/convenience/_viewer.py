@@ -25,7 +25,10 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
 
     from cellier._state import CameraState
-    from cellier.clipping import ClippingPlaneGizmoController
+    from cellier.clipping import (
+        ClippingPlaneGizmoController,
+        RenderPlaneGizmoController,
+    )
     from cellier.convenience.gui._controls_config import (
         GraphControlsConfig,
         InMemoryImageControlsConfig,
@@ -54,7 +57,7 @@ if TYPE_CHECKING:
     from cellier.scene._background import BackgroundAppearance
     from cellier.scene.scene import Scene
     from cellier.transform import BaseTransform
-    from cellier.visuals import ClippingPlane
+    from cellier.visuals import ClippingPlane, RenderPlane
     from cellier.visuals._base_visual import VisualOutline
     from cellier.visuals._graph_memory import (
         GraphAppearance,
@@ -627,7 +630,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         visual : visual model or UUID
             A multiscale image or labels visual.
         **fields :
-            ``ProgressiveLoadingConfig`` fields, e.g. ``dims_drag="backstop"``.
+            ``ProgressiveLoadingConfig`` fields, e.g. ``backstop_extent="view"``.
 
         Returns
         -------
@@ -701,8 +704,52 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             _visual_id(visual), self._camera_canvas(canvas), getattr(plane, "id", plane)
         )
 
-    def remove_clipping_plane_gizmo(self, *, canvas: UUID | None = None) -> None:
-        """Close a canvas's clipping plane gizmo; nothing if it has none.
+    def add_render_plane_gizmo(
+        self,
+        visual: object,
+        plane: RenderPlane | UUID,
+        *,
+        canvas: UUID | None = None,
+    ) -> RenderPlaneGizmoController:
+        """Put a gizmo on one render plane of a visual, in the 3D view.
+
+        Dragging the gizmo moves and turns the plane, and its two in-plane
+        scale handles resize it (an axis with an unbounded side has none).
+        Mirrors :meth:`CellierController.add_render_plane_gizmo`: a canvas
+        has one gizmo at a time, clipping planes included, and the gizmo
+        closes itself when its plane or its visual is removed, the visual
+        leaves the ``"plane"`` render mode or the view leaves 3D.
+
+        Parameters
+        ----------
+        visual : visual model or UUID
+            The visual the plane belongs to, in the ``"plane"`` render mode.
+        plane : RenderPlane or UUID
+            One of ``visual.render_planes``, or its ``id``.
+        canvas : UUID or None
+            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            single canvas.
+
+        Returns
+        -------
+        RenderPlaneGizmoController
+            The session.  ``close()`` ends it.
+
+        Raises
+        ------
+        KeyError
+            If the visual has no render plane with that id.
+        ValueError
+            If the view is in 2D, the visual is not in plane mode, the
+            plane's axes are not the displayed ones, or *canvas* is omitted
+            while the viewer does not have exactly one canvas.
+        """
+        return self._controller.add_render_plane_gizmo(
+            _visual_id(visual), self._camera_canvas(canvas), getattr(plane, "id", plane)
+        )
+
+    def remove_plane_gizmo(self, *, canvas: UUID | None = None) -> None:
+        """Close a canvas's plane gizmo, of either kind; nothing if it has none.
 
         Parameters
         ----------
@@ -710,7 +757,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             One of :attr:`canvases`.  ``None`` (default) is the viewer's
             single canvas.
         """
-        self._controller.remove_clipping_plane_gizmo(self._camera_canvas(canvas))
+        self._controller.remove_plane_gizmo(self._camera_canvas(canvas))
 
     def _clipping_gizmo_target(
         self, visual_ids: Sequence[UUID]
@@ -750,6 +797,21 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         if len(canvas_ids) > 1:
             return None
         return visual_ids[0], canvas_ids[0]
+
+    def _render_planes_target(self, visual_ids: Sequence[UUID]) -> object:
+        """What a dock's render planes control edits, and where its gizmo is.
+
+        Asked by the layout walk when it builds the control.  The control
+        edits the visuals it is given.  Its rows have a gizmo toggle when
+        the viewer has exactly one canvas, as for the clipping planes
+        control (:meth:`_clipping_gizmo_target`).
+        """
+        from cellier.convenience.layout._shared import RenderPlanesTarget
+
+        canvas_ids = self.canvases if "3d" in self._scene.render_modes else ()
+        return RenderPlanesTarget(
+            list(visual_ids), canvas_ids[0] if len(canvas_ids) == 1 else None
+        )
 
     # ------------------------------------------------------------------
     # Capture
@@ -1052,8 +1114,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         By default a **jump**: every visual loads in full at once.  With
         ``interactive=True``, or inside :meth:`dims_interaction`, it is a
-        tick of a **scrub**: visuals in ``dims_drag="backstop"`` mode load
-        their coarse backstop only, and load in full when the scrub ends.
+        tick of a **scrub**: visuals with ``coarsest_while_moving`` on for the
+        view load their coarse backstop only, and load in full when the scrub ends.
         See ``CellierController.update_slice_indices``.
 
         Parameters
@@ -1235,6 +1297,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> ImageVisual:
         """Add an in-memory image visual.
 
@@ -1278,6 +1341,13 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the ``"plane"`` render mode draws the data on, in
+            the scene's world coordinates
+            (``RenderPlane.from_point_normal(viewer.scene.dims.
+            world_coordinate_system, ...)``).  Ignored in every other
+            render mode.  They can be changed later with
+            ``controller.set_render_planes``.  Default none.
 
         Returns
         -------
@@ -1299,6 +1369,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
             clipping_planes=clipping_planes,
+            render_planes=render_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1316,6 +1387,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> LabelMemoryVisual:
         """Add an in-memory label visual.
 
@@ -1367,6 +1439,13 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the ``"plane"`` render mode draws the data on, in
+            the scene's world coordinates
+            (``RenderPlane.from_point_normal(viewer.scene.dims.
+            world_coordinate_system, ...)``).  Ignored in every other
+            render mode.  They can be changed later with
+            ``controller.set_render_planes``.  Default none.
 
         Returns
         -------
@@ -1385,6 +1464,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline_selected_labels=outline_selected_labels,
             outline_mode=outline_mode,
             clipping_planes=clipping_planes,
+            render_planes=render_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1785,6 +1865,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> MultiscaleImageVisual:
         """Add a multiscale image visual.
 
@@ -1826,6 +1907,13 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the ``"plane"`` render mode draws the data on, in
+            the scene's world coordinates
+            (``RenderPlane.from_point_normal(viewer.scene.dims.
+            world_coordinate_system, ...)``).  Ignored in every other
+            render mode.  They can be changed later with
+            ``controller.set_render_planes``.  Default none.
 
         Returns
         -------
@@ -1848,6 +1936,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             ambient_occlusion=ambient_occlusion,
             pick_write=pick_write,
             clipping_planes=clipping_planes,
+            render_planes=render_planes,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1866,6 +1955,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
         clipping_planes: Sequence[ClippingPlane] = (),
+        render_planes: Sequence[RenderPlane] = (),
     ) -> MultiscaleLabelVisual:
         """Add a multiscale label visual.
 
@@ -1919,6 +2009,13 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Build them from ``data.data_coordinate_systems[0]``.  They can
             be changed later by assigning ``visual.clipping_planes``.
             Default none.
+        render_planes : Sequence[RenderPlane]
+            The planes the ``"plane"`` render mode draws the data on, in
+            the scene's world coordinates
+            (``RenderPlane.from_point_normal(viewer.scene.dims.
+            world_coordinate_system, ...)``).  Ignored in every other
+            render mode.  They can be changed later with
+            ``controller.set_render_planes``.  Default none.
 
         Returns
         -------
@@ -1938,6 +2035,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline_selected_labels=outline_selected_labels,
             outline_mode=outline_mode,
             clipping_planes=clipping_planes,
+            render_planes=render_planes,
         )
         self._store_controls([visual.id], controls)
         return visual

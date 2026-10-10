@@ -11,6 +11,8 @@ import difflib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Literal
 
+from cellier.visuals._removed import REMOVED_CONTROL_KEYS
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
@@ -26,7 +28,9 @@ AppearanceField = Literal[
     "render_mode",
     "iso_threshold",
     "attenuation",
-    "lod_bias",
+    # Multiscale image and labels: the level-of-detail control (the settled
+    # bias and "coarsest while moving"), named for the control, not a field
+    "level_of_detail",
     # Labels ("render_mode" is shared with the image models, and means a
     # different set of values there -- see BaseControlsConfig.APPEARANCE_CONTROLS)
     "salt",
@@ -86,6 +90,13 @@ def _validate_field_names(
     for name in requested:
         if name in valid:
             continue
+        # A key removed by a hard break is refused by name, with its
+        # replacement (plane rendering design v3, 7.6).
+        if name in REMOVED_CONTROL_KEYS:
+            raise ValueError(
+                f"{name!r} was removed as an {argument} field: use "
+                f"{REMOVED_CONTROL_KEYS[name]!r}."
+            )
         if not valid:
             raise ValueError(
                 f"{config_name} accepts no {argument} fields, but {name!r} was "
@@ -241,6 +252,14 @@ class InMemoryImageControlsConfig(BaseControlsConfig):
         (the handle and range labels) and the iso threshold, on the single
         page and on every channel.  Default 2.  Set it to suit the data,
         e.g. 0 for integer images; fractions such as opacity always show 2.
+    render_plane_controls : bool
+        Show the visual's render planes control: a row per plane of the
+        ``"plane"`` render mode (on or off, the normal, a position slider,
+        the extents) and a button to add one.  ``False`` (default) omits
+        it.  Values are in world units.  It is part of the appearance dock
+        and is disabled, with the reason shown, while the visual is not in
+        plane mode or the view is 2D.  On an ``OrthoViewer`` it is shown
+        for the 3D view only.
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
@@ -256,6 +275,7 @@ class InMemoryImageControlsConfig(BaseControlsConfig):
     clim_range: tuple[float, float] | None = None
     channel_labels: dict[int, str] | None = None
     decimals: int = 2
+    render_plane_controls: bool = False
 
     def __post_init__(self) -> None:
         """Check ``decimals`` as well as ``appearance``."""
@@ -279,7 +299,7 @@ class MultiscaleImageControlsConfig(InMemoryImageControlsConfig):
     appearance : list[str] or False
         Appearance fields in display order, e.g.
         ``["color_map", "clim", "render_mode", "iso_threshold",
-        "attenuation", "lod_bias"]``.
+        "attenuation", "level_of_detail"]``.
     colormap_names : list[str] or None
         Names available in the colormap dropdown.
     clim_range : tuple[float, float] or None
@@ -306,7 +326,7 @@ class MultiscaleImageControlsConfig(InMemoryImageControlsConfig):
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
         **InMemoryImageControlsConfig.APPEARANCE_CONTROLS,
         "attenuation": "image",
-        "lod_bias": "lod_bias",
+        "level_of_detail": "level_of_detail",
     }
 
     loading_indicator: bool = True
@@ -335,6 +355,9 @@ class LabelsControlsConfig(BaseControlsConfig):
     ``colormap_mode`` is deliberately absent: it is ``frozen=True`` on
     ``BaseLabelsAppearance``, so a control wired to it could only raise
     (design section 6.5.1 proposal 4).
+
+    ``render_plane_controls`` (``False`` by default) shows the visual's
+    render planes control, as on :class:`InMemoryImageControlsConfig`.
     """
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
@@ -344,12 +367,14 @@ class LabelsControlsConfig(BaseControlsConfig):
         "background_label": "background_label",
     }
 
+    render_plane_controls: bool = False
+
 
 @dataclass
 class MultiscaleLabelsControlsConfig(LabelsControlsConfig):
     """Controls configuration for multiscale label visuals.
 
-    Adds ``lod_bias``, mirroring the image pair.
+    Adds ``level_of_detail``, mirroring the image pair.
 
     Parameters
     ----------
@@ -365,7 +390,7 @@ class MultiscaleLabelsControlsConfig(LabelsControlsConfig):
 
     APPEARANCE_CONTROLS: ClassVar[dict[str, str]] = {
         **LabelsControlsConfig.APPEARANCE_CONTROLS,
-        "lod_bias": "lod_bias",
+        "level_of_detail": "level_of_detail",
     }
 
     loading_indicator: bool = True

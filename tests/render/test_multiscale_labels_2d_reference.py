@@ -28,7 +28,6 @@ import pytest
 import tensorstore as ts
 
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
-from cellier.visuals import ProgressiveLoadingConfig
 from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
     MultiscaleLabelsAppearance,
@@ -108,9 +107,7 @@ async def _render(controller, render_scene, reslice, root, level):
         appearance=MultiscaleLabelsAppearance(
             force_level=level + 1, colormap_mode="direct", color_dict=COLORS
         ),
-        render_config=MultiscaleLabelRenderConfig(
-            block_size=BLOCK_SIZE, loading=ProgressiveLoadingConfig(backstop=False)
-        ),
+        render_config=MultiscaleLabelRenderConfig(block_size=BLOCK_SIZE),
     )
     np.testing.assert_allclose(
         np.asarray(visual.transform.matrix), np.eye(visual.transform.matrix.shape[0])

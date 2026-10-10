@@ -11,6 +11,7 @@ interleaved, as the old per-channel materialisation produced them).
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from itertools import zip_longest
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -19,10 +20,37 @@ import numpy as np
 
 from cellier.render._requests import ReslicingRequest
 from cellier.render._scene_config import VisualRenderConfig
-from cellier.visuals import ProgressiveLoadingConfig
 
 if TYPE_CHECKING:
     from cellier.data.image import ChunkRequest
+
+
+@contextmanager
+def _target_alone():
+    """Plan with no backstop: the target only, with every slot to itself.
+
+    The backstop cannot be switched off on a visual (plane rendering design
+    v3, D-P45), so a test that wants the target's requests alone plans with
+    the backstop planners and the backstop's slot cap stubbed out.
+    """
+    from cellier.render.visuals import _image, _label_multiscale
+
+    planner = _image.MultiscaleRegionPlanner
+    saved = [
+        (planner, "_plan_backstop_3d", planner._plan_backstop_3d),
+        (planner, "_plan_backstop_2d", planner._plan_backstop_2d),
+        (_image, "backstop_cap_for", _image.backstop_cap_for),
+        (_label_multiscale, "backstop_cap_for", _label_multiscale.backstop_cap_for),
+    ]
+    planner._plan_backstop_3d = lambda self, *args, **kwargs: None
+    planner._plan_backstop_2d = lambda self, *args, **kwargs: None
+    _image.backstop_cap_for = lambda loading, residency: 0
+    _label_multiscale.backstop_cap_for = lambda loading, residency: 0
+    try:
+        yield
+    finally:
+        for owner, name, value in saved:
+            setattr(owner, name, value)
 
 
 def planned_requests_3d(
@@ -36,14 +64,19 @@ def planned_requests_3d(
     force_level: int | None = None,
     selection: Any = None,
     backstop: bool = False,
+    view_height_world: float = 0.0,
 ) -> list[ChunkRequest]:
     """Every store request a 3D plan of *visual* wants, in load order.
 
     *visual* is a ``GFXMultiscaleImageVisual``, a ``GFXMultiscaleLabelVisual``
     or a bare ``_MultiscaleImageSlot``; any other visual's own
     ``build_slice_request`` answers.  The arguments are
-    ``build_slice_request``'s, plus *backstop*: whether the plan includes
-    the coarse backstop (off by default, so the requests are the target's).
+    ``build_slice_request``'s, plus *backstop*: whether the requests include
+    the coarse backstop's (off by default, so the requests are the
+    target's: the backstop always loads, so the target is planned alone
+    here, as into an atlas with no backstop in it), and
+    *view_height_world*: the visible world height of an orthographic view
+    (``fov_y_rad`` of 0).
     """
     from cellier.render.scheduling import is_chunked_visual
     from cellier.render.visuals._image import _MultiscaleImageSlot
@@ -75,6 +108,7 @@ def planned_requests_3d(
             screen_height_px,
             lod_bias,
             force_level,
+            view_height_world=view_height_world,
         )
         desired = [visual.desired_set_3d(brick_arr)]
     else:
@@ -84,7 +118,7 @@ def planned_requests_3d(
             frustum_corners=frustum_corners_world,
             fov_y_rad=fov_y_rad,
             screen_size_px=(screen_height_px, screen_height_px),
-            world_extent=(0.0, 0.0),
+            world_extent=(view_height_world, view_height_world),
             dims_state=dims_state,
             selection=selection,
             request_id=uuid4(),
@@ -93,12 +127,15 @@ def planned_requests_3d(
             target_visual_ids=None,
         )
         config = VisualRenderConfig(
-            lod_bias=lod_bias,
+            settled_lod_bias=lod_bias,
             force_level=force_level,
             frustum_cull=frustum_corners_world is not None,
-            loading=ProgressiveLoadingConfig(backstop=backstop),
         )
-        desired = visual.plan(request, config)
+        if backstop:
+            desired = visual.plan(request, config)
+        else:
+            with _target_alone():
+                desired = visual.plan(request, config)
     groups = [ds.build_request(ds.keys) for ds in desired if ds is not None]
     return [r for group in zip_longest(*groups) for r in group if r is not None]
 

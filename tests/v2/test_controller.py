@@ -104,7 +104,9 @@ def test_add_image_populates_scene_and_render_layer(small_zarr_store):
     cs = _make_cs()
     scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
     store = _make_store(small_zarr_store)
-    appearance = _make_appearance(lod_bias=1.0, force_level=None, frustum_cull=True)
+    appearance = _make_appearance(
+        settled_lod_bias=1.0, force_level=None, frustum_cull=True
+    )
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=appearance, name="vol"
     )
@@ -256,7 +258,9 @@ def test_reslice_scene_reads_appearance_fields(small_zarr_store):
     cs = _make_cs()
     scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
     store = _make_store(small_zarr_store)
-    appearance = _make_appearance(lod_bias=2.5, force_level=1, frustum_cull=False)
+    appearance = _make_appearance(
+        settled_lod_bias=2.5, force_level=1, frustum_cull=False
+    )
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=appearance, name="vol"
     )
@@ -272,7 +276,7 @@ def test_reslice_scene_reads_appearance_fields(small_zarr_store):
 
     assert visual.id in captured
     cfg = captured[visual.id]
-    assert cfg.lod_bias == 2.5
+    assert cfg.settled_lod_bias == 2.5
     assert cfg.force_level == 1
     assert cfg.frustum_cull is False
 
@@ -432,7 +436,7 @@ def test_appearance_bridge_lod_bias(small_zarr_store):
         reslice_calls.append(vid)
     )
 
-    visual.appearance.lod_bias = 2.0
+    visual.appearance.settled_lod_bias = 2.0
     assert len(events) == 1
     assert events[0].requires_reslice is True
     assert len(reslice_calls) == 1
@@ -651,7 +655,9 @@ def _make_settle_controller(small_zarr_store, threshold_s=0.05):
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,
-        appearance=_make_appearance(lod_bias=1.0, force_level=None, frustum_cull=True),
+        appearance=_make_appearance(
+            settled_lod_bias=1.0, force_level=None, frustum_cull=True
+        ),
         name="vol",
     )
 

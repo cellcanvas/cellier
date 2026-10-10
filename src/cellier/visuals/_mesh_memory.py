@@ -198,9 +198,8 @@ class MultiscaleMeshVisual(BaseMeshVisual):
     visual_type: Literal["mesh_multiscale"] = "mesh_multiscale"
     lod: GeometryLodConfig = Field(default_factory=GeometryLodConfig)
 
-    @property
-    def plans_coarse_on_scrub(self) -> bool:
-        """``True`` when ``lod.dims_drag`` is ``"coarse"``.
+    def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:
+        """``True`` when ``lod.dims_drag`` is ``"coarse"``, in 2D and 3D.
 
         While the scene's dims are scrubbed the mesh then loads its coarse
         level only, and the finest once when the scrub ends.

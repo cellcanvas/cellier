@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 from uuid import uuid4
 
@@ -11,6 +12,8 @@ import numpy as np
 from cellier.events._events import AABBChangedEvent, ViewRay, _CanvasRawPointerEvent
 from cellier.render._clipping import expand_rendered_plane, reduce_clipping_planes
 from cellier.render._config import RenderManagerConfig
+from cellier.render._gpu_lifetime import weak_callback
+from cellier.render._render_planes import expand_rendered_frame, rendered_plane_frame
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render._visual_lut import (
     AO_EXCLUDED_BIT,
@@ -30,7 +33,7 @@ from cellier.render.slice_coordinator import SliceCoordinator
 from cellier.slicer import AsyncSlicer
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Collection, Mapping
     from uuid import UUID
 
     import pygfx as gfx
@@ -947,6 +950,10 @@ class RenderManager:
             scene_id=scene_id, lighting=lighting, background=background
         )
         self._scenes[scene_id] = scene_manager
+        # Held weakly: the scene manager must not keep this manager alive.
+        scene_manager._outlines_changed_listener = partial(
+            weak_callback(self._on_plane_outlines_changed), scene_id
+        )
         return scene_manager
 
     def scene_has_lighting(self, scene_id: UUID) -> bool:
@@ -1823,6 +1830,57 @@ class RenderManager:
         if setter is not None:
             setter(planes)
 
+    def set_visual_render_planes(self, visual_id: UUID, planes: Any) -> None:
+        """Hand a visual its render planes; ignored if it draws none."""
+        scene_id = self._visual_to_scene.get(visual_id)
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is None:
+            return
+        setter = getattr(scene_manager.get_visual(visual_id), "set_render_planes", None)
+        if setter is not None:
+            setter(planes)
+
+    def set_plane_outline_kinds(
+        self, scene_id: UUID, kinds: Mapping[UUID, Collection[str]]
+    ) -> bool:
+        """Say which planes each visual of a scene shows outlines of.
+
+        The outlines are computed again and drawn (plane outline design
+        6.4).  Between calls the scene keeps them up to date itself as its
+        visuals' planes and placement change.
+
+        Parameters
+        ----------
+        scene_id : UUID
+            The scene.  An unknown scene is ignored.
+        kinds : Mapping[UUID, Collection[str]]
+            ``{visual id: kinds}``; ``"render"`` shows the outlines of the
+            visual's render planes and ``"clipping"`` those of its clipping
+            planes.  A visual left out shows none.
+
+        Returns
+        -------
+        bool
+            Whether anything drawn changed.
+        """
+        scene_manager = self._scenes.get(scene_id)
+        if scene_manager is None:
+            return False
+        changed = scene_manager.set_plane_outline_kinds(kinds)
+        if changed:
+            self._on_plane_outlines_changed(scene_id)
+        return changed
+
+    def _on_plane_outlines_changed(self, scene_id: UUID) -> None:
+        """The outlines of a scene changed: draw it, from a clean history.
+
+        Accumulated frames would otherwise blend the old lines with the
+        new, as for a moved plane.
+        """
+        for canvas_view in self._find_canvases_for_scene(scene_id):
+            canvas_view.invalidate_accumulation()
+            canvas_view.request_draw()
+
     def clipping_planes_affect_request(self, visual_id: UUID) -> bool:
         """Whether a change of planes changes what *visual_id* reads."""
         scene_id = self._visual_to_scene.get(visual_id)
@@ -1956,6 +2014,69 @@ class RenderManager:
         """The point a canvas's 3D camera orbits about; ``None`` in 2D."""
         return self._canvases[canvas_id].orbit_point()
 
+    def _plane_spaces(self, visual_id: UUID) -> Any:
+        """The render spaces a visual's render planes are reduced with."""
+        scene_manager = self._scenes.get(self._visual_to_scene.get(visual_id))
+        gfx_visual = (
+            None if scene_manager is None else scene_manager.get_visual(visual_id)
+        )
+        return getattr(gfx_visual, "_spaces", None)
+
+    def reduce_render_plane(
+        self, visual_id: UUID, plane: Any
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """One render plane of a visual in its 3D view's rendered space.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual the plane belongs to.
+        plane : RenderPlane
+            The plane.  Its ``enabled`` flag is not looked at.
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray, np.ndarray]
+            ``(origin, in_plane_axis_0, in_plane_axis_1)`` in pygfx
+            ``(x, y, z)`` order.
+
+        Raises
+        ------
+        ValueError
+            If the visual is not drawn in 3D, or the view does not display
+            the plane's three axes.
+        """
+        frame = rendered_plane_frame(self._plane_spaces(visual_id), plane)
+        if frame is None:
+            raise ValueError(
+                f"The 3D view of visual {visual_id} does not display the "
+                "render plane's three axes."
+            )
+        return frame
+
+    def expand_rendered_frame(
+        self,
+        visual_id: UUID,
+        axes: Any,
+        point: Any,
+        in_plane_axis_0: Any,
+        in_plane_axis_1: Any,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """A rendered-space frame on three named world axes.
+
+        The inverse of :meth:`reduce_render_plane`: world to rendered is a
+        reorder of the displayed axes.
+
+        Raises
+        ------
+        ValueError
+            If the visual is not drawn in 3D, or the view does not display
+            *axes*.
+        """
+        return expand_rendered_frame(
+            self._plane_spaces(visual_id), axes, point, in_plane_axis_0, in_plane_axis_1
+        )
+
     def add_plane_gizmo(
         self,
         canvas_id: UUID,
@@ -1964,10 +2085,26 @@ class RenderManager:
         normal: Any,
         *,
         screen_size: float = 100.0,
+        in_plane_axes: tuple[Any, Any] | None = None,
+        scale_axes: Any = (),
     ) -> None:
         """Draw a plane gizmo in a canvas, placed at a rendered-space pose.
 
         Its drags are reported as ``PlaneGizmoMovedEvent`` with *gizmo_id*.
+
+        Parameters
+        ----------
+        canvas_id, gizmo_id : UUID
+            The canvas, and the id the gizmo's events carry.
+        point, normal : array-like
+            A point on the plane and its normal, in rendered ``(x, y, z)``.
+        screen_size : float
+            The gizmo's size on screen, in logical pixels.
+        in_plane_axes : tuple[array-like, array-like] or None
+            The gizmo's two in-plane axes.  Given, they fix its whole frame
+            and *normal* is not used.
+        scale_axes : Iterable[int]
+            The in-plane axes (1 and 2) that get a scale handle.
 
         Raises
         ------
@@ -1976,11 +2113,49 @@ class RenderManager:
         ValueError
             If the canvas already has a gizmo with that id.
         """
-        self._canvases[canvas_id].add_plane_gizmo(
+        gizmo = self._canvases[canvas_id].add_plane_gizmo(
             gizmo_id, point, normal, screen_size=screen_size
         )
+        if in_plane_axes is not None:
+            gizmo.set_frame(point, *in_plane_axes)
+        gizmo.set_scale_axes(scale_axes)
         # The handles take no ambient occlusion: their ids join the table.
         self._sync_visual_lut()
+
+    def set_plane_gizmo_frame(
+        self,
+        canvas_id: UUID,
+        gizmo_id: UUID,
+        point: Any,
+        in_plane_axis_0: Any,
+        in_plane_axis_1: Any,
+    ) -> None:
+        """Give a plane gizmo a whole frame; a gizmo that is gone is ignored."""
+        canvas = self._canvases.get(canvas_id)
+        if canvas is None or gizmo_id not in canvas._plane_gizmos:
+            return
+        canvas.get_plane_gizmo(gizmo_id).set_frame(
+            point, in_plane_axis_0, in_plane_axis_1
+        )
+        canvas.request_draw()
+
+    def set_plane_gizmo_scale_axes(
+        self, canvas_id: UUID, gizmo_id: UUID, axes: Any
+    ) -> None:
+        """Choose which in-plane axes of a gizmo have a scale handle."""
+        canvas = self._canvases.get(canvas_id)
+        if canvas is None or gizmo_id not in canvas._plane_gizmos:
+            return
+        canvas.get_plane_gizmo(gizmo_id).set_scale_axes(axes)
+        canvas.request_draw()
+
+    def reset_plane_gizmo_scale(self, canvas_id: UUID, gizmo_id: UUID) -> None:
+        """Put a gizmo's scale back to 1; a gizmo that is gone is ignored."""
+        canvas = self._canvases.get(canvas_id)
+        if canvas is None or gizmo_id not in canvas._plane_gizmos:
+            return
+        canvas.get_plane_gizmo(gizmo_id).reset_scale()
+        canvas.request_draw()
 
     def set_plane_gizmo_pose(
         self, canvas_id: UUID, gizmo_id: UUID, point: Any, normal: Any

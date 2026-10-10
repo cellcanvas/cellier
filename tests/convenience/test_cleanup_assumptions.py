@@ -114,7 +114,7 @@ def test_esm_path_is_shared_by_subclasses_and_read_as_source():
     """
 
     class _Base(anywidget.AnyWidget):
-        _esm = _STATIC / "lod_bias.js"
+        _esm = _STATIC / "level_of_detail.js"
         value = traitlets.Float(0.0).tag(sync=True)
 
     class _FieldA(_Base):
@@ -130,7 +130,7 @@ def test_esm_path_is_shared_by_subclasses_and_read_as_source():
 
     # ...and it is read as the file's source text, not as a path string.
     source = str(_Base._esm)
-    assert source == (_STATIC / "lod_bias.js").read_text()
+    assert source == (_STATIC / "level_of_detail.js").read_text()
     assert "export default" in source
 
     # Instances sync identical source but stay distinguishable for CSS scoping.

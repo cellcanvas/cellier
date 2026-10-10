@@ -28,18 +28,23 @@ from pygfx.renderers.wgpu import (
 from pygfx.renderers.wgpu.shaders.volumeshader import BaseVolumeShader
 from pygfx.resources import Buffer
 
+from cellier.render._render_planes import (
+    RENDER_PLANES_STRUCT,
+    make_render_planes_buffer,
+)
 from cellier.render.lut_indirection._cell_brick_rule import (
     UNBOUNDED_BRICK_COUNT,
     level_brick_counts,
     level_cell_spans,
 )
+from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 if TYPE_CHECKING:
     from cellier.render.block_cache import BlockCacheParameters3D
     from cellier.render.lut_indirection import BlockLayout3D
 
 _WGSL_PATH = Path(__file__).parent / "wgsl" / "multiscale_volume_brick.wgsl"
-_WGSL_SOURCE = _WGSL_PATH.read_text()
+_WGSL_SOURCE = _WGSL_PATH.read_text(encoding="utf-8")
 
 _vertex_and_fragment = wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT
 
@@ -408,6 +413,9 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
     ray_steps_per_voxel : float
         Ray-march samples per voxel of the drawn level, measured along the
         ray.  Default is ``1.0``.
+    render_planes_buffer : Buffer or None
+        The visual's ``u_render_planes`` buffer, read in ``"plane"`` render
+        mode.  ``None`` gives the material one of its own with no plane.
     """
 
     uniform_type: ClassVar[dict] = dict(
@@ -428,6 +436,7 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         threshold: float = 0.5,
         attenuation: float = 1.0,
         ray_steps_per_voxel: float = 1.0,
+        render_planes_buffer: Buffer | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -442,6 +451,11 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         self.brick_max_texture = brick_max_texture
         self.vol_params_buffer = vol_params_buffer
         self.block_scales_buffer = block_scales_buffer
+        self.render_planes_buffer = (
+            render_planes_buffer
+            if render_planes_buffer is not None
+            else make_render_planes_buffer()
+        )
         self._store.render_mode = "iso"
         self.uniform_buffer.data["attenuation"] = float(attenuation)
         self.uniform_buffer.data["ray_steps_per_voxel"] = float(ray_steps_per_voxel)
@@ -452,8 +466,8 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
     def render_mode(self) -> str:
         """Volume render mode.
 
-        Must be one of: ``"iso"``, ``"mip"``, ``"smooth_iso"``, or
-        ``"attenuated_mip"``.
+        Must be one of: ``"iso"``, ``"mip"``, ``"smooth_iso"``,
+        ``"attenuated_mip"`` or ``"plane"``.
         """
         return self._store.render_mode
 
@@ -584,6 +598,18 @@ class MultiscaleVolumeBrickShader(BaseVolumeShader):
             )
         )
 
+        if material.render_mode == PLANE_RENDER_MODE:
+            # Bound for this mode only, so the other modes' shaders are
+            # what they were before the mode existed.
+            bindings.append(
+                Binding(
+                    "u_render_planes",
+                    "buffer/uniform",
+                    material.render_planes_buffer,
+                    "FRAGMENT",
+                    structname=RENDER_PLANES_STRUCT,
+                )
+            )
         bindings = dict(enumerate(bindings))
         self.define_bindings(0, bindings)
         return {0: bindings}
@@ -591,7 +617,11 @@ class MultiscaleVolumeBrickShader(BaseVolumeShader):
     def get_pipeline_info(self, wobject, shared):
         return {
             "primitive_topology": wgpu.PrimitiveTopology.triangle_list,
-            "cull_mode": wgpu.CullMode.none,
+            # One face per pixel: both faces would march the same ray, and a
+            # material that does not write depth would blend it twice.  The
+            # back faces are the ones kept, as in pygfx's volume shader, so
+            # the box still draws with the camera inside it.
+            "cull_mode": wgpu.CullMode.front,
         }
 
     def get_render_info(self, wobject, shared):

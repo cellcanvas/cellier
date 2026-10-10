@@ -15,10 +15,10 @@ from cellier.clipping import handle_changes_plane, initial_anchor
 from cellier.data import ImageMemoryStore
 from cellier.data._axes import scale_and_translation_transform
 from cellier.events import (
-    ClippingInteractionEvent,
-    ClippingPlaneGizmoChangedEvent,
-    ClippingPlaneGizmoUpdateEvent,
     ClippingPlanesChangedEvent,
+    PlaneGizmoChangedEvent,
+    PlaneGizmoUpdateEvent,
+    PlaneInteractionEvent,
 )
 from cellier.visuals import ClippingPlane, InMemoryImageSingleAppearance
 from tests.render.test_plane_gizmo import CAPTURES, Rig
@@ -38,11 +38,11 @@ class GizmoRig(Rig):
         self.controller.on_clipping_planes_changed(
             self.visual.id, self.log.append, owner_id=owner
         )
-        self.controller.on_clipping_interaction(
+        self.controller.on_plane_interaction(
             self.visual.id, self.log.append, owner_id=owner
         )
         for view in self.views:
-            self.controller.on_clipping_plane_gizmo_changed(
+            self.controller.on_plane_gizmo_changed(
                 view.canvas_id, self.log.append, owner_id=owner
             )
 
@@ -152,8 +152,8 @@ async def test_the_gizmo_is_placed_on_the_plane(make_rig):
     np.testing.assert_allclose(normal, (1.0, 0.0, 0.0), atol=1e-6)
     np.testing.assert_allclose(point, (12.0, 15.5, 15.5), atol=1e-3)
     assert session.anchor == pytest.approx(point)
-    assert rig.controller.get_clipping_plane_gizmo(rig.view.canvas_id) is session
-    (event,) = rig.of(ClippingPlaneGizmoChangedEvent)
+    assert rig.controller.get_plane_gizmo(rig.view.canvas_id) is session
+    (event,) = rig.of(PlaneGizmoChangedEvent)
     assert (event.visual_id, event.plane_id) == (rig.visual.id, item.id)
     assert rig.of(ClippingPlanesChangedEvent) == []
 
@@ -193,8 +193,8 @@ async def test_what_is_refused(make_rig):
     rig.scene.dims.selection.displayed_axes = (1, 2)
     with pytest.raises(ValueError, match="3D canvas"):
         controller.add_clipping_plane_gizmo(rig.visual.id, canvas_id, item.id)
-    assert controller.get_clipping_plane_gizmo(canvas_id) is None
-    assert rig.of(ClippingPlaneGizmoChangedEvent) == []
+    assert controller.get_plane_gizmo(canvas_id) is None
+    assert rig.of(PlaneGizmoChangedEvent) == []
     assert rig.view._plane_gizmos == {}
 
 
@@ -226,12 +226,12 @@ async def test_a_drag_along_the_normal_moves_the_plane_once_per_frame(make_rig):
     changes = rig.of(ClippingPlanesChangedEvent)
     assert 1 <= len(changes) <= 3
     assert {event.source_id for event in changes} == {session.id}
-    interactions = rig.of(ClippingInteractionEvent)
+    interactions = rig.of(PlaneInteractionEvent)
     assert [(e.phase, e.reason) for e in interactions] == [
         ("start", None),
         ("end", "release"),
     ]
-    assert rig.controller.clipping_interaction_state(rig.visual.id) == "idle"
+    assert rig.controller.plane_interaction_state(rig.visual.id) == "idle"
     assert not session.dragging
 
 
@@ -291,8 +291,8 @@ async def test_a_drag_that_cannot_change_the_plane_assigns_nothing(
     else:
         assert gizmo.proxy.local.rotation.tolist() != [0.0, 0.0, 0.0, 1.0]
     # The scope opened and closed with nothing inside it.
-    assert rig.of(ClippingInteractionEvent) == []
-    assert not rig.controller._clip_driver.scope_open(rig.visual.id)
+    assert rig.of(PlaneInteractionEvent) == []
+    assert not rig.controller._plane_interaction_driver.scope_open(rig.visual.id)
 
 
 def _dim(dim):
@@ -309,14 +309,14 @@ async def test_a_new_grab_ends_a_scope_whose_release_was_lost(make_rig):
     rig.send("pointer_down", x, y)
     rig.send("pointer_move", x + 20, y + 8)
     rig.frame()
-    assert rig.controller.clipping_interaction_state(rig.visual.id) == "active"
+    assert rig.controller.plane_interaction_state(rig.visual.id) == "active"
     # No release.  The next press drops the capture and ends the drag.
     x, y = rig.handle(rig.gizmo(session), "_translate1_children", 0)
     rig.send("pointer_down", x, y)
-    phases = [(e.phase, e.reason) for e in rig.of(ClippingInteractionEvent)]
+    phases = [(e.phase, e.reason) for e in rig.of(PlaneInteractionEvent)]
     assert phases == [("start", None), ("end", "release")]
     rig.send("pointer_up", x, y, buttons=())
-    assert not rig.controller._clip_driver.scope_open(rig.visual.id)
+    assert not rig.controller._plane_interaction_driver.scope_open(rig.visual.id)
 
 
 # -- the model -> the gizmo -----------------------------------------------------
@@ -395,11 +395,11 @@ async def test_removing_the_plane_closes_the_session(make_rig):
     rig.visual.clipping_planes = (other,)
     assert session.closed
     assert rig.view._plane_gizmos == {}
-    assert rig.controller.get_clipping_plane_gizmo(rig.view.canvas_id) is None
-    (event,) = rig.of(ClippingPlaneGizmoChangedEvent)
+    assert rig.controller.get_plane_gizmo(rig.view.canvas_id) is None
+    (event,) = rig.of(PlaneGizmoChangedEvent)
     assert (event.visual_id, event.plane_id) == (None, None)
     session.close()  # again: nothing
-    assert len(rig.of(ClippingPlaneGizmoChangedEvent)) == 1
+    assert len(rig.of(PlaneGizmoChangedEvent)) == 1
 
 
 async def test_leaving_3d_closes_the_session(make_rig):
@@ -440,9 +440,9 @@ async def test_closing_mid_drag_ends_the_drag(make_rig):
     rig.send("pointer_down", x, y)
     rig.send("pointer_move", x + 20, y + 8)
     rig.frame()
-    assert rig.controller.clipping_interaction_state(rig.visual.id) == "active"
+    assert rig.controller.plane_interaction_state(rig.visual.id) == "active"
     session.close()
-    assert rig.controller.clipping_interaction_state(rig.visual.id) == "idle"
+    assert rig.controller.plane_interaction_state(rig.visual.id) == "idle"
     assert not CAPTURES
     rig.send("pointer_up", x + 20, y + 8, buttons=())
 
@@ -459,7 +459,7 @@ async def test_a_canvas_has_one_gizmo_and_a_new_one_replaces_it(make_rig):
     assert not second.closed
     assert list(rig.view._plane_gizmos) == [second.id]
     # One event for the replacement: the new plane.
-    (event,) = rig.of(ClippingPlaneGizmoChangedEvent)
+    (event,) = rig.of(PlaneGizmoChangedEvent)
     assert event.plane_id == other.id
 
     # A refused request leaves the gizmo there is.
@@ -468,7 +468,7 @@ async def test_a_canvas_has_one_gizmo_and_a_new_one_replaces_it(make_rig):
             rig.visual.id, rig.view.canvas_id, uuid4()
         )
     assert not second.closed
-    assert rig.controller.get_clipping_plane_gizmo(rig.view.canvas_id) is second
+    assert rig.controller.get_plane_gizmo(rig.view.canvas_id) is second
 
 
 async def test_the_request_event_opens_and_closes(make_rig):
@@ -481,26 +481,27 @@ async def test_the_request_event_opens_and_closes(make_rig):
 
     def request(plane, enabled):
         controller._incoming_events.emit(
-            ClippingPlaneGizmoUpdateEvent(
+            PlaneGizmoUpdateEvent(
                 source_id=widget,
                 visual_id=rig.visual.id,
                 plane_id=plane.id,
                 canvas_id=canvas_id,
+                kind="clipping",
                 enabled=enabled,
             )
         )
 
     request(item, True)
-    session = controller.get_clipping_plane_gizmo(canvas_id)
+    session = controller.get_plane_gizmo(canvas_id)
     assert session.plane_id == item.id
-    assert rig.of(ClippingPlaneGizmoChangedEvent)[-1].source_id == widget
+    assert rig.of(PlaneGizmoChangedEvent)[-1].source_id == widget
 
     # Switching off a plane that does not have the gizmo does nothing.
     request(other, False)
-    assert controller.get_clipping_plane_gizmo(canvas_id) is session
+    assert controller.get_plane_gizmo(canvas_id) is session
     request(item, False)
     assert session.closed
-    last = rig.of(ClippingPlaneGizmoChangedEvent)[-1]
+    last = rig.of(PlaneGizmoChangedEvent)[-1]
     assert (last.plane_id, last.source_id) == (None, widget)
 
 

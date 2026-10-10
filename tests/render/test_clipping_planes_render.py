@@ -30,8 +30,51 @@ async def _scenes(kind, controller, reslice, tmp_path, planes, dim):
     return out
 
 
-@pytest.mark.parametrize("plane_name", list(h.PLANES))
-@pytest.mark.parametrize("kind", h.KINDS)
+#: Kinds every plane arrangement is drawn for.  One MIP, which is the kind
+#: compared from inside the volume and by colour, and one labels kind, which
+#: has a lit cut face; both multiscale, where a plane also meets the walk
+#: from brick to brick.
+ALL_ARRANGEMENTS = ("image_multiscale_mip", "labels_multiscale")
+
+
+def _volume_cases() -> list:
+    """Every kind with the oblique plane; two kinds with every arrangement.
+
+    The plane arithmetic is one shared shader (``ray_clip.wgsl``); what
+    differs by kind is how its volume shader calls it.  So each kind is
+    drawn with the most general single plane, and the other arrangements
+    (along an axis, along z, a slab of two planes) with the kinds of
+    `ALL_ARRANGEMENTS` only.  The full cross was 24 cases, each two scenes
+    drawn from up to three views.
+    """
+    cases = [(kind, "oblique") for kind in h.KINDS]
+    cases += [
+        (kind, plane_name)
+        for kind in ALL_ARRANGEMENTS
+        for plane_name in h.PLANES
+        if plane_name != "oblique"
+    ]
+    return [pytest.param(*case, id="-".join(case)) for case in cases]
+
+
+#: 2D kinds, each cut at the middle slice; one of them at the others too.
+SLICE_KINDS = (
+    "image_memory_mip",
+    "image_multiscale_mip",
+    "labels_memory",
+    "labels_multiscale",
+)
+MIDDLE_SLICE = 16
+OTHER_SLICES = (8, 24)
+
+
+def _slice_cases() -> list:
+    cases = [(kind, MIDDLE_SLICE) for kind in SLICE_KINDS]
+    cases += [("image_multiscale_mip", z) for z in OTHER_SLICES]
+    return [pytest.param(kind, z, id=f"{kind}-{z}") for kind, z in cases]
+
+
+@pytest.mark.parametrize(("kind", "plane_name"), _volume_cases())
 async def test_a_volume_is_cut_at_the_plane(
     kind, plane_name, controller, offscreen_renderer, reslice, tmp_path
 ):
@@ -76,11 +119,7 @@ async def test_a_volume_is_cut_at_the_plane(
             assert result["colour_off_edge"] <= 4 * allowed, (view_name, result)
 
 
-@pytest.mark.parametrize("z", [8, 16, 24])
-@pytest.mark.parametrize(
-    "kind",
-    ["image_memory_mip", "image_multiscale_mip", "labels_memory", "labels_multiscale"],
-)
+@pytest.mark.parametrize(("kind", "z"), _slice_cases())
 async def test_a_slice_is_cut_at_the_clip_line(
     kind, z, controller, offscreen_renderer, reslice, tmp_path
 ):

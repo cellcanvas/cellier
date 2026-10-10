@@ -51,6 +51,8 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+.pytest_basetemp/
+.witty_cache/
 
 # Translations
 *.mo

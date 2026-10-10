@@ -201,6 +201,89 @@ async def test_a_rotate_drag_turns_the_normal_about_the_point(make_rig):
     assert not np.allclose(end.normal, normal, atol=1e-3)
 
 
+def _look(rig, direction) -> None:
+    """Look at the volume's centre from *direction* (rendered ``xyz``)."""
+    camera = rig.view.camera
+    centre = np.array(CENTRE)
+    distance = float(np.linalg.norm(np.asarray(camera.world.position) - centre))
+    direction = np.asarray(direction, dtype=np.float64)
+    camera.local.position = centre + direction / np.linalg.norm(direction) * distance
+    camera.look_at(tuple(centre))
+    rig.frame(n=2)
+
+
+def _arrow(gizmo) -> np.ndarray:
+    """From the gizmo's centre out to the arrow of axis 0, in the world."""
+    widget = gizmo.gizmo
+    arrow = np.asarray(widget._translate1_children[0].world.position)
+    return arrow - np.asarray(widget.world.position)
+
+
+#: Camera directions in front of the plane of normal ``+x`` and behind it,
+#: oblique so that no handle is seen end-on.
+_FRONT = (0.5, 0.6, 0.62)
+_BEHIND = (-0.5, 0.6, 0.62)
+
+
+@pytest.mark.parametrize("direction", [_FRONT, _BEHIND])
+async def test_the_arrow_is_the_normal_whichever_side_the_camera_is(
+    make_rig, direction
+):
+    """pygfx would turn every handle that points away toward the camera."""
+    rig = make_rig()
+    await rig.start()
+    gizmo = rig.add_gizmo()
+    _look(rig, direction)
+    assert (gizmo.gizmo.gizmo_scale > 0).all()
+    _point, normal = gizmo.pose()
+    assert _arrow(gizmo) @ np.asarray(normal) > 0
+    # The in-plane handles are the proxy's own +y and +z.
+    axis_0, axis_1, _scale = gizmo.frame()
+    widget = gizmo.gizmo
+    for dim, axis in ((1, axis_0), (2, axis_1)):
+        out = np.asarray(widget._translate1_children[dim].world.position)
+        assert (out - np.asarray(widget.world.position)) @ np.asarray(axis) > 0
+
+
+@pytest.mark.parametrize("direction", [_FRONT, _BEHIND])
+async def test_the_arrow_turns_over_when_the_normal_is_reversed(make_rig, direction):
+    rig = make_rig()
+    await rig.start()
+    gizmo = rig.add_gizmo()
+    _look(rig, direction)
+    before = _arrow(gizmo)
+    gizmo.set_pose(CENTRE, (-1.0, 0.0, 0.0))
+    rig.frame(n=2)
+    after = _arrow(gizmo)
+    # The opposite direction.  Not the same length: the gizmo is sized on
+    # screen, and an arrow toward the camera is drawn longer than one away.
+    np.testing.assert_allclose(
+        after / np.linalg.norm(after), -before / np.linalg.norm(before), atol=1e-6
+    )
+    assert after @ np.array([-1.0, 0.0, 0.0]) > 0
+
+
+async def test_a_drag_along_an_arrow_that_points_away_follows_the_pointer(make_rig):
+    rig = make_rig()
+    await rig.start()
+    gizmo = rig.add_gizmo()
+    _look(rig, _BEHIND)
+    start, normal = gizmo.pose()
+    assert _arrow(gizmo) @ (np.asarray(rig.view.camera.world.position) - CENTRE) < 0
+    assert gizmo.gizmo._translate1_children[0].visible
+    x, y = rig.handle(gizmo, "_translate1_children", 0)
+    centre = rig.screen(gizmo.gizmo.world.position)
+    out = np.array([x - centre[0], y - centre[1]])
+    out = 30 * out / np.linalg.norm(out)
+    rig.send("pointer_down", x, y)
+    assert (rig.events[0].handle_kind, rig.events[0].handle_axis) == ("translate", 0)
+    rig.send("pointer_move", x + out[0], y + out[1])
+    rig.send("pointer_up", x + out[0], y + out[1], buttons=())
+    moved = np.asarray(gizmo.pose()[0]) - np.asarray(start)
+    # Out along the arrow is along the normal, though it points away.
+    assert moved @ np.asarray(normal) > 1e-3
+
+
 async def test_a_click_without_a_move_is_a_start_and_an_end(make_rig):
     rig = make_rig()
     await rig.start()
@@ -392,7 +475,15 @@ def test_the_private_pygfx_names_the_gizmo_relies_on_exist():
         "_rotate_children",
     ):
         assert hasattr(inner, name), name
-    for name in ("_update_visibility", "_highlight", "update_gizmo", "process_event"):
+    assert inner.gizmo_scale.shape == (3,)
+    assert inner._object_to_control is not None
+    for name in (
+        "_update_visibility",
+        "_update_gizmo_transform",
+        "_highlight",
+        "update_gizmo",
+        "process_event",
+    ):
         assert callable(getattr(gfx.TransformGizmo, name)), name
     assert isinstance(CAPTURES, dict)
     # A handle's axis: an index, or a pair for a two-axis translate handle.

@@ -5,6 +5,9 @@ type takes them: images and labels (in memory or multiscale), meshes,
 points, lines and graphs. Each visual has its own planes; there are no
 scene-wide ones.
 
+To draw a volume's data *on* a plane instead of cutting the volume with one,
+see [Draw a volume on planes](render_planes.md).
+
 ## The short version
 
 ```python
@@ -127,6 +130,56 @@ clipped by where it really is, not by where it lands on the slice.
 The bounding-box wireframe and overlays are not clipped. Camera fit uses the
 whole data, not the kept part.
 
+## An outline round a cut
+
+A clipping plane can have an outline: a line round its cut face, in a 3D
+view.
+
+```python
+from cellier.visuals import PlaneOutline
+
+plane = ClippingPlane.from_point_normal(
+    system,
+    point=(40, 0, 0),
+    normal=(1, 0, 0),
+    axes=("z", "y", "x"),
+    outline=PlaneOutline(enabled=True, color=(1.0, 0.8, 0.2, 1.0), width=2.0),
+)
+```
+
+`enabled` is `False` by default, `color` is RGBA from 0 to 1, and `width`
+is in screen pixels.
+
+The cut face is the plane where it crosses the visual's box, inside the
+visual's other enabled clipping planes: two planes each end at the other.
+The box depends on the visual:
+
+| Visual | The box |
+|---|---|
+| Image, labels | The data: the edges of its voxels |
+| Mesh | The store's extent, the box its bounding-box wireframe draws |
+| Points, lines, graph | The bounding box of what is drawn |
+
+So on a mesh or on points the outline is the plane's cut through that box,
+not the outline of the cut geometry.
+
+- The outline is part of its plane: change it with
+  `item.model_copy(update={"outline": ...})` in a new tuple. **A change of
+  the outline alone reads nothing again.**
+- It is drawn in a 3D view only, while the plane is enabled and the visual
+  is shown, in any render mode. A 2D view draws none.
+- A plane with a component on a sliced axis moves its cut face, and its
+  outline, with the slider.
+- **A mesh, points, lines or graph visual clipped across a sliced axis has
+  no outlines.** Such a visual is clipped as it is read (it may be drawn
+  through a slab or as a trail), and then has no one cut face.
+- A plane several visuals share (an `OrthoViewer`'s linked panels) has one
+  outline where the cut face is the same.
+- The line is depth tested and is not picked. A visual in the `"plane"`
+  render mode can have both: its render planes' outlines end at the cut,
+  and the cut face has its own. See [Draw a volume on
+  planes](render_planes.md#an-outline-round-a-plane).
+
 ## What it costs
 
 - Moving a plane does not reload a mesh, points or an in-memory image in 3D:
@@ -155,7 +208,10 @@ viewer.add_image(
 ```
 
 The "Clipping planes" group has a row per plane: on or off, a flip button,
-a remove button, the normal, and a position slider along the normal.
+a remove button, the normal, a position slider along the normal, and
+"Outline": a box that draws the plane's [outline](#an-outline-round-a-cut)
+and its colour (red, green and blue; the alpha and the width are set from
+code and are kept).
 
 The flag needs a dock to show the control in. On a `Viewer` the control is
 part of the appearance dock, so the config also needs `appearance` and the
@@ -173,8 +229,18 @@ of `normal`. The axis names come from the store's data coordinate system
 - under them, the normal's entry on that axis, for an oblique plane. Only the direction
   of the normal matters; the entries are not rescaled as you type.
 
-The position slider's range is the data's bounding box along the normal, and
-follows the store when its extent changes.
+The position slider shows the plane's **depth into the data's bounding
+box**, in data units: 0 where a plane first touches the box, on the side
+the normal points away from, and at the slider's far end the size of the
+box along the normal. Dragging right moves the plane the way its normal
+points, so it cuts away more. A flip turns a depth `d` into `span - d` and
+leaves the plane where it is. The range follows the store when its extent
+changes.
+
+A plane taken out of the box (by the gizmo, or from code) pins the slider at
+the nearer end; the number, drawn in orange italics, is then below 0 or
+above the slider's end. The depth is the control's own number: a plane's
+`offset` is measured from the data's origin, as before.
 
 ## The gizmo
 
@@ -183,7 +249,7 @@ A gizmo in a 3D view moves and tilts one plane by dragging:
 ```python
 gizmo = viewer.add_clipping_plane_gizmo(visual, visual.clipping_planes[0])
 ...
-gizmo.close()            # or viewer.remove_clipping_plane_gizmo()
+gizmo.close()            # or viewer.remove_plane_gizmo()
 ```
 
 On an `OrthoViewer` the gizmo is drawn in the 3D panel and edits the 3D
@@ -193,6 +259,9 @@ panel's planes; the 2D panels follow when they are linked to it
 
 - The arrow along the normal slides the plane. The two rings that tilt the
   normal turn it about the gizmo.
+- **The arrow is the normal**: it points to the side that is kept, from
+  whichever side the camera looks. It turns over when the plane is flipped
+  and can point away from you.
 - The other handles (the two in-plane arrows, the in-plane square, the ring
   about the normal) move the gizmo on the plane and leave the plane where
   it is. Use them to bring the gizmo to the part you are looking at.
@@ -245,15 +314,20 @@ The target is read when the control is built, so build the canvas first:
 the layout flows do, and a dock built before its canvas raises. A canvas
 added later neither adds nor removes the toggle.
 
-A drag is announced by `ClippingInteractionEvent` (`controller.
-on_clipping_interaction`): one start and one end, with the plane changes
+A drag is announced by `PlaneInteractionEvent` (`controller.
+on_plane_interaction`): one start and one end, with the plane changes
 between them. A script can group its own changes the same way with
-`with controller.clipping_interaction(visual.id): ...`. The plane a view's
-gizmo is on is announced by `ClippingPlaneGizmoChangedEvent`
-(`controller.on_clipping_plane_gizmo_changed`).
+`with controller.plane_interaction(visual.id): ...`. The plane a view's
+gizmo is on is announced by `PlaneGizmoChangedEvent`
+(`controller.on_plane_gizmo_changed`).
 
-A plane change during a drag costs the same as any other. On a multiscale
-volume of about a million level-0 bricks that is 13 to 38 ms a frame.
+A multiscale image or labels visual in a 3D view plans nothing during a
+drag: it draws the bricks it already has, and its coarse backstop where the
+plane reveals more, and loads the full detail when the drag ends (on release,
+or after 0.15 s of stillness). This is `appearance.coarsest_while_moving_3d`,
+on by default; turn it off to plan on every change, which on a multiscale
+volume of about a million level-0 bricks costs 13 to 38 ms a frame. A change
+outside a drag always plans at once.
 
 Known limit: with outlines enabled, a handle over an outlined visual gets a
 thin contour in that visual's outline colour.
@@ -278,6 +352,9 @@ visuals["vol"].clipping_planes = (moved,)   # "all": the 2D panels follow
 ortho.clipping_controller.mode = "2d"       # at any time
 ```
 
+A plane's outline is part of the tuple, so it is linked with it. It is
+drawn in the 3D panel.
+
 - The mode is for the whole viewer. Links are within the panels of one
   `add_*` call, never between two datasets.
 - `add_*(clipping_planes=...)` gives the same planes to all four panels in
@@ -291,7 +368,7 @@ ortho.clipping_controller.mode = "2d"       # at any time
   the 3D panel's planes win, because it has the gizmo. From `None` to
   `"2d"` there is no 3D panel among them and the xy panel's planes win.
 - A drag is forwarded: while a plane of one panel is dragged, each panel
-  linked to it reports the drag too (`ClippingInteractionEvent`, one start
+  linked to it reports the drag too (`PlaneInteractionEvent`, one start
   and one end). When the dragged panel's drag ends because the handle was
   held still (`"settle"`), the linked panels end with `"release"`.
 - The gizmo (`ortho.add_clipping_plane_gizmo`) edits a plane of the 3D

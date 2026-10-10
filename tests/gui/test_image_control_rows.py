@@ -214,17 +214,25 @@ def test_qt_the_setter_validates(qt_controls):
         qt_controls(uuid4(), _values(_multiscale()), n_displayed_dimensions=1)
 
 
-def test_qt_channel_rows_follow_their_own_mode(qt_controls):
-    widget = qt_controls(uuid4(), _values(_multiscale(channel_modes=["iso", "mip"])))
+def test_qt_channel_rows_follow_the_channels_mode(qt_controls):
+    """Every channel has the same render mode, so their rows agree."""
+    widget = qt_controls(uuid4(), _values(_multiscale(channel_modes=["iso", "iso"])))
 
     assert _shown(widget, "channel", 0, "iso_threshold")
-    assert not _shown(widget, "channel", 1, "iso_threshold")
-    # One attenuation row below the channels, shown when any channel uses it.
+    assert _shown(widget, "channel", 1, "iso_threshold")
+    # One attenuation row below the channels, shown when the channels use it.
     assert not _shown(widget, "composite", None, "attenuation")
 
+    # Not wired to a controller, so only the edited row is told here; wired,
+    # the controller sets the mode on every channel (the tests below).
     widget._controls[("channel", 1, "render_mode")].setCurrentText("attenuated_mip")
     assert _shown(widget, "composite", None, "attenuation")
-    assert _shown(widget, "channel", 0, "iso_threshold")
+    assert not _shown(widget, "channel", 1, "iso_threshold")
+
+
+def test_channels_with_different_render_modes_are_refused():
+    with pytest.raises(ValueError, match="different render modes"):
+        _multiscale(channel_modes=["iso", "mip"])
 
 
 def test_qt_both_attenuation_rows_show_one_value(qt_controls):
@@ -274,9 +282,43 @@ def test_qt_an_inbound_render_mode_updates_the_rows(qt_controls):
     controller.update_single_appearance_field(visual.id, "render_mode", "iso")
     assert _shown(widget, "single", None, "iso_threshold")
 
+    # A channel's render mode is every channel's.
     controller.update_channel_appearance_field(visual.id, 1, "render_mode", "iso")
     assert _shown(widget, "channel", 1, "iso_threshold")
-    assert not _shown(widget, "channel", 0, "iso_threshold")
+    assert _shown(widget, "channel", 0, "iso_threshold")
+
+
+def test_qt_one_channels_combo_sets_every_channel(qt_controls):
+    controller, scene, visual = _in_memory()
+    values = image_control_values(visual, fields=_FIELDS)
+    widget = _wired(controller, qt_controls(visual.id, values, scene_ids=[scene.id]))
+
+    widget._controls[("channel", 1, "render_mode")].setCurrentText("iso")
+
+    assert [visual.channels[k].render_mode for k in (0, 1)] == ["iso", "iso"]
+    # The other channel's combo and rows followed, with no echo loop.
+    assert widget._controls[("channel", 0, "render_mode")].currentText() == "iso"
+    assert _shown(widget, "channel", 0, "iso_threshold")
+    assert _shown(widget, "channel", 1, "iso_threshold")
+    # The single page is separate.
+    assert visual.single.render_mode == "mip"
+    assert widget._controls[("single", None, "render_mode")].currentText() == "mip"
+
+
+def test_anywidget_one_channels_mode_sets_every_channel(any_controls):
+    controller, scene, visual = _in_memory()
+    values = image_control_values(visual, fields=_FIELDS)
+    widget = _wired(controller, any_controls(visual.id, values, scene_ids=[scene.id]))
+
+    # What the front end does when a channel's select changes.
+    channels = {key: dict(fields) for key, fields in widget.channels.items()}
+    channels["1"]["render_mode"] = "iso"
+    widget.channels = channels
+
+    assert [visual.channels[k].render_mode for k in (0, 1)] == ["iso", "iso"]
+    assert widget.channels["0"]["render_mode"] == "iso"
+    assert widget.channels["1"]["render_mode"] == "iso"
+    assert widget.single["render_mode"] == "mip"
 
 
 def test_qt_follows_a_2d_3d_switch_on_its_scene(qt_controls):

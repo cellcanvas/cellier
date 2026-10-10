@@ -104,14 +104,16 @@ def test_appearance_controls_multiscale_render_and_lod(qtbot, multiscale_image_s
     viewer.add_image_multiscale(
         multiscale_image_store,
         appearance=MultiscaleImageAppearance(),
-        controls=MultiscaleImageControlsConfig(appearance=["render_mode", "lod_bias"]),
+        controls=MultiscaleImageControlsConfig(
+            appearance=["render_mode", "level_of_detail"]
+        ),
         single=MultiscaleImageSingleAppearance(color_map="viridis", render_mode="mip"),
     )
 
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
     assert container is not None
-    assert {"Image", "LOD bias"} <= _control_names(container)
+    assert {"Image", "Level of detail"} <= _control_names(container)
 
 
 def test_appearance_controls_placeholder_without_configs(qtbot, image_store):

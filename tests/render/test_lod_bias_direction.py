@@ -1,6 +1,6 @@
 """A larger ``lod_bias`` never picks a finer level in 3D, for images and labels.
 
-``VisualRenderConfig.lod_bias`` is documented as "higher is coarser", and 2D
+``VisualRenderConfig.settled_lod_bias`` is documented as "higher is coarser", and 2D
 already behaves that way.  The 3D image planner divides its distance
 thresholds by the bias; the 3D labels planner multiplied, so for labels a
 higher bias picked *finer* levels.  This pins both 3D planners to the same

@@ -34,13 +34,18 @@ def _any_image(spec: ControlSpec, visual_ids, controller=None):
     )
 
 
-def _any_lod_bias(spec: ControlSpec, visual_ids, controller=None):
-    from cellier.gui.anywidget.visuals import AnywidgetLodBiasSlider
+def _any_level_of_detail(spec: ControlSpec, visual_ids, controller=None):
+    from cellier.gui._image_controls import display_seed
+    from cellier.gui.anywidget.visuals import AnywidgetLevelOfDetailControls
 
-    return AnywidgetLodBiasSlider(
+    # The checkbox edits the setting of the view shown: seeded, then followed.
+    scene_ids, n_displayed = display_seed(controller, visual_ids)
+    return AnywidgetLevelOfDetailControls(
         visual_ids,
-        initial_lod_bias=spec.values["initial_lod_bias"],
+        spec.values,
         title=spec.title,
+        n_displayed_dimensions=n_displayed,
+        scene_ids=scene_ids,
     )
 
 
@@ -114,6 +119,28 @@ def _any_clipping_planes(spec: ControlSpec, visual_ids, controller=None, gizmo=N
         **gizmo_data,
         **spec.values,
     )
+
+
+def _any_render_planes(spec: ControlSpec, visual_ids, controller=None, target=None):
+    """The render planes control.
+
+    *target* is the ``RenderPlanesTarget`` the viewer named: the canvas of
+    the gizmo toggle (``None`` for no toggle) and why the control is
+    disabled.  The control reads the scene through the controller.
+    """
+    from cellier.gui._render_planes import (
+        get_render_plane_gizmo_data,
+        get_render_planes_data_from_visual,
+    )
+    from cellier.gui.anywidget.visuals import AnywidgetRenderPlanesControls
+
+    canvas_id = None if target is None else target.canvas_id
+    data = get_render_planes_data_from_visual(
+        controller, visual_ids[0], blocked=None if target is None else target.blocked
+    )
+    if canvas_id is not None:
+        data.update(get_render_plane_gizmo_data(controller, visual_ids[0], canvas_id))
+    return AnywidgetRenderPlanesControls(visual_ids, title=spec.title, **data)
 
 
 def _any_aabb(spec: ControlSpec, visual_ids, controller=None):
@@ -195,13 +222,14 @@ def _any_trail(spec: ControlSpec, visual_ids, controller=None):
 
 ANYWIDGET_BUILDERS = {
     "image": _any_image,
-    "lod_bias": _any_lod_bias,
+    "level_of_detail": _any_level_of_detail,
     "trail": _any_trail,
     "aabb": _any_aabb,
     "loading": _any_loading,
     "loading_config": _any_loading_config,
     "mesh_section": _any_mesh_section,
     "clipping_planes": _any_clipping_planes,
+    "render_planes": _any_render_planes,
     "lod_config": _any_lod_config,
     "visual_outline": _any_visual_outline,
     "labels_outline": _any_labels_outline,

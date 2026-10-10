@@ -26,7 +26,7 @@ def _load_cellier_wgsl(name: str) -> str:
     path = _WGSL_DIR / name
     if not path.is_file():
         raise FileNotFoundError(f"no cellier wgsl snippet named {name!r}")
-    return path.read_text()
+    return path.read_text(encoding="utf-8")
 
 
 # Guard against a double registration: pygfx raises rather than replacing,
