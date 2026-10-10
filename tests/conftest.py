@@ -25,6 +25,45 @@ def _track_instances(monkeypatch, cls) -> list[weakref.ref]:
     return created
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_pyfunc_call(pyfuncitem):
+    """Give rendercanvas its asyncgen hooks back after an async test.
+
+    rendercanvas picks its sleep by reading ``sys.get_asyncgen_hooks()``, and
+    its Qt loop installs hooks of its own when it starts.  asyncio saves the
+    hooks when a loop starts running and puts the saved ones back when it
+    stops.  So when the Qt loop starts *inside* an async test (the test pumps
+    Qt, ``canvas.force_draw()`` for one), asyncio wipes the hooks rendercanvas
+    just installed as the test returns, and rendercanvas does not notice.  Its
+    sleep is then a no-op, the canvas scheduler never yields, and the next
+    ``processEvents`` -- pytest-qt calls one right after the test body --
+    draws frames forever.
+
+    This runs between the test body and that ``processEvents``.  An app is not
+    exposed: ``QtAsyncio`` leaves the hooks alone, and its loop lasts as long
+    as the app does.
+    """
+    try:
+        return (yield)
+    finally:
+        _restore_rendercanvas_asyncgen_hooks()
+
+
+def _restore_rendercanvas_asyncgen_hooks() -> None:
+    qt_backend = sys.modules.get("rendercanvas.qt")
+    if qt_backend is None:
+        return
+    loop = qt_backend.loop
+    # Name-mangled private state: there is no public way to ask whether the
+    # loop believes its hooks are installed.
+    believes_installed = getattr(loop, "_BaseLoop__hook_data", None) is not None
+    if believes_installed and sys.get_asyncgen_hooks().firstiter is None:
+        sys.set_asyncgen_hooks(
+            firstiter=loop._asyncgen_firstiter_hook,
+            finalizer=loop._asyncgen_finalizer_hook,
+        )
+
+
 @pytest.fixture(autouse=True)
 def _close_cellier_objects(monkeypatch):
     """Close every ``CellierController`` and ``CanvasView`` a test creates.

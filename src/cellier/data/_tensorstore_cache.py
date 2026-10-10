@@ -22,6 +22,23 @@ Each store owns its pool, sized by its ``cache_pool_bytes`` field.  The
 limit is a cap, not an allocation: an unused pool costs nothing and fills
 lazily under LRU.
 
+Concurrency
+-----------
+The context also carries two limits on how much I/O tensorstore runs at
+once, each a store field:
+
+- ``request_concurrency``: requests outstanding against a remote kvstore
+  (``gs://``, ``s3://``, ``http(s)://``).  On a remote store a read costs a
+  round trip of hundreds of milliseconds and almost no CPU, so throughput is
+  the number of requests in flight divided by that latency.  The scheduler's
+  ``SchedulerConfig.max_in_flight`` bounds the reads cellier issues; this
+  bounds the requests tensorstore sends for them.  The smaller of the two
+  wins, so raise them together.
+- ``file_io_concurrency``: reads outstanding against the local filesystem.
+
+Like the pool size, both are part of the context, so changing one builds a
+new context and starts with an empty pool.
+
 Rechecks
 --------
 By default tensorstore revalidates a cached chunk against the kvstore on
@@ -72,9 +89,28 @@ if TYPE_CHECKING:
 #: caching, restoring the one-batch dedup window described above.
 DEFAULT_CACHE_POOL_BYTES: int = 512 * 1024**2
 
+#: Default limit on requests outstanding against a remote kvstore.
+#:
+#: Tensorstore's own default, so a store that does not set the field behaves
+#: as it did before the field existed.
+DEFAULT_REQUEST_CONCURRENCY: int = 32
 
-def build_context(cache_pool_bytes: int) -> ts.Context:
-    """Return a ``ts.Context`` whose chunk cache is capped at *cache_pool_bytes*.
+#: The context resources ``request_concurrency`` sets, one per remote
+#: kvstore driver.  A store uses one driver, and a limit on a driver it does
+#: not use costs nothing, so one number covers all three.
+_REQUEST_CONCURRENCY_RESOURCES: tuple[str, ...] = (
+    "gcs_request_concurrency",
+    "s3_request_concurrency",
+    "http_request_concurrency",
+)
+
+
+def build_context(
+    cache_pool_bytes: int,
+    request_concurrency: int = DEFAULT_REQUEST_CONCURRENCY,
+    file_io_concurrency: int | None = None,
+) -> ts.Context:
+    """Return a ``ts.Context`` carrying a store's cache cap and I/O limits.
 
     Pass the result to every ``ts.open`` of a single store, so all of its
     resolution levels share one budget.
@@ -83,6 +119,13 @@ def build_context(cache_pool_bytes: int) -> ts.Context:
     ----------
     cache_pool_bytes : int
         Cache cap in bytes.  ``0`` disables caching.
+    request_concurrency : int
+        Requests outstanding at once against a remote kvstore, whichever of
+        the ``gcs``, ``s3`` and ``http`` drivers the store uses.
+    file_io_concurrency : int or None
+        Reads outstanding at once against the local filesystem.  ``None``
+        leaves tensorstore's default, which it derives from the machine's
+        core count.
 
     Returns
     -------
@@ -91,7 +134,14 @@ def build_context(cache_pool_bytes: int) -> ts.Context:
         means building a new one and reopening the handles against it --
         which is cheap, as tensorstore caches the array metadata too.
     """
-    return ts.Context({"cache_pool": {"total_bytes_limit": int(cache_pool_bytes)}})
+    spec: dict[str, Any] = {
+        "cache_pool": {"total_bytes_limit": int(cache_pool_bytes)},
+    }
+    for resource in _REQUEST_CONCURRENCY_RESOURCES:
+        spec[resource] = {"limit": int(request_concurrency)}
+    if file_io_concurrency is not None:
+        spec["file_io_concurrency"] = {"limit": int(file_io_concurrency)}
+    return ts.Context(spec)
 
 
 Recheck = bool | Literal["open"]
@@ -163,6 +213,10 @@ class TensorStoreCacheMixin(BaseModel):
 
         store.cache_pool_bytes = 2 * 1024**3
 
+    ``request_concurrency`` and ``file_io_concurrency`` are set the same
+    way and are part of the same context, so assigning either also starts
+    the pool empty.
+
     It also manages the recheck policy described in the module docstring.
 
     The subclass supplies :meth:`_open_ts_handles`, which opens one handle
@@ -175,6 +229,18 @@ class TensorStoreCacheMixin(BaseModel):
         Chunk cache cap for this store, in bytes.  Shared by all of its
         resolution levels.  ``0`` disables caching.  Defaults to
         :data:`DEFAULT_CACHE_POOL_BYTES`.
+    request_concurrency : int
+        Requests this store keeps outstanding against a remote kvstore
+        (``gs://``, ``s3://``, ``http(s)://``).  Raise it together with
+        ``SchedulerConfig.max_in_flight``: the smaller of the two bounds the
+        throughput of a remote store.  Has no effect on a local store.
+        Defaults to :data:`DEFAULT_REQUEST_CONCURRENCY`, tensorstore's own
+        default.
+    file_io_concurrency : int or None
+        Reads this store keeps outstanding against the local filesystem.
+        ``None`` (the default) leaves tensorstore's default, which it
+        derives from the machine's core count.  Has no effect on a remote
+        store.
     recheck_cached_data : bool
         Revalidate cached chunks on every read, permanently.  Set it when
         another process writes this data while it is open and cannot say
@@ -186,6 +252,8 @@ class TensorStoreCacheMixin(BaseModel):
     """
 
     cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES
+    request_concurrency: int = DEFAULT_REQUEST_CONCURRENCY
+    file_io_concurrency: int | None = None
     recheck_cached_data: bool = False
 
     #: Set by a paint controller while it holds this store open for writing.
@@ -208,6 +276,22 @@ class TensorStoreCacheMixin(BaseModel):
         """Reject a negative budget at construction time."""
         if value < 0:
             raise ValueError(f"cache_pool_bytes must be >= 0, got {value}.")
+        return value
+
+    @field_validator("request_concurrency")
+    @classmethod
+    def _check_request_concurrency(cls, value: int) -> int:
+        """Reject a limit that would allow no requests."""
+        if value < 1:
+            raise ValueError(f"request_concurrency must be >= 1, got {value}.")
+        return value
+
+    @field_validator("file_io_concurrency")
+    @classmethod
+    def _check_file_io_concurrency(cls, value: int | None) -> int | None:
+        """Reject a limit that would allow no reads."""
+        if value is not None and value < 1:
+            raise ValueError(f"file_io_concurrency must be >= 1, got {value}.")
         return value
 
     def model_post_init(self, __context: Any) -> None:
@@ -302,12 +386,17 @@ class TensorStoreCacheMixin(BaseModel):
         return self.recheck_cached_data or self._paint_writer_ref is not None
 
     def _reopen_ts_stores(self) -> None:
-        """Open the handles on a new context sized by ``cache_pool_bytes``.
+        """Open the handles on a new context built from the context fields.
 
-        Used at construction and when the budget changes.  The new context
-        starts with an empty pool.
+        Used at construction and when ``cache_pool_bytes``,
+        ``request_concurrency`` or ``file_io_concurrency`` changes.  The new
+        context starts with an empty pool.
         """
-        context = build_context(self.cache_pool_bytes)
+        context = build_context(
+            self.cache_pool_bytes,
+            request_concurrency=self.request_concurrency,
+            file_io_concurrency=self.file_io_concurrency,
+        )
         recheck = self._wants_rechecks()
         self._ts_stores = self._open_ts_handles(context, recheck)
         self._ts_context = context
@@ -354,7 +443,8 @@ class TensorStoreCacheMixin(BaseModel):
     def __setattr__(self, key: str, value: Any) -> None:
         """Set a field, reopening the handles when the cache settings change.
 
-        ``cache_pool_bytes`` rebuilds the pool on a new context.
+        ``cache_pool_bytes``, ``request_concurrency`` and
+        ``file_io_concurrency`` rebuild the pool on a new context.
         ``recheck_cached_data`` reopens on the same context.  Every other
         field is set as usual.  Assigning the value a field already has is
         a no-op, so a redundant write does not throw away a warm cache.
@@ -362,7 +452,7 @@ class TensorStoreCacheMixin(BaseModel):
         Raises
         ------
         ValueError
-            If *value* is negative.
+            If *value* is out of range for the field.
         RuntimeError
             If a paint transaction is open on this store.  Reopening would
             leave the paint write buffer holding a handle bound to the
@@ -375,17 +465,24 @@ class TensorStoreCacheMixin(BaseModel):
             # pool and an open transaction is not a hazard.
             self._sync_rechecks()
             return
-        if key != "cache_pool_bytes":
+        if key == "cache_pool_bytes":
+            value = self._check_cache_pool_bytes(int(value))
+        elif key == "request_concurrency":
+            value = self._check_request_concurrency(int(value))
+        elif key == "file_io_concurrency":
+            value = self._check_file_io_concurrency(
+                None if value is None else int(value)
+            )
+        else:
             super().__setattr__(key, value)
             return
 
-        value = self._check_cache_pool_bytes(int(value))
-        if value == self.__dict__.get("cache_pool_bytes"):
+        if value == self.__dict__.get(key):
             # Nothing to do, and reopening would discard a warm cache.
             return
         if self._has_open_paint_transaction():
             raise RuntimeError(
-                "Cannot change cache_pool_bytes while a paint transaction is "
+                f"Cannot change {key} while a paint transaction is "
                 "open on this store: the paint write buffer holds a handle "
                 "bound to the current cache pool.  Commit or abort the stroke "
                 "first."

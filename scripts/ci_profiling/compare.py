@@ -160,12 +160,14 @@ def profiles(root: Path, test_file: str, top: int) -> None:
         if not path.exists():
             continue
         stats = pstats.Stats(str(path))
-        stats.strip_dirs()
         totals[name] = stats.total_tt
         per[name] = defaultdict(float)
         for (filename, _line, function), row in stats.stats.items():
             # No line number: it differs between platforms' library versions.
-            per[name][f"{filename}:{function}"] += row[2]
+            # The base name by hand: a profile written on Windows has
+            # backslashes, which strip_dirs leaves alone on other platforms.
+            base = filename.replace("\\", "/").rsplit("/", 1)[-1]
+            per[name][f"{base}:{function}"] += row[2]
     if not per:
         raise SystemExit(f"no prof/{test_file}.prof in any folder under {root}")
     names = {f for v in per.values() for f in v}

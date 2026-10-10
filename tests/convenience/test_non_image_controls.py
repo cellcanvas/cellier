@@ -685,3 +685,95 @@ def test_both_front_ends_agree_on_matrix_formatting(qtbot):
         for row in range(table.rowCount())
     ]
     assert qt_values == any_values
+
+
+# -- Long values must not widen the dock ---------------------------------------
+
+LONG_PATH = "https://example.org/" + "/".join(["a-long-path-segment"] * 20)
+
+
+class _PathStore:
+    """The least a store needs for ``QtDatasetInfo.from_store``."""
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+
+    def dataset_info(self):
+        from cellier.data._dataset_info import DatasetInfo, RowSection
+
+        return DatasetInfo(
+            sections=[
+                RowSection(None, [("Path", self._path), ("Data type", "uint16")]),
+                RowSection("Scale levels", [("s0", self._path)], collapsed=True),
+            ]
+        )
+
+
+def test_a_long_path_does_not_widen_the_dataset_info_block(qtbot):
+    """A store's URL is elided, not allowed to set the width of the block."""
+    from PySide6.QtCore import QEvent, QPoint
+    from PySide6.QtGui import QHelpEvent
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from cellier.gui.qt import QtDatasetInfo
+
+    short = QtDatasetInfo.from_store(_PathStore("a-long-path-segment"))
+    long = QtDatasetInfo.from_store(_PathStore(LONG_PATH))
+
+    assert long.widget.minimumSizeHint().width() == (
+        short.widget.minimumSizeHint().width()
+    )
+    # The preferred width is bounded too: past the cap, length adds nothing.
+    medium = QtDatasetInfo.from_store(_PathStore(LONG_PATH[:60]))
+    assert long.widget.sizeHint().width() == medium.widget.sizeHint().width()
+
+    # The full value is still there to read and copy.
+    label = next(
+        child for child in long.widget.findChildren(QLabel) if child.text() == LONG_PATH
+    )
+
+    def ask_for_tooltip() -> str:
+        point = QPoint(2, 2)
+        help_event = QHelpEvent(QEvent.Type.ToolTip, point, label.mapToGlobal(point))
+        QApplication.sendEvent(label, help_event)
+        return label.toolTip()
+
+    label.resize(120, label.sizeHint().height())
+    assert label.is_elided()
+    assert ask_for_tooltip() == LONG_PATH
+    label.resize(label.fontMetrics().horizontalAdvance(LONG_PATH) + 20, 20)
+    assert not label.is_elided()
+    assert ask_for_tooltip() == ""
+
+
+def test_a_long_path_does_not_widen_the_qt_dock(qtbot, multiscale_image_store):
+    """The side dock asks for the same width whatever the path's length.
+
+    The dock is as wide as its content's minimum size hint, so one unbroken
+    value used to push it across most of the window, block collapsed or not.
+    """
+    from cellier.convenience.layout._qt_renderer import (
+        _scroll_dock_widget,
+        _wrap_dock_widget,
+    )
+
+    def dock_width(path: str) -> int:
+        viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+        viewer.add_image_multiscale(
+            multiscale_image_store,
+            appearance=MultiscaleImageAppearance(),
+            controls=MultiscaleImageControlsConfig(
+                appearance=["color_map"],
+                dataset_info=[("Path", path), ("Data type", "float32")],
+            ),
+            single=MultiscaleImageSingleAppearance(
+                color_map="viridis", clim=(0.0, 1.0)
+            ),
+        )
+        container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
+        content = _wrap_dock_widget(container, "left")
+        content.setMinimumWidth(QtLayoutHost.DEFAULT_DOCK_MIN_WIDTH)
+        area = _scroll_dock_widget(content)
+        return area.minimumSizeHint().width()
+
+    assert dock_width(LONG_PATH) == dock_width("a.zarr")

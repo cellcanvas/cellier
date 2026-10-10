@@ -43,6 +43,14 @@ jobs:
       # Empty elsewhere, which wgpu treats as unset.
       WGPU_BACKEND_TYPE: ${{ matrix.platform == 'windows-latest' && 'Vulkan' || '' }}
 
+      # Put pytest's tmp_path in the workspace (D:) on Windows. The default,
+      # the temp directory on C:, takes about 7 ms to sync a file, and the
+      # render tests write a few hundred zarr chunks each: 1.4 s a pyramid
+      # against 0.5 s here (scripts/ci_profiling/ci_profiling_investigation.md).
+      # A relative path, because pytest splits this like a shell would and a
+      # Windows path's backslashes would not survive.
+      PYTEST_ADDOPTS: ${{ matrix.platform == 'windows-latest' && '--basetemp=.pytest_basetemp' || '' }}
+
       # spatial-graph >=0.1.0 ships prebuilt rtree wheels,
       # but I was getting incompatible CPython errors.
       SPATIAL_GRAPH_NO_PREBUILT: "1"

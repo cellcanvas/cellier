@@ -21,6 +21,7 @@ from cellier.data._base_data_store import BaseDataStore, gridded_axis_extents
 from cellier.data._dataset_info import DatasetInfo, ome_zarr_dataset_info
 from cellier.data._tensorstore_cache import (
     DEFAULT_CACHE_POOL_BYTES,
+    DEFAULT_REQUEST_CONCURRENCY,
     Recheck,
     TensorStoreCacheMixin,
     recheck_spec_options,
@@ -182,8 +183,10 @@ def _open_ome_ts_stores(
         Context every level is opened on, so they share one chunk cache
         (:func:`~cellier.data._tensorstore_cache.build_context`).
     anonymous : bool
-        When True, use anonymous credentials for S3/GCS access
-        (for public buckets). Default False.
+        When True, read an ``s3://`` store without signing requests (for
+        public buckets).  ``gs://`` needs no setting: a public bucket is
+        read unauthenticated whenever no Google credentials are found.
+        Default False.
     recheck : bool
         Whether cached chunks are revalidated on read
         (:func:`~cellier.data._tensorstore_cache.recheck_spec_options`).
@@ -198,14 +201,13 @@ def _open_ome_ts_stores(
             "kvstore": _build_kvstore_spec(zarr_path, name),
             **recheck_spec_options(recheck),
         }
-        # Use anonymous credentials for public cloud buckets.
-        if anonymous and scheme in ("s3", "gs", "gcs"):
-            if scheme == "s3":
-                spec.setdefault("context", {})["aws_credentials"] = {
-                    "anonymous": True,
-                }
-            else:
-                spec.setdefault("context", {})["gcs_user_project"] = ""
+        # S3 needs to be told not to sign requests.  GCS does not: the
+        # ``gcs`` driver sends unauthenticated requests whenever it finds no
+        # credentials, and has no setting that forces it to.
+        if anonymous and scheme == "s3":
+            spec.setdefault("context", {})["aws_credentials"] = {
+                "type": "anonymous",
+            }
         store = ts.open(spec, context=context).result()
         stores.append(store)
     return stores
@@ -458,6 +460,8 @@ class OMEZarrImageDataStore(TensorStoreCacheMixin, BaseDataStore):
         series_index: int = 0,
         anonymous: bool = False,
         cache_pool_bytes: int = DEFAULT_CACHE_POOL_BYTES,
+        request_concurrency: int = DEFAULT_REQUEST_CONCURRENCY,
+        file_io_concurrency: int | None = None,
         recheck_cached_data: bool = False,
         data_coordinate_system: DataCoordinateSystem | None = None,
         name: str = "ome zarr image data store",
@@ -480,11 +484,20 @@ class OMEZarrImageDataStore(TensorStoreCacheMixin, BaseDataStore):
             For Bf2Raw containers, which image series to open.
             Ignored for standard Image stores. Defaults to 0.
         anonymous : bool
-            When True, use anonymous credentials for S3/GCS access
-            (for public buckets). Default False.
+            When True, read an ``s3://`` store without signing requests (for
+            public buckets).  ``gs://`` needs no setting: a public bucket is
+            read unauthenticated whenever no Google credentials are found.
+            Default False.
         cache_pool_bytes : int
             Chunk cache cap for this store, in bytes, shared by all of its
             resolution levels.  ``0`` disables caching.
+        request_concurrency : int
+            Requests outstanding at once against a remote kvstore.  Raise it
+            together with ``SchedulerConfig.max_in_flight``.  No effect on a
+            local store.
+        file_io_concurrency : int or None
+            Reads outstanding at once against the local filesystem.  ``None``
+            leaves tensorstore's default.  No effect on a remote store.
         recheck_cached_data : bool
             Revalidate cached chunks on every read.  Set it when another
             process writes this data while it is open.  Default False.
@@ -578,6 +591,8 @@ class OMEZarrImageDataStore(TensorStoreCacheMixin, BaseDataStore):
             physical_translation=physical_translation,
             anonymous=anonymous,
             cache_pool_bytes=cache_pool_bytes,
+            request_concurrency=request_concurrency,
+            file_io_concurrency=file_io_concurrency,
             recheck_cached_data=recheck_cached_data,
             name=name,
         )
