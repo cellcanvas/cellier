@@ -25,6 +25,7 @@ import pygfx as gfx
 
 from cellier.transform import AffineTransform
 from cellier.visuals import RenderPlane
+from tests.render._pick import PickFrame
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -113,10 +114,24 @@ class Shot:
     ray_origin: np.ndarray
     ray_vector: np.ndarray
     canvas: object = field(repr=False, default=None)
+    _picks: PickFrame | None = field(repr=False, default=None)
 
     @property
     def drawn(self) -> np.ndarray:
         return self.frame[..., 3] > 0
+
+    def pick_info(self, row: int, col: int) -> dict:
+        """What ``renderer.get_pick_info`` gives at a pixel, less ``"rgba"``.
+
+        The pick target is read back once, at the first pick, and every pick
+        after that is decoded from the copy: a round trip to the GPU per
+        pixel made the pick tests the slowest on a real GPU (see
+        ``tests/render/_pick.py``).  A shot is of one frame; drawing again
+        with its renderer does not update the copy.
+        """
+        if self._picks is None:
+            self._picks = PickFrame(self.renderer)
+        return self._picks.info((col + 0.5, row + 0.5))
 
 
 def shoot(
@@ -394,7 +409,7 @@ def compare_greys(
 
 def pick_voxel(shot: Shot, gfx_visual, row: int, col: int):
     """The data voxel ``(z, y, x)`` a pick at a pixel names, or ``None``."""
-    info = shot.renderer.get_pick_info((col + 0.5, row + 0.5))
+    info = shot.pick_info(row, col)
     coordinate = gfx_visual.pick_data_coordinate(info.get("world_object"), info)
     if coordinate is None:
         return None
@@ -407,7 +422,7 @@ def pick_coordinate(shot: Shot, gfx_visual, row: int, col: int):
 
     In the centre convention (voxel ``i`` spans ``[i - 0.5, i + 0.5)``).
     """
-    info = shot.renderer.get_pick_info((col + 0.5, row + 0.5))
+    info = shot.pick_info(row, col)
     coordinate = gfx_visual.pick_data_coordinate(info.get("world_object"), info)
     if coordinate is None:
         return None

@@ -78,7 +78,11 @@ class Rig:
         self.view = self.views[0]
 
         self.requested = [False] * n_canvases
+        self.request_count = [0] * n_canvases
         self.frames = [0] * n_canvases
+        #: Per canvas, whether the last `step` drew a frame that showed
+        #: something new (see `step`).
+        self.changed = [False] * n_canvases
         for index, view in enumerate(self.views):
             self._track_requests(index, view)
 
@@ -133,6 +137,7 @@ class Rig:
 
         def request_draw(draw_function=None):
             self.requested[index] = True
+            self.request_count[index] += 1
             return original(draw_function)
 
         canvas.request_draw = request_draw
@@ -154,18 +159,38 @@ class Rig:
         self.views[canvas].widget.submit_event(event)
 
     def step(self, *, draw: bool = True) -> list[bool]:
-        """One vsync: advance the clock, deliver input, draw what asked to."""
+        """One vsync: advance the clock, deliver input, draw what asked to.
+
+        Returns which canvases drew.  ``self.changed`` says which of those
+        frames showed something new: all of them, but for the frame of a
+        button held still.  While a button is down pygfx's controller keeps
+        reporting a state and the canvas asks for the next frame each time,
+        camera moving or not, so "nothing asked for a frame" never comes;
+        the loops that wait for quiet (`run_until_idle`, the tail of
+        `press_and_move_now`) wait on ``changed`` instead.  Such a frame is
+        one the controller drove, that left the camera where it was, and
+        after which nothing but the controller asked for another.
+        """
         self.clock.now += DT
         drawn = []
         for index, view in enumerate(self.views):
             view.widget._process_events()
             if draw and self.requested[index]:
                 self.requested[index] = False
+                before = view.capture_camera_state()
+                requests = self.request_count[index]
                 view.widget.draw()
                 self.frames[index] += 1
                 drawn.append(True)
+                held_still = (
+                    view._driving
+                    and self.request_count[index] - requests == 1
+                    and view.capture_camera_state() == before
+                )
+                self.changed[index] = not held_still
             else:
                 drawn.append(False)
+                self.changed[index] = False
         return drawn
 
     async def run(self, n: int, **kwargs) -> None:
@@ -176,7 +201,8 @@ class Rig:
     async def run_until_idle(self, limit: int = 400) -> None:
         idle = 0
         for _ in range(limit):
-            if any(self.step()):
+            self.step()
+            if any(self.changed):
                 idle = 0
             else:
                 idle += 1
@@ -237,7 +263,8 @@ class Rig:
             self.step()
         idle = 0
         for _ in range(400 if tail else 0):
-            idle = 0 if any(self.step()) else idle + 1
+            self.step()
+            idle = 0 if any(self.changed) else idle + 1
             if idle >= 5:
                 break
         return x
