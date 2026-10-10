@@ -14,7 +14,6 @@ on:
       tests:
         description: "Test files to profile (space separated)"
         default: >-
-          tests/convenience/test_plane_rendering_examples.py
           tests/render/test_render_plane_gizmo.py
           tests/render/test_multiscale_level_alignment.py
           tests/render/test_plane_planning.py
@@ -133,7 +132,6 @@ jobs:
       WGPU_BACKEND_TYPE: ${{ matrix.platform == 'windows-latest' && 'Vulkan' || '' }}
       SPATIAL_GRAPH_NO_PREBUILT: "1"
       DEFAULT_TESTS: >-
-        tests/convenience/test_plane_rendering_examples.py
         tests/render/test_render_plane_gizmo.py
         tests/render/test_multiscale_level_alignment.py
         tests/render/test_plane_planning.py

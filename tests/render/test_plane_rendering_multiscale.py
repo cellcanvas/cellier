@@ -34,9 +34,33 @@ from tests.render.conftest import drain_loading
 # -- the right voxel -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("spec_name", list(SPECS))
-@pytest.mark.parametrize("pose", list(POSES))
-@pytest.mark.parametrize("level", [0, 1, 2])
+#: The pyramid every pose is drawn on: the one that never downsamples z,
+#: where a plane along an axis and the anisotropy meet.
+EVERY_POSE = "aniso"
+
+
+def _level_cases() -> list:
+    """Every pyramid with the oblique plane; one pyramid with every pose.
+
+    The pyramids differ in how a level's voxels map to level 0, which is
+    what this test is about, so each is drawn at every level, through the
+    oblique plane: the pose that crosses every axis.  The two poses along an
+    axis are drawn on `EVERY_POSE` only.  The full cross was 36 cases.
+    """
+    cases = [(level, "oblique", name) for name in SPECS for level in (0, 1, 2)]
+    cases += [
+        (level, pose, EVERY_POSE)
+        for pose in POSES
+        if pose != "oblique"
+        for level in (0, 1, 2)
+    ]
+    return [
+        pytest.param(level, pose, name, id=f"{level}-{pose}-{name}")
+        for level, pose, name in cases
+    ]
+
+
+@pytest.mark.parametrize(("level", "pose", "spec_name"), _level_cases())
 async def test_an_image_plane_shows_the_voxel_of_the_level_drawn(
     controller, tmp_path, spec_name, pose, level
 ):

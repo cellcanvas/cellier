@@ -79,8 +79,28 @@ def _look_at_the_cut(camera, world_planes) -> None:
     camera.look_at(tuple(h.CENTRE))
 
 
-@pytest.mark.parametrize("case", list(CASES))
-@pytest.mark.parametrize("kind", KINDS)
+#: Kinds every arrangement is drawn for: one image and one labels kind, both
+#: multiscale.
+ALL_ARRANGEMENTS = ("image_multiscale_iso", "labels_multiscale")
+
+
+def _cases() -> list:
+    """Every kind at the corner; two kinds with every arrangement.
+
+    Three planes meeting at a corner is the arrangement with the most to get
+    wrong (which plane a face belongs to), so every kind has it.  The plane
+    arithmetic is shared by the volume shaders, so one plane on an axis, one
+    oblique and two at an edge are drawn for the kinds of `ALL_ARRANGEMENTS`
+    only.  The full cross was 24 cases.
+    """
+    cases = [(kind, "corner") for kind in KINDS]
+    cases += [
+        (kind, case) for kind in ALL_ARRANGEMENTS for case in CASES if case != "corner"
+    ]
+    return [pytest.param(*case, id="-".join(case)) for case in cases]
+
+
+@pytest.mark.parametrize(("kind", "case"), _cases())
 async def test_the_cut_face_is_on_the_plane_with_its_normal(
     kind, case, controller, reslice, tmp_path
 ):
