@@ -8,13 +8,17 @@ Download a run's artifacts, then point this at the directory:
     python scripts/ci_profiling/compare.py timings profile_out --variant baseline
     python scripts/ci_profiling/compare.py profiles profile_out test_plane_planning
 
-The directory holds one ``profile-<platform>`` folder per job:
+The directory holds a ``probes-<platform>`` and a ``profile-<platform>``
+folder per platform:
 
-    probe_render.json, probe_file_io.json
-    junit/<variant>.xml      per-test times (setup + call + teardown)
-    prof/<test file>.prof    cProfile of one test file
+    probes-<platform>/
+        machine_info.txt, probe_render.json, probe_file_io.json,
+        probe_gpu_calls.json, probe_chunk_read.json
+    profile-<platform>/
+        junit/<variant>.xml      per-test times (setup + call + teardown)
+        prof/<test file>.prof    cProfile of one test file
 
-``probes``    the two micro-probes, side by side.
+``probes``    the micro-probes, side by side.
 ``variants``  seconds per test file, for every variant of every platform.
 ``timings``   the test files and tests one platform is slowest at.
 ``profiles``  the functions a test file spends its own time in, per platform.
@@ -30,17 +34,26 @@ from collections import defaultdict
 from pathlib import Path
 
 PREFIX = "profile-"
+PROBES_PREFIX = "probes-"
 
 
-def _platforms(root: Path) -> dict[str, Path]:
+def _platforms(root: Path, prefix: str = PREFIX) -> dict[str, Path]:
     found = {
-        p.name.removeprefix(PREFIX): p
+        p.name.removeprefix(prefix): p
         for p in sorted(root.iterdir())
-        if p.is_dir() and p.name.startswith(PREFIX)
+        if p.is_dir() and p.name.startswith(prefix)
     }
     if not found:
-        raise SystemExit(f"no {PREFIX}* folders under {root}")
+        raise SystemExit(f"no {prefix}* folders under {root}")
     return found
+
+
+def _probe_folders(root: Path) -> dict[str, Path]:
+    """The folders holding probe results: ``probes-*``, else ``profile-*``."""
+    try:
+        return _platforms(root, PROBES_PREFIX)
+    except SystemExit:
+        return _platforms(root)
 
 
 def _junit(path: Path) -> dict[str, float]:
@@ -71,7 +84,7 @@ def _table(header: list[str], rows: list[list], width: int = 62) -> None:
 
 
 def probes(root: Path) -> None:
-    platforms = _platforms(root)
+    platforms = _probe_folders(root)
     print("## render probe (ms)")
     rows = []
     for name, folder in platforms.items():
@@ -103,6 +116,41 @@ def probes(root: Path) -> None:
             rows.append([f"{name}  {directory}"] + [float(row[k]) for k in keys])
     short = [k.removesuffix("_ms").replace("tensorstore", "ts") for k in keys]
     _table(["platform / directory", *short], rows)
+
+    per = {}
+    for name, folder in platforms.items():
+        path = folder / "probe_gpu_calls.json"
+        if path.exists():
+            per[name] = json.loads(path.read_text())["calls"]
+    if per:
+        print("\n## single wgpu calls (median ms per call)")
+        calls = list(dict.fromkeys(c for v in per.values() for c in v))
+        rows = [
+            [c] + [float(per[n][c]["median_ms"]) if c in per[n] else "-" for n in per]
+            for c in calls
+        ]
+        _table(["call", *per], rows, width=44)
+
+    rows = []
+    keys = []
+    for name, folder in platforms.items():
+        path = folder / "probe_chunk_read.json"
+        if not path.exists():
+            continue
+        for directory, cases in json.loads(path.read_text())["directories"].items():
+            for case, row in cases.items():
+                keys = [k for k in row if k.endswith("_ms")]
+                rows.append(
+                    [f"{name}  {case}  {directory}"] + [float(row[k]) for k in keys]
+                )
+    if rows:
+        print("\n## brick reads (ms)")
+        _table(["platform / dataset / directory", *[k[:-3] for k in keys]], rows)
+
+    for name, folder in platforms.items():
+        path = folder / "machine_info.txt"
+        if path.exists():
+            print(f"\n## machine: {name}\n{path.read_text().rstrip()}")
 
 
 def variants(root: Path) -> None:

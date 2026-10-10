@@ -220,10 +220,22 @@ async def make_rig(
     fov: float | None = None,
     size: tuple[int, int] = SIZE,
     block_size: int = BLOCK,
+    root=None,
 ) -> Rig:
-    root = tmp_path / "pyramid"
-    root.mkdir(parents=True, exist_ok=True)
-    write_levels(root, spec, labels=labels, fill=fill)
+    """Build a rig over a pyramid of *spec*.
+
+    By default the pyramid is written under *tmp_path* with `write_levels`.
+    Pass *root*, a pyramid of *spec* already on disk (the session's
+    ``pyramid_root(spec)``, say), to write nothing: for tests that plan but
+    never look at a voxel's value, since that pyramid holds another pattern.
+    *tmp_path* and *fill* are then unused, and the store must not be written.
+    """
+    if root is None:
+        root = tmp_path / "pyramid"
+        root.mkdir(parents=True, exist_ok=True)
+        write_levels(root, spec, labels=labels, fill=fill)
+    elif fill is not None:
+        raise ValueError("fill has no effect on a pyramid that is already written")
     store, voxel = fx.open_pyramid(root, spec)
     scene = controller.add_scene(dim="3d", name="scene")
     world = h.world_of(controller, scene)

@@ -25,6 +25,23 @@ def _track_instances(monkeypatch, cls) -> list[weakref.ref]:
     return created
 
 
+def pytest_report_header(config):
+    """Say which coverage core this run measures with, if it measures.
+
+    ``SysMonitor`` is cheap; ``CTracer`` and ``PyTracer`` pay a call on
+    every line run and make a CI job half again as slow
+    (``scripts/ci_profiling/ci_profiling_investigation.md``).
+    """
+    try:
+        import coverage
+    except ImportError:
+        return None
+    cov = coverage.Coverage.current()
+    if cov is None:
+        return None
+    return f"coverage core: {dict(cov.sys_info()).get('core')}"
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_pyfunc_call(pyfuncitem):
     """Give rendercanvas its asyncgen hooks back after an async test.

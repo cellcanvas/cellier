@@ -4,7 +4,8 @@ name: Profile
 # CI: run it by hand (Actions -> Profile -> Run workflow), or push a change to
 # this file or to scripts/ci_profiling/ in a pull request.
 #
-# Each platform uploads a `profile-<platform>` artifact; compare them with
+# Each platform uploads a `probes-<platform>` artifact (the micro-probes, a
+# few minutes) and a `profile-<platform>` one; compare them with
 # scripts/ci_profiling/compare.py (see its docstring).
 
 on:
@@ -31,6 +32,94 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Minutes, not tens of minutes: the micro-probes alone, so their numbers are
+  # in before the profile job below is done. Uploads `probes-<platform>`.
+  probes:
+    name: probes ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, macos-latest, windows-latest]
+
+    env:
+      # As in ci.yml.
+      WGPU_BACKEND_TYPE: ${{ matrix.platform == 'windows-latest' && 'Vulkan' || '' }}
+      SPATIAL_GRAPH_NO_PREBUILT: "1"
+      OUT: probes_out
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The environment below is ci.yml's, step for step, so the numbers are
+      # the ones CI sees.
+      - name: Set up headless GUI
+        uses: pyvista/setup-headless-display-action@v5
+        with:
+          qt: true
+
+      - name: Install llvmpipe and lavapipe for offscreen canvas
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt install -y libegl1-mesa-dev libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+
+      - name: Install lavapipe for offscreen canvas
+        if: matrix.platform == 'windows-latest'
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          install_lavapipe: true
+          stripdown: true
+          cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache-dependency-path: "pyproject.toml"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install .[test,pyside,remote,anywidget,examples,graph]
+
+      - name: Machine
+        run: |
+          mkdir -p "$OUT"
+          python -c "from pygfx.renderers.wgpu import get_shared; print('adapter:', get_shared().device.adapter.summary)"
+          python scripts/ci_profiling/machine_info.py | tee "$OUT/machine_info.txt"
+
+      # No cellier code involved in the first three.
+      - name: Probe - file writes
+        if: always()
+        run: python scripts/ci_profiling/probe_file_io.py --out "$OUT/probe_file_io.json"
+
+      - name: Probe - frame time
+        if: always()
+        run: python scripts/ci_profiling/probe_render.py --thread-sweep default,1,2,4 --out "$OUT/probe_render.json"
+
+      - name: Probe - single wgpu calls
+        if: always()
+        run: python scripts/ci_profiling/probe_gpu_calls.py --out "$OUT/probe_gpu_calls.json"
+
+      # Reads the datasets of two test files through cellier's stores.
+      - name: Probe - brick reads
+        if: always()
+        run: python scripts/ci_profiling/probe_chunk_read.py --out "$OUT/probe_chunk_read.json"
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: probes-${{ matrix.platform }}
+          path: ${{ env.OUT }}
+          if-no-files-found: error
+
   profile:
     name: profile ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
@@ -97,16 +186,7 @@ jobs:
           echo "TESTS=${INPUT_TESTS:-$DEFAULT_TESTS}" >> "$GITHUB_ENV"
           python -c "import os, platform, tempfile; print(platform.platform()); print('cpus:', os.cpu_count()); print('temp:', tempfile.gettempdir()); print('cwd:', os.getcwd())"
           python -c "from pygfx.renderers.wgpu import get_shared; print('adapter:', get_shared().device.adapter.summary)"
-
-      # --- Micro-probes: seconds each, no cellier code involved -------------
-
-      - name: Probe - file writes
-        if: always()
-        run: python scripts/ci_profiling/probe_file_io.py --out "$OUT/probe_file_io.json"
-
-      - name: Probe - frame time
-        if: always()
-        run: python scripts/ci_profiling/probe_render.py --thread-sweep default,1,2,4 --out "$OUT/probe_render.json"
+          python scripts/ci_profiling/machine_info.py
 
       # --- cProfile of each test file ---------------------------------------
       # Also warms every cache, so the timed runs below start equal.

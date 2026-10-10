@@ -35,6 +35,15 @@ _SLIDER_STEPS = 1000
 _OUTSIDE_COLOR = "#d08020"
 #: The label of each extent side, by ``side`` (0 the minimum, 1 the maximum).
 _SIDE_NAMES = ("min", "max")
+#: The least width of an extent side's number, in pixels.  Its range would
+#: otherwise size it for a ten digit number and widen the whole dock.
+_SIDE_WIDTH = 90
+#: The gap between a side's number and its toggle, and what the gap between
+#: the two sides has on top of it, in pixels.
+_SIDE_GAP = 4
+_SIDES_GAP = 6
+#: The text of an extent side's "unbounded" toggle.
+_UNBOUNDED_TEXT = "inf"
 
 
 class _PlaneRow:
@@ -43,8 +52,10 @@ class _PlaneRow:
     The normal is laid out one column per axis of the plane: two buttons
     named after the axis (``+z`` and ``-z`` for an axis ``z``) that face the
     plane along it, and under them the normal's entry on it.  Under the
-    position, one line per in-plane axis with its two extent sides, and
-    last the plane's outline: a box that draws it and its colour.
+    position, the extents: a column per side (``min`` and ``max``) and a
+    line per in-plane axis, each side a number and an ``inf`` toggle that
+    makes it unbounded.  Last the plane's outline: a box that draws it and
+    its colour.
     """
 
     def __init__(self, owner: QtRenderPlanesControls, index: int, parent) -> None:
@@ -56,6 +67,7 @@ class _PlaneRow:
             QHBoxLayout,
             QLabel,
             QPushButton,
+            QSizePolicy,
             QSlider,
             QToolButton,
             QWidget,
@@ -163,9 +175,17 @@ class _PlaneRow:
         grid.addLayout(along, 3, 1, 1, 3)
 
         #: ``(in-plane axis, side)`` -> the side's value, and its
-        #: "unbounded" box.
+        #: "unbounded" toggle.
         self.sides: dict[tuple[int, int], Any] = {}
         self.unbounded: dict[tuple[int, int], Any] = {}
+
+        def narrow(widget) -> None:
+            # As wide as its share of the line, and no narrower than
+            # ``_SIDE_WIDTH``; its own size hint is not asked.
+            widget.setMinimumWidth(_SIDE_WIDTH)
+            widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+
+        toggle_width = 0
         for axis in (0, 1):
             label = QLabel(f"Extent {axis}", self.widget)
             label.setToolTip(
@@ -173,9 +193,12 @@ class _PlaneRow:
                 f"axis {axis}, in world units. An unbounded side ends at the "
                 "data."
             )
-            grid.addWidget(label, 4 + axis, 0)
+            grid.addWidget(label, 5 + axis, 0)
             line = QHBoxLayout()
+            line.setSpacing(_SIDE_GAP)
             for side in (0, 1):
+                if side:
+                    line.addSpacing(_SIDES_GAP)
                 value = QDoubleSpinBox(self.widget)
                 value.setDecimals(2)
                 value.setRange(-1e9, 1e9)
@@ -184,22 +207,41 @@ class _PlaneRow:
                 value.valueChanged.connect(
                     lambda v, a=axis, s=side: editor.set_side(self.index, a, s, v)
                 )
-                box = QCheckBox("unbounded", self.widget)
+                narrow(value)
+                box = QToolButton(self.widget)
+                box.setText(_UNBOUNDED_TEXT)
+                box.setCheckable(True)
                 box.setToolTip(
-                    f"No {_SIDE_NAMES[side]}: the plane ends at the data on "
-                    "this side. Unticking fills in where the data ends now."
+                    f"Unbounded: no {_SIDE_NAMES[side]}, the plane ends at the "
+                    "data on this side. Switching it off fills in where the "
+                    "data ends now."
                 )
                 box.toggled.connect(
                     lambda on, a=axis, s=side: editor.set_side_bounded(
                         self.index, a, s, not on
                     )
                 )
-                line.addWidget(QLabel(_SIDE_NAMES[side], self.widget))
+                toggle_width = max(toggle_width, box.sizeHint().width())
                 line.addWidget(value, 1)
                 line.addWidget(box)
                 self.sides[(axis, side)] = value
                 self.unbounded[(axis, side)] = box
-            grid.addLayout(line, 4 + axis, 1, 1, 3)
+            grid.addLayout(line, 5 + axis, 1, 1, 3)
+
+        # The column heads: each as wide as the number under it, then the
+        # width of the toggle beside that.
+        heads = QHBoxLayout()
+        heads.setSpacing(0)
+        for side in (0, 1):
+            if side:
+                heads.addSpacing(_SIDES_GAP + _SIDE_GAP)
+            head = QLabel(_SIDE_NAMES[side], self.widget)
+            narrow(head)
+            heads.addWidget(head, 1)
+            heads.addSpacing(_SIDE_GAP + toggle_width)
+        for box in self.unbounded.values():
+            box.setFixedWidth(toggle_width)
+        grid.addLayout(heads, 4, 1, 1, 3)
 
         #: The outline's check box and colour button.
         self.outline = OutlineInputs(
@@ -207,8 +249,8 @@ class _PlaneRow:
             lambda on: editor.set_outline_enabled(self.index, on),
             lambda color: editor.set_outline_color(self.index, color),
         )
-        grid.addWidget(self.outline.enabled, 6, 0)
-        grid.addLayout(self.outline.layout, 6, 1, 1, 3)
+        grid.addWidget(self.outline.enabled, 7, 0)
+        grid.addLayout(self.outline.layout, 7, 1, 1, 3)
 
         self._inputs = (
             self.enabled,
@@ -301,7 +343,8 @@ class QtRenderPlanesControls(VisualIdGroup):
     checkbox, a flip button, a remove button, the normal (two buttons and an
     entry per axis of the plane), a position slider along the normal, and
     for each of the plane's two in-plane axes a minimum and a maximum, each
-    with an "unbounded" box.  Values are in world units.  Given
+    with an "inf" toggle that makes it unbounded.  Values are in world
+    units.  Given
     *gizmo_target*, a row also has a "Gizmo" toggle that puts the canvas's
     gizmo on its plane; one plane of a canvas has it at a time, clipping
     planes included.

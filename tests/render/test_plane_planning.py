@@ -210,13 +210,20 @@ def _pixels_per_voxel(rig, rows, request, plane, sizes_of=None) -> np.ndarray:
     return size[rows[:, 0] - 1] * _focal(request) / distance
 
 
-async def _plane_rig(controller, tmp_path, spec, normals, **kwargs):
+async def _plane_rig(controller, pyramid_root, spec, normals, **kwargs):
+    """A rig over the session's shared pyramid of *spec*.
+
+    These tests plan and never look at a voxel's value, so they need no
+    pyramid of their own: writing one each was most of this file's time on
+    the Windows runners.
+    """
     return await make_rig(
         controller,
-        tmp_path,
+        None,
         spec,
         lambda world, centre: [h.plane_zyx(world, centre, n) for n in normals],
         size=VIEW,
+        root=pyramid_root(spec, labels=kwargs.get("labels", False)),
         **kwargs,
     )
 
@@ -224,10 +231,10 @@ async def _plane_rig(controller, tmp_path, spec, normals, **kwargs):
 @pytest.mark.parametrize("spec", [fx.ANISO, fx.ISO], ids=["aniso", "iso"])
 @pytest.mark.parametrize("pose", list(POSES))
 async def test_the_plane_rule_draws_about_a_pixel_per_voxel(
-    controller, tmp_path, spec, pose
+    controller, pyramid_root, spec, pose
 ):
     """Level rule (14.8): 0.7 to 1.6 screen pixels per voxel at bias 1.0."""
-    rig = await _plane_rig(controller, tmp_path, spec, [POSES[pose]])
+    rig = await _plane_rig(controller, pyramid_root, spec, [POSES[pose]])
     (desired,), request = rig.plan()
     rows = target_rows(desired)
     assert len(rows) > 4
@@ -244,11 +251,11 @@ async def test_the_plane_rule_draws_about_a_pixel_per_voxel(
 
 @pytest.mark.parametrize("pose", list(POSES))
 async def test_the_3d_rule_is_several_pixels_per_voxel_coarse_on_a_plane(
-    controller, tmp_path, pose
+    controller, pyramid_root, pose
 ):
     """Why 6.3 exists: on a pyramid that never downsamples z the shipping
     thresholds, applied to the same bricks, pick levels far too coarse."""
-    rig = await _plane_rig(controller, tmp_path, fx.ANISO, [POSES[pose]])
+    rig = await _plane_rig(controller, pyramid_root, fx.ANISO, [POSES[pose]])
     (desired,), request = rig.plan()
     plane_rows = target_rows(desired)
     by_plane_rule = np.median(
@@ -280,8 +287,10 @@ async def test_the_3d_rule_is_several_pixels_per_voxel_coarse_on_a_plane(
 
 
 @pytest.mark.parametrize("pose", ["xz", "oblique"])
-async def test_the_plan_does_not_depend_on_the_frame_s_spin(controller, tmp_path, pose):
-    rig = await _plane_rig(controller, tmp_path, fx.ANISO, [POSES[pose]])
+async def test_the_plan_does_not_depend_on_the_frame_s_spin(
+    controller, pyramid_root, pose
+):
+    rig = await _plane_rig(controller, pyramid_root, fx.ANISO, [POSES[pose]])
     start = rig.planes[0]
     plans = []
     for spin in (0.0, 22.5, 45.0, 90.0):
@@ -305,11 +314,11 @@ async def test_the_plan_does_not_depend_on_the_frame_s_spin(controller, tmp_path
 
 
 async def test_no_plane_is_drawn_coarser_than_asked_when_there_are_several(
-    controller, tmp_path
+    controller, pyramid_root
 ):
     """One set of thresholds serves the visual: the finest any plane asks."""
     normals = [POSES["xy"], POSES["xz"]]
-    rig = await _plane_rig(controller, tmp_path, fx.ANISO, normals)
+    rig = await _plane_rig(controller, pyramid_root, fx.ANISO, normals)
     (desired,), request = rig.plan()
     rows = target_rows(desired)
     for plane in rig.planes:
@@ -338,7 +347,7 @@ CULL_CASES = {
 @pytest.mark.parametrize("case", list(CULL_CASES))
 @pytest.mark.parametrize("bias", [1.0, 0.5])
 async def test_the_cull_first_plane_plan_equals_ranking_every_brick_then_culling(
-    controller, tmp_path, case, bias
+    controller, pyramid_root, case, bias
 ):
     """Cull equivalence (14.8): the same rows in the same order."""
     options = CULL_CASES[case]
@@ -355,10 +364,11 @@ async def test_the_cull_first_plane_plan_equals_ranking_every_brick_then_culling
 
     rig = await make_rig(
         controller,
-        tmp_path,
+        None,
         fx.ANISO,
         planes,
         size=VIEW,
+        root=pyramid_root(fx.ANISO),
         clipping=options.get("clipping", ()),
         appearance={"settled_lod_bias": bias},
     )
@@ -435,10 +445,10 @@ async def test_the_cull_first_plane_plan_equals_ranking_every_brick_then_culling
     )
 
 
-async def test_force_level_replaces_the_plane_rule(controller, tmp_path):
+async def test_force_level_replaces_the_plane_rule(controller, pyramid_root):
     rig = await _plane_rig(
         controller,
-        tmp_path,
+        pyramid_root,
         fx.ANISO,
         [POSES["oblique"]],
         appearance={"force_level": 3},
@@ -453,24 +463,24 @@ async def test_force_level_replaces_the_plane_rule(controller, tmp_path):
 
 
 @pytest.mark.parametrize("normals", [[POSES["oblique"]], list(POSES.values())])
-async def test_one_channel_fits_the_cache(controller, tmp_path, normals):
-    rig = await _plane_rig(controller, tmp_path, fx.ANISO, normals)
+async def test_one_channel_fits_the_cache(controller, pyramid_root, normals):
+    rig = await _plane_rig(controller, pyramid_root, fx.ANISO, normals)
     (desired,), _request = rig.plan()
     assert len(target_rows(desired)) > 4
     assert desired.n_truncated_target == 0
 
 
-async def test_a_plan_over_the_budget_is_truncated_nearest_first(controller, tmp_path):
+async def test_a_plan_over_the_budget_is_truncated_nearest_first(
+    controller, pyramid_root
+):
     """D-P10: a plan over the budget is truncated; the part of the plane
     farthest from the camera, in world units, is left to the backstop."""
     normals = [POSES["oblique"]]
-    full = await _plane_rig(controller, tmp_path / "full", fx.ANISO, normals)
+    full = await _plane_rig(controller, pyramid_root, fx.ANISO, normals)
     (wanted,), request = full.plan()
     wanted_rows = target_rows(wanted)
-
-    (tmp_path / "small").mkdir()
     small = await _plane_rig(
-        controller, tmp_path / "small", fx.ANISO, normals, budget=2 * 1024**2
+        controller, pyramid_root, fx.ANISO, normals, budget=2 * 1024**2
     )
     (desired,), _request = small.plan()
     kept = target_rows(desired)
@@ -491,7 +501,7 @@ async def test_a_plan_over_the_budget_is_truncated_nearest_first(controller, tmp
 
 
 async def test_foreshortening_plans_at_most_half_again_as_many_bricks(
-    controller, tmp_path
+    controller, pyramid_root
 ):
     """B8: a plane seen at a slant is planned finer than the screen shows,
     never coarser, and within 1.6 times the face-on count.
@@ -501,7 +511,7 @@ async def test_foreshortening_plans_at_most_half_again_as_many_bricks(
     the near half into the next band is a fourfold step there and no step
     at the next distance.
     """
-    rig = await _plane_rig(controller, tmp_path, fx.ANISO, [POSES["xy"]])
+    rig = await _plane_rig(controller, pyramid_root, fx.ANISO, [POSES["xy"]])
     distances = [2.0 ** (step / 4.0) for step in range(-4, 6)]
     totals = {}
     for tilt in (0.0, 35.0, 60.0, 75.0, 85.0):
@@ -526,9 +536,9 @@ async def test_foreshortening_plans_at_most_half_again_as_many_bricks(
 
 @pytest.mark.parametrize("pose", list(POSES))
 async def test_an_orthographic_plane_takes_one_level_in_the_2d_rule_s_band(
-    controller, tmp_path, pose
+    controller, pyramid_root, pose
 ):
-    rig = await _plane_rig(controller, tmp_path, fx.ANISO, [POSES[pose]], fov=0.0)
+    rig = await _plane_rig(controller, pyramid_root, fx.ANISO, [POSES[pose]], fov=0.0)
     (desired,), request = rig.plan()
     rows = target_rows(desired)
     assert len(rows) > 2
@@ -552,21 +562,17 @@ async def test_an_orthographic_plane_takes_one_level_in_the_2d_rule_s_band(
 
 
 async def test_an_orthographic_plan_that_does_not_fit_takes_a_coarser_level(
-    controller, tmp_path
+    controller, pyramid_root
 ):
     """P19 (D-P48): step to the next coarser level until the plan fits."""
     normals = [POSES["oblique"]]
     kwargs = {"fov": 0.0, "appearance": {"settled_lod_bias": 0.25}}
-    roomy = await _plane_rig(
-        controller, tmp_path / "roomy", fx.ANISO, normals, **kwargs
-    )
+    roomy = await _plane_rig(controller, pyramid_root, fx.ANISO, normals, **kwargs)
     (wanted,), _request = roomy.plan()
     rule_level = int(target_rows(wanted)[0, 0])
     assert roomy.planner._last_plane_plan["levels_stepped"] == 0
-
-    (tmp_path / "tight").mkdir()
     tight = await _plane_rig(
-        controller, tmp_path / "tight", fx.ANISO, normals, budget=2 * 1024**2, **kwargs
+        controller, pyramid_root, fx.ANISO, normals, budget=2 * 1024**2, **kwargs
     )
     (desired,), _request = tight.plan()
     rows = target_rows(desired)
@@ -584,10 +590,12 @@ async def test_an_orthographic_plan_that_does_not_fit_takes_a_coarser_level(
     assert desired.n_truncated_target == 0
 
 
-async def test_a_perspective_plan_over_the_budget_is_not_stepped(controller, tmp_path):
+async def test_a_perspective_plan_over_the_budget_is_not_stepped(
+    controller, pyramid_root
+):
     rig = await _plane_rig(
         controller,
-        tmp_path,
+        pyramid_root,
         fx.ANISO,
         [POSES["oblique"]],
         budget=2 * 1024**2,
@@ -601,13 +609,10 @@ async def test_a_perspective_plan_over_the_budget_is_not_stepped(controller, tmp
 # -- labels, composite ---------------------------------------------------------------
 
 
-async def test_labels_plan_the_same_bricks_as_an_image(controller, tmp_path):
+async def test_labels_plan_the_same_bricks_as_an_image(controller, pyramid_root):
     normals = [POSES["oblique"]]
-    image = await _plane_rig(controller, tmp_path / "image", fx.ANISO, normals)
-    (tmp_path / "labels").mkdir()
-    labels = await _plane_rig(
-        controller, tmp_path / "labels", fx.ANISO, normals, labels=True
-    )
+    image = await _plane_rig(controller, pyramid_root, fx.ANISO, normals)
+    labels = await _plane_rig(controller, pyramid_root, fx.ANISO, normals, labels=True)
     (of_image,), _ = image.plan()
     (of_labels,), _ = labels.plan()
     assert len(target_rows(of_image)) > 4
