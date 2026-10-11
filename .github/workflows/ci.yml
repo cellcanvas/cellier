@@ -118,7 +118,7 @@ jobs:
           " >> "$GITHUB_OUTPUT"
 
       - name: Restore compiled graph modules
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .witty_cache
           key: witty-${{ runner.os }}-${{ runner.arch }}-py${{ matrix.python-version }}-${{ steps.witty.outputs.versions }}
