@@ -13,6 +13,7 @@ import logging
 
 import pytest
 
+from cellier.gui._loading import loading_config_fields
 from cellier.visuals import ProgressiveLoadingConfig
 from tests.render.conftest import drain_loading
 from tests.render.scheduling.test_backstop_integration import _add
@@ -76,7 +77,8 @@ def _shown(widget) -> dict:
     """The values the control shows, as control values."""
     if hasattr(widget, "input"):
         out = {}
-        for name in ProgressiveLoadingConfig.model_fields:
+        # The control's own rows: not every config field has one.
+        for name in (row.name for row in loading_config_fields()):
             control = widget.input(name)
             if hasattr(control, "isChecked"):
                 out[name] = control.isChecked()

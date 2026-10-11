@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 
+from cellier.events._events import loading_stage, sum_intermediate
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
@@ -41,10 +43,19 @@ class Tier(enum.IntEnum):
 
 
 class ChunkClass(enum.IntEnum):
-    """The request class; higher is more important."""
+    """The request class: a priority, where higher is more important.
+
+    ``TARGET`` and ``BACKSTOP`` are the two ends.  The values between them
+    are plain integers: an intermediate stage of offset ``k`` (``k`` levels
+    coarser than the target) has class ``k``, so a coarser stage, which is
+    cheaper, loads first
+    (``plans/progressive_intermediate_level_design_v2.md`` 5.1).  The
+    registry column is ``uint8``, so an offset is at most 254.  Nothing
+    assumes how many classes there are.
+    """
 
     TARGET = 0
-    BACKSTOP = 1
+    BACKSTOP = 255
 
 
 class PlanMode(enum.Enum):
@@ -124,11 +135,13 @@ class DesiredSet:
     cache_id : int
         The cache the keys belong to; registered with the scheduler.
     keys : np.ndarray
-        ``int64``, unique, in load order: the backstop block first, then the
-        target.  A key's position is its rank, which is its priority within
-        its class.  At most ``n_slots - 1`` keys (design 5.3, truncation).
+        ``int64``, unique, in load order: the backstop block first, then
+        each intermediate stage, then the target.  A key's position is its
+        rank, which is its priority within its class.  At most
+        ``n_slots - 1`` keys (design 5.3, truncation).
     cls : np.ndarray
-        ``uint8`` :class:`ChunkClass` per key.
+        ``uint8`` priority per key (:class:`ChunkClass`): ``BACKSTOP``,
+        ``TARGET``, or a stage's offset.
     slice_ids : np.ndarray
         ``int32`` interned collapsed selection per key, used to order the
         background by slice.
@@ -141,6 +154,13 @@ class DesiredSet:
         Target keys the planner dropped to fit the cache (progress).
     n_truncated_backstop : int
         Backstop keys the planner dropped under its slot cap (progress).
+    n_truncated_intermediate : int
+        Intermediate-stage keys the planner dropped under the stages' slot
+        cap (progress).
+    intermediate_offsets : tuple of int
+        The stages the plan was made with, coarse to fine, so progress
+        reports a stage that is empty for this view too.  A class between
+        the two named ones that is not listed is still counted.
     """
 
     cache_id: int
@@ -151,6 +171,8 @@ class DesiredSet:
     store: Any
     n_truncated_target: int = 0
     n_truncated_backstop: int = 0
+    n_truncated_intermediate: int = 0
+    intermediate_offsets: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         """Coerce the arrays and check that they line up."""
@@ -319,6 +341,11 @@ class CacheProgress:
         ``VISIBLE`` records given up after ``retry_max_attempts``.
     truncated_target, truncated_backstop : int
         Keys the planner dropped to fit, from the latest desired set.
+    truncated_intermediate : int
+        The same for the intermediate stages, under their slot cap.
+    intermediate : tuple of (offset, needed, resident)
+        One triple per intermediate stage, coarsest first: its ``VISIBLE``
+        records, and how many are resident.  ``()`` with no stage.
     """
 
     needed_backstop: int = 0
@@ -329,14 +356,37 @@ class CacheProgress:
     failed: int = 0
     truncated_target: int = 0
     truncated_backstop: int = 0
+    truncated_intermediate: int = 0
+    intermediate: tuple[tuple[int, int, int], ...] = ()
+
+    @property
+    def stage(self) -> str | None:
+        """The most important class with a needed record not resident.
+
+        ``"coarse"``, ``"intermediate_1"`` ... ``"intermediate_n"``,
+        ``"target"``, or ``None``.
+        """
+        return loading_stage(
+            self.needed_backstop,
+            self.resident_backstop,
+            self.intermediate,
+            self.needed_target,
+            self.resident_target,
+        )
 
     def __add__(self, other: CacheProgress) -> CacheProgress:
-        """Sum two caches' counts, as a visual does over its caches."""
+        """Sum two caches' counts, as a visual does over its caches.
+
+        The stages are added by offset.
+        """
+        counts = {
+            name: getattr(self, name) + getattr(other, name)
+            for name in self.__slots__
+            if name != "intermediate"
+        }
         return CacheProgress(
-            **{
-                name: getattr(self, name) + getattr(other, name)
-                for name in self.__slots__
-            }
+            **counts,
+            intermediate=sum_intermediate(self.intermediate, other.intermediate),
         )
 
 

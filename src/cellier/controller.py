@@ -5809,7 +5809,8 @@ class CellierController:
             ignore the echo.
         **fields :
             ``ProgressiveLoadingConfig`` fields: ``backstop_level``,
-            ``backstop_extent``, ``backstop_max_slot_fraction``.
+            ``backstop_extent``, ``backstop_max_slot_fraction``,
+            ``intermediate_offsets``, ``intermediate_max_slot_fraction``.
 
         Returns
         -------

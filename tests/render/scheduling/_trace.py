@@ -21,7 +21,62 @@ from pathlib import Path
 
 import numpy as np
 
+from cellier.render.scheduling import ChunkClass
+
 BASELINE = Path(__file__).parent / "trace_baseline.json"
+
+#: ``ChunkClass.BACKSTOP`` as the baseline recorded it.  The class became a
+#: priority with the backstop at 255
+#: (``plans/progressive_intermediate_level_design_v2.md`` 5.1, 9.8), which
+#: changes the integer in every digest and no decision.  Until the baseline
+#: is regenerated (Phase 7 of that plan, on the user's go-ahead) the class is
+#: translated back before it is hashed, so the guard keeps proving that
+#: two-class behaviour is unchanged.
+RECORDED_BACKSTOP = 1
+_BACKSTOP = int(ChunkClass.BACKSTOP)
+
+
+def _cls(value):
+    """A class as the baseline recorded it."""
+    if isinstance(value, np.ndarray):
+        out = value.copy()
+        out[out == _BACKSTOP] = RECORDED_BACKSTOP
+        return out
+    return RECORDED_BACKSTOP if int(value) == _BACKSTOP else value
+
+
+def _snapshot(snap: tuple) -> tuple:
+    """``(key, tier, cls, wanted_gen, rank)`` with the recorded class."""
+    key, tier, cls, gen, rank = snap
+    return (key, tier, _cls(cls), gen, rank)
+
+
+def translate(kind: str, payload: tuple) -> tuple:
+    """A trace event's payload with every class as the baseline recorded it.
+
+    The class is in ``pass`` (the array), ``issue`` (the integer) and in
+    the record snapshots of ``evict`` and ``discard``.  ``arrive``,
+    ``commit`` and ``invalidate`` carry none.
+    """
+    if kind == "pass":
+        cache_id, gen, keys, cls = payload
+        return (cache_id, gen, keys, _cls(cls))
+    if kind == "issue":
+        cache_id, key, cls, lane = payload
+        return (cache_id, key, _cls(cls), lane)
+    if kind == "evict":
+        cache_id, victim, candidate, recent = payload
+        return (
+            cache_id,
+            _snapshot(victim),
+            _snapshot(candidate),
+            [_snapshot(s) for s in recent],
+        )
+    if kind == "discard":
+        cache_id, row, n_free, recent = payload
+        return (cache_id, _snapshot(row), n_free, [_snapshot(s) for s in recent])
+    return payload
+
 
 #: ``(seed, steps)`` of every recorded trace.  Odd seeds start from a full
 #: atlas, as in ``test_property``.
@@ -61,7 +116,7 @@ def trace_digest(seed: int, steps: int) -> tuple[str, int]:
     def on_trace(kind: str, payload: tuple) -> None:
         nonlocal count
         count += 1
-        _feed(digest, (kind, payload))
+        _feed(digest, (kind, translate(kind, payload)))
         checks(kind, payload)
 
     env.core.trace = on_trace

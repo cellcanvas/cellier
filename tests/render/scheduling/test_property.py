@@ -23,7 +23,8 @@ Invariants checked (numbered as in design section 7):
    slice (every cell, for a full-extent backstop);
 7. a key the latest pass does not want is only committed as ``RECENT``;
 8. progress counts are consistent;
-9. no target read starts while a ``VISIBLE`` backstop is queued anywhere;
+9. no read starts while a more important ``VISIBLE`` record is queued
+   anywhere (for two classes: no target read while a backstop is queued);
 11. the draw equals an independent painter's-order oracle (foreground on
     top; while incomplete, background slices oldest first; finer over
     coarser);
@@ -90,14 +91,16 @@ _BACKSTOP = int(ChunkClass.BACKSTOP)
 def importance(snap: tuple[int, int, int, int, int]) -> tuple:
     """The eviction order from a ``(key, tier, cls, wanted_gen, rank)`` snapshot.
 
-    Written from design 5.5, independently of the core: every ``VISIBLE``
-    record outranks every ``RECENT`` one, and ``RECENT`` records compare by
-    ``(cls, wanted_gen, -rank)``.
+    Written from the design, independently of the core
+    (``plans/progressive_intermediate_level_design_v2.md`` 5.2): ``VISIBLE``
+    outranks ``RECENT``.  Among ``RECENT``: the backstop first, then the
+    newer generation, then the more important class, then the better rank.
+    For two classes that is ``(cls, wanted_gen, -rank)``.
     """
     _, tier, cls, gen, rank = snap
     if tier == _VISIBLE:
-        return (1, 0, 0, 0)
-    return (0, cls, gen, -rank)
+        return (1, 0, 0, 0, 0)
+    return (0, int(cls == _BACKSTOP), gen, cls, -rank)
 
 
 class Environment:
@@ -372,18 +375,17 @@ class Environment:
             # 12: a retired cache starts no read.
             assert cache_id not in self.retired, f"retired cache {cache_id} issued"
             if cls != _BACKSTOP:
-                # 9: no target read while a VISIBLE backstop is queued.
                 assert lane == SHARED_LANE
-                for other in self.core.cache_ids:
-                    reg = self.core.registry(other)
-                    queued_backstop = (
-                        (reg.state == _QUEUED)
-                        & (reg.tier == _VISIBLE)
-                        & (reg.cls == _BACKSTOP)
-                    )
-                    assert not queued_backstop.any(), (
-                        f"target {key} issued ahead of a backstop in cache {other}"
-                    )
+            # 9: no read while a more important VISIBLE record is queued.
+            for other in self.core.cache_ids:
+                reg = self.core.registry(other)
+                ahead = (
+                    (reg.state == _QUEUED) & (reg.tier == _VISIBLE) & (reg.cls > cls)
+                )
+                assert not ahead.any(), (
+                    f"class {cls} key {key} issued ahead of class "
+                    f"{int(reg.cls[ahead].max())} in cache {other}"
+                )
         elif kind == "commit":
             cache_id, key, tier = payload
             # 7: only what the latest pass wants is committed as VISIBLE.
@@ -463,9 +465,15 @@ class Environment:
             assert not (live & (reg.tier == _VISIBLE)).any()
         # 8: progress is consistent.
         p = core.progress(cache_id)
-        assert p.needed_backstop + p.needed_target == len(wanted)
+        stages = p.intermediate
+        assert p.needed_backstop + p.needed_target + sum(
+            needed for _, needed, _ in stages
+        ) == len(wanted)
         assert p.resident_backstop <= p.needed_backstop
         assert p.resident_target <= p.needed_target
+        assert all(resident <= needed for _, needed, resident in stages)
+        for offset, needed, _ in stages:
+            assert needed == sum(cls == offset for cls in wanted.values())
         assert p.in_flight == int((live & (reg.state == _FETCHING)).sum())
         # 11: the draw is exactly the painter's-order oracle.
         expected = self._expected_lut(cache_id)

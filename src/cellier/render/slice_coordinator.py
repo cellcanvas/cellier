@@ -424,6 +424,7 @@ class SliceCoordinator:
             if core.is_registered(cid):
                 progress = core.progress(cid)
                 n_bricks += progress.needed_backstop + progress.needed_target
+                n_bricks += sum(needed for _, needed, _ in progress.intermediate)
         for scene_id, canvas_id in announced:
             self._emit_reslice_completed(scene_id, canvas_id, visual_id, n_bricks)
 
@@ -459,6 +460,8 @@ class SliceCoordinator:
             backstop_complete=all(core.is_backstop_complete(c) for c in caches),
             complete=all(core.is_complete(c) for c in caches),
             target_deferred=visual_id in self._deferred,
+            intermediate=total.intermediate,
+            truncated_intermediate=total.truncated_intermediate,
         )
 
     def _visual_scene(self, visual_id: UUID) -> UUID | None:

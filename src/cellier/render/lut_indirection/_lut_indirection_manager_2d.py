@@ -88,6 +88,21 @@ class LutIndirectionManager2D:
             self._spans, base_layout.grid_dims, base_layout.block_size, level_shapes
         )
 
+    @property
+    def grid(self) -> tuple[int, ...]:
+        """The base grid's dimensions: one cell per finest-level tile."""
+        return tuple(int(n) for n in self.lut_data.shape[:2])
+
+    @property
+    def spans(self) -> list[tuple[int, ...]]:
+        """Base cells per tile, per level and axis (``level_cell_spans``)."""
+        return self._spans
+
+    @property
+    def counts(self) -> list[tuple[int, ...]]:
+        """Tile count per level and axis (``level_brick_counts``)."""
+        return self._counts
+
     def paint(
         self,
         levels: np.ndarray,

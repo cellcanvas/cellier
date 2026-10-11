@@ -52,6 +52,23 @@ def test_fields_merge_into_the_current_config(controller, multiscale_image_store
     assert visual.render_config.loading.backstop_max_slot_fraction == 0.3
 
 
+def test_the_intermediate_fields_are_set_and_refused(
+    controller, multiscale_image_store
+):
+    _scene, visual, _gfx = _add(controller, multiscale_image_store)
+
+    result = controller.set_loading_config(
+        visual.id, intermediate_offsets=(2, 1), intermediate_max_slot_fraction=0.2
+    )
+
+    assert result.intermediate_offsets == (2, 1)
+    assert result.intermediate_max_slot_fraction == 0.2
+    assert visual.render_config.loading == result
+    with pytest.raises(ValueError, match="must run coarse to fine"):
+        controller.set_loading_config(visual.id, intermediate_offsets=(1, 2))
+    assert visual.render_config.loading == result
+
+
 def test_the_caller_source_id_is_stamped(controller, multiscale_image_store):
     _scene, visual, _gfx = _add(controller, multiscale_image_store)
     events = _record(controller, visual.id)

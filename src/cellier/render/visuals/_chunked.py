@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from cellier.logging import _CACHE_LOGGER, _PERF_LOGGER
-from cellier.render._backstop import backstop_cap
+from cellier.render._backstop import (
+    backstop_cap,
+    backstop_level,
+    intermediate_bricks,
+    intermediate_cap,
+)
 from cellier.render.block_cache._image_residency import (
     ImageResidency2D,
     ImageResidency3D,
@@ -129,11 +134,19 @@ def target_room(
     backstop_arr: np.ndarray | None,
     loading: ProgressiveLoadingConfig | None,
 ) -> int | None:
-    """How many target bricks an atlas keeps beside its backstop.
+    """How many target bricks an atlas keeps beside its backstop and stages.
 
     The room :func:`desired_bricks` truncates the target to, for a planner
     that would rather plan less than be truncated (an orthographic plane
     plan, plane rendering design 6.3).
+
+    It is asked before the target exists, and the intermediate stages are
+    derived from the target, so their count is an estimate: per stage, the
+    room divided by ``4 ** offset``, the share a plane's stage is of its
+    target where level ratios are 2, in 3D as well (intermediate-level
+    design v2, section 6); summed, and limited by the stages' cap.  Where
+    the estimate is low, :func:`desired_bricks` drops the farthest target
+    bricks, which the stage still covers.
 
     Parameters
     ----------
@@ -142,7 +155,7 @@ def target_room(
     backstop_arr : np.ndarray or None
         The planned backstop.
     loading : ProgressiveLoadingConfig or None
-        For the backstop cap.
+        For the backstop cap, and the stages and their cap.
 
     Returns
     -------
@@ -154,7 +167,11 @@ def target_room(
     budget = max(0, int(residency.n_slots) - 1)
     n_backstop = 0 if backstop_arr is None else len(backstop_arr)
     cap = max(0, int(backstop_cap_for(loading, residency)))
-    return budget - min(n_backstop, cap, budget)
+    room = budget - min(n_backstop, cap, budget)
+    if loading is None or not loading.intermediate_offsets:
+        return room
+    estimate = sum(room // 4**offset for offset in loading.intermediate_offsets)
+    return room - min(estimate, intermediate_cap(loading, residency.n_slots), room)
 
 
 def desired_bricks(
@@ -165,16 +182,25 @@ def desired_bricks(
     backstop_arr: np.ndarray | None = None,
     backstop_cap: int = 0,
     fill: dict[int, int] | None = None,
+    loading: ProgressiveLoadingConfig | None = None,
 ) -> DesiredSet:
     """Turn planned brick or tile arrays into the atlas's desired set (5.3).
 
-    The backstop block comes first, then the target:
+    The backstop block comes first, then each intermediate stage, then the
+    target (intermediate-level design v2, section 6):
 
     1. the backstop is truncated to *backstop_cap* (nearest first, as it is
        ordered) and to the budget;
-    2. a target key equal to a kept backstop key keeps the backstop class,
-       so it appears once;
-    3. the target is truncated to the room left in :func:`brick_budget`.
+    2. each stage of ``loading.intermediate_offsets``, coarse to fine, is the
+       ancestors of the whole target array (before it is truncated), less
+       the keys already taken, nearest first.  One cap
+       (``intermediate_max_slot_fraction``) holds for all the stages and is
+       filled coarsest stage first; a stage that outgrows it keeps its
+       nearest bricks.  A stage brick's class is its offset;
+    3. a target key equal to a kept backstop or stage key keeps the higher
+       class, so it appears once;
+    4. the target is truncated to the room the backstop and stage bricks
+       actually kept leave in :func:`brick_budget`.
 
     Parameters
     ----------
@@ -193,6 +219,9 @@ def desired_bricks(
         At most this many backstop keys (``backstop_max_slot_fraction``).
     fill : dict[int, int] or None
         Per-axis selection overrides (a composite channel's index).
+    loading : ProgressiveLoadingConfig or None
+        For the intermediate stages and their cap.  ``None``, or no offset,
+        plans no stage.
 
     Returns
     -------
@@ -207,10 +236,35 @@ def desired_bricks(
     truncated_backstop = len(b_keys) - n_backstop
     b_keys, b_sids = b_keys[:n_backstop], b_sids[:n_backstop]
 
-    if n_backstop:
-        target_only = ~np.isin(t_keys, b_keys)
+    blocks = [(b_keys, b_sids, int(ChunkClass.BACKSTOP))]
+    taken = b_keys
+    truncated_intermediate = 0
+    offsets = () if loading is None else loading.intermediate_offsets
+    if offsets and target_arr is not None and len(target_arr):
+        grid, spans, counts = residency.brick_rule()
+        # From the config and not the backstop array: an empty backstop must
+        # not let a stage be planned at the backstop's level.
+        top_level = backstop_level(loading, len(spans))
+        stage_room = min(
+            intermediate_cap(loading, residency.n_slots), budget - n_backstop
+        )
+        for offset in offsets:
+            stage_arr = intermediate_bricks(
+                target_arr, offset, top_level, grid, spans, counts
+            )
+            s_keys, s_sids = _pack(planner, residency, stage_arr, fill)
+            new = ~np.isin(s_keys, taken)
+            s_keys, s_sids = s_keys[new], s_sids[new]
+            truncated_intermediate += max(0, len(s_keys) - stage_room)
+            s_keys, s_sids = s_keys[:stage_room], s_sids[:stage_room]
+            stage_room -= len(s_keys)
+            blocks.append((s_keys, s_sids, int(offset)))
+            taken = np.concatenate([taken, s_keys])
+
+    if len(taken):
+        target_only = ~np.isin(t_keys, taken)
         t_keys, t_sids = t_keys[target_only], t_sids[target_only]
-    room = budget - n_backstop
+    room = budget - len(taken)
     truncated_target = max(0, len(t_keys) - room)
     if truncated_target:
         _PERF_LOGGER.warning(
@@ -221,21 +275,21 @@ def desired_bricks(
             truncated_target,
         )
         t_keys, t_sids = t_keys[:room], t_sids[:room]
+    blocks.append((t_keys, t_sids, int(ChunkClass.TARGET)))
 
     return DesiredSet(
         cache_id=residency.cache_id,
-        keys=np.concatenate([b_keys, t_keys]),
+        keys=np.concatenate([keys for keys, _, _ in blocks]),
         cls=np.concatenate(
-            [
-                np.full(len(b_keys), int(ChunkClass.BACKSTOP), dtype=np.uint8),
-                np.full(len(t_keys), int(ChunkClass.TARGET), dtype=np.uint8),
-            ]
+            [np.full(len(keys), cls, dtype=np.uint8) for keys, _, cls in blocks]
         ),
-        slice_ids=np.concatenate([b_sids, t_sids]),
+        slice_ids=np.concatenate([sids for _, sids, _ in blocks]),
         build_request=residency.build_request,
         store=None,
         n_truncated_target=int(truncated_target),
         n_truncated_backstop=int(truncated_backstop),
+        n_truncated_intermediate=int(truncated_intermediate),
+        intermediate_offsets=tuple(int(offset) for offset in offsets),
     )
 
 
@@ -268,6 +322,37 @@ def log_backstop_cap_once(owner: object, desired: list[DesiredSet]) -> None:
         "backstop_capped  visual=%s  kept=%d  dropped=%d  (the backstop "
         "outgrew backstop_max_slot_fraction; set backstop_extent='view' or a "
         "coarser backstop_level, or raise the fraction)",
+        getattr(owner, "visual_model_id", owner),
+        kept,
+        dropped,
+    )
+
+
+def log_intermediate_cap_once(owner: object, desired: list[DesiredSet]) -> None:
+    """Log, once per visual, that the stages' cap truncated a stage.
+
+    The counterpart of :func:`log_backstop_cap_once` for
+    ``intermediate_max_slot_fraction``.
+
+    Parameters
+    ----------
+    owner : object
+        The visual; it remembers that it has logged.
+    desired : list[DesiredSet]
+        The plan just made.
+    """
+    dropped = max((ds.n_truncated_intermediate for ds in desired), default=0)
+    if not dropped or getattr(owner, "_intermediate_cap_logged", False):
+        return
+    owner._intermediate_cap_logged = True
+    kept = max(
+        int(((ds.cls != ChunkClass.BACKSTOP) & (ds.cls != ChunkClass.TARGET)).sum())
+        for ds in desired
+    )
+    _CACHE_LOGGER.info(
+        "intermediate_capped  visual=%s  kept=%d  dropped=%d  (the intermediate "
+        "stages outgrew intermediate_max_slot_fraction; use a larger offset or "
+        "fewer stages, or raise the fraction)",
         getattr(owner, "visual_model_id", owner),
         kept,
         dropped,

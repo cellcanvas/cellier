@@ -61,6 +61,37 @@ def test_the_config_is_frozen() -> None:
         ProgressiveLoadingConfig().backstop_level = 1
 
 
+def test_no_intermediate_stage_by_default() -> None:
+    cfg = ProgressiveLoadingConfig()
+    assert cfg.intermediate_offsets == ()
+    assert cfg.intermediate_max_slot_fraction == 0.1
+
+
+@pytest.mark.parametrize("offsets", [(), (2,), (4, 2), [3, 2, 1], (254,)])
+def test_offsets_that_run_coarse_to_fine_are_accepted(offsets) -> None:
+    cfg = ProgressiveLoadingConfig(intermediate_offsets=offsets)
+    assert cfg.intermediate_offsets == tuple(offsets)
+    assert ProgressiveLoadingConfig(**cfg.model_dump()) == cfg
+
+
+@pytest.mark.parametrize("offsets", [(2, 4), (2, 2), (0,), (2, 0), (-1,)])
+def test_other_offsets_are_refused_and_the_message_names_the_order(offsets) -> None:
+    with pytest.raises(ValidationError, match="must run coarse to fine") as error:
+        ProgressiveLoadingConfig(intermediate_offsets=offsets)
+    assert f"got {offsets}." in str(error.value)
+
+
+def test_an_offset_beyond_the_class_range_is_refused() -> None:
+    with pytest.raises(ValidationError, match="at most 254"):
+        ProgressiveLoadingConfig(intermediate_offsets=(255,))
+
+
+@pytest.mark.parametrize("fraction", [0.0, 0.6])
+def test_the_stage_cap_has_the_range_of_the_backstop_cap(fraction) -> None:
+    with pytest.raises(ValidationError):
+        ProgressiveLoadingConfig(intermediate_max_slot_fraction=fraction)
+
+
 def test_the_backstop_cannot_be_switched_off() -> None:
     """The ``backstop`` switch is gone: the backstop always loads."""
     with pytest.raises(ValidationError, match="backstop"):

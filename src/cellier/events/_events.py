@@ -318,6 +318,57 @@ class ResliceCompletedEvent(NamedTuple):
     brick_count: int
 
 
+def sum_intermediate(
+    a: tuple[tuple[int, int, int], ...], b: tuple[tuple[int, int, int], ...]
+) -> tuple[tuple[int, int, int], ...]:
+    """Add two progresses' intermediate stages by offset.
+
+    Parameters
+    ----------
+    a, b : tuple of (offset, needed, resident)
+        One triple per stage.
+
+    Returns
+    -------
+    tuple of (offset, needed, resident)
+        Coarsest (largest offset) first.  The same offset adds its counts;
+        an offset only one side has is kept.
+    """
+    if not b:
+        return a
+    counts: dict[int, tuple[int, int]] = {}
+    for offset, needed, resident in (*a, *b):
+        had = counts.get(offset, (0, 0))
+        counts[offset] = (had[0] + needed, had[1] + resident)
+    return tuple((offset, *counts[offset]) for offset in sorted(counts, reverse=True))
+
+
+def loading_stage(
+    needed_backstop: int,
+    resident_backstop: int,
+    intermediate: tuple[tuple[int, int, int], ...],
+    needed_target: int,
+    resident_target: int,
+) -> str | None:
+    """Which stage a progress's counts are still waiting for, coarsest first.
+
+    Returns
+    -------
+    str or None
+        ``"coarse"``, ``"intermediate_1"`` ... ``"intermediate_n"`` (numbered
+        from 1 in the order of *intermediate*), ``"target"``, or ``None``
+        when every needed chunk is resident.
+    """
+    if resident_backstop < needed_backstop:
+        return "coarse"
+    for number, (_offset, needed, resident) in enumerate(intermediate, start=1):
+        if resident < needed:
+            return f"intermediate_{number}"
+    if resident_target < needed_target:
+        return "target"
+    return None
+
+
 class LoadingProgress(NamedTuple):
     """How far a multiscale visual's latest plan has loaded.
 
@@ -346,6 +397,19 @@ class LoadingProgress(NamedTuple):
         The latest plan was the backstop only: a tick of a dims scrub with
         ``coarsest_while_moving`` on for the view.  The target is planned once the
         scrub ends, so ``complete`` here does not mean full detail.
+    intermediate : tuple of (offset, needed, resident)
+        One triple per intermediate stage
+        (``ProgressiveLoadingConfig.intermediate_offsets``), coarsest first:
+        the chunks the stage wants, and how many are on the GPU.  ``()``
+        with no stage.  A stage that is empty for the view counts 0 of 0.
+    truncated_intermediate : int
+        Stage chunks the plan dropped under the stages' slot cap.
+
+    Notes
+    -----
+    The first eight fields are counts and are summed by position
+    (``cellier.gui._loading.sum_progress``); a new field goes after
+    ``target_deferred``.
     """
 
     needed_backstop: int = 0
@@ -359,6 +423,28 @@ class LoadingProgress(NamedTuple):
     backstop_complete: bool = True
     complete: bool = True
     target_deferred: bool = False
+    intermediate: tuple[tuple[int, int, int], ...] = ()
+    truncated_intermediate: int = 0
+
+    @property
+    def stage(self) -> str | None:
+        """What is loading: the most important class not yet all resident.
+
+        ``"coarse"``, ``"intermediate_1"`` ... ``"intermediate_n"`` (numbered
+        from 1 in the order of ``intermediate_offsets``), ``"target"``, or
+        ``None`` when nothing is loading.  The target is not held behind a
+        stage, so this can name a stage while target chunks arrive: it is
+        what the picture still waits for, coarsest first.
+        """
+        if self.complete:
+            return None
+        return loading_stage(
+            self.needed_backstop,
+            self.resident_backstop,
+            self.intermediate,
+            self.needed_target,
+            self.resident_target,
+        )
 
     @property
     def fraction(self) -> float:

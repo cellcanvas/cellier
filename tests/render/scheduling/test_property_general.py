@@ -7,8 +7,8 @@ invariant of ``test_property.py`` is kept; these change or are new:
 
 2'   one budget per lane (shared, backstop, compute), and together they
      account for every read outstanding;
-9'   no target read starts while a ``VISIBLE`` backstop is queued in a cache
-     of the **same resource**;
+9'   no read starts while a more important ``VISIBLE`` record is queued in
+     a cache of the **same resource**;
 13   target reads of a cache in flight never exceed its cap, wanted or not;
 13b  the cap never withholds a backstop: after an issue round, a cache with
      a backstop queued has no room left in its lane;
@@ -22,11 +22,21 @@ invariant of ``test_property.py`` is kept; these change or are new:
      without an invalidation;
 5    liveness, unchanged, now with caps and holds.
 
+Plans here also draw intermediate stages
+(``plans/progressive_intermediate_level_design_v2.md`` 9.8): bricks between
+the backstop and the target whose class is their offset.  They are drawn
+here and not in ``test_property.py``, whose random stream is the trace
+baseline's.  The draw is made for every plan, so the stream does not depend
+on the policy, and used only on a cache with no cap on target reads: a
+capped cache holds every read that is not a backstop read, and plans no
+stage (meshes).
+
 Each mutant is a deliberate bug in the core; the invariants must catch it.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from collections import Counter
 
 import numpy as np
@@ -42,7 +52,15 @@ from cellier.render.scheduling import (
     Tier,
 )
 from tests.render.scheduling import test_property as tp
-from tests.render.scheduling._fakes import FakeResidency
+from tests.render.scheduling._fakes import (
+    BASE,
+    N_LEVELS,
+    FakeResidency,
+    desired,
+    grid_dim,
+    pack,
+    span,
+)
 
 _QUEUED = int(ChunkState.QUEUED)
 _FETCHING = int(ChunkState.FETCHING)
@@ -51,6 +69,9 @@ _VISIBLE = int(Tier.VISIBLE)
 _BACKSTOP = int(ChunkClass.BACKSTOP)
 
 STEPS = 600
+
+#: The stage offsets a plan draws from, coarse to fine.
+OFFSET_CHOICES: tuple[tuple[int, ...], ...] = ((), (1,), (2,), (2, 1), (3, 1))
 
 
 class GeneralEnvironment(tp.Environment):
@@ -106,6 +127,82 @@ class GeneralEnvironment(tp.Environment):
                 return True
         return False
 
+    # -- desired sets --------------------------------------------------------
+
+    def plan(self, cache_id: int, backstop_only: bool) -> None:
+        """Backstop, then the stages coarse to fine, then the target."""
+        rng = self.rng
+        mode = self.backstop_mode[cache_id]
+        if mode == "off":
+            backstop_only = False
+        t = int(rng.integers(0, tp.N_T))
+        n_top = grid_dim(N_LEVELS)
+        cy, cx = rng.uniform(0, BASE, size=2)
+        half = rng.uniform(1, BASE / 2 + 1)
+
+        def cells(level: int) -> list[tuple[int, int]]:
+            n, s = grid_dim(level), span(level)
+            out = [
+                (gy, gx)
+                for gy in range(n)
+                for gx in range(n)
+                if gy * s < cy + half
+                and (gy + 1) * s > cy - half
+                and gx * s < cx + half
+                and (gx + 1) * s > cx - half
+            ]
+            out.sort(
+                key=lambda c: (
+                    ((c[0] + 0.5) * s - cy) ** 2 + ((c[1] + 0.5) * s - cx) ** 2
+                )
+            )
+            return out
+
+        if mode == "full":
+            backstop_cells = [(gy, gx) for gy in range(n_top) for gx in range(n_top)]
+        elif mode == "view":
+            backstop_cells = cells(N_LEVELS)
+        else:
+            backstop_cells = []
+        keys = [pack(N_LEVELS, t, gy, gx) for gy, gx in backstop_cells]
+        cls = [_BACKSTOP] * len(keys)
+        if not backstop_only:
+            level = int(rng.integers(1, N_LEVELS + 1))
+            offsets = OFFSET_CHOICES[int(rng.integers(0, len(OFFSET_CHOICES)))]
+            if self._policy(cache_id).max_target_fetching is not None:
+                offsets = ()
+            if not (level == N_LEVELS and mode != "off"):
+                budget = self.residency[cache_id].n_slots - 1
+                target_cells = cells(level)
+                taken = set(keys)
+                # Ancestors of the whole target, none at or beyond the
+                # backstop level.  The fake pyramid's ratios are 2.
+                top = N_LEVELS if mode != "off" else N_LEVELS + 1
+                for offset in offsets:
+                    if level + offset >= top:
+                        continue
+                    for gy, gx in target_cells:
+                        key = pack(level + offset, t, gy >> offset, gx >> offset)
+                        if key not in taken and len(keys) < budget:
+                            taken.add(key)
+                            keys.append(key)
+                            cls.append(offset)
+                            self.stats["planned_stage"] += 1
+                for gy, gx in target_cells:
+                    key = pack(level, t, gy, gx)
+                    if key not in taken and len(keys) < budget:
+                        taken.add(key)
+                        keys.append(key)
+                        cls.append(0)
+        ds = dataclasses.replace(
+            desired(cache_id, target=keys, store=self.store),
+            cls=np.array(cls, dtype=np.uint8),
+        )
+        self.core.set_desired(ds)
+        self.latest[cache_id] = {int(k): int(c) for k, c in zip(ds.keys, ds.cls)}
+        self.t_of[cache_id] = t
+        self.retired.discard(cache_id)
+
     # -- issue rounds --------------------------------------------------------
 
     def issue(self) -> None:
@@ -147,6 +244,12 @@ class GeneralEnvironment(tp.Environment):
             cache_id, keys = payload
             for key in keys.tolist():
                 self.issued.pop((cache_id, self.incarnation[cache_id], int(key)), None)
+        if kind == "evict":
+            _cache_id, victim, _candidate, recent = payload
+            if 0 < victim[2] < _BACKSTOP:
+                self.stats["evict_stage"] += 1
+                if any(r[2] == 0 and r[3] > victim[3] for r in recent):
+                    self.stats["evict_stage_before_newer_target"] += 1
         if kind != "issue":
             super()._on_trace(kind, payload)
             return
@@ -178,6 +281,8 @@ class GeneralEnvironment(tp.Environment):
             if cap is not None and self._target_reads_in_flight(cache_id) >= cap:
                 self.stats["backstop_issued_past_full_cap"] += 1
             return
+        if cls:
+            self.stats["issue_stage"] += 1
         if resource == "io":
             assert lane == SHARED_LANE
         if cap is not None:
@@ -188,16 +293,17 @@ class GeneralEnvironment(tp.Environment):
             assert not self._backstop_arrival_waiting(cache_id), (
                 f"cache {cache_id}: target {key} issued ahead of a backstop commit"
             )
-        # 9': no backstop of this resource is waiting.
+        # 9': nothing more important of this resource is waiting.  (A capped
+        # cache plans no stage, so the only class above a held read is the
+        # backstop, which is never held.)
         for other in core.cache_ids:
             if self._policy(other).resource != resource:
                 continue
             reg = core.registry(other)
-            queued_backstop = (
-                (reg.state == _QUEUED) & (reg.tier == _VISIBLE) & (reg.cls == _BACKSTOP)
-            )
-            assert not queued_backstop.any(), (
-                f"target {key} issued ahead of a backstop in cache {other}"
+            ahead = (reg.state == _QUEUED) & (reg.tier == _VISIBLE) & (reg.cls > cls)
+            assert not ahead.any(), (
+                f"class {cls} key {key} issued ahead of class "
+                f"{int(reg.cls[ahead].max())} in cache {other}"
             )
 
     # -- state checks --------------------------------------------------------
@@ -297,6 +403,10 @@ REACH = (
     "invalidate",
     "retire",
     "remove",
+    "planned_stage",
+    "issue_stage",
+    "evict_stage",
+    "evict_stage_before_newer_target",
 )
 
 
@@ -387,6 +497,22 @@ class _RetriesAGivenUpKeyOnEveryPass(SchedulerCore):
         super()._apply(cache, desired)
 
 
+class _KeepsTheClassFirstStaleOrder(SchedulerCore):
+    """The order before stages: a stale stage brick outranks every stale
+    target brick, whatever their ages."""
+
+    def _recent_residents_least_first(self, reg):
+        rows = np.flatnonzero(
+            (reg.state == int(ChunkState.RESIDENT)) & (reg.tier == int(Tier.RECENT))
+        )
+        cls = reg.cls[rows].astype(np.int32)
+        return rows[np.lexsort((-reg.rank[rows], reg.wanted_gen[rows], cls))]
+
+    @staticmethod
+    def _importance(reg, row):
+        return (int(reg.cls[row]), int(reg.wanted_gen[row]), -int(reg.rank[row]))
+
+
 MUTANTS = (
     _IgnoresTheCap,
     _CapsEveryRead,
@@ -395,6 +521,7 @@ MUTANTS = (
     _PutsComputeReadsInTheSharedWindow,
     _DoesNotWaitForTheBackstopCommit,
     _RetriesAGivenUpKeyOnEveryPass,
+    _KeepsTheClassFirstStaleOrder,
 )
 
 

@@ -8,9 +8,13 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from cellier.visuals._removed import REMOVED_LOADING_FIELDS, refuse_removed_fields
+
+#: The largest offset: a stage's request class is its offset, in a ``uint8``
+#: column whose top value is the backstop's.
+_MAX_OFFSET = 254
 
 
 class ProgressiveLoadingConfig(BaseModel):
@@ -20,6 +24,12 @@ class ProgressiveLoadingConfig(BaseModel):
     the view is blurry rather than blank (or showing the previous slice)
     while the target loads.  Backstop reads go before every target read,
     from every visual.
+
+    Optional *intermediate stages* load between the two.  A stage is the
+    target moved a fixed number of levels coarser (its *offset*): it covers
+    what the view shows and nothing else, with far fewer reads, so a slow
+    store shows a medium picture while the target loads.  With no stage
+    (the default) loading is coarse, then fine.
 
     Every setting is explicit, with a fixed default, and never changed by the
     library at runtime.  Replacing a visual's ``render_config`` with one that
@@ -41,6 +51,21 @@ class ProgressiveLoadingConfig(BaseModel):
         pyramids reach it; when it truncates, one INFO line per visual on
         ``cellier.render.cache`` names the settings that would avoid it.
         Default ``0.1``.
+    intermediate_offsets : tuple of int
+        One intermediate stage per offset, given **coarse to fine**: each
+        offset at least 1 and smaller than the one before, so ``(4, 2)`` is
+        accepted and ``(2, 4)`` and ``(2, 2)`` are refused.  Nothing is
+        re-sorted.  An offset is a number of levels coarser than each target
+        brick's own level; a stage brick at or beyond the backstop level is
+        dropped, so a stage may be empty for a view.  ``()`` (the default)
+        is no stage; ``(2,)`` is coarse, medium, fine.
+    intermediate_max_slot_fraction : float
+        At most this share of an atlas's slots holds the bricks of all the
+        stages together, filled coarsest stage first, each nearest the
+        camera (3D) or canvas centre (2D) first.  When it truncates, one
+        INFO line per visual on ``cellier.render.cache`` says so.  It sits
+        beside ``backstop_max_slot_fraction``: the target gets what the
+        backstop and stage bricks actually use leave.  Default ``0.1``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -53,6 +78,24 @@ class ProgressiveLoadingConfig(BaseModel):
     backstop_level: int | None = Field(default=None, ge=1)
     backstop_extent: Literal["full", "view"] = "full"
     backstop_max_slot_fraction: float = Field(default=0.1, gt=0, le=0.5)
+    intermediate_offsets: tuple[int, ...] = ()
+    intermediate_max_slot_fraction: float = Field(default=0.1, gt=0, le=0.5)
+
+    @field_validator("intermediate_offsets")
+    @classmethod
+    def _offsets_run_coarse_to_fine(cls, offsets: tuple[int, ...]) -> tuple[int, ...]:
+        ordered = all(a > b for a, b in zip(offsets, offsets[1:], strict=False))
+        if not ordered or any(offset < 1 for offset in offsets):
+            raise ValueError(
+                "intermediate_offsets must run coarse to fine: each offset at "
+                "least 1 and smaller than the one before, e.g. (4, 2); got "
+                f"{offsets}."
+            )
+        if offsets and offsets[0] > _MAX_OFFSET:
+            raise ValueError(
+                f"intermediate_offsets may be at most {_MAX_OFFSET}; got {offsets}."
+            )
+        return offsets
 
 
 class GeometryLodConfig(BaseModel):

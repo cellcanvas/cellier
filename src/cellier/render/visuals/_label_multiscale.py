@@ -76,6 +76,7 @@ from cellier.render.visuals._chunked import (
     backstop_cap_for,
     desired_bricks,
     log_backstop_cap_once,
+    log_intermediate_cap_once,
     make_residency_2d,
     make_residency_3d,
     target_room,
@@ -1205,10 +1206,12 @@ class GFXMultiscaleLabelVisual(
             arr,
             backstop_arr=backstop,
             backstop_cap=backstop_cap_for(loading, residency),
+            loading=loading,
         )
         stats = _plan_stats(0 if arr is None else len(arr), desired)
         self._last_plan_stats = {**self._last_plan_stats, **stats}
         log_backstop_cap_once(self, [desired])
+        log_intermediate_cap_once(self, [desired])
         return [desired]
 
     def _adopt_request_3d(self, request: ReslicingRequest) -> None:

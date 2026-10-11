@@ -7,6 +7,8 @@ clock.  ``test_property.py`` checks the invariants over random traces.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -14,6 +16,7 @@ from cellier.render import SchedulerConfig
 from cellier.render.scheduling import (
     BACKSTOP_LANE,
     SHARED_LANE,
+    CacheProgress,
     ChunkClass,
     ChunkState,
     ReadOutcome,
@@ -586,6 +589,88 @@ def test_progress_counts() -> None:
     assert p.failed == 1
     assert (p.truncated_target, p.truncated_backstop) == (7, 1)
     assert (p + p).needed_target == 6
+
+
+def _staged(cache_id: int, backstop, stages, target, **kwargs):
+    """A desired set with stage blocks: ``stages`` maps offset to keys."""
+    ds = desired(
+        cache_id,
+        backstop=backstop,
+        target=[*(k for keys in stages.values() for k in keys), *target],
+        **kwargs,
+    )
+    cls = np.array(ds.cls)
+    start = len(backstop)
+    for offset, keys in stages.items():
+        cls[start : start + len(keys)] = offset
+        start += len(keys)
+    return dataclasses.replace(ds, cls=cls)
+
+
+def test_progress_counts_each_stage_and_names_the_one_loading() -> None:
+    """Intermediate-level design v2, section 8: counts per class, and
+    ``stage`` as the most important class not all resident."""
+    core, _ = _core(max_in_flight=16, backstop_reserved=0)
+    core.register(1, FakeResidency(32))
+    events: list[int] = []
+    core.on_backstop_complete = lambda cache_id, gen: events.append(gen)
+    assert core.progress(1).stage is None
+    core.set_desired(
+        _staged(
+            1,
+            backstop=coarse_keys()[:2],
+            stages={2: fine_keys(3, n=1), 1: fine_keys(2, n=3)},
+            target=fine_keys(1, n=4),
+            n_truncated_intermediate=5,
+            intermediate_offsets=(3, 2, 1),
+        )
+    )
+    core.process()
+    # Issued by class: backstop, the stages coarsest first, the target.
+    backstop, stage_2, stage_1, target = np.split(core.next_reads(), [2, 3, 6])
+    p = core.progress(1)
+    assert (p.needed_backstop, p.needed_target) == (2, 4)
+    # One triple per stage of the plan, coarsest first; offset 3 is empty.
+    assert p.intermediate == ((3, 0, 0), (2, 1, 0), (1, 3, 0))
+    assert p.truncated_intermediate == 5
+    assert p.stage == "coarse"
+
+    def land(tickets) -> CacheProgress:
+        _land(core, tickets)
+        core.commit_round()
+        return core.progress(1)
+
+    # Target bricks arriving first do not change what the picture waits for.
+    p = land(target[:2])
+    assert (p.resident_target, p.stage) == (2, "coarse")
+    assert not core.is_backstop_complete(1)
+    p = land(backstop)
+    assert p.stage == "intermediate_2"  # numbered in the order of the list
+    # The backstop-complete event does not wait for a stage.
+    assert core.is_backstop_complete(1)
+    assert events == [1]
+    p = land(stage_1[:2])
+    assert p.intermediate == ((3, 0, 0), (2, 1, 0), (1, 3, 2))
+    assert p.stage == "intermediate_2"
+    p = land(stage_2)
+    assert p.stage == "intermediate_3"
+    p = land(stage_1[2:])
+    assert (p.resident_target, p.stage) == (2, "target")
+    assert not core.is_complete(1)
+    p = land(target[2:])
+    assert p.stage is None
+    assert core.is_complete(1)
+    assert events == [1]
+
+
+def test_progress_adds_stages_by_offset() -> None:
+    a = CacheProgress(intermediate=((4, 2, 1), (2, 8, 3)), truncated_intermediate=1)
+    b = CacheProgress(intermediate=((2, 5, 5), (1, 7, 0)), truncated_intermediate=2)
+    total = a + b
+    assert total.intermediate == ((4, 2, 1), (2, 13, 8), (1, 7, 0))
+    assert total.truncated_intermediate == 3
+    assert (a + CacheProgress()).intermediate == a.intermediate
+    assert (CacheProgress() + a).intermediate == a.intermediate
 
 
 # ---------------------------------------------------------------------------

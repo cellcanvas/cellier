@@ -65,6 +65,46 @@ def test_a_group_is_summed():
     assert sum_progress([]) is None
 
 
+def test_the_text_names_the_intermediate_stage_that_is_loading():
+    """Between the overview and the detail; the bar stays the target's."""
+    loading = LoadingProgress(
+        needed_backstop=8,
+        resident_backstop=8,
+        needed_target=40,
+        resident_target=12,
+        intermediate=((2, 16, 5),),
+        complete=False,
+    )
+    state = indicator_state(loading)
+    assert state.text == "Intermediate: 5 / 16"
+    assert (state.maximum, state.value, state.busy) == (40, 12, True)
+    # Not before the overview is in, and not once the stage is.
+    waiting = loading._replace(resident_backstop=3, backstop_complete=False)
+    assert indicator_state(waiting).text == "Overview: 3 / 8"
+    after = loading._replace(intermediate=((2, 16, 16),))
+    assert indicator_state(after).text == "Detail: 12 / 40"
+    assert indicator_state(after._replace(complete=True)).text == "Loaded"
+
+    two = loading._replace(intermediate=((4, 4, 3), (2, 30, 9)))
+    assert two.stage == "intermediate_1"
+    assert indicator_state(two).text == "Intermediate 1 of 2: 3 / 4"
+    second = two._replace(intermediate=((4, 4, 4), (2, 30, 9)))
+    assert indicator_state(second).text == "Intermediate 2 of 2: 9 / 30"
+    # A stage that is empty for the view keeps its number.
+    empty_first = two._replace(intermediate=((4, 0, 0), (2, 30, 9)))
+    assert indicator_state(empty_first).text == "Intermediate 2 of 2: 9 / 30"
+
+
+def test_a_group_adds_its_stages_by_offset():
+    a = LoadingProgress(intermediate=((4, 2, 1), (2, 8, 3)), truncated_intermediate=1)
+    b = LoadingProgress(intermediate=((2, 5, 5),), truncated_intermediate=2)
+    plain = LoadingProgress(needed_target=6, resident_target=2, complete=False)
+    total = sum_progress([a, b, plain])
+    assert total.intermediate == ((4, 2, 1), (2, 13, 8))
+    assert total.truncated_intermediate == 3
+    assert (total.needed_target, total.complete) == (6, False)
+
+
 # -- the widgets, on a real load ------------------------------------------------------
 
 

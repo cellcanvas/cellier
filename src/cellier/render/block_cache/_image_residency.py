@@ -234,6 +234,18 @@ class _AtlasResidency:
         #: Cache grid position of each scheduler slot (slow axis first).
         self.slot_grid = np.empty((0, self._NDIM), dtype=np.int64)
 
+    def brick_rule(
+        self,
+    ) -> tuple[tuple[int, ...], list[tuple[int, ...]], list[tuple[int, ...]]]:
+        """``(grid, spans, counts)`` of the atlas's cell -> brick rule.
+
+        The base grid's dimensions, and per level (entry ``k`` is level
+        ``k + 1``) the base cells per brick and the brick count, as the
+        lookup table is painted with them.  Read-only.
+        """
+        manager = self.lut_manager
+        return manager.grid, manager.spans, manager.counts
+
     # -- slice selections ------------------------------------------------------
 
     def intern(self, selection: SliceSelection) -> int:

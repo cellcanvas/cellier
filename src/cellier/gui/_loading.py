@@ -22,6 +22,7 @@ from cellier.events import (
     ResliceProgressEvent,
     SubscriptionSpec,
 )
+from cellier.events._events import sum_intermediate
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -57,7 +58,11 @@ class IndicatorState(NamedTuple):
 
 
 def sum_progress(progress: Iterable[LoadingProgress]) -> LoadingProgress | None:
-    """Sum several visuals' progress; ``None`` when there is none."""
+    """Sum several visuals' progress; ``None`` when there is none.
+
+    The intermediate stages are added by offset: the visuals of a group
+    need not share a config.
+    """
     total: LoadingProgress | None = None
     for p in progress:
         if total is None:
@@ -68,6 +73,10 @@ def sum_progress(progress: Iterable[LoadingProgress]) -> LoadingProgress | None:
             backstop_complete=total.backstop_complete and p.backstop_complete,
             complete=total.complete and p.complete,
             target_deferred=total.target_deferred or p.target_deferred,
+            intermediate=sum_intermediate(total.intermediate, p.intermediate),
+            truncated_intermediate=(
+                total.truncated_intermediate + p.truncated_intermediate
+            ),
         )
     return total
 
@@ -79,6 +88,11 @@ def indicator_state(
 
     - no plan yet: ``"Not loaded"``;
     - backstop still loading: ``"Overview: 3 / 8"``;
+    - then each intermediate stage that is not all in: ``"Intermediate: 5 /
+      16"`` with one stage, ``"Intermediate 1 of 2: 3 / 4"`` with several
+      (numbered in the order of ``intermediate_offsets``).  The target is
+      not held behind a stage, so its chunks may be arriving meanwhile, and
+      the bar shows them;
     - then the target: ``"Detail: 12 / 40"``;
     - done: ``"Loaded"``, or ``"Loaded, 2 failed"``;
     - done, but the plan was the backstop only (a slider drag with
@@ -113,7 +127,7 @@ def indicator_state(
     elif not p.backstop_complete:
         text = f"Overview: {p.resident_backstop} / {p.needed_backstop}"
     elif not p.complete:
-        text = f"Detail: {p.resident_target} / {p.needed_target}"
+        text = _stage_text(p) or f"Detail: {p.resident_target} / {p.needed_target}"
     elif p.target_deferred:
         text = "Overview ready. Detail on stop."
     else:
@@ -128,6 +142,18 @@ def indicator_state(
         maximum, value = p.needed_target, p.resident_target
     busy = not p.complete or p.target_deferred
     return IndicatorState(maximum, value, text, busy=busy)
+
+
+def _stage_text(progress: LoadingProgress) -> str:
+    """The status line while an intermediate stage loads; "" otherwise."""
+    stage = progress.stage or ""
+    if not stage.startswith("intermediate_"):
+        return ""
+    number = int(stage.removeprefix("intermediate_"))
+    _offset, needed, resident = progress.intermediate[number - 1]
+    n_stages = len(progress.intermediate)
+    name = "Intermediate" if n_stages == 1 else f"Intermediate {number} of {n_stages}"
+    return f"{name}: {resident} / {needed}"
 
 
 class LoadingIndicatorModel:

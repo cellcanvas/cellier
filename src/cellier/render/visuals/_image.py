@@ -86,6 +86,7 @@ from cellier.render.visuals._chunked import (
     backstop_cap_for,
     desired_bricks,
     log_backstop_cap_once,
+    log_intermediate_cap_once,
     make_residency_2d,
     make_residency_3d,
     target_room,
@@ -1332,16 +1333,20 @@ class MultiscaleRegionPlanner:
 def _plan_stats(n_target: int, desired: DesiredSet) -> dict:
     """What one plan asked for: ``total_required`` target bricks, the rest kept.
 
-    ``total_required`` counts the target before truncation; ``n_backstop``
-    and ``n_target`` count the desired set's two classes after it.
+    ``total_required`` counts the target before truncation; ``n_backstop``,
+    ``n_intermediate`` and ``n_target`` count the desired set's classes
+    after it (the intermediate stages together).
     """
     n_backstop = int((desired.cls == ChunkClass.BACKSTOP).sum())
+    n_kept_target = int((desired.cls == ChunkClass.TARGET).sum())
     return {
         "total_required": int(n_target),
         "n_backstop": n_backstop,
-        "n_target": len(desired.keys) - n_backstop,
+        "n_intermediate": len(desired.keys) - n_backstop - n_kept_target,
+        "n_target": n_kept_target,
         "n_truncated_target": desired.n_truncated_target,
         "n_truncated_backstop": desired.n_truncated_backstop,
+        "n_truncated_intermediate": desired.n_truncated_intermediate,
     }
 
 
@@ -2370,7 +2375,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         backstop_arr : np.ndarray or None
             Output of ``_plan_backstop_3d``.
         loading : ProgressiveLoadingConfig or None
-            For the backstop cap.
+            For the backstop cap and the intermediate stages.
 
         Returns
         -------
@@ -2387,6 +2392,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             backstop_arr=backstop_arr,
             backstop_cap=backstop_cap_for(loading, residency),
             fill=fill,
+            loading=loading,
         )
 
     # ── 2D planning helpers ───────────────────────────────────────────
@@ -2589,7 +2595,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         backstop_arr : np.ndarray or None
             Output of ``_plan_backstop_2d``.
         loading : ProgressiveLoadingConfig or None
-            For the backstop cap.
+            For the backstop cap and the intermediate stages.
 
         Returns
         -------
@@ -2607,6 +2613,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             backstop_arr=backstop_arr,
             backstop_cap=backstop_cap_for(loading, residency),
             fill=fill,
+            loading=loading,
         )
 
     # ── EventBus handler methods ─────────────────────────────────────────
@@ -3570,6 +3577,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 slot._last_plan_stats = _plan_stats(n_target, wanted)
                 desired.append(wanted)
         log_backstop_cap_once(self, desired)
+        log_intermediate_cap_once(self, desired)
         return desired
 
     def _plane_planning(

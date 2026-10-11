@@ -12,9 +12,13 @@ a simulated clock.
 
 The order of ``RECENT`` records (design 5.5), most important first::
 
-    (cls desc, wanted_gen desc, rank asc)
+    (cls == BACKSTOP desc, wanted_gen desc, cls desc, rank asc)
 
-Every ``VISIBLE`` record outranks every ``RECENT`` one.
+Every ``VISIBLE`` record outranks every ``RECENT`` one.  The backstop keeps
+its class priority; every other class is ordered by age first, so the
+intermediate stages of the views visited do not outlive the fine bricks of
+the view just left (``plans/progressive_intermediate_level_design_v2.md``
+5.2).  With two classes this is ``(cls, wanted_gen, rank)``.
 
 A cache declares how its reads are treated with a
 :class:`~cellier.render.scheduling.CachePolicy` (``plans/mesh_refactor_v3.md``
@@ -69,6 +73,7 @@ _FAILED = int(ChunkState.FAILED)
 _VISIBLE = int(Tier.VISIBLE)
 _RECENT = int(Tier.RECENT)
 _BACKSTOP = int(ChunkClass.BACKSTOP)
+_TARGET = int(ChunkClass.TARGET)
 
 #: Pass as ``scene`` to commit every cache: the fallback round.
 ALL_SCENES: object = object()
@@ -117,6 +122,8 @@ class _Cache:
     build_request: Callable[[np.ndarray], Any] | None = None
     truncated_target: int = 0
     truncated_backstop: int = 0
+    truncated_intermediate: int = 0
+    intermediate_offsets: tuple[int, ...] = ()
     queue: np.ndarray = field(default_factory=lambda: np.empty(0, np.int64))
     cursor: int = 0
     queue_dirty: bool = False
@@ -142,9 +149,11 @@ def _snapshot(reg: CacheRegistry, row: int) -> tuple[int, int, int, int, int]:
     )
 
 
-def recent_importance(cls: int, wanted_gen: int, rank: int) -> tuple[int, int, int]:
+def recent_importance(
+    cls: int, wanted_gen: int, rank: int
+) -> tuple[int, int, int, int]:
     """The ``RECENT`` order as a tuple; larger is more important."""
-    return (cls, wanted_gen, -rank)
+    return (int(cls == _BACKSTOP), wanted_gen, cls, -rank)
 
 
 class SchedulerCore:
@@ -340,6 +349,8 @@ class SchedulerCore:
             cls = np.empty(0, np.uint8)
             slice_ids = np.empty(0, np.int32)
             cache.truncated_target = cache.truncated_backstop = 0
+            cache.truncated_intermediate = 0
+            cache.intermediate_offsets = ()
         else:
             keys, cls, slice_ids = desired.keys, desired.cls, desired.slice_ids
             cache.store = desired.store
@@ -347,6 +358,8 @@ class SchedulerCore:
             cache.build_request = desired.build_request
             cache.truncated_target = int(desired.n_truncated_target)
             cache.truncated_backstop = int(desired.n_truncated_backstop)
+            cache.truncated_intermediate = int(desired.n_truncated_intermediate)
+            cache.intermediate_offsets = tuple(desired.intermediate_offsets)
         rank = np.arange(len(keys), dtype=np.int32)
 
         rows, found = reg.find_many(keys)
@@ -711,7 +724,7 @@ class SchedulerCore:
         vis = np.flatnonzero(tier == _VISIBLE)
         rec = np.flatnonzero(tier != _VISIBLE)
         vis = vis[np.lexsort((rank[vis], -cls[vis]))]
-        rec = rec[np.lexsort((rank[rec], -gen[rec], -cls[rec]))]
+        rec = rec[np.lexsort((rank[rec], -cls[rec], -gen[rec], cls[rec] != _BACKSTOP))]
         order = rows[np.concatenate([vis, rec])]
 
         victims: np.ndarray | None = None
@@ -802,7 +815,9 @@ class SchedulerCore:
     def _recent_residents_least_first(self, reg: CacheRegistry) -> np.ndarray:
         rows = np.flatnonzero((reg.state == _RESIDENT) & (reg.tier == _RECENT))
         cls = reg.cls[rows].astype(np.int32)
-        order = np.lexsort((-reg.rank[rows], reg.wanted_gen[rows], cls))
+        order = np.lexsort(
+            (-reg.rank[rows], cls, reg.wanted_gen[rows], cls == _BACKSTOP)
+        )
         return rows[order]
 
     def _recent_resident_snapshots(self, reg: CacheRegistry) -> list[tuple]:
@@ -810,7 +825,7 @@ class SchedulerCore:
         return [_snapshot(reg, int(r)) for r in rows]
 
     @staticmethod
-    def _importance(reg: CacheRegistry, row: int) -> tuple[int, int, int]:
+    def _importance(reg: CacheRegistry, row: int) -> tuple[int, int, int, int]:
         return recent_importance(
             int(reg.cls[row]), int(reg.wanted_gen[row]), int(reg.rank[row])
         )
@@ -956,9 +971,22 @@ class SchedulerCore:
         reg = cache.registry
         visible = (reg.tier == _VISIBLE) & (reg.state != DEAD)
         backstop = visible & (reg.cls == _BACKSTOP)
-        target = visible & (reg.cls != _BACKSTOP)
+        target = visible & (reg.cls == _TARGET)
         resident = reg.state == _RESIDENT
         gave_up = (reg.state == _FAILED) & (reg.attempts >= self._max_attempts(cache))
+        # One count per stage: the plan's own, and any other class between
+        # the two named ones.  Coarsest (the highest class) first.
+        stages = set(cache.intermediate_offsets)
+        if int(backstop.sum()) + int(target.sum()) < int(visible.sum()):
+            stages.update(np.unique(reg.cls[visible & ~backstop & ~target]).tolist())
+        intermediate = tuple(
+            (
+                int(stage),
+                int((visible & (reg.cls == stage)).sum()),
+                int((visible & (reg.cls == stage) & resident).sum()),
+            )
+            for stage in sorted(stages, reverse=True)
+        )
         return CacheProgress(
             needed_backstop=int(backstop.sum()),
             resident_backstop=int((backstop & resident).sum()),
@@ -968,6 +996,8 @@ class SchedulerCore:
             failed=int((visible & gave_up).sum()),
             truncated_target=cache.truncated_target,
             truncated_backstop=cache.truncated_backstop,
+            truncated_intermediate=cache.truncated_intermediate,
+            intermediate=intermediate,
         )
 
     # -- introspection -----------------------------------------------------------
