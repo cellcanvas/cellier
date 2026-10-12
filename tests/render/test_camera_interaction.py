@@ -64,7 +64,11 @@ class Rig:
             ),
         )
         kwargs = {} if render_modes is None else {"render_modes": render_modes}
-        self.scene = self.controller.add_scene(dim=dim, name="scene", **kwargs)
+        self.scene = self.controller.add_scene(
+            displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+            name="scene",
+            **kwargs,
+        )
         self.store = store
         self.visual = self.add_image(moving) if with_image else None
         self.canvas_ids = []

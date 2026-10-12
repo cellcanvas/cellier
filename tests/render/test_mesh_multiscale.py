@@ -475,12 +475,15 @@ async def test_a_large_sphere_is_closed_in_every_2d_view_at_both_levels(
 
 def test_the_viewer_adds_a_multiscale_mesh_with_its_controls(qtbot):
     from cellier.convenience import Viewer
-    from cellier.convenience.gui import MeshControlsConfig
+    from cellier.convenience.gui import MeshSectionControl
     from cellier.convenience.layout._shared import appearance_specs
     from cellier.scene.dims import spatial_axes
+    from tests.convenience._controls_lists import panel
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
-    controls = MeshControlsConfig(appearance=True, section_controls=True)
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
+    controls = panel("multiscale_mesh", None, MeshSectionControl())
     mesh = viewer.add_multiscale_mesh(
         _store(12, 4),
         MeshFlatAppearance(color=RED),

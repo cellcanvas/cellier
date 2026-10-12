@@ -43,6 +43,7 @@ from cellier.render.render_manager import (
 )
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import InMemoryImageChannelAppearance
+from tests._displayed import trailing_axes
 
 _MOUSE_2D = {
     "press": CanvasMousePress2DEvent,
@@ -85,7 +86,9 @@ def _raw(
 
 def _scene(world, dim):
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=world, dim=dim)
+    scene = controller.add_scene(
+        coordinate_system=world, displayed_axes=trailing_axes(world, dim)
+    )
     return controller, scene
 
 
@@ -420,7 +423,7 @@ def test_labels_report_the_label_id_synchronously(camera):
 
 
 def test_viewer_on_pick_defaults_its_owner_to_the_canvas():
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"))
     canvas_id = uuid4()
     received: list = []
     viewer.on_pick(canvas_id, PointsPickEvent, received.append)

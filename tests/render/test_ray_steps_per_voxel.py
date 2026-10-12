@@ -98,7 +98,7 @@ async def test_density_is_live_and_sets_what_a_ray_can_miss(
     voxel, so the slabs dim.  Going back to 1.0 redraws the first frame
     exactly: the value is a live uniform, not a rebuild.
     """
-    scene = controller.add_scene(dim="3d", name=f"slab-{kind}")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=f"slab-{kind}")
     visual = _add_visual(controller, scene.id, tmp_path, kind)
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)

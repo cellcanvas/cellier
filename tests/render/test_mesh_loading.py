@@ -103,7 +103,9 @@ class Rig:
         self.controller = CellierController(gui="offscreen")
         self.controller.camera_reslice_enabled = False
         self.scene = self.controller.add_scene(
-            dim=dim, coordinate_system=_TZYX, name="scene"
+            displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+            coordinate_system=_TZYX,
+            name="scene",
         )
         self.controller.add_canvas(self.scene.id, canvas_size=(120, 90))
         self.canvas_id = self.controller.get_canvas_ids(self.scene.id)[0]

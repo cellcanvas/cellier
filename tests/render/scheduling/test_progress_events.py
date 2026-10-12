@@ -129,7 +129,7 @@ async def test_one_event_per_loop_iteration_over_every_channel(
     )
     scene = controller.add_scene(
         coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
     )
     visual = controller.add_image_multiscale(

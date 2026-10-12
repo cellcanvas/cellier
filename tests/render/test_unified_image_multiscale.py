@@ -50,7 +50,11 @@ def czyx_store(tmp_path):
 
 
 def _add(controller, store, *, dim, composite=True, channels=None, **appearance):
-    scene = controller.add_scene(coordinate_system=_CZYX, dim=dim, name="scene")
+    scene = controller.add_scene(
+        coordinate_system=_CZYX,
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+        name="scene",
+    )
     if channels is None:
         channels = {
             0: MultiscaleImageChannelAppearance(color_map="red", clim=(0.0, 1.0)),
@@ -102,7 +106,7 @@ def test_the_pool_has_max_channels_slots(controller, czyx_store):
 def test_a_multiscale_image_without_a_channel_axis_has_one_slot(
     controller, multiscale_image_store
 ):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_image_multiscale(
         multiscale_image_store,
         scene.id,
@@ -282,7 +286,9 @@ def test_the_budget_splits_between_channels_not_pool_slots(
     """
     capacities = {}
     for channels in (1, n_channels):
-        scene = controller.add_scene(coordinate_system=_CZYX, dim="3d")
+        scene = controller.add_scene(
+            coordinate_system=_CZYX, displayed_axes=("z", "y", "x")
+        )
         visual = controller.add_image_multiscale(
             czyx_store,
             scene.id,
@@ -311,7 +317,7 @@ def test_an_image_without_channels_keeps_the_whole_budget(
     controller, multiscale_image_store, czyx_store
 ):
     """No channel axis, or none configured, is sized like a lone image."""
-    scene = controller.add_scene(dim="3d", name="plain")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="plain")
     plain = controller.add_image_multiscale(
         multiscale_image_store,
         scene.id,
@@ -319,7 +325,9 @@ def test_an_image_without_channels_keeps_the_whole_budget(
     )
     plain_gfx = controller._render_manager._scenes[scene.id].get_visual(plain.id)
 
-    channel_scene = controller.add_scene(coordinate_system=_CZYX, dim="3d")
+    channel_scene = controller.add_scene(
+        coordinate_system=_CZYX, displayed_axes=("z", "y", "x")
+    )
     channelled = controller.add_image_multiscale(
         czyx_store,
         channel_scene.id,

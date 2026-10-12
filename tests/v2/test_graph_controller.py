@@ -43,7 +43,7 @@ def graph_setup(qtbot):
     controller = CellierController()
     controller.camera_reslice_enabled = False
     scene = controller.add_scene(
-        dim="2d",
+        displayed_axes=("y", "x"),
         coordinate_system=world_coordinate_system(
             [("t", "time"), ("z", "space"), ("y", "space"), ("x", "space")],
             name="world",

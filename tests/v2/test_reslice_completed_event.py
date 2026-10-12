@@ -26,7 +26,7 @@ from cellier.visuals._image_memory import InMemoryImageAppearance
 async def test_on_reslice_completed_fires_for_geometry_and_image(qtbot):
     """on_reslice_completed must fire for both a points and an image visual."""
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
 
     # In-memory volume image visual.
     img_data = np.random.rand(16, 16, 16).astype(np.float32)

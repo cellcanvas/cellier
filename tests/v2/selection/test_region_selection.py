@@ -25,7 +25,8 @@ def viewer():
     """A ``TZYX`` scene showing ``ZYX`` on one canvas, sliced at ``T = 1``."""
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
-        coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")], dim="3d"
+        coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
+        displayed_axes=("z", "y", "x"),
     )
     controller.add_canvas(scene.id)
     canvas_id = controller.get_canvas_ids(scene.id)[0]
@@ -97,7 +98,8 @@ def test_a_displayed_axis_position_is_left_unbounded(viewer):
     region -- it is drawn, not sliced."""
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
-        coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")], dim="3d"
+        coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")],
+        displayed_axes=("z", "y", "x"),
     )
     controller.update_slice_indices(scene.id, {1: 4.0, 2: 5.0, 3: 6.0})
     controller.add_canvas(scene.id)
@@ -178,7 +180,8 @@ def test_each_canvas_gets_its_own_selection():
     rendered coordinate system."""
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
-        coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")], dim="3d"
+        coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
+        displayed_axes=("z", "y", "x"),
     )
     controller.add_canvas(scene.id)
     controller.add_canvas(scene.id)

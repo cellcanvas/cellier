@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 def _scene(controller: CellierController):
     return controller.add_scene(
-        dim="2d",
+        displayed_axes=("y", "x"),
         coordinate_system=world_coordinate_system(spatial_axes("y", "x")),
         name="paint_scene",
         render_modes={"2d"},

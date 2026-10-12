@@ -23,6 +23,7 @@ from cellier.convenience._ortho_dims import OrthoDimsController
 from cellier.convenience._ortho_planes import OrthoPlaneController
 from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
+from cellier.convenience.gui._controls_config import validate_controls
 from cellier.render._capture import write_png
 from cellier.scene._background import viewer_background
 from cellier.scene.dims import (
@@ -44,17 +45,7 @@ if TYPE_CHECKING:
         ClippingPlaneGizmoController,
         RenderPlaneGizmoController,
     )
-    from cellier.convenience.gui._controls_config import (
-        BaseControlsConfig,
-        GraphControlsConfig,
-        InMemoryImageControlsConfig,
-        LabelsControlsConfig,
-        LinesControlsConfig,
-        MeshControlsConfig,
-        MultiscaleImageControlsConfig,
-        MultiscaleLabelsControlsConfig,
-        PointsControlsConfig,
-    )
+    from cellier.convenience.gui._controls_config import Control
     from cellier.data._base_data_store import BaseDataStore
     from cellier.data.graph._graph_memory_store import GraphMemoryStore
     from cellier.data.image._image_memory_store import ImageMemoryStore
@@ -241,7 +232,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     views)"`` and ``"{name} (3D view)"``.
 
     Clipping planes controls are not in the appearance docks.  A visual
-    added with ``clipping_controls=True`` is shown in the
+    whose ``controls=`` list holds ``ClippingPlanesControl()`` is shown in the
     ``OrthoClippingControls()`` dock, which holds the link mode selector
     (see *link_clipping_planes*) and one clipping planes control per group
     of linked panels.
@@ -1124,7 +1115,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         data: ImageMemoryStore | UUID,
         appearance: InMemoryImageAppearance | None = None,
         name: str = "image",
-        controls: InMemoryImageControlsConfig | None = None,
+        controls: list[Control] | None = None,
         *,
         single: InMemoryImageSingleAppearance | None = None,
         channel_axis: int | None = None,
@@ -1155,9 +1146,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Shared by both modes.
         name : str
             Base label; each panel's visual is named ``f"{name}_{key}"``.
-        controls : InMemoryImageControlsConfig or None
-            Appearance controls configuration, used for two controls: one
-            driving the three 2D panels, one the 3D panel.
+        controls : list[Control] or None
+            The controls to show for this visual: a list of control models,
+            drawn in the order of the list.  The image's fields are chosen
+            with ``ImageControl(fields=[...])``.
+            The list is used for two groups of controls: one drives the
+            three 2D panels' visuals together, the other the 3D panel's.
+            ``RenderPlanesControl()`` is drawn for the 3D group only, and
+            ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
+            dock.  ``None`` (default) or an empty list shows none.
         single : single appearance or None
             Single mode's appearance.  ``None`` uses the defaults.
         channel_axis : int or None
@@ -1197,6 +1194,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             The per-panel visuals keyed ``"xy"``, ``"xz"``, ``"yz"``, ``"vol"``.
         """
         store = self._resolve_data_store(data)
+        controls = validate_controls(controls, "image", name)
         self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_image(
@@ -1224,7 +1222,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: BaseLabelsAppearance | None = None,
         name: str = "labels",
         transform: BaseTransform | None = None,
-        controls: LabelsControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         outline_selected_labels: dict[int, int] | None = None,
@@ -1244,12 +1242,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Base label; each panel's visual is named ``f"{name}_{key}"``.
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
-        controls : LabelsControlsConfig or None
-            Appearance controls configuration, used for two controls: one
-            drives the three 2D panels' visuals in lock-step, the other the
-            3D panel's.  When ``None`` (default), no appearance controls are
-            created.
-
+        controls : list[Control] or None
+            The controls to show for this visual: a list of control models,
+            drawn in the order of the list.  The visual's fields are chosen
+            with ``FieldControls([...])``.
+            The list is used for two groups of controls: one drives the
+            three 2D panels' visuals together, the other the 3D panel's.
+            ``RenderPlanesControl()`` is drawn for the 3D group only, and
+            ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
+            dock.  ``None`` (default) or an empty list shows none.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1285,6 +1286,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, LabelMemoryVisual]
         """
         store = self._resolve_data_store(data)
+        controls = validate_controls(controls, "labels", name)
         self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_labels(
@@ -1309,7 +1311,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: MeshAppearance,
         name: str = "mesh",
         transform: BaseTransform | None = None,
-        controls: MeshControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         section: MeshSectionConfig | None = None,
@@ -1328,12 +1330,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Base label; each panel's visual is named ``f"{name}_{key}"``.
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
-        controls : MeshControlsConfig or None
-            Appearance controls configuration, used for two controls: one
-            drives the three 2D panels' visuals in lock-step, the other the
-            3D panel's.  When ``None`` (default), no appearance controls are
-            created.
-
+        controls : list[Control] or None
+            The controls to show for this visual: a list of control models,
+            drawn in the order of the list.  The visual's fields are chosen
+            with ``FieldControls([...])``.
+            The list is used for two groups of controls: one drives the
+            three 2D panels' visuals together, the other the 3D panel's.
+            ``RenderPlanesControl()`` is drawn for the 3D group only, and
+            ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
+            dock.  ``None`` (default) or an empty list shows none.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1361,6 +1366,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, MeshVisual]
         """
         store = self._resolve_data_store(data)
+        controls = validate_controls(controls, "mesh", name)
         self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_mesh(
@@ -1384,7 +1390,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: MeshAppearance,
         name: str = "mesh",
         transform: BaseTransform | None = None,
-        controls: MeshControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         section: MeshSectionConfig | None = None,
@@ -1410,8 +1416,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Base label; each panel's visual is named ``f"{name}_{key}"``.
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
-        controls : MeshControlsConfig or None
-            Appearance controls configuration; see :meth:`add_mesh`.
+        controls : list[Control] or None
+            The controls to show for this visual: a list of control models,
+            drawn in the order of the list.  The visual's fields are chosen
+            with ``FieldControls([...])``.
+            The list is used for two groups of controls: one drives the
+            three 2D panels' visuals together, the other the 3D panel's.
+            ``RenderPlanesControl()`` is drawn for the 3D group only, and
+            ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
+            dock.  ``None`` (default) or an empty list shows none.
         outline : VisualOutline or None
             Screen-space outline assignment; see :meth:`add_mesh`.
         ambient_occlusion : bool or None
@@ -1438,6 +1451,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, MultiscaleMeshVisual]
         """
         store = self._resolve_data_store(data)
+        controls = validate_controls(controls, "multiscale_mesh", name)
         self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_multiscale_mesh(
@@ -1462,7 +1476,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: PointsMarkerAppearance | None = None,
         name: str = "points",
         transform: BaseTransform | None = None,
-        controls: PointsControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
@@ -1480,12 +1494,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Base label; each panel's visual is named ``f"{name}_{key}"``.
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
-        controls : PointsControlsConfig or None
-            Appearance controls configuration, used for two controls: one
-            drives the three 2D panels' visuals in lock-step, the other the
-            3D panel's.  When ``None`` (default), no appearance controls are
-            created.
-
+        controls : list[Control] or None
+            The controls to show for this visual: a list of control models,
+            drawn in the order of the list.  The visual's fields are chosen
+            with ``FieldControls([...])``.
+            The list is used for two groups of controls: one drives the
+            three 2D panels' visuals together, the other the 3D panel's.
+            ``RenderPlanesControl()`` is drawn for the 3D group only, and
+            ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
+            dock.  ``None`` (default) or an empty list shows none.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1507,6 +1524,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, PointsVisual]
         """
         store = self._resolve_data_store(data)
+        controls = validate_controls(controls, "points", name)
         self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_points(
@@ -1530,7 +1548,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         name: str = "graph",
         transform: BaseTransform | None = None,
         trail: dict[int, TrailConfig] | None = None,
-        controls: GraphControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
@@ -1551,12 +1569,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             then to identity.
         trail : dict[int, TrailConfig] or None
             Axis index -> window configuration, applied to every panel.
-        controls : GraphControlsConfig or None
-            Appearance controls configuration, used for two controls: one
-            drives the three 2D panels' visuals in lock-step, the other the
-            3D panel's.  When ``None`` (default), no appearance controls are
-            created.
-
+        controls : list[Control] or None
+            The controls to show for this visual: a list of control models,
+            drawn in the order of the list.  The visual's fields are chosen
+            with ``FieldControls([...])``.
+            The list is used for two groups of controls: one drives the
+            three 2D panels' visuals together, the other the 3D panel's.
+            ``RenderPlanesControl()`` is drawn for the 3D group only, and
+            ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
+            dock.  ``None`` (default) or an empty list shows none.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1578,6 +1599,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, GraphVisual]
         """
         store = self._resolve_data_store(data)
+        controls = validate_controls(controls, "graph", name)
         self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_graph(
@@ -1601,7 +1623,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: LinesMemoryAppearance | None = None,
         name: str = "lines",
         transform: BaseTransform | None = None,
-        controls: LinesControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
@@ -1619,12 +1641,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Base label; each panel's visual is named ``f"{name}_{key}"``.
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
-        controls : LinesControlsConfig or None
-            Appearance controls configuration, used for two controls: one
-            drives the three 2D panels' visuals in lock-step, the other the
-            3D panel's.  When ``None`` (default), no appearance controls are
-            created.
-
+        controls : list[Control] or None
+            The controls to show for this visual: a list of control models,
+            drawn in the order of the list.  The visual's fields are chosen
+            with ``FieldControls([...])``.
+            The list is used for two groups of controls: one drives the
+            three 2D panels' visuals together, the other the 3D panel's.
+            ``RenderPlanesControl()`` is drawn for the 3D group only, and
+            ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
+            dock.  ``None`` (default) or an empty list shows none.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1646,6 +1671,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, LinesVisual]
         """
         store = self._resolve_data_store(data)
+        controls = validate_controls(controls, "lines", name)
         self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_lines(
@@ -1669,7 +1695,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         name: str = "image",
         render_config: MultiscaleImageRenderConfig | None = None,
         transform: BaseTransform | None = None,
-        controls: MultiscaleImageControlsConfig | None = None,
+        controls: list[Control] | None = None,
         *,
         single: MultiscaleImageSingleAppearance | None = None,
         channel_axis: int | None = None,
@@ -1697,9 +1723,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             GPU cache configuration.  Uses defaults when ``None``.
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
-        controls : MultiscaleImageControlsConfig or None
-            Appearance controls configuration, used for two controls: one
-            driving the three 2D panels, one the 3D panel.
+        controls : list[Control] or None
+            The controls to show for this visual: a list of control models,
+            drawn in the order of the list.  The image's fields are chosen
+            with ``ImageControl(fields=[...])``.
+            The list is used for two groups of controls: one drives the
+            three 2D panels' visuals together, the other the 3D panel's.
+            ``RenderPlanesControl()`` is drawn for the 3D group only, and
+            ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
+            dock.  ``None`` (default) or an empty list shows none.
         single : single appearance or None
             Single mode's appearance.  ``None`` uses the defaults.
         channel_axis : int or None
@@ -1738,6 +1770,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, MultiscaleImageVisual]
         """
         store = self._resolve_data_store(data)
+        controls = validate_controls(controls, "multiscale_image", name)
         self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_image_multiscale(
@@ -1768,7 +1801,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         name: str = "labels",
         render_config: MultiscaleLabelRenderConfig | None = None,
         transform: BaseTransform | None = None,
-        controls: MultiscaleLabelsControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         outline_selected_labels: dict[int, int] | None = None,
@@ -1789,12 +1822,15 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             LOD and rendering configuration.  Uses defaults when ``None``.
         transform : BaseTransform or None
             Data-to-world transform.  Defaults to identity when ``None``.
-        controls : MultiscaleLabelsControlsConfig or None
-            Appearance controls configuration, used for two controls: one
-            drives the three 2D panels' visuals in lock-step, the other the
-            3D panel's.  When ``None`` (default), no appearance controls are
-            created.
-
+        controls : list[Control] or None
+            The controls to show for this visual: a list of control models,
+            drawn in the order of the list.  The visual's fields are chosen
+            with ``FieldControls([...])``.
+            The list is used for two groups of controls: one drives the
+            three 2D panels' visuals together, the other the 3D panel's.
+            ``RenderPlanesControl()`` is drawn for the 3D group only, and
+            ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
+            dock.  ``None`` (default) or an empty list shows none.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1830,6 +1866,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         dict[str, MultiscaleLabelVisual]
         """
         store = self._resolve_data_store(data)
+        controls = validate_controls(controls, "multiscale_labels", name)
         self._check_controls_docks(controls, name)
         visuals = self._fan_out(
             lambda key, scene: self._controller.add_labels_multiscale(
@@ -2278,22 +2315,22 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     def _record_controls(
         self,
         visuals: dict[str, object],
-        controls: BaseControlsConfig | None,
+        controls: list[Control] | None,
         name: str,
     ) -> None:
-        """Record a controls config for a fanned-out add, as two groups.
+        """Record a controls list for a fanned-out add, as two groups.
 
         One group holds the three 2D panels' visuals and one the 3D panel's
-        (:data:`_CONTROLS_GROUPS`), both with the same config, so one widget
+        (:data:`_CONTROLS_GROUPS`), both with the same list, so one widget
         drives the 2D views together and another the 3D view.  Each is
         labelled for the dock's selector, e.g. ``"image (2D views)"``.
 
         The appearance docks resolve this record through
-        ``appearance_targets``, which is what makes ``AppearanceControls()``
-        work on an ``OrthoViewer`` at all (section 4.1).  The clipping
-        planes controls are not in those docks: ``clipping_controls=True``
-        puts the dataset in the ``OrthoClippingControls()`` widget, with one
-        control per link group.
+        ``appearance_targets``, which offers a group only when one of its
+        items draws there: ``RenderPlanesControl()`` draws for the 3D group
+        alone, and ``ClippingPlanesControl()`` puts the dataset in the
+        ``OrthoClippingControls()`` widget, with one control per link
+        group, and not in those docks.
         """
         for keys, label in _CONTROLS_GROUPS.values():
             self._store_controls(

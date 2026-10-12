@@ -353,7 +353,7 @@ def test_canvas_installs_the_blender_only_when_outlines_are_enabled(
             render_config=RenderManagerConfig(outline=OutlineConfig(enabled=enabled))
         )
         controller.camera_reslice_enabled = False
-        scene = controller.add_scene(dim="3d", name="scene")
+        scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
         controller.add_canvas(scene_id=scene.id)
         canvas = next(iter(controller._render_manager._canvases.values()))
         return canvas

@@ -14,7 +14,12 @@ from uuid import UUID, uuid4
 import numpy as np
 import pytest
 
-from cellier.convenience import AppearanceControls, GraphControlsConfig, Viewer
+from cellier.convenience import (
+    AppearanceControls,
+    FieldControls,
+    TrailControl,
+    Viewer,
+)
 from cellier.convenience.layout._shared import appearance_specs
 from cellier.convenience.layout._walk import render_dock
 from cellier.data import GraphMemoryStore, PointsMemoryStore
@@ -78,7 +83,7 @@ def _trail_events(viewer, visual) -> list:
 
 
 def test_setting_a_window_on_an_axis_without_one_adds_it():
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer)
 
     viewer.controller.update_visual_trail(graph.id, 0, TrailConfig(before=2.0))
@@ -89,7 +94,7 @@ def test_setting_a_window_on_an_axis_without_one_adds_it():
 
 def test_editing_an_existing_window_keeps_the_object_and_reslices_once():
     """In place, so one spin box nudge is one reslice rather than a rebuild."""
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer, trail={0: TrailConfig(before=1.0)})
     window = graph.trail[0]
     reslices: list = []
@@ -104,7 +109,7 @@ def test_editing_an_existing_window_keeps_the_object_and_reslices_once():
 
 
 def test_none_removes_the_window():
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer, trail={0: TrailConfig()})
 
     viewer.controller.update_visual_trail(graph.id, 0, None)
@@ -113,7 +118,7 @@ def test_none_removes_the_window():
 
 
 def test_none_on_an_axis_without_a_window_changes_nothing():
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer)
     events = _trail_events(viewer, graph)
 
@@ -124,7 +129,7 @@ def test_none_on_an_axis_without_a_window_changes_nothing():
 
 
 def test_the_change_event_carries_the_callers_source_id():
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer, trail={0: TrailConfig()})
     events = _trail_events(viewer, graph)
     source = uuid4()
@@ -138,7 +143,7 @@ def test_the_change_event_carries_the_callers_source_id():
 
 
 def test_an_out_of_range_axis_raises_a_plain_value_error():
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer)
 
     with pytest.raises(ValueError, match="out of range"):
@@ -146,7 +151,7 @@ def test_an_out_of_range_axis_raises_a_plain_value_error():
 
 
 def test_a_visual_without_a_trail_is_refused():
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     points = viewer.add_points(
         PointsMemoryStore(positions=np.zeros((2, 4), dtype=np.float32)),
         appearance=PointsMarkerAppearance(),
@@ -157,7 +162,7 @@ def test_a_visual_without_a_trail_is_refused():
 
 
 def test_the_update_event_reaches_the_controller():
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer)
 
     viewer.controller.incoming_events.emit(
@@ -339,14 +344,14 @@ def test_the_qt_extents_are_disabled_while_an_axis_is_off(qtbot):
 
 
 # ---------------------------------------------------------------------------
-# GraphControlsConfig.trail_controls and the shared spec
+# TrailControl and the shared spec
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("value", ["t", [True], [1.5]])
-def test_a_malformed_trail_controls_value_is_refused(value):
-    with pytest.raises(TypeError, match="trail_controls"):
-        GraphControlsConfig(appearance=["node_visible"], trail_controls=value)
+@pytest.mark.parametrize("value", ["t", [True], [1.5], True, []])
+def test_a_malformed_trail_axes_value_is_refused(value):
+    with pytest.raises(TypeError, match=r"TrailControl\.axes"):
+        TrailControl(axes=value)
 
 
 def _trail_spec(viewer, graph, config):
@@ -355,45 +360,46 @@ def _trail_spec(viewer, graph, config):
     return next((spec for spec in specs if spec.kind == "trail"), None)
 
 
-def _config(trail_controls, appearance=("node_visible",)):
-    return GraphControlsConfig(
-        appearance=list(appearance) if appearance else False,
-        trail_controls=trail_controls,
-    )
+def _config(axes=None, fields=("node_visible",)):
+    """A graph's controls list: its fields, if any, then the trail control."""
+    field_controls = [FieldControls(list(fields))] if fields else []
+    return [*field_controls, TrailControl(axes=axes)]
 
 
-def test_true_offers_the_axes_that_have_a_window():
-    viewer = Viewer(_world(), gui="offscreen")
+def test_no_axes_offers_the_axes_that_have_a_window():
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer, trail={2: TrailConfig()})
 
-    spec = _trail_spec(viewer, graph, _config(True))
+    spec = _trail_spec(viewer, graph, _config())
 
     assert spec.values["axes"] == [(2, "y")]
     assert spec.title == "Trail"
 
 
-def test_true_falls_back_to_the_time_axes():
-    viewer = Viewer(_world(), gui="offscreen")
+def test_no_axes_falls_back_to_the_time_axes():
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer)
 
-    spec = _trail_spec(viewer, graph, _config(True))
+    spec = _trail_spec(viewer, graph, _config())
 
     assert spec.values["axes"] == [(0, "t")]
 
 
-def test_true_with_nothing_to_offer_warns_and_builds_nothing():
+def test_no_axes_with_nothing_to_offer_warns_and_builds_nothing():
     # An all-space world, so the graph has no time axis to fall back to.
-    viewer = Viewer(spatial_axes("w", "z", "y", "x"), gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("w", "z", "y", "x"), displayed_axes=("y", "x"), gui="offscreen"
+    )
     graph = _add_graph(viewer, store=_graph_store(first_axis=("w", "space")))
 
     with pytest.warns(UserWarning, match="no axis to offer"):
-        spec = _trail_spec(viewer, graph, _config(True))
+        spec = _trail_spec(viewer, graph, _config())
 
     assert spec is None
 
 
 def test_a_list_names_axes_by_name_or_index_in_order():
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer)
 
     spec = _trail_spec(viewer, graph, _config(["z", 0]))
@@ -405,27 +411,30 @@ def test_a_list_names_axes_by_name_or_index_in_order():
     ("axes", "message"), [(["w"], "is not one of"), ([7], "out of range")]
 )
 def test_an_axis_the_store_does_not_have_is_refused(axes, message):
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer)
 
     with pytest.raises(ValueError, match=message):
         _trail_spec(viewer, graph, _config(axes))
 
 
-def test_without_appearance_there_is_no_trail_control():
-    viewer = Viewer(_world(), gui="offscreen")
+def test_the_trail_control_needs_no_field_control():
+    """Design F3: it used to build nothing unless a field was also listed."""
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer, trail={0: TrailConfig()})
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        assert _trail_spec(viewer, graph, _config(True, appearance=None)) is None
+        spec = _trail_spec(viewer, graph, _config(fields=None))
+
+    assert spec.values["axes"] == [(0, "t")]
 
 
 def test_the_spec_holds_copies_of_the_windows():
-    viewer = Viewer(_world(), gui="offscreen")
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer, trail={0: TrailConfig(before=1.0)})
 
-    spec = _trail_spec(viewer, graph, _config(True))
+    spec = _trail_spec(viewer, graph, _config())
 
     assert spec.values["trail"][0].before == 1.0
     assert spec.values["trail"][0] is not graph.trail[0]
@@ -453,11 +462,11 @@ def toolkit(request):
 
 def test_a_dock_trail_control_drives_the_graph_and_follows_it(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(_world(), gui=gui)
+    viewer = Viewer(_world(), displayed_axes=("y", "x"), gui=gui)
     graph = _add_graph(
         viewer,
         trail={0: TrailConfig(before=1.0)},
-        controls=_config(True),
+        controls=_config(),
     )
     closeables: list = []
     render_dock(AppearanceControls(), viewer, host_cls(), closeables)

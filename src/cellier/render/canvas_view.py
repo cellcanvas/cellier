@@ -739,7 +739,7 @@ class CanvasView:
             camera.depth_range = effective
         self._applied_depth_range_3d = effective
 
-    def set_depth_range(self, depth_range: tuple[float, float]) -> None:
+    def set_depth_range(self, depth_range: tuple[float, float] | None) -> None:
         """Set the active camera near/far clip distances.
 
         On the 3D camera this is the configured range, which is widened
@@ -747,13 +747,15 @@ class CanvasView:
 
         Parameters
         ----------
-        depth_range : tuple[float, float]
-            ``(near, far)`` clip distances in world units.
+        depth_range : tuple[float, float] or None
+            ``(near, far)`` clip distances in world units.  ``None`` makes
+            the range automatic: pygfx works it out from what the camera is
+            fitted to.
         """
         self.set_depth_range_for_dim(self._dim, depth_range)
 
     def set_depth_range_for_dim(
-        self, dim: str, depth_range: tuple[float, float]
+        self, dim: str, depth_range: tuple[float, float] | None
     ) -> None:
         """Set the near/far clip distances on the 2D or 3D camera.
 
@@ -769,14 +771,29 @@ class CanvasView:
         ----------
         dim : str
             ``"2d"`` or ``"3d"``.
-        depth_range : tuple[float, float]
-            ``(near, far)`` clip distances in world units.
+        depth_range : tuple[float, float] or None
+            ``(near, far)`` clip distances in world units.  ``None`` makes
+            the range automatic: pygfx works it out from what the camera is
+            fitted to.
+
+        Raises
+        ------
+        ValueError
+            If the range is empty (``near == far``): nothing can be drawn
+            through one.
         """
+        if depth_range is not None:
+            depth_range = (float(depth_range[0]), float(depth_range[1]))
+            if depth_range[0] == depth_range[1]:
+                raise ValueError(
+                    f"The depth range {depth_range} is empty; pass None for "
+                    "an automatic range."
+                )
         if dim == "2d":
             self._camera_2d.depth_range = depth_range
             return
         self._sync_depth_range_3d()
-        self._depth_range_3d = (float(depth_range[0]), float(depth_range[1]))
+        self._depth_range_3d = depth_range
         self._sync_depth_range_3d()
 
     def show_object(self, scene: gfx.Scene) -> bool:
@@ -1288,10 +1305,12 @@ class CanvasView:
     def capture_camera_state(self) -> CameraState:
         """Snapshot the current pygfx camera into a CameraState NamedTuple.
 
-        For the 3D camera ``depth_range`` is the configured range, not the
-        one widened for a field of view of 0 (see
-        :meth:`_sync_depth_range_3d`), and ``extent`` is the camera's width
-        and height at a field of view of 0 and ``(0.0, 0.0)`` above it.
+        ``depth_range`` is ``None`` where the camera's range is automatic,
+        which the 2D camera's is until one is set.  For the 3D camera it is
+        the configured range, not the one widened for a field of view of 0
+        (see :meth:`_sync_depth_range_3d`), and ``extent`` is the camera's
+        width and height at a field of view of 0 and ``(0.0, 0.0)`` above
+        it.
         """
         cam = self._camera
         if self._dim != "2d":
@@ -1299,7 +1318,7 @@ class CanvasView:
         pos = cam.world.position
         rot = cam.world.rotation  # quaternion (x, y, z, w)
         dr = cam.depth_range
-        depth_range = (float(dr[0]), float(dr[1])) if dr is not None else (0.0, 0.0)
+        depth_range = (float(dr[0]), float(dr[1])) if dr is not None else None
 
         if self._dim == "2d":
             return CameraState(
@@ -1315,8 +1334,7 @@ class CanvasView:
         else:
             up = cam.world.up
             fov = float(cam.fov)
-            if self._depth_range_3d is not None:
-                depth_range = self._depth_range_3d
+            depth_range = self._depth_range_3d
             # An orthographic zoom changes the width and height and nothing
             # else, so they are part of the state there.
             extent = (float(cam.width), float(cam.height)) if fov == 0 else (0.0, 0.0)

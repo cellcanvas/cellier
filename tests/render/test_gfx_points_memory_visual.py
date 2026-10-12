@@ -569,7 +569,7 @@ async def test_render_2d_and_3d_draw_pixels(controller, render_scene, reslice):
     positions = np.array([[0, 4, 4], [0, 8, 12], [0, 12, 20]], dtype=np.float32)
     store = PointsMemoryStore(positions=positions)
 
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_points(
         data=store,
         scene_id=scene.id,
@@ -599,7 +599,7 @@ async def test_vertex_size_mode_renders_different_marker_sizes(
     sizes = np.array([4.0, 20.0], dtype=np.float32)
     store = PointsMemoryStore(positions=positions, sizes=sizes)
 
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_points(
         data=store,
         scene_id=scene.id,
@@ -636,7 +636,7 @@ async def test_uniform_size_mode_renders_equal_marker_sizes(
     sizes = np.array([4.0, 20.0], dtype=np.float32)
     store = PointsMemoryStore(positions=positions, sizes=sizes)
 
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_points(
         data=store,
         scene_id=scene.id,
@@ -671,7 +671,7 @@ async def test_size_space_change_alters_the_rendered_marker(
     positions = np.array([[0, 16, 16], [0, 16, 16]], dtype=np.float32)
     store = PointsMemoryStore(positions=positions)
 
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_points(
         data=store,
         scene_id=scene.id,
@@ -701,7 +701,7 @@ async def test_render_3d_draws_pixels(controller, render_scene, reslice):
     positions = np.array([[2, 4, 4], [6, 8, 12], [10, 12, 20]], dtype=np.float32)
     store = PointsMemoryStore(positions=positions)
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_points(
         data=store,
         scene_id=scene.id,

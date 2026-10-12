@@ -105,7 +105,7 @@ async def test_the_cut_face_is_on_the_plane_with_its_normal(
     kind, case, controller, reslice, tmp_path
 ):
     planes = CASES[case]
-    scene = controller.add_scene(dim="3d", name=f"{kind}_{case}")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=f"{kind}_{case}")
     visual, store = h.add_visual(
         kind, controller, scene.id, h.data_for(kind), tmp_path, f"{kind}_{case}"
     )

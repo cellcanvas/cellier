@@ -13,12 +13,15 @@ from cellier.gui._dims import thickness_axes
 from cellier.gui.qt._scene import QtDimsControl
 from cellier.scene.dims import spatial_axes, world_coordinate_system
 from cellier.transform import Axis
+from tests._displayed import trailing_axes
 
 
 def _scene(axes=None):
     controller = CellierController()
     cs = world_coordinate_system(axes or spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim="2d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=trailing_axes(cs, "2d"), coordinate_system=cs, name="main"
+    )
     return controller, scene
 
 

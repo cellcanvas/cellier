@@ -43,7 +43,7 @@ def _scene(controller):
     """A points visual with one plane, and the log of what the bus said."""
     store = _store()
     system = store.data_coordinate_systems[0]
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     item = _plane(system, 16.0)
     visual = controller.add_points(
         data=store, scene_id=scene.id, clipping_planes=(item,)
@@ -131,7 +131,7 @@ def test_with_no_event_loop_each_change_settles(controller):
 async def test_a_drag_holds_a_multiscale_volume_s_plan_until_it_ends(
     controller, reslice, tmp_path, monkeypatch
 ):
-    scene = controller.add_scene(dim="3d", name="ms")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="ms")
     visual, store = h.add_visual(
         "image_multiscale_mip", controller, scene.id, h.image_data(), tmp_path, "ms"
     )

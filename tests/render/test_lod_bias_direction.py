@@ -32,7 +32,7 @@ BIASES = [2.0 ** (k / 2) for k in range(-2, 15)]
 
 
 def _add(controller, kind, store):
-    scene = controller.add_scene(dim="3d", name=kind)
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=kind)
     if kind == "image":
         visual = controller.add_image_multiscale(
             data=store,

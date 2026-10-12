@@ -59,7 +59,7 @@ def _appearance_event(visual_id, field_name, new_value, source_id=None):
 
 
 def _two_image_viewer():
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     visuals = [
         viewer.add_image(
             ImageMemoryStore(data=np.zeros((8, 16, 24), dtype=np.float32)),

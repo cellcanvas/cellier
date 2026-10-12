@@ -12,16 +12,28 @@ import pytest
 
 from cellier.convenience import Viewer
 from cellier.convenience._backend import ANYWIDGET_BACKEND, QT_BACKEND
-from cellier.convenience.gui._controls_config import LabelsControlsConfig
+from cellier.convenience.gui._controls_config import (
+    BoundingBoxControl,
+    FieldControls,
+    OutlineControl,
+    PickingControl,
+)
 from cellier.convenience.layout._shared import appearance_specs
 from cellier.convenience.layout._walk import build_appearance_widgets
 from cellier.scene.dims import spatial_axes
 
-_CONFIG = LabelsControlsConfig(appearance=["visible"], outline_controls=True)
+_CONFIG = [
+    FieldControls(["visible"]),
+    BoundingBoxControl(),
+    OutlineControl(),
+    PickingControl(),
+]
 
 
 def _labels(labels_store, mode):
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="offscreen"
+    )
     visual = viewer.add_labels(labels_store, outline_mode=mode, controls=_CONFIG)
     return viewer, visual
 

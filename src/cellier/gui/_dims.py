@@ -12,9 +12,142 @@ from typing import TYPE_CHECKING
 from cellier.gui._axis_values import DiscreteAxisValues, nearest_value_index
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from cellier.gui._axis_values import AxisValues
+
+
+class DisplayedAxesMemory:
+    """The displayed axes the 2D/3D toggle goes back to.
+
+    The toggle used to switch between two fixed sets, the last two and the
+    last three world axes, whatever the scene had been showing.  This records
+    the last 2D set and the last 3D set a dims widget has seen, so a round
+    trip returns to where it started.  The two sets given at construction are
+    used for a mode the scene has not shown yet.
+
+    The memory belongs to the widget, not to the dims model: nothing is
+    saved with the scene.
+
+    Parameters
+    ----------
+    axes_2d : tuple of int
+        The 2D displayed axes to use until a 2D set has been seen.
+    axes_3d : tuple of int
+        The 3D displayed axes to use until a 3D set has been seen.
+    """
+
+    def __init__(self, axes_2d: Sequence[int], axes_3d: Sequence[int]) -> None:
+        self._default_2d = tuple(int(axis) for axis in axes_2d)
+        self._default_3d = tuple(int(axis) for axis in axes_3d)
+        self._seen_2d: tuple[int, ...] | None = None
+        self._seen_3d: tuple[int, ...] | None = None
+
+    @property
+    def axes_2d(self) -> tuple[int, ...]:
+        """The last 2D set seen, or the default."""
+        return self._default_2d if self._seen_2d is None else self._seen_2d
+
+    @property
+    def axes_3d(self) -> tuple[int, ...]:
+        """The last 3D set seen, or the default."""
+        return self._default_3d if self._seen_3d is None else self._seen_3d
+
+    def observe(self, displayed: Sequence[int]) -> None:
+        """Record *displayed* as the last set seen of its rank.
+
+        The order is kept: ``(0, 1)`` and ``(1, 0)`` display transposed, and
+        the toggle returns to the one the scene showed.  A set that is
+        neither 2D nor 3D is ignored.
+        """
+        axes = tuple(int(axis) for axis in displayed)
+        if len(axes) == 2:
+            self._seen_2d = axes
+        elif len(axes) == 3:
+            self._seen_3d = axes
+
+    def toggle_target(self, current: Sequence[int]) -> tuple[int, ...]:
+        """The displayed axes the toggle moves to from *current*.
+
+        From 2D it is the remembered 3D set.  From 3D it is the remembered
+        2D set when every one of its axes is in *current*; otherwise the
+        default 2D set under the same condition, and otherwise the last two
+        of *current* in world order.  The condition keeps an axis that the
+        3D view is not showing (time, in a ``(t, z, y, x)`` scene) from
+        coming back on screen by way of the toggle.
+        """
+        axes = tuple(int(axis) for axis in current)
+        if len(axes) != 3:
+            return self.axes_3d
+        for candidate in (self._seen_2d, self._default_2d):
+            if candidate is not None and set(candidate) <= set(axes):
+                return candidate
+        return tuple(sorted(axes)[-2:])
+
+
+def default_toggle_axes(
+    displayed: Sequence[int], axis_types: Sequence[str]
+) -> tuple[tuple[int, ...], tuple[int, ...]] | None:
+    """The 2D and 3D sets a toggle starts with, given what a scene displays.
+
+    The set of the scene's own rank is *displayed*.  The other is a default
+    and nothing more: it is replaced as soon as the scene shows that mode
+    (:class:`DisplayedAxesMemory`), so a user who wants something else states
+    it by starting in that mode or by setting the displayed axes while in it.
+
+    - 2D displayed: the 3D set is those axes plus one more, in world order.
+      The added axis is the last remaining ``"space"`` axis in world order,
+      and when no space axis remains, the last remaining axis of any type.
+      The type decides between candidates and never rejects an axis.
+    - 3D displayed: the 2D set is the last two of those axes in world order.
+
+    Parameters
+    ----------
+    displayed : sequence of int
+        The scene's displayed axes, in display order.
+    axis_types : sequence of str
+        The ``axis_type`` of every world axis, in world order.
+
+    Returns
+    -------
+    tuple or None
+        ``(axes_2d, axes_3d)``.  ``None`` when there is no other mode to
+        offer: 2D displayed with no axis left to add, or a displayed set
+        that is neither 2D nor 3D.
+    """
+    axes = tuple(int(axis) for axis in displayed)
+    if len(axes) == 3:
+        return tuple(sorted(axes)[-2:]), axes
+    if len(axes) != 2:
+        return None
+    remaining = [axis for axis in range(len(axis_types)) if axis not in axes]
+    if not remaining:
+        return None
+    spatial = [axis for axis in remaining if axis_types[axis] == "space"]
+    added = spatial[-1] if spatial else remaining[-1]
+    return axes, tuple(sorted((*axes, added)))
+
+
+def scene_toggle_axes(
+    scene: object,
+) -> tuple[tuple[int, ...] | None, tuple[int, ...] | None]:
+    """``(axes_2d, axes_3d)`` for a dims widget built from *scene*.
+
+    Both are ``None`` when the widget offers no toggle.  The toggle is
+    offered only when the *scene* says it can render both ways.  An
+    OrthoViewer panel declares exactly one mode -- three slice views and one
+    volume -- so offering to switch it put the scene into a mode it was
+    never configured for: the reslice produced no geometry, the scene had no
+    bounds, and the panel went blank (``plans/gui_backend_seam.md`` D18).  A
+    plain ``Viewer`` declares both, so its toggle is unaffected.
+    """
+    modes = {str(mode) for mode in getattr(scene, "render_modes", ())}
+    if not {"2d", "3d"} <= modes:
+        return None, None
+    axes = scene.dims.world_coordinate_system.axes
+    displayed = getattr(scene.dims.selection, "displayed_axes", ())
+    pair = default_toggle_axes(displayed, [axis.axis_type for axis in axes])
+    return (None, None) if pair is None else pair
 
 
 def initial_slice_indices(

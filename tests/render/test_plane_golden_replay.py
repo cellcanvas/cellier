@@ -86,7 +86,9 @@ def _transform(controller, scene_id, store, voxel):
 
 def _add(controller, pyramid_root, spec, *, dim, labels=False, bias=1.0, planes=()):
     store, voxel = open_pyramid(pyramid_root(spec, labels=labels), spec)
-    scene = controller.add_scene(dim=dim, name="s")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"), name="s"
+    )
     transform = _transform(controller, scene.id, store, voxel)
     system = store.data_coordinate_systems[0]
     clipping = tuple(
@@ -314,7 +316,7 @@ def _wgsl_cases(controller, pyramid_root, render_scene):
     for mode in ("mip", "iso", "minip"):
 
         def build(mode=mode):
-            scene = controller.add_scene(dim="3d", name=mode)
+            scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=mode)
             controller.add_image(
                 data=ImageMemoryStore(data=cube, name=mode),
                 scene_id=scene.id,
@@ -327,7 +329,7 @@ def _wgsl_cases(controller, pyramid_root, render_scene):
         out[f"image_memory/{mode}"] = digest(_capture_wgsl(controller, build))
 
     def build_labels():
-        scene = controller.add_scene(dim="3d", name="lab")
+        scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="lab")
         controller.add_labels(
             data=LabelMemoryStore(data=labels, name="lab"), scene_id=scene.id
         )
@@ -341,7 +343,7 @@ def _wgsl_cases(controller, pyramid_root, render_scene):
         # The mode lives on the single appearance; build with it directly.
         def build_mode(mode=mode):
             store, _ = open_pyramid(pyramid_root(ANISO), ANISO)
-            scene = controller.add_scene(dim="3d", name=mode)
+            scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=mode)
             controller.add_image_multiscale(
                 data=store,
                 scene_id=scene.id,
@@ -361,7 +363,7 @@ def _wgsl_cases(controller, pyramid_root, render_scene):
 
         def build_mode(mode=mode):
             store, _ = open_pyramid(pyramid_root(ANISO, labels=True), ANISO)
-            scene = controller.add_scene(dim="3d", name=mode)
+            scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=mode)
             controller.add_labels_multiscale(
                 data=store,
                 scene_id=scene.id,

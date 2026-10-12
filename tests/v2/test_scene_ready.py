@@ -26,7 +26,7 @@ from cellier.visuals._image_memory import InMemoryImageAppearance
 
 def _build_mixed_scene(controller: CellierController):
     """A 3D scene with an in-memory image and an in-memory points visual."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
 
     img_data = np.random.rand(16, 16, 16).astype(np.float32)
     img_store = ImageMemoryStore(data=img_data, name="img")
@@ -81,7 +81,7 @@ async def test_on_scene_ready_is_equivalent(qtbot):
 def test_on_ready_fires_immediately_when_nothing_to_load(qtbot):
     """A scene with no visuals has nothing to load, so on_ready fires at once."""
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", name="empty")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="empty")
     controller.add_canvas(scene_id=scene.id)
 
     calls: list[int] = []

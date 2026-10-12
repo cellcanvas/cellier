@@ -25,10 +25,13 @@ import tensorstore as ts
 
 from cellier.convenience import (
     AppearanceControls,
+    BoundingBoxControl,
+    FieldControls,
+    ImageControl,
     Layout,
-    MultiscaleImageControlsConfig,
-    MultiscaleLabelsControlsConfig,
-    PointsControlsConfig,
+    LevelOfDetailControl,
+    LoadingIndicator,
+    RenderPlanesControl,
     Viewer,
     axis_values_from_viewer,
     run,
@@ -252,13 +255,13 @@ points_store = PointsMemoryStore(
 # Viewer
 # ---------------------------------------------------------------------------
 
-# A 3D view displays the last three axes; t has a slider, and the composite
+# The 3D view displays the three spatial axes; t has a slider, and the composite
 # draws along c.
 # The outline pass is on for the markers alone (below): a marker has its
 # label's colour, and without a contour it could not be seen on the label.
 viewer = Viewer(
     [("t", "time"), ("c", "channel"), *spatial_axes(*SPACE)],
-    dim="3d",
+    displayed_axes=SPACE,
     render_config=RenderManagerConfig(
         outline=OutlineConfig(enabled=True, palette=[(1.0, 1.0, 1.0, 1.0)])
     ),
@@ -325,10 +328,13 @@ image_visual = viewer.add_image_multiscale(
         for channel, color_map in enumerate(("red", "green", "blue"))
     },
     render_planes=(plane,),
-    controls=MultiscaleImageControlsConfig(
-        appearance=["visible", "render_mode", "level_of_detail"],
-        render_plane_controls=True,
-    ),
+    controls=[
+        ImageControl(fields=["visible", "render_mode"]),
+        LevelOfDetailControl(),
+        BoundingBoxControl(),
+        RenderPlanesControl(),
+        LoadingIndicator(),
+    ],
 )
 
 labels_visual = viewer.add_labels_multiscale(
@@ -346,9 +352,15 @@ labels_visual = viewer.add_labels_multiscale(
     render_config=MultiscaleLabelRenderConfig(block_size=16),
     transform=to_world(labels_store, voxels=True),
     render_planes=(plane,),
-    controls=MultiscaleLabelsControlsConfig(
-        appearance=True, render_plane_controls=True
-    ),
+    controls=[
+        FieldControls(
+            ["visible", "opacity", "render_mode", "salt", "background_label"]
+        ),
+        LevelOfDetailControl(),
+        BoundingBoxControl(),
+        RenderPlanesControl(),
+        LoadingIndicator(),
+    ],
 )
 
 points_visual = viewer.add_points(
@@ -358,7 +370,10 @@ points_visual = viewer.add_points(
     transform=to_world(points_store, voxels=False),
     # A white contour, in the palette's first colour.
     outline=VisualOutline(slot=1),
-    controls=PointsControlsConfig(appearance=True),
+    controls=[
+        FieldControls(["visible", "opacity", "color", "size", "size_space"]),
+        BoundingBoxControl(),
+    ],
 )
 
 image_visual.aabb.enabled = True

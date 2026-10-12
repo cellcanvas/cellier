@@ -129,6 +129,31 @@ def _pack(
     return pack_keys(levels, slice_ids, arr[:, 1:]), slice_ids
 
 
+def _current_slice_ids(
+    planner: MultiscaleRegionPlanner,
+    residency: ImageResidency2D,
+    fill: dict[int, int] | None,
+) -> np.ndarray | None:
+    """The slice id of every level at the plan's dims position, not interned.
+
+    What :attr:`ImageResidency2D.current_slice_ids` holds.  Every level and
+    not only the planned ones: an earlier view may have loaded any of them.
+    Looked up and never interned, so a level no plan has drawn at this
+    position (-1) does not spend the atlas's table of selections.  ``None``
+    for a plan with no region, which has no selection to look up.
+    """
+    n_levels = len(residency.brick_rule()[1])
+    if planner._level_box(0) is None:
+        return None
+    ids = np.full(n_levels, -1, dtype=np.int64)
+    for level_index in range(n_levels):
+        if planner._level_box(level_index) is not None:
+            ids[level_index] = residency.find(
+                planner._level_slice_selection(level_index, fill)
+            )
+    return ids
+
+
 def target_room(
     residency: ImageResidency3D | ImageResidency2D | None,
     backstop_arr: np.ndarray | None,
@@ -276,6 +301,10 @@ def desired_bricks(
         )
         t_keys, t_sids = t_keys[:room], t_sids[:room]
     blocks.append((t_keys, t_sids, int(ChunkClass.TARGET)))
+
+    if isinstance(residency, ImageResidency2D):
+        # After every _pack: the planned levels' selections are interned.
+        residency.current_slice_ids = _current_slice_ids(planner, residency, fill)
 
     return DesiredSet(
         cache_id=residency.cache_id,

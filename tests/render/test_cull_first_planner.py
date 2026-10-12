@@ -169,7 +169,7 @@ def _clip(store, point, normal):
 
 def _build(controller, pyramid_root, *, labels, clipped):
     store, _ = open_pyramid(pyramid_root(ANISO, labels=labels), ANISO)
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     controller._ensure_data_coordinate_systems(scene.id, store)
     planes = (_clip(store, (32, 128, 128), (-0.6, 0.5, 1.0)),) if clipped else ()
     # A fine bias, so the fine levels (most of the bricks) are ranked.

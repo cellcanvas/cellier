@@ -21,7 +21,10 @@ async def _scenes(kind, controller, reslice, tmp_path, planes, dim):
     masked = np.where(h.kept_mask(planes), data, 0).astype(data.dtype)
     out = []
     for tag, volume in (("clip", data), ("ref", masked)):
-        scene = controller.add_scene(dim=dim, name=f"{kind}_{tag}")
+        scene = controller.add_scene(
+            displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+            name=f"{kind}_{tag}",
+        )
         visual, store = h.add_visual(
             kind, controller, scene.id, volume, tmp_path, f"{kind}_{tag}"
         )

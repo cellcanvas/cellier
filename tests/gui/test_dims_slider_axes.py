@@ -25,7 +25,7 @@ _AXIS_VALUES = {axis: ContinuousAxisValues(min=0.0, max=3.0) for axis in range(4
 
 
 def _viewer(gui: str) -> Viewer:
-    viewer = Viewer(_WORLD, dim="2d", gui=gui)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"), gui=gui)
     store = ImageMemoryStore(data=np.zeros((4, 4, 4), dtype=np.float32))
     viewer.add_image(
         store,

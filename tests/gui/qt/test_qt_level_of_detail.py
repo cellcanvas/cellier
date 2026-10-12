@@ -21,7 +21,11 @@ from tests._v2 import pyramid_levels
 def _controller_with_visual(small_zarr_store, dim="3d", **appearance):
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim=dim, coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+        coordinate_system=cs,
+        name="main",
+    )
     store = MultiscaleZarrDataStore(
         zarr_path=str(small_zarr_store),
         scale_names=["s0", "s1"],

@@ -40,7 +40,7 @@ _POS = np.array([[1, 1, 1], [5, 1, 1], [1, 5, 1], [1, 1, 5]], dtype=np.float32)
 
 
 def _mesh_scene(controller, *, with_second_visual: bool = False):
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_mesh(
         MeshMemoryStore(
             positions=_POS,
@@ -212,12 +212,14 @@ async def test_the_qt_visible_checkbox_hides_and_restores_the_picture(
     from PySide6.QtWidgets import QCheckBox, QWidget
 
     from cellier.convenience import Viewer
-    from cellier.convenience.gui import MeshControlsConfig
+    from cellier.convenience.gui import BoundingBoxControl, FieldControls
     from cellier.convenience.layout._spec import AppearanceControls
     from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
     from cellier.visuals._mesh_memory import MeshFlatAppearance
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="qt")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="qt"
+    )
     viewer.controller.camera_reslice_enabled = False
     visual = viewer.add_mesh(
         MeshMemoryStore(
@@ -225,7 +227,7 @@ async def test_the_qt_visible_checkbox_hides_and_restores_the_picture(
             indices=np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], np.int32),
         ),
         appearance=MeshFlatAppearance(color=(1.0, 0.2, 0.2, 1.0)),
-        controls=MeshControlsConfig(appearance=["visible"]),
+        controls=[FieldControls(["visible"]), BoundingBoxControl()],
     )
     viewer.controller.add_canvas(scene_id=viewer.scene.id)
     dock = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])

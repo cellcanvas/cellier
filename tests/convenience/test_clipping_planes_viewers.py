@@ -33,7 +33,9 @@ def test_store_then_planes_then_visual(qtbot):
         data=np.ones((8, 9, 10), np.int32), data_coordinate_systems=[system]
     )
     plane = _plane(store.data_coordinate_systems[0])
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     try:
         visual = viewer.add_labels(store, clipping_planes=(plane,))
         assert visual.clipping_planes == (plane,)
@@ -46,7 +48,9 @@ def test_store_then_planes_then_visual(qtbot):
 def test_a_store_with_no_system_gets_planes_after_the_visual(qtbot):
     store = PointsMemoryStore(positions=np.zeros((3, 3), dtype=np.float32))
     assert store.data_coordinate_systems == []
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     try:
         visual = viewer.add_points(store)
         visual.clipping_planes = (_plane(store.data_coordinate_systems[0]),)
@@ -88,7 +92,9 @@ def test_planes_survive_save_and_load(qtbot, tmp_path):
         data_coordinate_systems=[system],
     )
     planes = (_plane(system), _plane(system, 6.0).model_copy(update={"enabled": False}))
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     try:
         visual = viewer.add_points(store, clipping_planes=planes)
         visual_id = visual.id
@@ -121,7 +127,9 @@ def test_the_viewer_puts_a_gizmo_on_a_plane(qtbot):
         data=np.ones((8, 9, 10), np.int32), data_coordinate_systems=[system]
     )
     plane, other = _plane(system), _plane(system, 6.0)
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     try:
         visual = viewer.add_labels(store, clipping_planes=(plane, other))
         viewer.add_canvas()
@@ -222,13 +230,16 @@ def _dock_clipping_controls(viewer) -> list:
 
 
 def test_a_viewer_names_its_one_canvas_for_the_docks_gizmo(qtbot):
-    from cellier.convenience import LabelsControlsConfig
+    from cellier.convenience import ClippingPlanesControl
+    from tests.convenience._controls_lists import panel
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     try:
         visual = viewer.add_labels(
             _labels_store(),
-            controls=LabelsControlsConfig(appearance=True, clipping_controls=True),
+            controls=panel("labels", None, ClippingPlanesControl()),
         )
         # No canvas yet: the control cannot be built (no lazy binding).
         with pytest.raises(ValueError, match="Build the canvas before"):
@@ -253,7 +264,10 @@ def test_a_viewer_names_its_one_canvas_for_the_docks_gizmo(qtbot):
 
 def test_a_viewer_that_never_shows_3d_names_no_gizmo_target(qtbot):
     viewer = Viewer(
-        spatial_axes("z", "y", "x"), dim="2d", render_modes={"2d"}, gui="offscreen"
+        spatial_axes("z", "y", "x"),
+        displayed_axes=("y", "x"),
+        render_modes={"2d"},
+        gui="offscreen",
     )
     try:
         visual = viewer.add_labels(_labels_store())

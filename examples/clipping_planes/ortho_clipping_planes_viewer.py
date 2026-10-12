@@ -17,8 +17,7 @@ from uuid import uuid4
 import numpy as np
 
 from cellier.convenience import (
-    InMemoryImageControlsConfig,
-    LabelsControlsConfig,
+    ClippingPlanesControl,
     Layout,
     OrthoClippingControls,
     OrthoViewer,
@@ -86,14 +85,15 @@ def plane_across_x(system: DataCoordinateSystem) -> ClippingPlane:
 # "all" is the default; "2d" and None are the other modes.
 viewer = OrthoViewer(spatial_axes(*AXES), link_clipping_planes="all")
 
-# clipping_controls=True puts a dataset in the OrthoClippingControls() dock.
+# ClippingPlanesControl() puts a dataset in the OrthoClippingControls() dock.
+# With nothing else in the list, it has no entry in an appearance dock.
 # The labels are added before the image: added after it, the image's black
 # background covers them in the 2D panels.
 viewer.add_labels(
     balls_store,
     name="balls",
     clipping_planes=(plane_across_x(balls_system),),
-    controls=LabelsControlsConfig(appearance=False, clipping_controls=True),
+    controls=[ClippingPlanesControl()],
 )
 viewer.add_image(
     core_store,
@@ -102,7 +102,7 @@ viewer.add_image(
     ),
     name="core",
     clipping_planes=(plane_across_x(core_system),),
-    controls=InMemoryImageControlsConfig(appearance=False, clipping_controls=True),
+    controls=[ClippingPlanesControl()],
 )
 viewer.center_slices()
 

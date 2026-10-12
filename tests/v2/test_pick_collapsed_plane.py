@@ -41,7 +41,7 @@ def _channel_viewer():
         (Axis(name="c", axis_type="channel"), *spatial_axes("z", "y", "x")),
         name="world",
     )
-    scene = controller.add_scene(coordinate_system=cs, dim="3d")
+    scene = controller.add_scene(coordinate_system=cs, displayed_axes=("z", "y", "x"))
     controller.add_canvas(scene.id)
 
     array = np.zeros(CHANNEL_SHAPE, dtype=np.float32)

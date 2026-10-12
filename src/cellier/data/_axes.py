@@ -318,9 +318,8 @@ def data_axes_from_world(
     The fallback of last resort, for a store that carries no axis metadata --
     a bare ``ImageMemoryStore(data=arr)``.  Trailing rather than leading
     because that is the alignment the rest of cellier already assumes: a
-    scene's initial ``displayed_axes`` is the last two or three world axes,
-    and a dataset that is a sub-rank of the world is a spatial volume missing
-    the leading batch-like axes, not the reverse.
+    dataset that is a sub-rank of the world is a spatial volume missing the
+    leading batch-like axes, not the reverse.
 
     Names, types and units are inherited from the world axes, so the
     ``data -> world`` transform this store gets typechecks by construction.
@@ -459,8 +458,7 @@ def default_data_to_world(
     both systems are finally known.
 
     The correspondence is by **trailing position**, the same alignment the
-    rest of cellier already assumes -- a scene's initial ``displayed_axes`` is
-    the last two or three world axes.  The two ranks are usually equal, in
+    rest of cellier already assumes.  The two ranks are usually equal, in
     which case this is the identity on indices, and the two ways they can
     differ have one honest reading each:
 

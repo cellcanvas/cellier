@@ -4,9 +4,27 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import UUID
 
+from cellier.convenience.gui._controls_config import (
+    FIELD_KINDS,
+    AmbientOcclusionControl,
+    BoundingBoxControl,
+    ClippingPlanesControl,
+    DatasetInfoControl,
+    FieldControls,
+    ImageControl,
+    LevelOfDetailControl,
+    LoadingConfigControl,
+    LoadingIndicator,
+    MeshLodControl,
+    MeshSectionControl,
+    OutlineControl,
+    PickingControl,
+    RenderPlanesControl,
+    TrailControl,
+)
 from cellier.gui._clipping_planes import (
     CLIPPING_PLANES_TITLE,
     get_clipping_planes_data_from_visual,
@@ -21,15 +39,19 @@ from cellier.gui._mesh_section import MESH_SECTION_TITLE
 from cellier.gui._render_controls import VISUAL_RENDER_TITLES
 from cellier.gui._render_planes import RENDER_PLANES_TITLE
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    from cellier.convenience.gui._controls_config import Control
+
 # ── Appearance controls: the toolkit-neutral decision layer ──────────────────
 #
-# Design section 7.3.  Which controls a panel contains, in what order, seeded
-# with what values, is one question with one answer -- it was previously
-# answered twice, once per toolkit, in ~110 near-identical lines each
-# (section 4.2).  These two functions are that answer, as pure data: no
-# controller, no widgets, no toolkit import, so the whole decision layer is
-# unit-testable with no fixtures.  Each renderer keeps only a dispatch table
-# mapping ``ControlSpec.kind`` to its own widget class.
+# Which controls a panel contains, in what order, seeded with what values, is
+# one question with one answer for every toolkit.  ``appearance_specs`` is
+# that answer, as pure data: no controller, no widgets, no toolkit import, so
+# the whole decision layer is unit-testable with no fixtures.  The order is
+# the order of the visual's ``controls=`` list.  Each renderer keeps only a
+# dispatch table mapping ``ControlSpec.kind`` to its own widget class.
 
 
 @dataclass(frozen=True)
@@ -39,11 +61,11 @@ class ControlSpec:
     Parameters
     ----------
     kind : str
-        Which control to build: ``color_map``, ``clim``, ``render``,
-        ``level_of_detail``, ``aabb``, ``loading``, ``loading_config``,
-        ``mesh_section``, ``clipping_planes``, ``lod_config`` or
-        ``dataset_info``.  A renderer with no
-        builder for a kind skips it.
+        Which control to build: ``image``, ``level_of_detail``, ``aabb``,
+        ``loading``, ``loading_config``, ``mesh_section``,
+        ``clipping_planes``, ``render_planes``, ``lod_config``,
+        ``dataset_info``, or the kind of a single-field control such as
+        ``opacity``.  A renderer with no builder for a kind skips it.
     title : str
         What the control is called, e.g. ``"Contrast limits"``.  Both front
         ends pass it to the widget, which draws it itself -- as a label beside
@@ -69,12 +91,11 @@ class AppearanceSpecs(NamedTuple):
     specs : list[ControlSpec]
         The controls, in display order.
     skipped : list[str]
-        Requested field names that produced no control, either because the
-        config class has no control for them or because the visual's
-        appearance model does not carry them.  Reported rather than silently
-        dropped (design section 9.5 step 4); stage 3 turns the first case
-        into an error at config-construction time, which leaves this for the
-        second.
+        Listed field names that produced no control because the visual's
+        appearance model does not carry them (``shininess`` on a mesh with
+        the flat model).  Reported rather than silently dropped; a name the
+        kind of visual has no control for at all is refused earlier, by
+        ``validate_controls``.
     """
 
     specs: list[ControlSpec]
@@ -100,8 +121,7 @@ _CONTROL_TITLES = {
 """Titles for the control kinds that need one written out.
 
 A kind not listed here is a plain single-field control, and its title is
-derived from the field name -- so a config class can name a new kind without
-registering anything.
+derived from the field name.
 
 Each of these is also a widget class's ``DEFAULT_TITLE`` on both toolkits,
 pinned by ``test_composite_default_titles_match_the_shared_vocabulary``: this
@@ -135,9 +155,23 @@ class RenderPlanesTarget(NamedTuple):
     watch: Any = None
 
 
-_CONTROL_NEEDS_FIELD = {"level_of_detail": "settled_lod_bias"}
-"""Appearance entries that are a control, not a field, and the model field
-whose presence says the visual can be driven by it."""
+_LEVEL_OF_DETAIL_FIELD = "settled_lod_bias"
+"""The appearance field whose presence says a visual has levels of detail."""
+
+_IMAGE_FIELD_ORDER = tuple(FIELD_KINDS["multiscale_image"])
+"""Every image field name, in the order the image control is given them."""
+
+_FIELD_CONTROL_KINDS = {
+    field: kind
+    for visual_kind, fields in FIELD_KINDS.items()
+    if visual_kind not in ("image", "multiscale_image")
+    for field, kind in fields.items()
+}
+"""Field name to control kind, for the single-field controls.
+
+An image's fields are not here: they are all drawn by the image control,
+and ``render_mode`` would collide with the labels field of that name.
+"""
 
 
 APPEARANCE_DOCK_GAP_PX = 6
@@ -170,7 +204,7 @@ def _default_title(field: str) -> str:
 def _resolve_data_store(controller: object, visual: object) -> object | None:
     """Return the visual's backing data store, or ``None`` if there is none.
 
-    Only ``dataset_info=True`` needs it.  A visual with no controller or no
+    A visual with no controller or no
     ``data_store_id`` yields ``None`` quietly -- there is nothing to look up.
     A lookup that *fails* is different: the visual names a store the
     controller does not have, which is a wiring bug, and it warns rather
@@ -201,319 +235,242 @@ def _resolve_data_store(controller: object, visual: object) -> object | None:
 
 def appearance_specs(
     visual: object,
-    config: object,
+    controls: Sequence[Control] | None,
     store: object | None = None,
     palette: object = (),
 ) -> AppearanceSpecs:
-    """Decide which appearance controls *visual* should get under *config*.
+    """Decide which appearance controls *visual* gets from its *controls* list.
 
-    Pure: reads the visual's appearance model and the config, and returns
-    data.  Both renderers walk the result and build widgets from it.
+    Pure: reads the visual and the list, and returns data.  Both renderers
+    walk the result and build widgets from it.
 
-    The requested field names are matched against the config class's
-    ``APPEARANCE_CONTROLS`` map (design section 6.5.2 decision 6), so which
-    widget a name means is decided by the kind of visual being configured
-    rather than by the name alone.  Group order is the map's order, not the
-    caller's -- the ``appearance`` docstring's "in display order" has never
-    been true and stage 1 does not change that.
+    The specs follow the list: each item is handed to its builder in
+    ``_SPEC_BUILDERS``, which returns the specs it stands for, and they are
+    appended in turn.  So the order of the list is the order of the dock.
+    A builder returns nothing when the visual or the store cannot support
+    its control (no store for the clipping planes, a mesh with one level
+    for the mesh LOD group); the rest of the list keeps its order.
 
     Parameters
     ----------
     visual : BaseVisual
         The visual whose appearance the panel will drive.
-    config : BaseControlsConfig
-        The recorded controls config.
+    controls : list[Control] or None
+        The recorded ``controls=`` list.  ``None`` or empty gives no specs.
     store : BaseDataStore or None
-        The visual's backing data store, needed only to honour
-        ``dataset_info=True``, which asks the store to describe itself.
-        Passed in rather than looked up so this stays pure: the shared
-        decision layer takes no controller and imports no toolkit.  A
-        renderer resolves it from ``visual.data_store_id``.
+        The visual's backing data store, needed by the clipping planes,
+        trail, loading config and dataset info controls.  Passed in rather
+        than looked up so this stays pure: the shared decision layer takes
+        no controller and imports no toolkit.  A renderer resolves it from
+        ``visual.data_store_id``.
     palette : sequence of RGBA
-        The outline palette, needed only by the per-visual outline
-        controls, whose slot swatches offer exactly the slots it holds.
-        Passed in for the same reason *store* is: this stays pure, and
-        both front ends then read the slots on offer from one place.
+        The outline palette, needed only by the outline control, whose slot
+        swatches offer exactly the slots it holds.  Passed in for the same
+        reason *store* is.
 
     Returns
     -------
     AppearanceSpecs
     """
+    specs: list[ControlSpec] = []
+    skipped: list[str] = []
+    for item in controls or ():
+        specs.extend(_SPEC_BUILDERS[type(item)](item, visual, store, palette, skipped))
+    return AppearanceSpecs(specs, skipped)
+
+
+# -- One builder per control model -------------------------------------------
+#
+# Each takes ``(item, visual, store, palette, skipped)`` and returns the specs
+# the item stands for: none, one or several.  *skipped* collects the field
+# names the visual's appearance model does not carry.
+
+
+def _carried_fields(visual: object, fields: list[str]) -> list[str]:
+    """The names of *fields* the visual's appearance model carries.
+
+    An image's mode-dependent fields live on ``single`` (unified image
+    design 3.1), not on the shared appearance.
+    """
+    app = getattr(visual, "appearance", None)
+    single = getattr(visual, "single", None)
+    return [
+        field
+        for field in fields
+        if hasattr(app, field) or (single is not None and hasattr(single, field))
+    ]
+
+
+def _image_specs(
+    item: ImageControl, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """The one image control, showing the rows *item* names."""
+    from cellier.gui._image_controls import image_control_values
+
+    carried = set(_carried_fields(visual, item.fields))
+    skipped.extend(sorted(set(item.fields) - carried))
+    if not carried:
+        return []
+    # The list chooses rows; the control has its own layout (design D1).
+    fields = [field for field in _IMAGE_FIELD_ORDER if field in carried]
+    return [
+        ControlSpec(
+            "image",
+            _CONTROL_TITLES["image"],
+            image_control_values(
+                visual,
+                fields=fields,
+                colormap_names=item.colormap_names,
+                clim_range=item.clim_range,
+                channel_labels=item.channel_labels,
+                decimals=item.decimals,
+            ),
+        )
+    ]
+
+
+def _field_specs(
+    item: FieldControls, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """One single-field control per name, in the order of *item*'s list."""
     from cellier.gui._appearance_fields import (
         APPEARANCE_FIELD_WIDGETS,
         literal_choices,
     )
 
-    appearance = getattr(config, "appearance", False)
-    if appearance is True:
-        # "Use this config class's default panel" -- every field it can drive
-        # (design section 11.2).  ``True`` was a dead value before stage 5:
-        # the annotation admitted it and it took the same branch as ``False``.
-        field_list = list(type(config).default_appearance_fields())
-        explicit = False
-    else:
-        field_list = appearance if isinstance(appearance, list) and appearance else None
-        explicit = True
-    if not field_list or not hasattr(visual, "appearance"):
-        return AppearanceSpecs([], list(field_list or []) if explicit else [])
+    carried = set(_carried_fields(visual, item.fields))
+    skipped.extend(sorted(set(item.fields) - carried))
+    app = getattr(visual, "appearance", None)
+    specs = []
+    for field in item.fields:
+        if field not in carried:
+            continue
+        kind = _FIELD_CONTROL_KINDS.get(field, field)
+        values = {"initial_value": getattr(app, field)}
+        # A Literal field's options come from the model's own annotation,
+        # so the in-memory and multiscale variants of a field each offer
+        # their own set without a list restated here.
+        choices = literal_choices(app, field)
+        if choices:
+            values["choices"] = choices
+        stem_title = APPEARANCE_FIELD_WIDGETS.get(kind)
+        title = stem_title[1] if stem_title else _default_title(field)
+        specs.append(ControlSpec(kind, title, values))
+    return specs
 
-    app = visual.appearance
-    controls_map: dict[str, str] = type(config).APPEARANCE_CONTROLS
-    requested = set(field_list)
 
-    # A field is honoured when the config class has a control for it *and* the
-    # visual's model actually carries it.  Both halves matter: a config can be
-    # paired with a visual whose model is narrower (a multiscale config on an
-    # in-memory image has no ``settled_lod_bias`` to drive).  A control that
-    # is not named after one field names the field it needs in
-    # ``_CONTROL_NEEDS_FIELD``.
-    # An image's mode-dependent fields live on ``single`` (unified image
-    # design 3.1), not on the shared appearance.
-    single = getattr(visual, "single", None)
-    honoured = {
-        field
-        for field in requested
-        if field in controls_map
-        and (
-            hasattr(app, _CONTROL_NEEDS_FIELD.get(field, field))
-            or (single is not None and hasattr(single, field))
+def _level_of_detail_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """The level-of-detail control, for a model that has the settled bias."""
+    app = getattr(visual, "appearance", None)
+    if not hasattr(app, _LEVEL_OF_DETAIL_FIELD):
+        return []
+    return [
+        ControlSpec(
+            "level_of_detail",
+            _CONTROL_TITLES["level_of_detail"],
+            level_of_detail_values(app),
         )
-    }
-    # A default list is "everything this config *can* drive", and the visual's
-    # model is often narrower on purpose -- a flat mesh has no ``shininess``.
-    # Reporting those would warn on every ``appearance=True`` panel, so only
-    # fields the caller named are reported as dropped.
-    skipped = sorted(requested - honoured) if explicit else []
-
-    image_fields = [
-        field
-        for field in controls_map
-        if field in honoured and controls_map[field] == "image"
     ]
 
-    def _image_values():
-        from cellier.gui._image_controls import image_control_values
 
-        return image_control_values(
-            visual,
-            fields=image_fields,
-            colormap_names=getattr(config, "colormap_names", None),
-            clim_range=getattr(config, "clim_range", None),
-            channel_labels=getattr(config, "channel_labels", None),
-            decimals=getattr(config, "decimals", 2),
-        )
-
-    values_for = {
-        "image": _image_values,
-        "level_of_detail": lambda: level_of_detail_values(app),
-    }
-
-    specs: list[ControlSpec] = []
-    seen: set[str] = set()
-    for field, kind in controls_map.items():
-        if field not in honoured or kind in seen:
-            continue
-        seen.add(kind)
-        # A kind with no bespoke entry is a plain single-field control: its
-        # value is the field's current value, and its title comes from the
-        # shared widget table.  The bespoke entries exist for the controls
-        # that read several fields at once, or that need something the model
-        # does not hold directly.
-        if kind in values_for:
-            values = values_for[kind]()
-            title = _CONTROL_TITLES[kind]
-        else:
-            values = {"initial_value": getattr(app, field)}
-            # A Literal field's options come from the model's own annotation,
-            # so the in-memory and multiscale variants of a field each offer
-            # their own set without a list restated here.
-            choices = literal_choices(app, field)
-            if choices:
-                values["choices"] = choices
-            stem_title = APPEARANCE_FIELD_WIDGETS.get(kind)
-            title = stem_title[1] if stem_title else _default_title(field)
-        specs.append(ControlSpec(kind, title, values))
-
-    trail_spec = _trail_spec(visual, config, store)
-    if trail_spec is not None:
-        specs.append(trail_spec)
-
-    # The bounding box is not a field of the appearance model and is not
-    # requested by name: ``aabb`` is on ``BaseVisual`` with a default factory,
-    # so every visual has one and every configured panel gets the control.
-    # This is what the anywidget path already did; stage 1 gives Qt the same
-    # (design section 7.1).
-    aabb = getattr(visual, "aabb", None)
-    if aabb is not None:
-        specs.append(
-            ControlSpec(
-                "aabb",
-                _CONTROL_TITLES["aabb"],
-                {
-                    "initial_enabled": aabb.enabled,
-                    "initial_line_width": aabb.line_width,
-                    "initial_color": aabb.color,
-                },
-            )
-        )
-
-    # A mesh's 2D section: outline, fill, outline width, mode.  Opt-in, like
-    # the outline controls: a mesh that is only ever shown in 3D has no use
-    # for the group.
-    section = getattr(visual, "section", None)
-    if section is not None and getattr(config, "section_controls", False):
-        specs.append(
-            ControlSpec(
-                "mesh_section",
-                _CONTROL_TITLES["mesh_section"],
-                {"section": section.model_dump()},
-            )
-        )
-
-    # The visual's clipping planes: a row per plane.  Opt-in.  Every visual
-    # type has them; they are edited in the store's data coordinates.
-    if getattr(config, "clipping_controls", False) and store is not None:
-        specs.append(
-            ControlSpec(
-                "clipping_planes",
-                _CONTROL_TITLES["clipping_planes"],
-                get_clipping_planes_data_from_visual(visual, store),
-            )
-        )
-
-    # The planes of the "plane" render mode: a row per plane.  Opt-in, and
-    # only for a visual that has the mode (an image or labels).  The control
-    # reads the scene through the controller, so its builder fills it in.
-    if getattr(config, "render_plane_controls", False) and hasattr(
-        visual, "render_planes"
-    ):
-        specs.append(ControlSpec("render_planes", _CONTROL_TITLES["render_planes"], {}))
-
-    # A multiscale mesh's level-of-detail settings: what a dims scrub loads
-    # and draws, and what a moving camera draws.  Opt-in.
-    lod = getattr(visual, "lod", None)
-    if lod is not None and getattr(config, "lod_controls", False):
-        specs.append(
-            ControlSpec(
-                "lod_config", _CONTROL_TITLES["lod_config"], {"lod": lod.model_dump()}
-            )
-        )
-
-    specs.extend(_visual_render_specs(visual, config, palette))
-
-    # Only a multiscale visual loads progressively; its render config says
-    # so by carrying ``loading``.  The widget reads the current progress off
-    # the controller when it is built, so the spec carries nothing.
-    loading = getattr(getattr(visual, "render_config", None), "loading", None)
-    if loading is not None and getattr(config, "loading_indicator", False):
-        specs.append(ControlSpec("loading", _CONTROL_TITLES["loading"], {}))
-    # A mesh loads through the same scheduler and is not drawn while it
-    # loads, so it can show the same indicator, worded in levels.
-    if section is not None and getattr(config, "loading_indicator", False):
-        specs.append(
-            ControlSpec("loading", _CONTROL_TITLES["loading"], {"levels": True})
-        )
-    if loading is not None and getattr(config, "loading_controls", False):
-        level_shapes = getattr(store, "level_shapes", None)
-        specs.append(
-            ControlSpec(
-                "loading_config",
-                _CONTROL_TITLES["loading_config"],
-                {
-                    "loading": loading.model_dump(),
-                    "n_levels": len(level_shapes) if level_shapes else None,
-                },
-            )
-        )
-
-    dataset_info_spec = _dataset_info_spec(
-        getattr(config, "dataset_info", False), store
-    )
-    if dataset_info_spec is not None:
-        specs.append(dataset_info_spec)
-
-    return AppearanceSpecs(specs, skipped)
-
-
-def _trail_spec(visual: object, config: object, store: object) -> ControlSpec | None:
-    """The trail-window control *config* asks for, or ``None``.
-
-    Only a graph visual has a trail, and only ``GraphControlsConfig`` can ask
-    for its control.  The axes are resolved here, against the store's own
-    data axes, because the config is built before it is paired with a store.
-    """
-    requested = getattr(config, "trail_controls", False)
-    trail = getattr(visual, "trail", None)
-    if not requested or trail is None:
-        return None
-
-    systems = getattr(store, "data_coordinate_systems", None) or []
-    system = systems[0] if systems else None
-    names = system.axis_names() if system is not None else ()
-
-    if requested is True:
-        axes = sorted(trail)
-        if not axes and system is not None:
-            axes = [
-                index
-                for index, axis in enumerate(system.axes)
-                if axis.axis_type == "time"
-            ]
-    else:
-        axes = [_resolve_trail_axis(ref, names) for ref in requested]
-    if not axes:
-        warnings.warn(
-            f"trail_controls=True on {getattr(visual, 'name', 'a graph')!r} found "
-            "no axis to offer: the graph has no trail window and no time axis. "
-            "Name the axes instead, e.g. trail_controls=[0].",
-            UserWarning,
-            stacklevel=3,
-        )
-        return None
-
-    return ControlSpec(
-        "trail",
-        _CONTROL_TITLES["trail"],
-        {
-            "axes": [
-                (axis, names[axis] if axis < len(names) else f"axis {axis}")
-                for axis in dict.fromkeys(axes)
-            ],
-            # Copies: the widget keeps what it was seeded with, and must never
-            # hold the objects the controller is wired to.
-            "trail": {axis: window.model_copy() for axis, window in trail.items()},
-        },
-    )
-
-
-def _resolve_trail_axis(ref: int | str, names: tuple[str, ...]) -> int:
-    """Resolve one ``trail_controls`` entry to a data-axis index."""
-    if isinstance(ref, str):
-        matches = [index for index, name in enumerate(names) if name == ref]
-        if len(matches) != 1:
-            problem = "is not one of" if not matches else "is ambiguous among"
-            raise ValueError(
-                f"trail_controls axis {ref!r} {problem} the graph's data axes "
-                f"{list(names)}."
-            )
-        return matches[0]
-    if not 0 <= ref < len(names):
-        raise ValueError(
-            f"trail_controls axis {ref} is out of range for a {len(names)}-axis graph."
-        )
-    return int(ref)
-
-
-def _visual_render_specs(
-    visual: object, config: object, palette: object = ()
+def _aabb_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
 ) -> list[ControlSpec]:
-    """The per-visual outline / occlusion / picking controls *config* asks for.
+    """The bounding box control.
 
-    Opt-in, unlike the bounding box: both passes are off by default, so an
-    always-present group would lengthen every appearance panel for people
-    who never enable either feature.
+    ``aabb`` is on ``BaseVisual`` with a default factory, so every visual
+    has one.
+    """
+    aabb = getattr(visual, "aabb", None)
+    if aabb is None:
+        return []
+    return [
+        ControlSpec(
+            "aabb",
+            _CONTROL_TITLES["aabb"],
+            {
+                "initial_enabled": aabb.enabled,
+                "initial_line_width": aabb.line_width,
+                "initial_color": aabb.color,
+            },
+        )
+    ]
 
-    Which outline control is emitted depends on the visual type, because
+
+def _mesh_section_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """A mesh's 2D section: outline, fill, outline width, mode."""
+    section = getattr(visual, "section", None)
+    if section is None:
+        return []
+    return [
+        ControlSpec(
+            "mesh_section",
+            _CONTROL_TITLES["mesh_section"],
+            {"section": section.model_dump()},
+        )
+    ]
+
+
+def _clipping_planes_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """The visual's clipping planes: a row per plane.
+
+    Every visual type has them; they are edited in the store's data
+    coordinates, so there is no control without a store.
+    """
+    if store is None:
+        return []
+    return [
+        ControlSpec(
+            "clipping_planes",
+            _CONTROL_TITLES["clipping_planes"],
+            get_clipping_planes_data_from_visual(visual, store),
+        )
+    ]
+
+
+def _render_planes_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """The planes of the "plane" render mode: a row per plane.
+
+    Only for a visual that has the mode (an image or labels).  The control
+    reads the scene through the controller, so its builder fills it in.
+    """
+    if not hasattr(visual, "render_planes"):
+        return []
+    return [ControlSpec("render_planes", _CONTROL_TITLES["render_planes"], {})]
+
+
+def _mesh_lod_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """A multiscale mesh's level-of-detail settings.
+
+    What a dims scrub loads and draws, and what a moving camera draws.  A
+    mesh with one level has none.
+    """
+    lod = getattr(visual, "lod", None)
+    if lod is None:
+        return []
+    return [
+        ControlSpec(
+            "lod_config", _CONTROL_TITLES["lod_config"], {"lod": lod.model_dump()}
+        )
+    ]
+
+
+def _outline_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """The visual's outline control.
+
+    Which control is emitted depends on the visual type, because
     ``outline.slot`` means two different things.  On most visuals it chooses
     the colour, since the selection layer draws the region in
     ``palette[slot - 1]``.  On a labels visual it only decides whether the
@@ -524,64 +481,192 @@ def _visual_render_specs(
     from cellier.controller import _default_placement
     from cellier.visuals._label_memory import BaseLabelsVisual
 
-    wants_outline = bool(getattr(config, "outline_controls", False))
-    wants_occlusion = bool(getattr(config, "ambient_occlusion_controls", False))
-    if not (wants_outline or wants_occlusion):
-        return []
-
     outline = getattr(visual, "outline", None)
     if outline is None:
         return []
+    is_labels = isinstance(visual, BaseLabelsVisual)
+    kind = "labels_outline" if is_labels else "visual_outline"
+    values = {
+        "outline.slot": outline.slot,
+        "outline.placement": outline.placement,
+        "default_placement": _default_placement(visual),
+        # The palette travels in the spec so both front ends read the
+        # slots on offer from one place; each widget then follows it
+        # live through RenderConfigChangedEvent.
+        "palette": [tuple(entry) for entry in palette],
+    }
+    if is_labels:
+        values["outline_selected_labels"] = dict(visual.outline_selected_labels)
+        # The mode decides which controls the panel draws (slot swatches
+        # or the per-label rows), and both front ends fall back to
+        # ``per_label`` without it -- which misdrew every visual in
+        # another mode.
+        values["outline_mode"] = visual.outline_mode
+    return [ControlSpec(kind, _CONTROL_TITLES[kind], values)]
 
-    specs: list[ControlSpec] = []
-    if wants_outline:
-        is_labels = isinstance(visual, BaseLabelsVisual)
-        kind = "labels_outline" if is_labels else "visual_outline"
-        values = {
-            "outline.slot": outline.slot,
-            "outline.placement": outline.placement,
-            "default_placement": _default_placement(visual),
-            # The palette travels in the spec so both front ends read the
-            # slots on offer from one place; each widget then follows it
-            # live through RenderConfigChangedEvent.
-            "palette": [tuple(entry) for entry in palette],
-        }
-        if is_labels:
-            values["outline_selected_labels"] = dict(visual.outline_selected_labels)
-            # The mode decides which controls the panel draws (slot swatches
-            # or the per-label rows), and both front ends fall back to
-            # ``per_label`` without it -- which misdrew every visual in
-            # another mode.
-            values["outline_mode"] = visual.outline_mode
-        specs.append(ControlSpec(kind, _CONTROL_TITLES[kind], values))
 
-    if wants_occlusion:
-        specs.append(
-            ControlSpec(
-                "visual_occlusion",
-                _CONTROL_TITLES["visual_occlusion"],
-                {"ambient_occlusion": visual.ambient_occlusion},
-            )
+def _occlusion_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """The visual's ambient-occlusion checkbox."""
+    if getattr(visual, "outline", None) is None:
+        return []
+    return [
+        ControlSpec(
+            "visual_occlusion",
+            _CONTROL_TITLES["visual_occlusion"],
+            {"ambient_occlusion": visual.ambient_occlusion},
         )
+    ]
 
-    # Both features read the pick buffer, so the flag that gates them both
-    # comes along with either.
-    specs.append(
+
+def _picking_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """The ``pick_write`` checkbox.
+
+    The outline and ambient occlusion both read the pick buffer, so this
+    is the flag that gates them.
+    """
+    if getattr(visual, "outline", None) is None:
+        return []
+    return [
         ControlSpec(
             "visual_picking",
             _CONTROL_TITLES["visual_picking"],
             {"pick_write": visual.pick_write},
         )
-    )
+    ]
+
+
+def _loading_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """How far the visual's data has loaded.
+
+    A multiscale visual loads progressively; its render config says so by
+    carrying ``loading``.  The widget reads the current progress off the
+    controller when it is built, so the spec carries nothing.  A mesh loads
+    through the same scheduler and is not drawn while it loads, so it shows
+    the same indicator, worded in levels.
+    """
+    specs = []
+    if _loading_config(visual) is not None:
+        specs.append(ControlSpec("loading", _CONTROL_TITLES["loading"], {}))
+    if getattr(visual, "section", None) is not None:
+        specs.append(
+            ControlSpec("loading", _CONTROL_TITLES["loading"], {"levels": True})
+        )
     return specs
 
 
-def _dataset_info_spec(requested: object, store: object) -> ControlSpec | None:
-    """Resolve a config's ``dataset_info`` setting into a spec, or ``None``.
+def _loading_config_specs(
+    item: object, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """A control for every field of the visual's progressive loading config."""
+    loading = _loading_config(visual)
+    if loading is None:
+        return []
+    level_shapes = getattr(store, "level_shapes", None)
+    return [
+        ControlSpec(
+            "loading_config",
+            _CONTROL_TITLES["loading_config"],
+            {
+                "loading": loading.model_dump(),
+                "n_levels": len(level_shapes) if level_shapes else None,
+            },
+        )
+    ]
 
-    The setting has three useful forms and one that hides the block:
 
-    ``True``
+def _loading_config(visual: object) -> object | None:
+    """The visual's progressive loading config, or ``None`` if it has none."""
+    return getattr(getattr(visual, "render_config", None), "loading", None)
+
+
+def _trail_specs(
+    item: TrailControl, visual: object, store: object, palette: object, skipped: list
+) -> list[ControlSpec]:
+    """The trail-window control of a graph.
+
+    Only a graph visual has a trail.  The axes are resolved here, against
+    the store's own data axes, because the list is written before it is
+    paired with a store.
+    """
+    trail = getattr(visual, "trail", None)
+    if trail is None:
+        return []
+
+    systems = getattr(store, "data_coordinate_systems", None) or []
+    system = systems[0] if systems else None
+    names = system.axis_names() if system is not None else ()
+
+    if item.axes is None:
+        axes = sorted(trail)
+        if not axes and system is not None:
+            axes = [
+                index
+                for index, axis in enumerate(system.axes)
+                if axis.axis_type == "time"
+            ]
+    else:
+        axes = [_resolve_trail_axis(ref, names) for ref in item.axes]
+    if not axes:
+        warnings.warn(
+            f"TrailControl() on {getattr(visual, 'name', 'a graph')!r} found "
+            "no axis to offer: the graph has no trail window and no time axis. "
+            "Name the axes instead, e.g. TrailControl(axes=[0]).",
+            UserWarning,
+            stacklevel=3,
+        )
+        return []
+
+    return [
+        ControlSpec(
+            "trail",
+            _CONTROL_TITLES["trail"],
+            {
+                "axes": [
+                    (axis, names[axis] if axis < len(names) else f"axis {axis}")
+                    for axis in dict.fromkeys(axes)
+                ],
+                # Copies: the widget keeps what it was seeded with, and must
+                # never hold the objects the controller is wired to.
+                "trail": {axis: window.model_copy() for axis, window in trail.items()},
+            },
+        )
+    ]
+
+
+def _resolve_trail_axis(ref: int | str, names: tuple[str, ...]) -> int:
+    """Resolve one ``TrailControl.axes`` entry to a data-axis index."""
+    if isinstance(ref, str):
+        matches = [index for index, name in enumerate(names) if name == ref]
+        if len(matches) != 1:
+            problem = "is not one of" if not matches else "is ambiguous among"
+            raise ValueError(
+                f"TrailControl axis {ref!r} {problem} the graph's data axes "
+                f"{list(names)}."
+            )
+        return matches[0]
+    if not 0 <= ref < len(names):
+        raise ValueError(
+            f"TrailControl axis {ref} is out of range for a {len(names)}-axis graph."
+        )
+    return int(ref)
+
+
+def _dataset_info_specs(
+    item: DatasetInfoControl,
+    visual: object,
+    store: object,
+    palette: object,
+    skipped: list,
+) -> list[ControlSpec]:
+    """The read-only dataset-info block, from ``item.info``.
+
+    ``None``
         Ask *store* to describe itself.  Yields nothing when no store was
         resolved -- the caller could not find one, and a block asserting
         that a store has no metadata would be worse than no block.
@@ -589,52 +674,66 @@ def _dataset_info_spec(requested: object, store: object) -> ControlSpec | None:
         Displayed as given.
     a sequence of pairs
         The hand-authored escape hatch, carried through as flat rows.
-    ``False`` / empty
-        No block.
     """
     from cellier.data._dataset_info import DatasetInfo
 
-    if requested is False or requested is None:
-        return None
-
-    if requested is True:
+    requested = item.info
+    if requested is None:
         if store is None or not hasattr(store, "dataset_info"):
-            return None
+            return []
         info: DatasetInfo | None = store.dataset_info()
     elif isinstance(requested, DatasetInfo):
         info = requested
     else:
         rows = [(str(label), str(value)) for label, value in requested]
         if not rows:
-            return None
-        return ControlSpec(
-            "dataset_info", _CONTROL_TITLES["dataset_info"], {"rows": rows}
-        )
+            return []
+        return [
+            ControlSpec("dataset_info", _CONTROL_TITLES["dataset_info"], {"rows": rows})
+        ]
 
     if info is None or not info.sections:
-        return None
-    return ControlSpec("dataset_info", _CONTROL_TITLES["dataset_info"], {"info": info})
+        return []
+    return [
+        ControlSpec("dataset_info", _CONTROL_TITLES["dataset_info"], {"info": info})
+    ]
 
 
-def warn_skipped_appearance_fields(
-    skipped: list[str], visual: object, config: object
-) -> None:
-    """Warn about requested fields that produced no control.
+_SPEC_BUILDERS: dict[type[Control], Callable[..., list[ControlSpec]]] = {
+    ImageControl: _image_specs,
+    FieldControls: _field_specs,
+    LevelOfDetailControl: _level_of_detail_specs,
+    BoundingBoxControl: _aabb_specs,
+    ClippingPlanesControl: _clipping_planes_specs,
+    RenderPlanesControl: _render_planes_specs,
+    OutlineControl: _outline_specs,
+    AmbientOcclusionControl: _occlusion_specs,
+    PickingControl: _picking_specs,
+    LoadingIndicator: _loading_specs,
+    LoadingConfigControl: _loading_config_specs,
+    MeshSectionControl: _mesh_section_specs,
+    MeshLodControl: _mesh_lod_specs,
+    TrailControl: _trail_specs,
+    DatasetInfoControl: _dataset_info_specs,
+}
+"""Control model to the function that turns one into its specs."""
 
-    Stage 3 makes a name the *config class* cannot drive raise at
-    construction, which leaves one residual case this cannot catch: a name
-    valid for the config class whose value the particular *visual*'s
-    appearance model does not carry -- a ``MultiscaleImageControlsConfig``
-    paired with an in-memory image, say.  That is still a silent drop unless
-    something says so, and it is the renderer's to surface because only the
-    renderer has both halves (design section 9.5 step 4).
+
+def warn_skipped_appearance_fields(skipped: list[str], visual: object) -> None:
+    """Warn about listed fields that produced no control.
+
+    ``validate_controls`` refuses a name the kind of visual has no control
+    for.  That leaves one case it cannot catch: a name valid for the kind
+    whose value the particular *visual*'s appearance model does not carry
+    -- ``shininess`` on a mesh with the flat model, say.  The renderer
+    reports it because only the renderer has both halves.
     """
     if not skipped:
         return
     warnings.warn(
-        f"{type(config).__name__} requested appearance field(s) "
-        f"{skipped} that {type(visual).__name__}'s appearance model does not "
-        f"have; no control was built for them.",
+        f"The controls list of {getattr(visual, 'name', visual)!r} names "
+        f"field(s) {skipped} that {type(visual).__name__}'s appearance model "
+        "does not have; no control was built for them.",
         UserWarning,
         stacklevel=3,
     )
@@ -646,7 +745,7 @@ class ControlTarget(NamedTuple):
     Parameters
     ----------
     key : UUID
-        The representative visual id the config is recorded under.  Stable
+        The representative visual id the controls list is recorded under.  Stable
         for as long as the visual exists, so it is what a dock's selection
         is kept by.
     label : str
@@ -656,8 +755,8 @@ class ControlTarget(NamedTuple):
         The representative visual.  Its appearance model is what the controls
         are seeded from; on an ``OrthoViewer`` it is the group's first panel
         visual.
-    config : BaseControlsConfig
-        The recorded controls config.
+    config : list[Control]
+        The recorded ``controls=`` list.
     visual_ids : list[UUID]
         Every visual the controls write to -- one on a ``Viewer``; on an
         ``OrthoViewer``, the three 2D panel siblings or the 3D panel's
@@ -676,18 +775,50 @@ class ControlTarget(NamedTuple):
 def appearance_targets(viewer: object) -> list[ControlTarget]:
     """Every visual an ``AppearanceControls()`` dock can drive, in add order.
 
-    A config whose ``appearance`` is falsy (``False``, ``None``, ``[]``) is skipped: it
-    asks for no panel, and :func:`appearance_specs` would build none, so offering it in
-    the selector would only lead to an empty dock.  Multi-scene aware: an
-    ``OrthoViewer`` records two groups per fanned-out add, the 2D panels and the
-    3D panel, each keyed by its first visual and labelled by the viewer; the
+    A group is offered only when at least one item of its controls list
+    draws in the appearance dock for that group
+    (:func:`draws_in_appearance_dock`): offering one with nothing to draw
+    would only lead to an empty panel.  Multi-scene aware: an ``OrthoViewer``
+    records two groups per fanned-out add, the 2D panels and the 3D panel,
+    each keyed by its first visual and labelled by the viewer; the
     ``_visual_groups`` record expands each key to its visuals.
     """
     return _control_targets(viewer)
 
 
+def draws_in_appearance_dock(
+    viewer: object, controls: Sequence[Control], visual_ids: list
+) -> bool:
+    """Whether any item of *controls* draws in the appearance dock.
+
+    For the visual group *visual_ids* of *viewer*.  Every control model
+    draws there but two:
+
+    * ``ClippingPlanesControl`` does on a ``Viewer``; an ``OrthoViewer``
+      draws it in its ``OrthoClippingControls()`` dock
+      (``_CLIPPING_DOCK_NODE``).
+    * ``RenderPlanesControl`` does unless the viewer names no target for
+      the group (``_render_planes_target`` returns ``None``): the 2D views
+      of an ``OrthoViewer``.
+
+    The viewer is asked; no widget is built to find out.
+    """
+    for item in controls:
+        if isinstance(item, ClippingPlanesControl):
+            clipping_node = getattr(viewer, "_CLIPPING_DOCK_NODE", "AppearanceControls")
+            if clipping_node == "AppearanceControls":
+                return True
+        elif isinstance(item, RenderPlanesControl):
+            target = getattr(viewer, "_render_planes_target", None)
+            if target is None or target(list(visual_ids)) is not None:
+                return True
+        else:
+            return True
+    return False
+
+
 def _control_targets(viewer: object) -> list[ControlTarget]:
-    """Resolve the recorded configs of one kind into labelled targets.
+    """Resolve the recorded controls lists into labelled targets.
 
     Registration order, not scene order: it is the order the user added
     things in, and it is the same on a ``Viewer`` and an ``OrthoViewer``.  An
@@ -704,13 +835,15 @@ def _control_targets(viewer: object) -> list[ControlTarget]:
 
     resolved = []
     for rep_id, config in controls_configs.items():
-        if not getattr(config, "appearance", False):
+        if not config:
             continue
         try:
             visual = controller.get_visual_model(rep_id)
         except KeyError:
             continue
         visual_ids = list(groups.get(rep_id, [rep_id]))
+        if not draws_in_appearance_dock(viewer, config, visual_ids):
+            continue
         resolved.append(
             (
                 rep_id,
@@ -738,7 +871,7 @@ def overlay_targets(viewer: object) -> list[ControlTarget]:
     In :attr:`Viewer.overlays` order.  Overlays of a type with no controls
     table entry are skipped rather than offered with an empty panel.  The
     target's ``visual`` slot holds the overlay model and ``config`` is
-    ``None``: an overlay has no ``controls=`` config, and its controls are
+    ``None``: an overlay has no ``controls=`` list, and its controls are
     fixed by its type.
     """
     from cellier.gui._overlay_fields import OVERLAY_CONTROLS
@@ -839,7 +972,7 @@ def next_selection(
     """Which target a dock shows after its targets change.
 
     The previous selection is kept while it exists -- matched by key, or by
-    config when an ``OrthoViewer`` re-keyed its group after the
+    controls list when an ``OrthoViewer`` re-keyed its group after the
     representative panel's visual was removed.  A newly added visual does not
     take the selection.  When the selection is gone, or there was none, the
     first target is shown; with no targets, nothing is.
@@ -901,7 +1034,7 @@ def render_panel_kwargs(section: str, controller: object) -> dict:
 def dock_node_names(layout: object) -> frozenset[str]:
     """The class names of every dock node of *layout*, stacks walked through.
 
-    What a viewer checks its controls flags against
+    What a viewer checks its controls lists against
     (``plans/clipping_planes_linking_design.md`` section 6.5).
     """
     names: set[str] = set()
@@ -922,17 +1055,25 @@ def dock_node_names(layout: object) -> frozenset[str]:
 
 
 def missing_dock_node(
-    config: object, nodes: frozenset[str], *, clipping_node: str
+    controls: Sequence[Control] | None, nodes: frozenset[str], *, clipping_node: str
 ) -> str | None:
-    """What is wrong with *config* for a layout with dock *nodes*, if anything.
+    """What is wrong with *controls* for a layout with dock *nodes*, if anything.
 
-    A flag says which visuals get controls; a dock node says where they go.
-    A flag with no node for it would build nothing and say nothing, so it is
-    an error.  (A node with no flag is not: the dock shows its placeholder.)
+    An item of the list says a control is shown; a dock node says where it
+    goes.  An item with no node for it would build nothing and say nothing,
+    so it is an error.  (A node with no item is not: the dock shows its
+    placeholder.)
+
+    Where each model draws:
+
+    * ``ClippingPlanesControl``: in *clipping_node*.
+    * every other model: in ``AppearanceControls()``.  (On an
+      ``OrthoViewer`` the render planes control is drawn for the 3D view's
+      group only, which is still that dock.)
 
     Parameters
     ----------
-    config : BaseControlsConfig
+    controls : list[Control] or None
         The ``controls=`` of one visual.
     nodes : frozenset[str]
         From :func:`dock_node_names`.
@@ -946,40 +1087,30 @@ def missing_dock_node(
     -------
     str or None
         The rest of a sentence that starts with the visual's name and
-        "was added with", or ``None`` when every flag has its node.
+        "was added with", or ``None`` when every item has its node.
     """
-    appearance = bool(getattr(config, "appearance", False))
-    if appearance and "AppearanceControls" not in nodes:
-        return (
-            "appearance controls (appearance=), but the layout has no "
-            "AppearanceControls() dock to show them in. Add "
-            "AppearanceControls() to a dock of the Layout, or pass "
-            "appearance=False."
-        )
-    if getattr(config, "render_plane_controls", False) and not appearance:
-        return (
-            "render_plane_controls=True and no appearance controls. The "
-            "render planes control is part of the appearance dock: pass "
-            "appearance=True (or a list of fields) as well, and give the "
-            "Layout an AppearanceControls() dock."
-        )
-    if not getattr(config, "clipping_controls", False):
+    if not controls:
         return None
-    if clipping_node == "AppearanceControls":
-        if not appearance:
-            return (
-                "clipping_controls=True and no appearance controls. On a "
-                "Viewer the clipping planes control is part of the appearance "
-                "dock: pass appearance=True (or a list of fields) as well, "
-                "and give the Layout an AppearanceControls() dock."
-            )
-        return None
-    if clipping_node not in nodes:
+    in_appearance = [
+        type(item).__name__
+        for item in controls
+        if clipping_node == "AppearanceControls"
+        or not isinstance(item, ClippingPlanesControl)
+    ]
+    if in_appearance and "AppearanceControls" not in nodes:
         return (
-            f"clipping_controls=True, but the layout has no {clipping_node}() "
+            f"controls for the appearance dock ({', '.join(in_appearance)}), "
+            "but the layout has no AppearanceControls() dock to show them in. "
+            "Add AppearanceControls() to a dock of the Layout, or leave them "
+            "out of controls=."
+        )
+    has_clipping = any(isinstance(item, ClippingPlanesControl) for item in controls)
+    if has_clipping and clipping_node not in nodes:
+        return (
+            f"ClippingPlanesControl(), but the layout has no {clipping_node}() "
             f"dock to show its clipping planes controls in. Add "
-            f"{clipping_node}() to a dock of the Layout, or pass "
-            "clipping_controls=False."
+            f"{clipping_node}() to a dock of the Layout, or leave "
+            "ClippingPlanesControl() out of controls=."
         )
     return None
 

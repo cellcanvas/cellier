@@ -23,6 +23,7 @@ from cellier.data.points._points_requests import PointsSliceRequest
 from cellier.scene.dims import spatial_axes
 from cellier.transform import AffineTransform, Axis
 from cellier.visuals._points_memory import PointsMarkerAppearance
+from tests._displayed import trailing_axes
 from tests._v2 import data_region, data_system
 
 _POSITIONS = np.array(
@@ -37,7 +38,9 @@ def _channel_world():
 
 def _viewer(world_axes, *, dim="3d"):
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=world_axes, dim=dim)
+    scene = controller.add_scene(
+        coordinate_system=world_axes, displayed_axes=trailing_axes(world_axes, dim)
+    )
     controller.add_canvas(scene.id)
     store = PointsMemoryStore(
         positions=_POSITIONS.copy(),

@@ -45,10 +45,13 @@ def _():
 
     from cellier.convenience import (
         AppearanceControls,
+        BoundingBoxControl,
+        FieldControls,
+        ImageControl,
         Layout,
-        MultiscaleImageControlsConfig,
-        MultiscaleLabelsControlsConfig,
-        PointsControlsConfig,
+        LevelOfDetailControl,
+        LoadingIndicator,
+        RenderPlanesControl,
         Viewer,
         axis_values_from_viewer,
         display,
@@ -79,16 +82,19 @@ def _():
         Layout,
         MultiscaleImageAppearance,
         MultiscaleImageChannelAppearance,
-        MultiscaleImageControlsConfig,
+        BoundingBoxControl,
+        FieldControls,
+        ImageControl,
+        LevelOfDetailControl,
+        LoadingIndicator,
+        RenderPlanesControl,
         MultiscaleImageRenderConfig,
         MultiscaleLabelRenderConfig,
         MultiscaleLabelsAppearance,
-        MultiscaleLabelsControlsConfig,
         MultiscaleZarrDataStore,
         OutlineConfig,
         Path,
         PlaneOutline,
-        PointsControlsConfig,
         PointsMarkerAppearance,
         PointsMemoryStore,
         RenderManagerConfig,
@@ -384,16 +390,19 @@ def _(
     Layout,
     MultiscaleImageAppearance,
     MultiscaleImageChannelAppearance,
-    MultiscaleImageControlsConfig,
+    BoundingBoxControl,
+    FieldControls,
+    ImageControl,
+    LevelOfDetailControl,
+    LoadingIndicator,
+    RenderPlanesControl,
     MultiscaleImageRenderConfig,
     MultiscaleLabelRenderConfig,
     MultiscaleLabelsAppearance,
-    MultiscaleLabelsControlsConfig,
     N_TIMES,
     OutlineConfig,
     POSITIONS,
     PlaneOutline,
-    PointsControlsConfig,
     PointsMarkerAppearance,
     RenderManagerConfig,
     RenderPlane,
@@ -417,7 +426,7 @@ def _(
     # label's colour, and without a contour it could not be seen on the label.
     viewer = Viewer(
         [("t", "time"), ("c", "channel"), *spatial_axes(*SPACE)],
-        dim="3d",
+        displayed_axes=SPACE,
         gui="anywidget",
         render_config=RenderManagerConfig(
             outline=OutlineConfig(enabled=True, palette=[(1.0, 1.0, 1.0, 1.0)])
@@ -479,10 +488,13 @@ def _(
             for channel, color_map in enumerate(("red", "green", "blue"))
         },
         render_planes=(plane,),
-        controls=MultiscaleImageControlsConfig(
-            appearance=["visible", "render_mode", "level_of_detail"],
-            render_plane_controls=True,
-        ),
+        controls=[
+            ImageControl(fields=["visible", "render_mode"]),
+            LevelOfDetailControl(),
+            BoundingBoxControl(),
+            RenderPlanesControl(),
+            LoadingIndicator(),
+        ],
     )
 
     labels_visual = viewer.add_labels_multiscale(
@@ -500,9 +512,15 @@ def _(
         render_config=MultiscaleLabelRenderConfig(block_size=16),
         transform=to_world(labels_store, voxels=True),
         render_planes=(plane,),
-        controls=MultiscaleLabelsControlsConfig(
-            appearance=True, render_plane_controls=True
-        ),
+        controls=[
+            FieldControls(
+                ["visible", "opacity", "render_mode", "salt", "background_label"]
+            ),
+            LevelOfDetailControl(),
+            BoundingBoxControl(),
+            RenderPlanesControl(),
+            LoadingIndicator(),
+        ],
     )
 
     points_visual = viewer.add_points(
@@ -512,7 +530,10 @@ def _(
         transform=to_world(points_store, voxels=False),
         # A white contour, in the palette's first colour.
         outline=VisualOutline(slot=1),
-        controls=PointsControlsConfig(appearance=True),
+        controls=[
+            FieldControls(["visible", "opacity", "color", "size", "size_space"]),
+            BoundingBoxControl(),
+        ],
     )
 
     image_visual.aabb.enabled = True

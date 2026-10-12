@@ -520,7 +520,9 @@ def outline_controller(qtbot, offscreen_renderer):
         render_config=RenderManagerConfig(outline=OutlineConfig(enabled=True))
     )
     controller.camera_reslice_enabled = False
-    scene = controller.add_scene(dim="3d", name="scene", lighting="default")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), name="scene", lighting="default"
+    )
     positions, indices = _sphere_mesh()
     visual = controller.add_mesh(
         data=MeshMemoryStore(positions=positions, indices=indices, name="sphere"),
@@ -596,7 +598,7 @@ def test_lines_default_to_outward_placement(qtbot, offscreen_renderer):
         render_config=RenderManagerConfig(outline=OutlineConfig(enabled=True))
     )
     controller.camera_reslice_enabled = False
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     coordinates = np.array(
         [[0, 0, 0], [0, 10, 10], [0, 10, 0], [0, 0, 10]], dtype=np.float32
     )
@@ -1040,7 +1042,7 @@ async def test_layer_combinations_in_2d(
         render_config=RenderManagerConfig(outline=OutlineConfig(enabled=True))
     )
     controller.camera_reslice_enabled = False
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
@@ -1123,7 +1125,7 @@ def test_canvas_with_outlines_off_never_allocates_the_lut(qtbot, offscreen_rende
     try:
         controller = CellierController()
         controller.camera_reslice_enabled = False
-        scene = controller.add_scene(dim="3d", name="scene")
+        scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
         controller.add_canvas(scene_id=scene.id)
 
         canvas = next(iter(controller._render_manager._canvases.values()))

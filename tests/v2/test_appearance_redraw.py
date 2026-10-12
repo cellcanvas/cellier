@@ -32,7 +32,9 @@ _RANGES = dict.fromkeys(range(3), ContinuousAxisValues(min=0.0, max=4.0))
 @pytest.fixture
 def viewer_with_canvas(qtbot):
     """A points viewer with one canvas, and a per-canvas draw counter."""
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="qt")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="qt"
+    )
     viewer.controller.camera_reslice_enabled = False
     visual = viewer.add_points(
         PointsMemoryStore(
@@ -95,7 +97,9 @@ def test_one_frame_per_change_not_one_per_canvas_visual(viewer_with_canvas):
 
 def test_a_visual_with_no_canvas_does_not_raise(qtbot):
     """The headless model-only path stays usable -- no canvas, no redraw."""
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="qt")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="qt"
+    )
     visual = viewer.add_points(
         PointsMemoryStore(positions=np.array([[0, 0, 0]], dtype=np.float32))
     )

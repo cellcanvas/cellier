@@ -19,7 +19,9 @@ from cellier.scene.dims import (
 def _make_controller_with_visual():
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("y", "x"), name="world")
-    scene = controller.add_scene(dim="2d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("y", "x"), coordinate_system=cs, name="main"
+    )
     data = np.zeros((16, 16), dtype=np.int32)
     store = LabelMemoryStore(data=data)
     visual = controller.add_labels(data=store, scene_id=scene.id)

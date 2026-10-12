@@ -34,7 +34,7 @@ def _bottom_top(controller: CellierController, scene_id):
 
 
 def test_scene_starts_with_the_model_default(controller):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     bottom, top = _bottom_top(controller, scene.id)
 
     np.testing.assert_allclose(bottom, DEFAULT_BOTTOM_COLOR, atol=1e-6)
@@ -44,7 +44,7 @@ def test_scene_starts_with_the_model_default(controller):
 def test_add_scene_accepts_a_background(controller):
     scene = controller.add_scene(
         name="main",
-        dim="2d",
+        displayed_axes=("y", "x"),
         background=BackgroundAppearance(mode="uniform", color=(1.0, 0.0, 0.0, 1.0)),
     )
     bottom, top = _bottom_top(controller, scene.id)
@@ -54,7 +54,7 @@ def test_add_scene_accepts_a_background(controller):
 
 
 def test_field_change_reaches_the_render_layer(controller):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
 
     scene.background.top_color = (1.0, 0.0, 0.0, 1.0)
 
@@ -63,7 +63,7 @@ def test_field_change_reaches_the_render_layer(controller):
 
 
 def test_mode_change_reaches_the_render_layer(controller):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     scene.background.color = (0.0, 0.0, 1.0, 1.0)
 
     scene.background.mode = "uniform"
@@ -74,7 +74,7 @@ def test_mode_change_reaches_the_render_layer(controller):
 
 
 def test_visibility_change_reaches_the_render_layer(controller):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
 
     scene.background.visible = False
 
@@ -82,7 +82,7 @@ def test_visibility_change_reaches_the_render_layer(controller):
 
 
 def test_field_change_emits_the_bus_event(controller):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     seen: list[BackgroundChangedEvent] = []
     controller._outgoing_events.subscribe(
         BackgroundChangedEvent, seen.append, owner_id=uuid4()
@@ -99,8 +99,8 @@ def test_field_change_emits_the_bus_event(controller):
 
 
 def test_events_are_filtered_by_scene(controller):
-    scene_a = controller.add_scene(name="a", dim="2d")
-    scene_b = controller.add_scene(name="b", dim="2d")
+    scene_a = controller.add_scene(name="a", displayed_axes=("y", "x"))
+    scene_b = controller.add_scene(name="b", displayed_axes=("y", "x"))
     seen: list[BackgroundChangedEvent] = []
     controller._outgoing_events.subscribe(
         BackgroundChangedEvent, seen.append, entity_id=scene_a.id, owner_id=uuid4()
@@ -114,7 +114,7 @@ def test_events_are_filtered_by_scene(controller):
 
 
 def test_update_background_field_threads_the_source_id(controller):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     widget_id = uuid4()
     seen: list[BackgroundChangedEvent] = []
     controller._outgoing_events.subscribe(
@@ -133,7 +133,7 @@ def test_update_background_field_threads_the_source_id(controller):
 
 def test_source_id_override_does_not_leak(controller):
     """A later change with no source_id falls back to the controller's ID."""
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     seen: list[BackgroundChangedEvent] = []
     controller._outgoing_events.subscribe(
         BackgroundChangedEvent, seen.append, owner_id=uuid4()
@@ -148,7 +148,7 @@ def test_source_id_override_does_not_leak(controller):
 
 
 def test_incoming_bus_drives_the_background(controller):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     widget_id = uuid4()
     seen: list[BackgroundChangedEvent] = []
     controller._outgoing_events.subscribe(
@@ -172,7 +172,7 @@ def test_incoming_bus_drives_the_background(controller):
 
 def test_replacing_the_model_rewires_the_bridge(controller):
     """A wholesale replacement pushes once, then the new model stays live."""
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     original = scene.background
     seen: list[BackgroundChangedEvent] = []
     controller._outgoing_events.subscribe(
@@ -201,7 +201,7 @@ def test_replacing_the_model_rewires_the_bridge(controller):
 
 
 def test_set_background_stamps_a_source_id(controller):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     widget_id = uuid4()
     seen: list[BackgroundChangedEvent] = []
     controller._outgoing_events.subscribe(
@@ -221,7 +221,7 @@ def test_set_background_stamps_a_source_id(controller):
 
 
 def test_removing_a_scene_disconnects_the_bridge(controller):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     background = scene.background
     seen: list[BackgroundChangedEvent] = []
     controller._outgoing_events.subscribe(
@@ -236,7 +236,7 @@ def test_removing_a_scene_disconnects_the_bridge(controller):
 
 
 def test_background_survives_a_model_roundtrip(controller, tmp_path):
-    scene = controller.add_scene(name="main", dim="2d")
+    scene = controller.add_scene(name="main", displayed_axes=("y", "x"))
     scene.background.mode = "uniform"
     scene.background.color = (0.25, 0.5, 0.75, 1.0)
 

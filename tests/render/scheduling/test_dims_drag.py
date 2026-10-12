@@ -60,11 +60,13 @@ def _add(controller, store, dim="2d", moving=DRAG, name="scene"):
 
         scene = controller.add_scene(
             coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-            dim=dim,
+            displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
             name=name,
         )
     else:
-        scene = controller.add_scene(dim=dim, name=name)
+        scene = controller.add_scene(
+            displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"), name=name
+        )
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,

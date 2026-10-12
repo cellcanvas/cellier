@@ -16,7 +16,7 @@ _BLACK = (0.0, 0.0, 0.0, 1.0)
 
 
 def test_viewer_background_defaults_to_uniform_black():
-    viewer = Viewer(spatial_axes("y", "x"), dim="2d")
+    viewer = Viewer(spatial_axes("y", "x"), displayed_axes=("y", "x"))
 
     assert viewer.background.mode == "uniform"
     assert viewer.background.color == _BLACK
@@ -43,7 +43,9 @@ def test_a_directly_built_scene_keeps_the_gradient_default():
     from cellier.controller import CellierController
 
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=spatial_axes("y", "x"), dim="2d")
+    scene = controller.add_scene(
+        coordinate_system=spatial_axes("y", "x"), displayed_axes=("y", "x")
+    )
 
     assert scene.background.mode == "vertical_gradient"
 
@@ -51,7 +53,7 @@ def test_a_directly_built_scene_keeps_the_gradient_default():
 def test_switching_the_default_to_a_gradient_shows_the_gray_gradient():
     from cellier.scene._background import DEFAULT_TOP_COLOR
 
-    viewer = Viewer(spatial_axes("y", "x"), dim="2d")
+    viewer = Viewer(spatial_axes("y", "x"), displayed_axes=("y", "x"))
 
     viewer.background.mode = "vertical_gradient"
 
@@ -61,12 +63,12 @@ def test_switching_the_default_to_a_gradient_shows_the_gray_gradient():
 
 
 def test_viewer_background_property_is_the_scene_model():
-    viewer = Viewer(spatial_axes("y", "x"), dim="2d")
+    viewer = Viewer(spatial_axes("y", "x"), displayed_axes=("y", "x"))
     assert viewer.background is viewer.scene.background
 
 
 def test_viewer_background_field_change_reaches_the_render_layer():
-    viewer = Viewer(spatial_axes("y", "x"), dim="2d")
+    viewer = Viewer(spatial_axes("y", "x"), displayed_axes=("y", "x"))
 
     viewer.background.color = (1.0, 0.0, 0.0, 1.0)
 
@@ -78,7 +80,7 @@ def test_viewer_background_field_change_reaches_the_render_layer():
 
 
 def test_viewer_background_can_be_replaced():
-    viewer = Viewer(spatial_axes("y", "x"), dim="2d")
+    viewer = Viewer(spatial_axes("y", "x"), displayed_axes=("y", "x"))
 
     viewer.background = BackgroundAppearance(mode="uniform", color=(0.0, 1.0, 0.0, 1.0))
 

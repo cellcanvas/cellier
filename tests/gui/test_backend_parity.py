@@ -39,15 +39,18 @@ def _mesh_store():
 
 
 def _viewer(gui: str, *, configure_controls: bool = False):
-    """A one-mesh viewer, with or without a recorded ``controls=`` config."""
-    from cellier.convenience import MeshControlsConfig, Viewer
+    """A one-mesh viewer, with or without a recorded ``controls=`` list."""
+    from cellier.convenience import Viewer
     from cellier.visuals._mesh_memory import MeshFlatAppearance
+    from tests.convenience._controls_lists import panel
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui=gui)
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui=gui
+    )
     viewer.add_mesh(
         _mesh_store(),
         appearance=MeshFlatAppearance(),
-        controls=MeshControlsConfig(appearance=True) if configure_controls else None,
+        controls=panel("mesh") if configure_controls else None,
     )
     return viewer
 
@@ -477,7 +480,9 @@ def _toggle_viewer(gui: str):
     from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.visuals import InMemoryImageAppearance
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui=gui)
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui=gui
+    )
     viewer.add_image(
         ImageMemoryStore(data=np.random.rand(8, 8, 8).astype(np.float32)),
         appearance=InMemoryImageAppearance(),
@@ -587,3 +592,104 @@ def test_only_a_scene_that_renders_both_ways_offers_a_toggle(qtbot, gui):
     canvas = build_canvas_widget(viewer, axis_values_from_viewer(viewer))
     assert {"2d", "3d"} <= {str(m) for m in viewer.scene.render_modes}
     assert canvas.dims_control.has_toggle
+
+
+# ---------------------------------------------------------------------------
+# The toggle remembers (plans/displayed_axes_required.md, Phase 1)
+# ---------------------------------------------------------------------------
+
+
+def _xyz_panel(gui: str, displayed: tuple[str, ...]):
+    """A viewer on ``(x, y, z)`` showing *displayed*, and its dims panel.
+
+    The data axes are ``(x, y, z)`` so "the last two axes" is ``(y, z)``, not
+    the ``(x, y)`` a user of such data looks at.  Returns
+    ``(viewer, canvas, click)``; the canvas is returned so the caller holds
+    it (it owns the Qt sliders).
+    """
+    import cmap
+
+    from cellier.convenience import Viewer, axis_values_from_viewer
+    from cellier.convenience.gui import build_canvas_widget
+    from cellier.data.image._image_memory_store import ImageMemoryStore
+    from cellier.visuals import InMemoryImageAppearance
+
+    viewer = Viewer(spatial_axes("x", "y", "z"), displayed_axes=displayed, gui=gui)
+    viewer.add_image(
+        ImageMemoryStore(data=np.random.rand(8, 9, 10).astype(np.float32)),
+        appearance=InMemoryImageAppearance(),
+        single=InMemoryImageSingleAppearance(color_map=cmap.Colormap("gray")),
+    )
+    canvas = build_canvas_widget(viewer, axis_values_from_viewer(viewer))
+    panel = canvas.dims_control
+    if gui == "anywidget":
+        viewer.controller.connect_widget(
+            panel, subscription_specs=panel.subscription_specs()
+        )
+
+        def click():
+            panel._on_toggle_click(None)
+
+    else:
+        click = panel._on_toggle_click
+    return viewer, canvas, click
+
+
+def _displayed(viewer) -> tuple[int, ...]:
+    return tuple(viewer.scene.dims.selection.displayed_axes)
+
+
+def _skip_without(gui: str) -> None:
+    pytest.importorskip("qtpy")
+    if gui == "anywidget":
+        pytest.importorskip("ipywidgets")
+
+
+@pytest.mark.parametrize("gui", ["qt", "anywidget"])
+async def test_a_toggle_round_trip_returns_to_the_axes_it_left(qtbot, gui):
+    """``(x, y)`` -> 3D -> 2D used to come back on ``(y, z)``."""
+    _skip_without(gui)
+    viewer, _canvas, click = _xyz_panel(gui, ("x", "y"))
+
+    click()
+    assert _displayed(viewer) == (0, 1, 2)
+    click()
+    assert _displayed(viewer) == (0, 1)
+
+
+@pytest.mark.parametrize("gui", ["qt", "anywidget"])
+async def test_the_toggle_returns_to_axes_set_from_code(qtbot, gui):
+    """A set the program chose while in 2D is the one the toggle remembers."""
+    _skip_without(gui)
+    viewer, _canvas, click = _xyz_panel(gui, ("x", "y"))
+    viewer.set_displayed_dimensions(("z", "x"))
+
+    click()
+    click()
+
+    assert _displayed(viewer) == (2, 0)
+
+
+@pytest.mark.parametrize("gui", ["qt", "anywidget"])
+async def test_the_toggle_remembers_the_3d_axes(qtbot, gui):
+    """A 3D set that is not in world order is what the toggle goes back to."""
+    _skip_without(gui)
+    viewer, _canvas, click = _xyz_panel(gui, ("x", "y"))
+    viewer.set_displayed_dimensions(("z", "y", "x"))
+
+    click()
+    assert _displayed(viewer) == (0, 1)
+    click()
+    assert _displayed(viewer) == (2, 1, 0)
+
+
+@pytest.mark.parametrize("gui", ["qt", "anywidget"])
+async def test_a_scene_started_in_3d_toggles_to_the_default_2d_axes(qtbot, gui):
+    """No 2D set has been shown, so the default is used: the last two."""
+    _skip_without(gui)
+    viewer, _canvas, click = _xyz_panel(gui, ("x", "y", "z"))
+
+    click()
+    assert _displayed(viewer) == (1, 2)
+    click()
+    assert _displayed(viewer) == (0, 1, 2)

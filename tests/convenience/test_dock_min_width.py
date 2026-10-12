@@ -87,7 +87,7 @@ def _qt_window(qtbot, **layout_kwargs):
 
     from cellier.convenience.layout._qt_renderer import render_qt
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     window = render_qt(Layout(center=_qt_leaf(), **layout_kwargs), viewer)
     qtbot.addWidget(window)
     docks = {

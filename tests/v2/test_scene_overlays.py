@@ -33,6 +33,7 @@ from cellier.visuals._image_memory import (
     InMemoryImageAppearance,
     InMemoryImageSingleAppearance,
 )
+from tests._displayed import trailing_axes
 
 
 def _appearance() -> InMemoryImageAppearance:
@@ -40,8 +41,9 @@ def _appearance() -> InMemoryImageAppearance:
 
 
 def _scene(controller: CellierController, dim: str = "3d", world=None):
+    world = world or spatial_axes("z", "y", "x")
     return controller.add_scene(
-        coordinate_system=world or spatial_axes("z", "y", "x"), dim=dim
+        coordinate_system=world, displayed_axes=trailing_axes(world, dim)
     )
 
 

@@ -23,7 +23,13 @@ from cellier.render.lut_indirection._layout_2d import BlockLayout2D
 from cellier.render.lut_indirection._lut_indirection_manager_2d import (
     LutIndirectionManager2D,
 )
-from cellier.render.scheduling import ChunkState, RegistryView, Residency, Tier
+from cellier.render.scheduling import (
+    ChunkClass,
+    ChunkState,
+    RegistryView,
+    Residency,
+    Tier,
+)
 
 BLOCK = 4
 # A 16^3 volume with 3 levels (2x per level, level 3 one 4^3 brick).
@@ -46,16 +52,20 @@ def _residency(**kwargs) -> ImageResidency3D:
     return ImageResidency3D(cache, lut, BLOCK, SCALES, TRANSLATIONS, **kwargs)
 
 
-def _view(residency, rows, complete=False) -> RegistryView:
-    """``(key, state, tier, slot, slice_id, wanted_gen)`` rows, key-sorted."""
+def _view(residency, rows, complete=False, classes=None) -> RegistryView:
+    """``(key, state, tier, slot, slice_id, wanted_gen)`` rows, key-sorted.
+
+    *classes* maps a key to its class; the rest are target.
+    """
     rows = sorted(rows)
     arr = np.array(rows, dtype=np.int64).reshape(-1, 6)
+    cls = [(classes or {}).get(int(key), 0) for key in arr[:, 0]]
     return RegistryView.from_arrays(
         {
             "key": arr[:, 0],
             "state": arr[:, 1].astype(np.uint8),
             "tier": arr[:, 2].astype(np.uint8),
-            "cls": np.zeros(len(rows), np.uint8),
+            "cls": np.array(cls, dtype=np.uint8),
             "rank": np.zeros(len(rows), np.int32),
             "slot": arr[:, 3].astype(np.int32),
             "slice_id": arr[:, 4].astype(np.int32),
@@ -331,3 +341,192 @@ def test_2d_keys_in_region_uses_voxel_centres_on_a_translated_level() -> None:
 
     assert hit(2 * BLOCK + 1)
     assert not hit(2 * BLOCK + 2)
+
+
+# -- 2D: tiles of the slice on screen stay above the backstop ----------------
+# plans/2d_current_slice_paint_order.md, section 2.
+
+# A 32^2 plane with 4 levels: an 8 x 8 grid of base cells; level 4 is one tile.
+SHAPES_4 = [(32, 32), (16, 16), (8, 8), (4, 4)]
+SCALES_4 = np.array([[1.0, s, s] for s in (1.0, 2.0, 4.0, 8.0)])
+BACKSTOP = int(ChunkClass.BACKSTOP)
+
+
+def _residency_4(shapes=SHAPES_4, scales=SCALES_4) -> ImageResidency2D:
+    params = compute_block_cache_parameters_2d(
+        gpu_budget_bytes=16 * (BLOCK + 2) ** 2 * 4, block_size=BLOCK, overlap=1
+    )
+    lut = LutIndirectionManager2D(
+        BlockLayout2D.from_shape(shape=shapes[0], block_size=BLOCK, overlap=1),
+        n_levels=len(shapes),
+        scale_vecs_data=[s[1:] for s in scales],
+        level_shapes=shapes,
+    )
+    return ImageResidency2D(
+        BlockCache2D(params), lut, BLOCK, scales, np.zeros((len(shapes), 3))
+    )
+
+
+def _tile(level: int, sid: int, g0: int, g1: int) -> int:
+    return int(pack_keys([level], [sid], [[g0, g1]])[0])
+
+
+def _levels(residency) -> np.ndarray:
+    return residency.lut_manager.lut_data[..., 2]
+
+
+def test_2d_find_looks_a_selection_up_without_interning_it() -> None:
+    residency = _residency_4()
+    sid = residency.intern((2, None, None))
+    assert residency.find((2, None, None)) == sid
+    assert residency.find((3, None, None)) == -1
+    assert len(residency._selections) == 1
+
+
+def _kept_scene(residency):
+    """A loading plan over tiles an earlier view left on the same slice."""
+    old = residency.intern((1, None, None))
+    now = residency.intern((2, None, None))
+    backstop = _tile(4, now, 0, 0)
+    stage = _tile(2, now, 0, 0)  # cells [0:2, 0:2]
+    target = _tile(1, now, 0, 1)  # cell (0, 1), still loading
+    kept_coarse = _tile(3, now, 0, 0)  # cells [0:4, 0:4]
+    kept_fine = _tile(1, now, 0, 0)  # cell (0, 0)
+    stale = _tile(1, old, 7, 7)
+    rows = [
+        (backstop, R, V, 0, now, 5),
+        (stage, R, V, 1, now, 5),
+        (target, 0, V, -1, now, 5),
+        (kept_coarse, R, RC, 2, now, 3),
+        (kept_fine, R, RC, 3, now, 4),
+        (stale, R, RC, 4, old, 2),
+    ]
+    return rows, {backstop: BACKSTOP, stage: 1}, now, target
+
+
+def test_2d_kept_tiles_are_painted_between_the_backstop_and_the_target() -> None:
+    residency = _residency_4()
+    rows, classes, now, target = _kept_scene(residency)
+    residency.current_slice_ids = np.full(4, now)
+    residency.rebuild_draw(_view(residency, rows, classes=classes))
+    level = _levels(residency)
+    assert level[0, 0] == 1  # the finer kept tile, over the stage
+    assert level[1, 1] == 2  # the stage, over the coarser kept tile
+    assert level[3, 3] == 3  # the coarser kept tile, over the backstop
+    assert level[7, 7] == 4  # the backstop, over another slice's tile
+    # A pick on a kept tile reads the kept tile: the drawn-tile map is built
+    # from what was painted.
+    drawn = residency.block_cache.tile_manager.tilemap
+    kept = BlockKey2D(level=1, g0=0, g1=0, slice_coord=((0, 2),))
+    assert drawn[kept].index == 3 + 1
+
+    # The target lands: it covers the stage and both kept tiles in its cell.
+    rows = [(*r[:1], R, V, 5, *r[4:]) if r[0] == target else r for r in rows]
+    extra = _tile(2, now, 1, 1)  # a target a level coarser than a kept tile
+    fine_under = _tile(1, now, 2, 2)
+    rows += [(extra, R, V, 6, now, 5), (fine_under, R, RC, 7, now, 4)]
+    residency.rebuild_draw(_view(residency, rows, classes=classes))
+    level = _levels(residency)
+    assert level[0, 1] == 1
+    assert level[2, 2] == 2  # the target, over a finer kept tile
+    assert level[3, 3] == 2  # and over the coarser one
+
+
+def test_2d_without_current_ids_every_earlier_tile_is_under_the_backstop() -> None:
+    residency = _residency_4()
+    rows, classes, _now, _target = _kept_scene(residency)
+    assert residency.current_slice_ids is None
+    residency.rebuild_draw(_view(residency, rows, classes=classes))
+    level = _levels(residency)
+    assert level[0, 0] == 2  # the stage: the plan's own
+    assert level[3, 3] == 4
+    assert level[7, 7] == 4
+
+
+def test_2d_the_table_is_todays_with_no_kept_tile_and_at_completion() -> None:
+    def table(ids, rows, classes, complete):
+        residency = _residency_4()
+        _kept_scene(residency)  # the same interning
+        residency.current_slice_ids = ids
+        residency.viewport_cells = (0, 0, 6, 6)
+        residency.rebuild_draw(_view(residency, rows, complete, classes))
+        return residency.lut_manager.lut_data.copy()
+
+    rows, classes, now, _target = _kept_scene(_residency_4())
+    # No tile of the current slice among the earlier ones: ids of a slice
+    # nothing was read at.
+    nothing_kept = np.full(4, -1)
+    np.testing.assert_array_equal(
+        table(nothing_kept, rows, classes, False), table(None, rows, classes, False)
+    )
+    np.testing.assert_array_equal(
+        table(np.full(4, now), rows, classes, True), table(None, rows, classes, True)
+    )
+
+
+def test_2d_a_tile_is_current_only_at_its_own_level() -> None:
+    """A selection's id does not say which level read it.
+
+    After a slice move from plane 4 to plane 8, level 2 reads plane 4: the
+    selection, and so the id, of the old level-1 tiles.  They are another
+    slice's and stay under the backstop.
+    """
+    residency = _residency_4()
+    plane_4 = residency.intern((4, None, None))
+    plane_8 = residency.intern((8, None, None))
+    plane_2 = residency.intern((2, None, None))
+    plane_1 = residency.intern((1, None, None))
+    backstop = _tile(4, plane_1, 0, 0)
+    old_fine = _tile(1, plane_4, 0, 0)
+    rows = [
+        (backstop, R, V, 0, plane_1, 5),
+        (_tile(1, plane_8, 5, 5), 0, V, -1, plane_8, 5),
+        (old_fine, R, RC, 1, plane_4, 2),
+    ]
+    residency.current_slice_ids = np.array([plane_8, plane_4, plane_2, plane_1])
+    residency.rebuild_draw(_view(residency, rows, classes={backstop: BACKSTOP}))
+    assert _levels(residency)[0, 0] == 4
+
+
+def test_2d_a_kept_tile_outside_the_viewport_is_not_painted() -> None:
+    residency = _residency_4()
+    now = residency.intern((2, None, None))
+    backstop = _tile(4, now, 0, 0)
+    outside = _tile(2, now, 3, 3)  # cells [6:8, 6:8]
+    across = _tile(3, now, 0, 1)  # cells [0:4, 4:8]
+    rows = [
+        (backstop, R, V, 0, now, 5),
+        (_tile(1, now, 0, 0), 0, V, -1, now, 5),
+        (outside, R, RC, 1, now, 3),
+        (across, R, RC, 2, now, 3),
+    ]
+    residency.current_slice_ids = np.full(4, now)
+    residency.viewport_cells = (0, 0, 5, 5)
+    residency.rebuild_draw(_view(residency, rows, classes={backstop: BACKSTOP}))
+    level = _levels(residency)
+    assert level[7, 7] == 4  # outside the view: the backstop, not the tile
+    assert (level[0:4, 4:8] == 3).all()  # across its edge: painted whole
+    drawn = residency.block_cache.tile_manager.tilemap
+    assert {(k.level, k.g0, k.g1) for k in drawn} == {(4, 0, 0), (3, 0, 1)}
+
+
+def test_2d_a_kept_tail_tile_is_in_view_where_it_owns_the_cells() -> None:
+    """The last tile along an axis owns the rest of the grid.
+
+    A 12^2 plane over a 4^2 level: 3 x 3 base cells, and one level-2 tile
+    whose span is 2 cells and which owns all 3.
+    """
+    shapes = [(12, 12), (4, 4), (2, 2)]
+    scales = np.array([[1.0, 1.0, 1.0], [1.0, 2.0, 2.0], [1.0, 4.0, 4.0]])
+    residency = _residency_4(shapes, scales)
+    now = residency.intern((2, None, None))
+    backstop = _tile(3, now, 0, 0)
+    rows = [
+        (backstop, R, V, 0, now, 5),
+        (_tile(1, now, 0, 0), 0, V, -1, now, 5),
+        (_tile(2, now, 0, 0), R, RC, 1, now, 3),
+    ]
+    residency.current_slice_ids = np.full(3, now)
+    residency.viewport_cells = (2, 2, 3, 3)
+    residency.rebuild_draw(_view(residency, rows, classes={backstop: BACKSTOP}))
+    assert _levels(residency)[2, 2] == 2

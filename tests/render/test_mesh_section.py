@@ -18,6 +18,7 @@ from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.events import MeshPickInfo, MeshSectionChangedEvent, MeshSectionUpdateEvent
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import MeshFlatAppearance, MeshSectionConfig
+from tests._displayed import trailing_axes
 from tests._meshes import uv_sphere
 from tests._v2 import bound
 from tests.render.test_mesh_loading import Reads, Rig
@@ -34,9 +35,10 @@ class Rig2D(Rig):
         self.controller = CellierController(gui="offscreen")
         self.controller.camera_reslice_enabled = False
         kwargs = {} if render_modes is None else {"render_modes": render_modes}
+        axes = axes or spatial_axes("z", "y", "x")
         self.scene = self.controller.add_scene(
-            dim=dim,
-            coordinate_system=axes or spatial_axes("z", "y", "x"),
+            displayed_axes=trailing_axes(axes, dim),
+            coordinate_system=axes,
             name="scene",
             **kwargs,
         )

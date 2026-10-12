@@ -288,7 +288,7 @@ from cellier.scene.dims import spatial_axes
 
 
 async def main() -> None:
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="2d", gui="offscreen")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="offscreen")
     viewer.add_image(ImageMemoryStore(data=np.zeros((32, 32, 32), dtype=np.float32)))
     viewer.add_canvas()
     controller = viewer.controller

@@ -98,7 +98,7 @@ async def _loaded(controller, scene) -> None:
 
 
 async def test_an_outlined_clipping_plane_has_a_line_round_its_cut_face(controller):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _image(controller, scene)
     controller.add_canvas(scene_id=scene.id)
     assert _drawn(controller, scene) == {}
@@ -115,7 +115,7 @@ async def test_an_outlined_clipping_plane_has_a_line_round_its_cut_face(controll
 
 
 async def test_a_clipping_plane_s_outline_follows_its_switches(controller):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _image(controller, scene)
     controller.add_canvas(scene_id=scene.id)
     plane = _clip(controller, visual, 4.0)
@@ -147,7 +147,7 @@ async def test_a_clipping_plane_s_outline_follows_its_switches(controller):
 
 
 async def test_the_cut_face_follows_the_plane_and_its_style(controller):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _image(controller, scene)
     controller.add_canvas(scene_id=scene.id)
     plane = _clip(controller, visual, 4.0)
@@ -176,7 +176,7 @@ async def test_the_cut_face_follows_the_plane_and_its_style(controller):
 
 
 async def test_two_clipping_planes_each_end_at_the_other(controller):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _image(controller, scene)
     controller.add_canvas(scene_id=scene.id)
     system = _store(controller, visual).data_coordinate_systems[0]
@@ -207,7 +207,7 @@ async def test_two_clipping_planes_each_end_at_the_other(controller):
 async def test_a_render_plane_and_a_clipping_plane_are_outlined_together(controller):
     """Plane mode: the render plane's outline ends at the cut, and the cut
     face has an outline of its own."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = h.world_of(controller, scene)
     render_plane = RenderPlane.from_point_normal(
         world, (3.0, 5.0, 7.0), (1, 0, 0), axes=("z", "y", "x"), outline=BLUE
@@ -230,7 +230,7 @@ async def test_a_render_plane_and_a_clipping_plane_are_outlined_together(control
 
 async def test_a_clipping_plane_shared_by_two_visuals_has_one_outline(controller):
     """What the ortho linker does: the same tuple, the same ids."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     first = _image(controller, scene)
     second = _image(controller, scene)
     small = _image(controller, scene, shape=(8, 6, 16))
@@ -257,7 +257,7 @@ async def test_a_slider_moves_a_cut_across_a_sliced_axis(controller):
     at z = 5 - t, and moves when the time slider does."""
     scene = controller.add_scene(
         coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
     )
     visual = _image(controller, scene, shape=(4, *SHAPE))
@@ -328,7 +328,7 @@ async def test_a_geometry_visual_s_cut_face_is_cut_by_the_box_of_its_vertices(
 ):
     """No shape, so the box is that of the vertices drawn: from the origin
     to (16, 12, 8) in rendered (x, y, z)."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _geometry_visual(controller, scene, kind)
     controller.add_canvas(scene_id=scene.id)
     plane = _clip(controller, visual, 4.0)
@@ -340,7 +340,7 @@ async def test_a_geometry_visual_s_cut_face_is_cut_by_the_box_of_its_vertices(
 
 
 async def test_the_cut_face_follows_the_points_that_arrive(controller):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _geometry_visual(controller, scene, "points")
     controller.add_canvas(scene_id=scene.id)
     controller.set_clipping_planes(visual.id, (_clip(controller, visual, 4.0),))
@@ -356,7 +356,7 @@ async def test_the_cut_face_follows_the_points_that_arrive(controller):
 
 
 async def test_the_cut_face_follows_a_geometry_visual_s_transform(controller):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _geometry_visual(controller, scene, "points")
     controller.add_canvas(scene_id=scene.id)
     controller.set_clipping_planes(visual.id, (_clip(controller, visual, 4.0),))
@@ -382,7 +382,7 @@ async def test_a_mesh_s_cut_face_is_cut_by_the_store_s_extent(controller):
     positions, indices = uv_sphere(
         radius=6.0, centre=(8.0, 8.0, 8.0), n_lat=8, n_lon=16
     )
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_mesh(
         data=MeshMemoryStore(positions=positions, indices=indices),
         scene_id=scene.id,
@@ -400,7 +400,7 @@ async def test_geometry_clipped_by_the_read_has_no_outline(controller):
     be flattened along that axis): there is no one cut face."""
     scene = controller.add_scene(
         coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
     )
     positions = np.hstack([np.zeros((8, 1), dtype=np.float32), CORNERS])
@@ -433,7 +433,7 @@ async def test_the_cut_face_is_where_a_plane_drawn_there_ends(controller):
     oblique clipping plane, with a second clipping plane across both.  The
     pixels it is drawn on are the clipping plane's polygon."""
     shape = (20, 28, 36)
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = h.world_of(controller, scene)
     centre = (np.array(shape) - 1) / 2 + 0.3
     normal = np.array(OBLIQUE) / np.linalg.norm(OBLIQUE)
@@ -475,7 +475,7 @@ async def test_the_line_is_whole_on_a_cut_face(controller, render_mode):
     maximum projection writes none.  Both halves of the line are drawn."""
     shape = (20, 28, 36)
     size = (480, 480)
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _image(controller, scene, shape=shape, render_mode=render_mode)
     controller.add_canvas(scene_id=scene.id, canvas_size=size)
     system = _store(controller, visual).data_coordinate_systems[0]

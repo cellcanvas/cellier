@@ -39,7 +39,11 @@ from cellier.render._level_mapping import level_to_data
 from cellier.render.block_cache._tile_manager_2d import BlockKey2D
 from cellier.render.block_cache._tile_manager_2d import TileSlot as TileSlot2D
 from cellier.render.block_cache._tile_manager_3d import BlockKey3D, TileSlot
-from cellier.render.scheduling._types import DEFAULT_CACHE_POLICY, CachePolicy
+from cellier.render.scheduling._types import (
+    DEFAULT_CACHE_POLICY,
+    CachePolicy,
+    Tier,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -268,6 +272,14 @@ class _AtlasResidency:
             self._selection_ids[selection] = sid
         return sid
 
+    def find(self, selection: SliceSelection) -> int:
+        """The slice id of *selection*, or -1; nothing is interned.
+
+        A selection never interned has no tile, so a caller that only asks
+        which tiles are on a slice must not spend the table on it.
+        """
+        return self._selection_ids.get(selection, -1)
+
     def selection(self, sid: int) -> SliceSelection:
         """The selection slice id *sid* names."""
         return self._selections[sid]
@@ -284,9 +296,10 @@ class _AtlasResidency:
     def _slice_coords(self) -> list[tuple[tuple[int, Any], ...]]:
         return [self.slice_coord(sid) for sid in range(len(self._selections))]
 
-    def _drawn(self, view: RegistryView):
+    def _drawn(self, view: RegistryView, groups: list[np.ndarray] | None = None):
         """The painted records: keys, slots, levels, grids and phases."""
-        groups = view.paint_groups()
+        if groups is None:
+            groups = view.paint_groups()
         drawn = np.concatenate(groups) if groups else np.empty(0, np.int64)
         keys = np.asarray(view.key[drawn], dtype=np.int64)
         slots = np.asarray(view.slot[drawn], dtype=np.int64)
@@ -505,6 +518,14 @@ class ImageResidency2D(_AtlasResidency):
         to it, so stale tiles outside the view are not referenced; the
         foreground never is.  ``None`` disables the clip.  The planner sets
         it; it is draw state, not the atlas.
+    current_slice_ids : np.ndarray or None
+        Per level (entry ``k`` is level ``k + 1``), the slice id the latest
+        plan's dims position reads, -1 where that selection has no tile.  A
+        resident tile of an earlier view with its level's id is on the slice
+        on screen, and stays above the backstop while the plan loads.
+        ``None`` (no plan yet, or one with no region) paints every earlier
+        tile under the backstop.  The planner sets it; draw state, as
+        ``viewport_cells`` is.
     """
 
     _NDIM = 2
@@ -531,6 +552,7 @@ class ImageResidency2D(_AtlasResidency):
         #: Cache grid position ``(sy, sx)`` of each scheduler slot.
         self.slot_grid = np.column_stack([sy, sx]).astype(np.int64)
         self.viewport_cells: tuple[int, int, int, int] | None = None
+        self.current_slice_ids: np.ndarray | None = None
 
     def write(self, slot: int, key: int, data: Any) -> None:
         """Upload a padded tile into scheduler slot *slot*."""
@@ -541,11 +563,56 @@ class ImageResidency2D(_AtlasResidency):
         if self._on_write is not None:
             self._on_write()
 
+    def _in_view(self, levels: np.ndarray, grids: np.ndarray) -> np.ndarray:
+        """Which tiles own a cell of ``viewport_cells`` (all, with no clip)."""
+        if self.viewport_cells is None:
+            return np.ones(len(levels), dtype=bool)
+        manager = self.lut_manager
+        grid = np.asarray(manager.grid)
+        span = np.asarray(manager.spans)[levels - 1]
+        count = np.asarray(manager.counts)[levels - 1]
+        # The cells a tile owns, as paint_lut writes them: the last tile
+        # along an axis owns the rest of the grid.
+        start = np.minimum(grids * span, grid)
+        stop = np.where(grids >= count - 1, grid, np.minimum(start + span, grid))
+        lo = np.asarray(self.viewport_cells[:2])
+        hi = np.asarray(self.viewport_cells[2:])
+        return ~((stop <= lo) | (start >= hi)).any(axis=1)
+
+    def _paint_order(self, view: RegistryView) -> tuple[list[np.ndarray], list]:
+        """The groups to paint and, per group, its clip (current-slice plan, 2).
+
+        Tiles of an earlier view that are on the slice on screen are kept
+        above the backstop; the rest are painted under it, as in 3D.
+        """
+        ids = self.current_slice_ids
+        if ids is None or view.complete:
+            groups = view.paint_groups()
+            return groups, [self.viewport_cells] * (len(groups) - 1) + [None]
+        levels, _, grids = unpack_keys(view.key)
+        # Per level: a selection's id says nothing of the level it was read
+        # at, so another level's current id is not this record's.
+        known = levels <= len(ids)
+        current = np.zeros(len(levels), dtype=bool)
+        current[known] = view.slice_id[known] == ids[levels[known] - 1]
+        groups, n_stale = view.paint_groups_keeping(current)
+        # The kept tiles share a group with the plan's stages.  One wholly
+        # outside the view is not referenced; one across its edge is painted
+        # whole, and the group is not clipped (its stage tiles must not be).
+        middle = groups[n_stale + 1]
+        kept = middle[view.tier[middle] != Tier.VISIBLE]
+        if len(kept):
+            outside = kept[~self._in_view(levels[kept], grids[kept, :2])]
+            groups[n_stale + 1] = np.setdiff1d(middle, outside, assume_unique=True)
+        return groups, [self.viewport_cells] * n_stale + [None] * (
+            len(groups) - n_stale
+        )
+
     def rebuild_draw(self, view: RegistryView) -> None:
-        """Paint the LUT: background oldest first and clipped, then foreground."""
-        keys, slots, levels, grids, phases = self._drawn(view)
+        """Paint the LUT: stale tiles clipped, backstop, kept tiles, target."""
+        groups, clips = self._paint_order(view)
+        keys, slots, levels, grids, phases = self._drawn(view, groups)
         slot_grid = self.slot_grid[slots] if len(slots) else np.empty((0, 2), np.int64)
-        clips = [self.viewport_cells] * (len(phases) - 1) + [None]
         self.lut_manager.paint(levels, grids, slot_grid, phases, clips)
         self.block_cache.tile_manager.tilemap = _DrawnView(
             keys, slots, self._slice_coords(), slot_grid, None

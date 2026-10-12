@@ -31,7 +31,7 @@ async def _image(controller, pyramid_root, *, render_mode="plane"):
     """A loaded multiscale image with one render plane and one clipping plane."""
     controller._render_manager.config.scheduler.dims_settle_s = SETTLE_S
     store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = controller._model.scenes[scene.id].dims.world_coordinate_system
     visual = controller.add_image_multiscale(
         data=store,

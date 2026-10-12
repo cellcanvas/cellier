@@ -46,7 +46,7 @@ def _points_positions() -> np.ndarray:
 def _viewer():
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
-        coordinate_system=spatial_axes("z", "y", "x"), dim="2d"
+        coordinate_system=spatial_axes("z", "y", "x"), displayed_axes=("y", "x")
     )
     controller.add_canvas(scene.id)
     return controller, scene

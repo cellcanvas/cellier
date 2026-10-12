@@ -11,8 +11,12 @@ from skimage.data import binary_blobs
 
 from cellier.convenience import (
     AppearanceControls,
+    BoundingBoxControl,
+    ImageControl,
     Layout,
-    MultiscaleImageControlsConfig,
+    LevelOfDetailControl,
+    LoadingIndicator,
+    RenderPlanesControl,
     Viewer,
     axis_values_from_viewer,
     run,
@@ -92,7 +96,7 @@ store = MultiscaleZarrDataStore.from_scale_and_translation(
 # Viewer, plane and visual
 # ---------------------------------------------------------------------------
 
-viewer = Viewer(spatial_axes(*AXES), dim="3d")
+viewer = Viewer(spatial_axes(*AXES), displayed_axes=AXES)
 
 # A render plane is written in the scene's world coordinates, on three named
 # world axes.  Its rectangle is 96 world units a side, about the plane's
@@ -116,11 +120,13 @@ visual = viewer.add_image_multiscale(
     render_config=MultiscaleImageRenderConfig(block_size=16),
     name="image (plane)",
     render_planes=(plane,),
-    controls=MultiscaleImageControlsConfig(
-        appearance=["visible", "render_mode", "color_map", "level_of_detail"],
-        render_plane_controls=True,
-        loading_indicator=True,
-    ),
+    controls=[
+        ImageControl(fields=["visible", "render_mode", "color_map"]),
+        LevelOfDetailControl(),
+        BoundingBoxControl(),
+        RenderPlanesControl(),
+        LoadingIndicator(),
+    ],
 )
 # The box of the whole data: the plane is cut by it.
 visual.aabb.enabled = True

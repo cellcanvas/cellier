@@ -18,7 +18,11 @@ from cellier.scene.dims import spatial_axes, world_coordinate_system
 def _make_controller_with_scene(*, dim="2d"):
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim=dim, coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+        coordinate_system=cs,
+        name="main",
+    )
     return controller, scene
 
 

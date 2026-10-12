@@ -58,7 +58,7 @@ async def _assert_hides_and_returns(
 
 
 async def test_in_memory_2d(controller, render_scene, reslice):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_image(
         data=ImageMemoryStore(data=np.ones((4, 16, 16), dtype=np.float32)),
         scene_id=scene.id,
@@ -75,7 +75,9 @@ async def test_in_memory_2d(controller, render_scene, reslice):
 
 
 async def test_in_memory_3d(controller, render_scene, reslice):
-    scene = controller.add_scene(dim="3d", coordinate_system=_TZYX, name="scene")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_TZYX, name="scene"
+    )
     appearance = InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0))
     visual = controller.add_image(
         data=ImageMemoryStore(data=np.ones((3, 16, 16, 16), dtype=np.float32)),
@@ -110,7 +112,7 @@ async def test_multiscale_2d(controller, render_scene, reslice, tmp_path):
         [(1.0, 1.0, 1.0), (2.0, 2.0, 2.0)],
         [(0.0, 0.0, 0.0), (0.5, 0.5, 0.5)],
     )
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,
@@ -134,7 +136,9 @@ async def test_multiscale_3d(controller, render_scene, reslice, tmp_path):
         [(1.0, 1.0, 1.0, 1.0), (1.0, 2.0, 2.0, 2.0)],
         [(0.0, 0.0, 0.0, 0.0), (0.0, 0.5, 0.5, 0.5)],
     )
-    scene = controller.add_scene(dim="3d", coordinate_system=_TZYX, name="scene")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_TZYX, name="scene"
+    )
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,

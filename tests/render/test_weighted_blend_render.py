@@ -56,7 +56,7 @@ def _track_store() -> GraphMemoryStore:
 
 async def _build_scene(controller, reslice, labels_store, *, mode, depth_write):
     """A 3D scene holding translucent labels with a track inside them."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     labels = controller.add_labels_multiscale(
         data=labels_store,
         scene_id=scene.id,

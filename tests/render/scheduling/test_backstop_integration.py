@@ -27,7 +27,9 @@ TARGET_LEVEL, BACKSTOP_LEVEL = 1, 2
 
 
 def _add(controller, store, dim="3d", loading=None, **render):
-    scene = controller.add_scene(dim=dim, name="scene")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"), name="scene"
+    )
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,
@@ -271,7 +273,7 @@ async def test_each_composite_channel_gets_its_own_backstop(
     gate.open.set()
     scene = controller.add_scene(
         coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
     )
     visual = controller.add_image_multiscale(

@@ -324,6 +324,61 @@ class RegistryView:
         groups.append(foreground)
         return groups
 
+    def paint_groups_keeping(self, current: np.ndarray) -> tuple[list[np.ndarray], int]:
+        """Painter's order that keeps some earlier records above the backstop.
+
+        For a cache whose earlier views can show the data now on screen (a
+        2D atlas after a camera move): *current* marks those records, and the
+        adapter decides it, since the core does not look inside a key.
+        While the ``VISIBLE`` set is incomplete the order is
+
+        1. the background that is not *current*, grouped as in
+           :meth:`paint_groups`;
+        2. the ``VISIBLE`` backstop;
+        3. the ``VISIBLE`` intermediate stages and the *current* background,
+           as one group, so a mosaic adapter's coarsest-to-finest order
+           within a group puts a stage tile over the coarser kept tiles and
+           under the finer ones;
+        4. the ``VISIBLE`` target.
+
+        Complete, it is the foreground alone, as :meth:`paint_groups` gives.
+
+        Parameters
+        ----------
+        current : np.ndarray
+            Boolean, one entry per record.  Only resident records outside
+            the ``VISIBLE`` tier are read.
+
+        Returns
+        -------
+        groups : list[np.ndarray]
+            Index arrays into this view (the last three may be empty).
+        n_background : int
+            How many leading groups are step 1's.
+        """
+        resident = self.state == ChunkState.RESIDENT
+        visible = self.tier == Tier.VISIBLE
+        foreground = resident & visible
+        if self.complete:
+            return [np.flatnonzero(foreground)], 0
+        recent = resident & ~visible
+        kept = recent & np.asarray(current, dtype=bool)
+        stale = np.flatnonzero(recent & ~kept)
+        groups: list[np.ndarray] = []
+        if len(stale):
+            _, inverse = np.unique(self.slice_id[stale], return_inverse=True)
+            newest = np.full(int(inverse.max()) + 1, np.iinfo(np.int64).min, np.int64)
+            np.maximum.at(newest, inverse, self.wanted_gen[stale])
+            group_gen = newest[inverse]
+            groups = [stale[group_gen == g] for g in np.unique(group_gen).tolist()]
+        n_background = len(groups)
+        backstop = foreground & (self.cls == ChunkClass.BACKSTOP)
+        target = foreground & (self.cls == ChunkClass.TARGET)
+        middle = (foreground & ~backstop & ~target) | kept
+        groups += [np.flatnonzero(backstop), np.flatnonzero(middle)]
+        groups.append(np.flatnonzero(target))
+        return groups, n_background
+
 
 @dataclass(slots=True)
 class CacheProgress:

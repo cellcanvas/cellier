@@ -35,8 +35,8 @@ def render_layout(layout: object, viewer: object, host: LayoutHost) -> RenderedV
     reached through *host* and the ``GuiBackend`` it carries.
 
     Before anything is built, the viewer checks its recorded ``controls=``
-    flags against the layout's dock nodes: a flag with no dock to show its
-    controls in raises ``ValueError``.  The viewer keeps the dock nodes, for
+    lists against the layout's dock nodes: a control with no dock to show
+    it in raises ``ValueError``.  The viewer keeps the dock nodes, for
     the ``add_*`` calls that follow, only once the whole layout is built: a
     render that raises leaves it as it was.
     """
@@ -152,7 +152,7 @@ def render_dock(
 
 def build_appearance_widgets(
     visual: object,
-    config: object,
+    controls: list | None,
     controller: object,
     visual_ids: list | None = None,
     *,
@@ -162,6 +162,9 @@ def build_appearance_widgets(
     render_planes_target: Callable[[list], object | None] | None = None,
 ) -> list:
     """Build and wire the appearance controls for *visual*, on any backend.
+
+    *controls* is the visual's recorded ``controls=`` list; its order is the
+    display order.
 
     Returns the widgets in display order, each already ``connect_widget``-wired
     where it has a bus contract, and each carrying the name the shared spec
@@ -174,7 +177,7 @@ def build_appearance_widgets(
     no toggle: nothing here picks a visual or a canvas.
 
     *clipping_controls* ``False`` builds no clipping planes control whatever
-    the config says: on an ``OrthoViewer`` they are in the
+    the list says: on an ``OrthoViewer`` they are in the
     ``OrthoClippingControls()`` dock, one per link group, and not here.
 
     *render_planes_target* is how the viewer names what a render planes
@@ -195,11 +198,11 @@ def build_appearance_widgets(
 
     specs, skipped = appearance_specs(
         visual,
-        config,
+        controls,
         _resolve_data_store(controller, visual),
         palette=controller.render_config.outline.palette,
     )
-    warn_skipped_appearance_fields(skipped, visual, config)
+    warn_skipped_appearance_fields(skipped, visual)
     # Every visual the controls write to: one on a ``Viewer``, a group of
     # panel siblings on an ``OrthoViewer``.  Defaults to *visual* alone.
     visual_ids = [visual.id] if visual_ids is None else list(visual_ids)

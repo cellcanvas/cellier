@@ -45,7 +45,9 @@ class Rig:
             ),
         )
         self.controller.camera_reslice_enabled = False
-        self.scene = self.controller.add_scene(dim="3d", name="scene")
+        self.scene = self.controller.add_scene(
+            displayed_axes=("z", "y", "x"), name="scene"
+        )
         self.visual = self.controller.add_image(
             data=ImageMemoryStore(data=_ball()),
             scene_id=self.scene.id,

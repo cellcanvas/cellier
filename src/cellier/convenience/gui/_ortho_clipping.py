@@ -3,8 +3,8 @@
 See ``plans/clipping_planes_linking_design.md`` (section 6).
 
 One widget holds the link mode selector and every clipping planes control
-of the viewer: for each dataset added with ``clipping_controls=True``, one
-control per link group of the current mode.
+of the viewer: for each dataset whose ``controls=`` list holds
+``ClippingPlanesControl()``, one control per link group of the current mode.
 
 Built from what ``ControlsDock`` is built from: the layout host's
 ``live_slot`` and the backend's ``target_selector``.  So it is one class
@@ -78,7 +78,7 @@ class OrthoClippingWidget:
     """The link mode selector over an ``OrthoViewer``'s clipping controls.
 
     The selector is bound both ways to ``viewer.clipping_controller.mode``.
-    Under it, each dataset added with ``clipping_controls=True`` has one
+    Under it, each dataset added with ``ClippingPlanesControl()`` has one
     clipping planes control per link group of the mode, titled with the
     dataset's name: "All views" in ``"all"``; "2D views" and "3D view" in
     ``"2d"``; "XY", "XZ", "YZ" and "3D view" in ``None``.  Only a control
@@ -193,10 +193,11 @@ class OrthoClippingWidget:
     def _datasets(self) -> dict[tuple, dict[str, UUID]]:
         """The datasets to show: ``(label, panel items)`` -> panel -> visual id.
 
-        A dataset is one of the linker's groups whose controls config has
-        ``clipping_controls``.  The key holds what a control is built from,
+        A dataset is one of the linker's groups whose controls list holds
+        a ``ClippingPlanesControl``.  The key holds what a control is built from,
         so a dataset that loses a panel, or whose label changes, is rebuilt.
         """
+        from cellier.convenience.gui._controls_config import ClippingPlanesControl
         from cellier.convenience.layout._shared import unique_labels
 
         controller = self._controller
@@ -216,8 +217,9 @@ class OrthoClippingWidget:
                 if _is_registered(controller, visual_id)
             }
             flagged = any(
-                getattr(configs.get(rep_of.get(visual_id)), "clipping_controls", False)
+                isinstance(item, ClippingPlanesControl)
                 for visual_id in group.values()
+                for item in configs.get(rep_of.get(visual_id)) or ()
             )
             if group and flagged:
                 key, visual_id = next(iter(group.items()))

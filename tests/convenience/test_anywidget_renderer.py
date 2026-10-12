@@ -76,7 +76,9 @@ def test_appearance_controls_placeholder_without_any_config():
     from cellier.convenience.layout._controls_dock import APPEARANCE_PLACEHOLDER
 
     store = ImageMemoryStore(data=np.zeros((8, 16, 16), dtype=np.float32))
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="anywidget")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="anywidget"
+    )
     viewer.add_image(
         store,
         appearance=InMemoryImageAppearance(),

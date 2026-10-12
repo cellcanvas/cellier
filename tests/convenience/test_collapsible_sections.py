@@ -11,7 +11,10 @@ import numpy as np
 import pytest
 
 from cellier.convenience import AppearanceControls, Viewer
-from cellier.convenience.gui._controls_config import InMemoryImageControlsConfig
+from cellier.convenience.gui._controls_config import (
+    BoundingBoxControl,
+    ImageControl,
+)
 from cellier.convenience.layout._controls_dock import APPEARANCE_PLACEHOLDER
 from cellier.convenience.layout._walk import render_dock
 from cellier.data import ImageMemoryStore
@@ -41,7 +44,7 @@ def _add_image(viewer, name: str):
         ImageMemoryStore(data=np.zeros((4, 8, 8), dtype=np.float32)),
         appearance=InMemoryImageAppearance(),
         name=name,
-        controls=InMemoryImageControlsConfig(appearance=["clim"]),
+        controls=[ImageControl(fields=["clim"]), BoundingBoxControl()],
         single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
@@ -98,7 +101,7 @@ def test_an_unknown_presentation_is_refused_at_construction():
 
 def test_every_configured_visual_gets_a_titled_section(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     _add_image(viewer, "b")
 
@@ -111,7 +114,7 @@ def test_every_configured_visual_gets_a_titled_section(toolkit):
 
 def test_only_the_first_section_starts_expanded(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     _add_image(viewer, "b")
 
@@ -122,7 +125,7 @@ def test_only_the_first_section_starts_expanded(toolkit):
 
 def test_every_sections_controls_are_built_and_wired(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     _add_image(viewer, "b")
 
@@ -136,7 +139,7 @@ def test_every_sections_controls_are_built_and_wired(toolkit):
 
 def test_an_added_visual_gets_a_collapsed_section_and_the_rest_are_kept(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     dock, root = _render(viewer, host_cls)
     (first,) = dock.sections
@@ -153,7 +156,7 @@ def test_an_added_visual_gets_a_collapsed_section_and_the_rest_are_kept(toolkit)
 
 def test_removing_a_visual_drops_its_section_and_releases_its_controls(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     a = _add_image(viewer, "a")
     b = _add_image(viewer, "b")
     dock, root = _render(viewer, host_cls)
@@ -171,7 +174,7 @@ def test_removing_a_visual_drops_its_section_and_releases_its_controls(toolkit):
 def test_a_surviving_section_is_retitled_when_its_label_changes(toolkit):
     """Duplicate names are told apart by position, so a removal renames one."""
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     first = _add_image(viewer, "image")
     _add_image(viewer, "image")
     dock, _root = _render(viewer, host_cls)
@@ -186,7 +189,7 @@ def test_a_surviving_section_is_retitled_when_its_label_changes(toolkit):
 
 def test_an_empty_dock_shows_the_placeholder_and_a_later_add_opens(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     dock, root = _render(viewer, host_cls)
 
     if gui == "qt":
@@ -207,7 +210,7 @@ def test_an_empty_dock_shows_the_placeholder_and_a_later_add_opens(toolkit):
 
 def test_select_expands_the_targets_section(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     b = _add_image(viewer, "b")
     dock, _root = _render(viewer, host_cls)
@@ -221,7 +224,7 @@ def test_select_expands_the_targets_section(toolkit):
 def test_expanding_never_builds_widgets(toolkit):
     """As with the selector: nothing may be built outside a marimo cell."""
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     b = _add_image(viewer, "b")
     dock, _root = _render(viewer, host_cls)
@@ -237,7 +240,7 @@ def test_expanding_never_builds_widgets(toolkit):
 
 def test_closing_the_dock_stops_following_the_viewer(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     dock, _root = _render(viewer, host_cls)
     old = dock.widgets

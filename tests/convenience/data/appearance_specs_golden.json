@@ -1,0 +1,2295 @@
+{
+ "graph/all": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "opacity",
+   "title": "Opacity",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "node_visible",
+   "title": "Nodes visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "node_color",
+   "title": "Node color",
+   "values": {
+    "initial_value": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   }
+  },
+  {
+   "kind": "node_size",
+   "title": "Node size",
+   "values": {
+    "initial_value": 5.0
+   }
+  },
+  {
+   "kind": "node_size_space",
+   "title": "Node size space",
+   "values": {
+    "choices": [
+     "screen",
+     "world"
+    ],
+    "initial_value": "screen"
+   }
+  },
+  {
+   "kind": "edge_visible",
+   "title": "Edges visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "edge_color",
+   "title": "Edge color",
+   "values": {
+    "initial_value": [
+     0.7,
+     0.7,
+     0.7,
+     1.0
+    ]
+   }
+  },
+  {
+   "kind": "edge_thickness",
+   "title": "Edge thickness",
+   "values": {
+    "initial_value": 2.0
+   }
+  },
+  {
+   "kind": "edge_thickness_space",
+   "title": "Edge thickness space",
+   "values": {
+    "choices": [
+     "screen",
+     "world"
+    ],
+    "initial_value": "screen"
+   }
+  },
+  {
+   "kind": "trail",
+   "title": "Trail",
+   "values": {
+    "axes": [
+     [
+      2,
+      "y"
+     ]
+    ],
+    "trail": {
+     "2": {
+      "after": 0.5,
+      "before": 0.5,
+      "fade": false,
+      "fade_after": null,
+      "fade_before": null,
+      "min_alpha": 0.0
+     }
+    }
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "t",
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      0.0,
+      2.0
+     ],
+     [
+      0.0,
+      2.0
+     ],
+     [
+      0.0,
+      2.0
+     ],
+     [
+      0.0,
+      2.0
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "visual_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "outward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "tracks"
+        ],
+        [
+         "Store type",
+         "in-memory graph"
+        ],
+        [
+         "Nodes",
+         "3"
+        ],
+        [
+         "Edges",
+         "2"
+        ],
+        [
+         "Directed",
+         "no"
+        ],
+        [
+         "Dimensions",
+         "4"
+        ],
+        [
+         "Node ids",
+         "row index"
+        ],
+        [
+         "Slice strategy",
+         "mask"
+        ],
+        [
+         "Extent",
+         "[0, 2] x [0, 2] x [0, 2] x [0, 2]"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "graph/trail_axes": [
+  {
+   "kind": "node_visible",
+   "title": "Nodes visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "trail",
+   "title": "Trail",
+   "values": {
+    "axes": [
+     [
+      0,
+      "t"
+     ],
+     [
+      3,
+      "x"
+     ]
+    ],
+    "trail": {
+     "2": {
+      "after": 0.5,
+      "before": 0.5,
+      "fade": false,
+      "fade_after": null,
+      "fade_before": null,
+      "min_alpha": 0.0
+     }
+    }
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  }
+ ],
+ "image/all": [
+  {
+   "kind": "image",
+   "title": "Image",
+   "values": {
+    "attenuation_modes": [
+     "attenuated_mip"
+    ],
+    "channel_labels": {},
+    "channels": {},
+    "clim_range": [
+     0.0,
+     10.0
+    ],
+    "colormap_names": [
+     "gray",
+     "viridis",
+     "magma"
+    ],
+    "colormaps": {
+     "channels": {},
+     "single": {
+      "colormap": "matlab:gray"
+     }
+    },
+    "composite": false,
+    "decimals": 1,
+    "fields": [
+     "visible",
+     "opacity",
+     "color_map",
+     "clim",
+     "render_mode",
+     "iso_threshold"
+    ],
+    "has_channel_axis": false,
+    "interpolations": [
+     "nearest",
+     "linear"
+    ],
+    "render_modes": [
+     "mip",
+     "iso",
+     "minip",
+     "plane"
+    ],
+    "shared": {
+     "interpolation": "nearest",
+     "transparency_mode": "auto",
+     "visible": true
+    },
+    "single": {
+     "clim": [
+      0.0,
+      1.0
+     ],
+     "color_map": "matlab:gray",
+     "iso_threshold": 0.5,
+     "opacity": 1.0,
+     "render_mode": "mip"
+    },
+    "storage": "memory",
+    "threshold_modes": [
+     "iso",
+     "smooth_iso"
+    ],
+    "transparency_modes": [
+     "auto",
+     "blend",
+     "add",
+     "multiply",
+     "weighted_blend",
+     "weighted_solid"
+    ]
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      -0.5,
+      7.5
+     ],
+     [
+      -0.5,
+      15.5
+     ],
+     [
+      -0.5,
+      23.5
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "render_planes",
+   "title": "Render planes",
+   "values": {}
+  },
+  {
+   "kind": "visual_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "inward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "image"
+        ],
+        [
+         "Store type",
+         "in-memory image"
+        ],
+        [
+         "Shape",
+         "8 x 16 x 24"
+        ],
+        [
+         "Data type",
+         "float32"
+        ],
+        [
+         "Value range",
+         "[0, 0]"
+        ],
+        [
+         "Memory",
+         "12.0 KiB"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "image/defaults": [
+  {
+   "kind": "image",
+   "title": "Image",
+   "values": {
+    "attenuation_modes": [
+     "attenuated_mip"
+    ],
+    "channel_labels": {},
+    "channels": {},
+    "clim_range": [
+     0.0,
+     1.0
+    ],
+    "colormap_names": [
+     "gray",
+     "viridis",
+     "plasma",
+     "magma",
+     "inferno",
+     "cividis",
+     "red",
+     "green",
+     "blue",
+     "magenta",
+     "cyan"
+    ],
+    "colormaps": {
+     "channels": {},
+     "single": {
+      "colormap": "matlab:gray"
+     }
+    },
+    "composite": false,
+    "decimals": 2,
+    "fields": [
+     "color_map",
+     "clim"
+    ],
+    "has_channel_axis": false,
+    "interpolations": [
+     "nearest",
+     "linear"
+    ],
+    "render_modes": [
+     "mip",
+     "iso",
+     "minip",
+     "plane"
+    ],
+    "shared": {
+     "interpolation": "nearest",
+     "transparency_mode": "auto",
+     "visible": true
+    },
+    "single": {
+     "clim": [
+      0.0,
+      1.0
+     ],
+     "color_map": "matlab:gray",
+     "iso_threshold": 0.5,
+     "opacity": 1.0,
+     "render_mode": "mip"
+    },
+    "storage": "memory",
+    "threshold_modes": [
+     "iso",
+     "smooth_iso"
+    ],
+    "transparency_modes": [
+     "auto",
+     "blend",
+     "add",
+     "multiply",
+     "weighted_blend",
+     "weighted_solid"
+    ]
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  }
+ ],
+ "labels/all": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "opacity",
+   "title": "Opacity",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "labels_render_mode",
+   "title": "Render mode",
+   "values": {
+    "choices": [
+     "iso_categorical",
+     "flat_categorical",
+     "plane"
+    ],
+    "initial_value": "iso_categorical"
+   }
+  },
+  {
+   "kind": "salt",
+   "title": "Salt",
+   "values": {
+    "initial_value": 0
+   }
+  },
+  {
+   "kind": "background_label",
+   "title": "Background label",
+   "values": {
+    "initial_value": 0
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      -0.5,
+      7.5
+     ],
+     [
+      -0.5,
+      15.5
+     ],
+     [
+      -0.5,
+      15.5
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "render_planes",
+   "title": "Render planes",
+   "values": {}
+  },
+  {
+   "kind": "labels_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "inward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "outline_mode": "per_label",
+    "outline_selected_labels": {},
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "labels"
+        ],
+        [
+         "Store type",
+         "in-memory labels"
+        ],
+        [
+         "Shape",
+         "8 x 16 x 16"
+        ],
+        [
+         "Data type",
+         "int32"
+        ],
+        [
+         "Labels",
+         "2"
+        ],
+        [
+         "Max label",
+         "5"
+        ],
+        [
+         "Memory",
+         "8.0 KiB"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "lines/all": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "opacity",
+   "title": "Opacity",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "color",
+   "title": "Color",
+   "values": {
+    "initial_value": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   }
+  },
+  {
+   "kind": "thickness",
+   "title": "Thickness",
+   "values": {
+    "initial_value": 2.0
+   }
+  },
+  {
+   "kind": "thickness_space",
+   "title": "Thickness space",
+   "values": {
+    "choices": [
+     "screen",
+     "world"
+    ],
+    "initial_value": "screen"
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      3.0
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "visual_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "outward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "lines_memory_store"
+        ],
+        [
+         "Store type",
+         "in-memory lines"
+        ],
+        [
+         "Segments",
+         "2"
+        ],
+        [
+         "Vertices",
+         "4"
+        ],
+        [
+         "Dimensions",
+         "3"
+        ],
+        [
+         "Extent",
+         "[0, 1] x [0, 1] x [0, 3]"
+        ],
+        [
+         "Memory",
+         "48 B"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "mesh_flat/all": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "opacity",
+   "title": "Opacity",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "color",
+   "title": "Color",
+   "values": {
+    "initial_value": [
+     0.7,
+     0.7,
+     0.7,
+     1.0
+    ]
+   }
+  },
+  {
+   "kind": "side",
+   "title": "Side",
+   "values": {
+    "choices": [
+     "both",
+     "front",
+     "back"
+    ],
+    "initial_value": "both"
+   }
+  },
+  {
+   "kind": "wireframe",
+   "title": "Wireframe",
+   "values": {
+    "initial_value": false
+   }
+  },
+  {
+   "kind": "wireframe_thickness",
+   "title": "Wireframe thickness",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "mesh_section",
+   "title": "2D section",
+   "values": {
+    "section": {
+     "fill": true,
+     "mode": "cut",
+     "outline": true,
+     "outline_width": 2.0
+    }
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "visual_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "inward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "loading",
+   "title": "Data fetch status",
+   "values": {
+    "levels": true
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "mesh"
+        ],
+        [
+         "Store type",
+         "in-memory mesh"
+        ],
+        [
+         "Vertices",
+         "4"
+        ],
+        [
+         "Faces",
+         "4"
+        ],
+        [
+         "Dimensions",
+         "3"
+        ],
+        [
+         "Extent",
+         "[0, 1] x [0, 1] x [0, 1]"
+        ],
+        [
+         "Memory",
+         "96 B"
+        ],
+        [
+         "Closed",
+         "not computed"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "mesh_phong/all": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "opacity",
+   "title": "Opacity",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "color",
+   "title": "Color",
+   "values": {
+    "initial_value": [
+     0.4,
+     0.6,
+     0.9,
+     1.0
+    ]
+   }
+  },
+  {
+   "kind": "side",
+   "title": "Side",
+   "values": {
+    "choices": [
+     "both",
+     "front",
+     "back"
+    ],
+    "initial_value": "front"
+   }
+  },
+  {
+   "kind": "shininess",
+   "title": "Shininess",
+   "values": {
+    "initial_value": 30.0
+   }
+  },
+  {
+   "kind": "flat_shading",
+   "title": "Flat shading",
+   "values": {
+    "initial_value": false
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "mesh_section",
+   "title": "2D section",
+   "values": {
+    "section": {
+     "fill": true,
+     "mode": "cut",
+     "outline": true,
+     "outline_width": 2.0
+    }
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "visual_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "inward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "mesh"
+        ],
+        [
+         "Store type",
+         "in-memory mesh"
+        ],
+        [
+         "Vertices",
+         "4"
+        ],
+        [
+         "Faces",
+         "4"
+        ],
+        [
+         "Dimensions",
+         "3"
+        ],
+        [
+         "Extent",
+         "[0, 1] x [0, 1] x [0, 1]"
+        ],
+        [
+         "Memory",
+         "96 B"
+        ],
+        [
+         "Closed",
+         "not computed"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "multiscale_image/all": [
+  {
+   "kind": "image",
+   "title": "Image",
+   "values": {
+    "attenuation_modes": [
+     "attenuated_mip"
+    ],
+    "channel_labels": {},
+    "channels": {},
+    "clim_range": [
+     0.0,
+     10.0
+    ],
+    "colormap_names": [
+     "gray",
+     "viridis",
+     "magma"
+    ],
+    "colormaps": {
+     "channels": {},
+     "single": {
+      "colormap": "matlab:gray"
+     }
+    },
+    "composite": false,
+    "decimals": 1,
+    "fields": [
+     "visible",
+     "opacity",
+     "color_map",
+     "clim",
+     "render_mode",
+     "iso_threshold",
+     "attenuation"
+    ],
+    "has_channel_axis": false,
+    "interpolations": [
+     "nearest",
+     "linear"
+    ],
+    "render_modes": [
+     "iso",
+     "mip",
+     "smooth_iso",
+     "attenuated_mip",
+     "plane"
+    ],
+    "shared": {
+     "attenuation": 1.0,
+     "interpolation": "nearest",
+     "transparency_mode": "auto",
+     "visible": true
+    },
+    "single": {
+     "clim": [
+      0.0,
+      1.0
+     ],
+     "color_map": "matlab:gray",
+     "iso_threshold": 0.2,
+     "opacity": 1.0,
+     "render_mode": "iso"
+    },
+    "storage": "multiscale",
+    "threshold_modes": [
+     "iso",
+     "smooth_iso"
+    ],
+    "transparency_modes": [
+     "auto",
+     "blend",
+     "add",
+     "multiply",
+     "weighted_blend",
+     "weighted_solid"
+    ]
+   }
+  },
+  {
+   "kind": "level_of_detail",
+   "title": "Level of detail",
+   "values": {
+    "coarsest_while_moving_2d": false,
+    "coarsest_while_moving_3d": true,
+    "settled_lod_bias": 1.0
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      -0.5,
+      15.5
+     ],
+     [
+      -0.5,
+      15.5
+     ],
+     [
+      -0.5,
+      15.5
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "render_planes",
+   "title": "Render planes",
+   "values": {}
+  },
+  {
+   "kind": "visual_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "inward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "loading",
+   "title": "Data fetch status",
+   "values": {}
+  },
+  {
+   "kind": "loading_config",
+   "title": "Progressive loading",
+   "values": {
+    "loading": {
+     "backstop_extent": "full",
+     "backstop_level": null,
+     "backstop_max_slot_fraction": 0.1,
+     "intermediate_max_slot_fraction": 0.1,
+     "intermediate_offsets": []
+    },
+    "n_levels": 2
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "multiscale_image"
+        ],
+        [
+         "Store type",
+         "multiscale zarr"
+        ],
+        [
+         "Path",
+         "<tmp>/multiscale_image"
+        ],
+        [
+         "Source",
+         "local file"
+        ],
+        [
+         "Data type",
+         "float32"
+        ],
+        [
+         "Scale levels",
+         "2"
+        ]
+       ]
+      },
+      {
+       "collapsed": true,
+       "label": "Scale levels",
+       "rows": [
+        [
+         "s0",
+         "16 x 16 x 16  (1x isotropic)"
+        ],
+        [
+         "s1",
+         "8 x 8 x 8  (2x isotropic)"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "multiscale_labels/all": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "opacity",
+   "title": "Opacity",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "labels_render_mode",
+   "title": "Render mode",
+   "values": {
+    "choices": [
+     "iso_categorical",
+     "flat_categorical",
+     "smooth_iso",
+     "plane"
+    ],
+    "initial_value": "iso_categorical"
+   }
+  },
+  {
+   "kind": "salt",
+   "title": "Salt",
+   "values": {
+    "initial_value": 0
+   }
+  },
+  {
+   "kind": "background_label",
+   "title": "Background label",
+   "values": {
+    "initial_value": 0
+   }
+  },
+  {
+   "kind": "level_of_detail",
+   "title": "Level of detail",
+   "values": {
+    "coarsest_while_moving_2d": false,
+    "coarsest_while_moving_3d": true,
+    "settled_lod_bias": 1.0
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      -0.5,
+      15.5
+     ],
+     [
+      -0.5,
+      15.5
+     ],
+     [
+      -0.5,
+      15.5
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "render_planes",
+   "title": "Render planes",
+   "values": {}
+  },
+  {
+   "kind": "labels_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "inward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "outline_mode": "per_label",
+    "outline_selected_labels": {},
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "loading",
+   "title": "Data fetch status",
+   "values": {}
+  },
+  {
+   "kind": "loading_config",
+   "title": "Progressive loading",
+   "values": {
+    "loading": {
+     "backstop_extent": "full",
+     "backstop_level": null,
+     "backstop_max_slot_fraction": 0.1,
+     "intermediate_max_slot_fraction": 0.1,
+     "intermediate_offsets": []
+    },
+    "n_levels": 2
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "multiscale_labels"
+        ],
+        [
+         "Store type",
+         "multiscale zarr"
+        ],
+        [
+         "Path",
+         "<tmp>/multiscale_labels"
+        ],
+        [
+         "Source",
+         "local file"
+        ],
+        [
+         "Data type",
+         "int32"
+        ],
+        [
+         "Scale levels",
+         "2"
+        ]
+       ]
+      },
+      {
+       "collapsed": true,
+       "label": "Scale levels",
+       "rows": [
+        [
+         "s0",
+         "16 x 16 x 16  (1x isotropic)"
+        ],
+        [
+         "s1",
+         "8 x 8 x 8  (2x isotropic)"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "multiscale_mesh/all": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "opacity",
+   "title": "Opacity",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "color",
+   "title": "Color",
+   "values": {
+    "initial_value": [
+     0.7,
+     0.7,
+     0.7,
+     1.0
+    ]
+   }
+  },
+  {
+   "kind": "side",
+   "title": "Side",
+   "values": {
+    "choices": [
+     "both",
+     "front",
+     "back"
+    ],
+    "initial_value": "both"
+   }
+  },
+  {
+   "kind": "wireframe",
+   "title": "Wireframe",
+   "values": {
+    "initial_value": false
+   }
+  },
+  {
+   "kind": "wireframe_thickness",
+   "title": "Wireframe thickness",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "mesh_section",
+   "title": "2D section",
+   "values": {
+    "section": {
+     "fill": true,
+     "mode": "cut",
+     "outline": true,
+     "outline_width": 2.0
+    }
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      3.0,
+      13.0
+     ],
+     [
+      3.0,
+      13.0
+     ],
+     [
+      3.0,
+      13.0
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "lod_config",
+   "title": "LOD",
+   "values": {
+    "lod": {
+     "camera_motion": "coarse",
+     "coarse_level": null,
+     "dims_drag": "coarse",
+     "dims_drag_draw": "coarse"
+    }
+   }
+  },
+  {
+   "kind": "visual_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "inward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "loading",
+   "title": "Data fetch status",
+   "values": {
+    "levels": true
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "sphere"
+        ],
+        [
+         "Store type",
+         "in-memory multiscale mesh"
+        ],
+        [
+         "Levels",
+         "2"
+        ],
+        [
+         "Dimensions",
+         "3"
+        ],
+        [
+         "Extent",
+         "[3, 13] x [3, 13] x [3, 13]"
+        ],
+        [
+         "Memory",
+         "4.8 KiB"
+        ],
+        [
+         "Level 1",
+         "114 vertices, 224 faces, closed: not computed"
+        ],
+        [
+         "Level 2",
+         "26 vertices, 48 faces, closed: not computed"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "points/all": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "opacity",
+   "title": "Opacity",
+   "values": {
+    "initial_value": 1.0
+   }
+  },
+  {
+   "kind": "color",
+   "title": "Color",
+   "values": {
+    "initial_value": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   }
+  },
+  {
+   "kind": "size",
+   "title": "Size",
+   "values": {
+    "initial_value": 5.0
+   }
+  },
+  {
+   "kind": "size_space",
+   "title": "Size space",
+   "values": {
+    "choices": [
+     "screen",
+     "world"
+    ],
+    "initial_value": "screen"
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "clipping_planes",
+   "title": "Clipping planes",
+   "values": {
+    "axis_names": [
+     "z",
+     "y",
+     "x"
+    ],
+    "bounds": [
+     [
+      0.0,
+      3.0
+     ],
+     [
+      0.0,
+      3.0
+     ],
+     [
+      0.0,
+      3.0
+     ]
+    ],
+    "coordinate_system": "<uuid>",
+    "data_store_id": "<uuid>",
+    "planes": []
+   }
+  },
+  {
+   "kind": "visual_outline",
+   "title": "Outline",
+   "values": {
+    "default_placement": "outward",
+    "outline.placement": null,
+    "outline.slot": 0,
+    "palette": [
+     [
+      1.0,
+      0.0,
+      1.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+     ],
+     [
+      0.0,
+      1.0,
+      0.0,
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "kind": "visual_occlusion",
+   "title": "Ambient occlusion",
+   "values": {
+    "ambient_occlusion": null
+   }
+  },
+  {
+   "kind": "visual_picking",
+   "title": "Picking",
+   "values": {
+    "pick_write": true
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Name",
+         "points_memory_store"
+        ],
+        [
+         "Store type",
+         "in-memory points"
+        ],
+        [
+         "Points",
+         "4"
+        ],
+        [
+         "Dimensions",
+         "3"
+        ],
+        [
+         "Extent",
+         "[0, 3] x [0, 3] x [0, 3]"
+        ],
+        [
+         "Memory",
+         "48 B"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "points/dataset_info_object": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "info": {
+     "sections": [
+      {
+       "collapsed": false,
+       "label": null,
+       "rows": [
+        [
+         "Voxel size",
+         "1 um"
+        ]
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "points/dataset_info_rows": [
+  {
+   "kind": "visible",
+   "title": "Visible",
+   "values": {
+    "initial_value": true
+   }
+  },
+  {
+   "kind": "aabb",
+   "title": "Bounding box",
+   "values": {
+    "initial_color": "#ffffff",
+    "initial_enabled": false,
+    "initial_line_width": 2.0
+   }
+  },
+  {
+   "kind": "dataset_info",
+   "title": "Dataset info",
+   "values": {
+    "rows": [
+     [
+      "Sample",
+      "A1"
+     ],
+     [
+      "Count",
+      "4"
+     ]
+    ]
+   }
+  }
+ ]
+}

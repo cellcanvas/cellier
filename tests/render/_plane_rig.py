@@ -237,7 +237,7 @@ async def make_rig(
     elif fill is not None:
         raise ValueError("fill has no effect on a pyramid that is already written")
     store, voxel = fx.open_pyramid(root, spec)
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = h.world_of(controller, scene)
     planes = tuple(make_planes(world, centre_of(spec)))
     transform = h.scale_translation_transform(

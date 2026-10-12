@@ -70,7 +70,7 @@ ADDERS = {
 
 def _scene_with(controller, kind):
     """A 3-D scene holding one geometry visual, with a canvas."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = ADDERS[kind](controller, scene.id)
     controller.add_canvas(scene_id=scene.id)
     return scene, visual

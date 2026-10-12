@@ -71,7 +71,9 @@ async def test_a_pick_just_inside_the_silhouette_names_the_label(
     import pygfx as gfx
     from rendercanvas.offscreen import RenderCanvas
 
-    scene = controller.add_scene(dim="3d", name=f"pick-{name}-{render_mode}")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), name=f"pick-{name}-{render_mode}"
+    )
     visual = controller.add_labels_multiscale(
         data=_store(tmp_path),
         scene_id=scene.id,

@@ -100,7 +100,7 @@ def _store(root) -> MultiscaleZarrDataStore:
 
 async def _render(controller, render_scene, reslice, root, level):
     """Render *level*; return ``(frame, camera, gfx scene, gfx visual)``."""
-    scene = controller.add_scene(dim="2d", name=f"labels-2d-{level}")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name=f"labels-2d-{level}")
     visual = controller.add_labels_multiscale(
         data=_store(root),
         scene_id=scene.id,

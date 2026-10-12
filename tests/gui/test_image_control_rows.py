@@ -122,7 +122,10 @@ def test_a_dimensionality_must_be_an_int(value):
 
 def _scene_image(dim):
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=spatial_axes("z", "y", "x"), dim=dim)
+    scene = controller.add_scene(
+        coordinate_system=spatial_axes("z", "y", "x"),
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+    )
     store = ImageMemoryStore(data=np.zeros((4, 8, 8), dtype=np.float32))
     visual = controller.add_image(store, scene.id)
     return controller, scene, visual
@@ -256,7 +259,8 @@ def test_qt_both_attenuation_rows_show_one_value(qt_controls):
 def _in_memory(dim="3d"):
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
-        coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")], dim=dim
+        coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")],
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
     )
     store = ImageMemoryStore(data=np.zeros((2, 4, 8, 8), dtype=np.float32))
     visual = controller.add_image(

@@ -171,7 +171,7 @@ async def test_a_release_ends_the_scrub_through_the_controller(qtbot):
     controller = CellierController()
     try:
         scene = controller.add_scene(
-            dim="2d",
+            displayed_axes=("y", "x"),
             coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
             name="scene",
         )

@@ -10,10 +10,15 @@ from cellier.controller import CellierController
 from cellier.convenience._controls_registry import ControlsRegistryMixin
 from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
+from cellier.convenience.gui._controls_config import validate_controls
 from cellier.events import CanvasAddedEvent
 from cellier.render._capture import write_png
 from cellier.scene._background import viewer_background
-from cellier.scene.dims import WorldAxesLike, world_coordinate_system
+from cellier.scene.dims import (
+    WorldAxesLike,
+    resolve_displayed_axes,
+    world_coordinate_system,
+)
 from cellier.visuals._canvas_overlay import CanvasOverlay
 from cellier.visuals._scene_overlay import SceneOverlay
 
@@ -29,16 +34,7 @@ if TYPE_CHECKING:
         ClippingPlaneGizmoController,
         RenderPlaneGizmoController,
     )
-    from cellier.convenience.gui._controls_config import (
-        GraphControlsConfig,
-        InMemoryImageControlsConfig,
-        LabelsControlsConfig,
-        LinesControlsConfig,
-        MeshControlsConfig,
-        MultiscaleImageControlsConfig,
-        MultiscaleLabelsControlsConfig,
-        PointsControlsConfig,
-    )
+    from cellier.convenience.gui._controls_config import Control
     from cellier.data._base_data_store import BaseDataStore
     from cellier.data.graph._graph_memory_store import GraphMemoryStore
     from cellier.data.image._image_memory_store import ImageMemoryStore
@@ -56,7 +52,7 @@ if TYPE_CHECKING:
     from cellier.render._config import RenderManagerConfig
     from cellier.scene._background import BackgroundAppearance
     from cellier.scene.scene import Scene
-    from cellier.transform import BaseTransform
+    from cellier.transform import AxisRef, BaseTransform
     from cellier.visuals import ClippingPlane, RenderPlane
     from cellier.visuals._base_visual import VisualOutline
     from cellier.visuals._graph_memory import (
@@ -122,9 +118,20 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         shorthand for an all-spatial world, and a mixed one spells the rest
         out::
 
-            Viewer([("t", "time"), *spatial_axes("z", "y", "x")])
-    dim : "2d" or "3d"
-        Initial display dimensionality. Default ``"2d"``.
+            Viewer(
+                [("t", "time"), *spatial_axes("z", "y", "x")],
+                displayed_axes=("y", "x"),
+            )
+    displayed_axes : tuple of str or UUID
+        The axes the scene displays first, in display order.  Required.  Two
+        entries start the viewer in 2D and three start it in 3D::
+
+            Viewer(spatial_axes("x", "y", "z"), displayed_axes=("x", "y"))
+
+        Each entry is an axis name or an axis id (``Axis.id``); an axis whose
+        name another axis shares is given by id.  Any axis can be displayed,
+        whatever its type.  The 2D/3D toggle starts from these axes and
+        returns to the last set shown in each mode.
     render_modes : set[str] or None
         Which rendering modes the scene (and its visuals) should support.
         Defaults to ``{"2d", "3d"}`` when ``None``.
@@ -149,7 +156,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         self,
         axes: WorldAxesLike,
         *,
-        dim: Literal["2d", "3d"] = "2d",
+        displayed_axes: Sequence[AxisRef],
         render_modes: set[str] | None = None,
         render_config: RenderManagerConfig | None = None,
         gui: Literal["qt", "anywidget", "offscreen"] = "qt",
@@ -161,7 +168,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._controller = CellierController(render_config=render_config, gui=gui)
         self._scene = self._controller.add_scene(
             name="main",
-            dim=dim,
+            displayed_axes=displayed_axes,
             coordinate_system=world_coordinate_system(axes),
             render_modes=resolved_render_modes,
             background=viewer_background(),
@@ -1065,8 +1072,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     # Dims control
     # ------------------------------------------------------------------
 
-    def set_displayed_dimensions(self, axis_names: tuple[str, ...]) -> None:
-        """Set which axes are displayed by name.
+    def set_displayed_dimensions(self, axis_names: Sequence[AxisRef]) -> None:
+        """Set which axes are displayed, by name or by id.
 
         Switches the scene between 2D and 3D rendering by resolving
         *axis_names* to axis indices and calling the controller's dims API.
@@ -1076,33 +1083,23 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Parameters
         ----------
-        axis_names : tuple[str, ...]
-            Axis labels to display, e.g. ``("y", "x")`` for 2D or
-            ``("z", "y", "x")`` for 3D.  Must contain 2 or 3 names that
-            are present in the scene's coordinate system.
+        axis_names : sequence of str or UUID
+            The axes to display, e.g. ``("y", "x")`` for 2D or
+            ``("z", "y", "x")`` for 3D.  2 or 3 entries, each an axis name
+            or an axis id of the scene's coordinate system.  An axis whose
+            name another axis shares is given by id.
 
         Raises
         ------
+        TypeError
+            If an entry is neither a name nor an id.
         ValueError
-            If *axis_names* does not have 2 or 3 entries, or if any name is
-            not in the scene's coordinate system.
+            If *axis_names* does not have 2 or 3 entries, an entry names no
+            axis or an ambiguous one, or an axis is given twice.
         """
-        if len(axis_names) not in (2, 3):
-            raise ValueError(
-                f"axis_names must have 2 or 3 entries, got {len(axis_names)}: "
-                f"{axis_names!r}"
-            )
-
-        coord_labels = self._scene.dims.axis_labels
-        label_to_index = {label: i for i, label in enumerate(coord_labels)}
-
-        invalid = [n for n in axis_names if n not in label_to_index]
-        if invalid:
-            raise ValueError(
-                f"Unknown axis names: {invalid}. Available: {list(coord_labels)}"
-            )
-
-        new_displayed = tuple(label_to_index[n] for n in axis_names)
+        new_displayed = resolve_displayed_axes(
+            self._scene.dims.world_coordinate_system, axis_names
+        )
         self._controller.cancel_pending_slices(self._scene.id)
         self._controller.set_displayed_axes(self._scene.id, new_displayed)
         self._controller.fit_camera(self._scene.id)
@@ -1285,7 +1282,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         data: ImageMemoryStore | UUID,
         appearance: InMemoryImageAppearance | None = None,
         name: str = "image",
-        controls: InMemoryImageControlsConfig | None = None,
+        controls: list[Control] | None = None,
         *,
         single: InMemoryImageSingleAppearance | None = None,
         channel_axis: int | None = None,
@@ -1312,9 +1309,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Shared by both modes.  ``None`` uses the defaults.
         name : str
             Human-readable label. Default ``"image"``.
-        controls : InMemoryImageControlsConfig or None
-            Appearance panel configuration.  When ``None`` (default), no
-            appearance panel is created for this visual.
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks: a
+            list of control models, drawn in the order of the list.  The
+            image's fields are chosen with ``ImageControl(fields=[...])``.
+            ``None`` (default) or an empty list shows none.  See
+            :mod:`cellier.convenience.gui._controls_config`.
         single : single appearance or None
             Single mode's appearance.  ``None`` uses the defaults.
         channel_axis : int or None
@@ -1353,6 +1353,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         ImageVisual
         """
+        controls = validate_controls(controls, "image", name)
         self._check_controls_docks(controls, name)
         visual = self._controller.add_image(
             self._resolve_data_store(data),
@@ -1380,7 +1381,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: BaseLabelsAppearance | None = None,
         name: str = "labels",
         transform: BaseTransform | None = None,
-        controls: LabelsControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
@@ -1402,10 +1403,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Human-readable label. Default ``"labels"``.
         transform : BaseTransform or None
             Data-to-world transform. Defaults to identity when ``None``.
-        controls : LabelsControlsConfig or None
-            Appearance controls configuration.  When ``None`` (default), no
-            appearance controls are created.
-
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks: a
+            list of control models, drawn in the order of the list.  The
+            visual's fields are chosen with ``FieldControls([...])``.
+            ``None`` (default) or an empty list shows none.  See
+            :mod:`cellier.convenience.gui._controls_config`.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1451,6 +1454,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         LabelMemoryVisual
         """
+        controls = validate_controls(controls, "labels", name)
         self._check_controls_docks(controls, name)
         visual = self._controller.add_labels(
             self._resolve_data_store(data),
@@ -1475,7 +1479,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: MeshAppearance,
         name: str = "mesh",
         transform: BaseTransform | None = None,
-        controls: MeshControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
@@ -1494,10 +1498,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Human-readable label. Default ``"mesh"``.
         transform : BaseTransform or None
             Data-to-world transform. Defaults to identity when ``None``.
-        controls : MeshControlsConfig or None
-            Appearance controls configuration.  When ``None`` (default), no
-            appearance controls are created.
-
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks: a
+            list of control models, drawn in the order of the list.  The
+            visual's fields are chosen with ``FieldControls([...])``.
+            ``None`` (default) or an empty list shows none.  See
+            :mod:`cellier.convenience.gui._controls_config`.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1531,6 +1537,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         MeshVisual
         """
+        controls = validate_controls(controls, "mesh", name)
         self._check_controls_docks(controls, name)
         visual = self._controller.add_mesh(
             self._resolve_data_store(data),
@@ -1553,7 +1560,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: MeshAppearance,
         name: str = "mesh",
         transform: BaseTransform | None = None,
-        controls: MeshControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
@@ -1578,9 +1585,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Human-readable label. Default ``"mesh"``.
         transform : BaseTransform or None
             Data-to-world transform. Defaults to identity when ``None``.
-        controls : MeshControlsConfig or None
-            Appearance controls configuration.  When ``None`` (default), no
-            appearance controls are created.
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks: a
+            list of control models, drawn in the order of the list.  The
+            visual's fields are chosen with ``FieldControls([...])``.
+            ``None`` (default) or an empty list shows none.  See
+            :mod:`cellier.convenience.gui._controls_config`.
         outline : VisualOutline or None
             Screen-space outline assignment; see :meth:`add_mesh`.
         ambient_occlusion : bool or None
@@ -1606,6 +1616,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         MultiscaleMeshVisual
         """
+        controls = validate_controls(controls, "multiscale_mesh", name)
         self._check_controls_docks(controls, name)
         visual = self._controller.add_multiscale_mesh(
             self._resolve_data_store(data),
@@ -1629,7 +1640,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: PointsMarkerAppearance | None = None,
         name: str = "points",
         transform: BaseTransform | None = None,
-        controls: PointsControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
@@ -1648,10 +1659,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Human-readable label. Default ``"points"``.
         transform : BaseTransform or None
             Data-to-world transform. Defaults to identity when ``None``.
-        controls : PointsControlsConfig or None
-            Appearance controls configuration.  When ``None`` (default), no
-            appearance controls are created.
-
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks: a
+            list of control models, drawn in the order of the list.  The
+            visual's fields are chosen with ``FieldControls([...])``.
+            ``None`` (default) or an empty list shows none.  See
+            :mod:`cellier.convenience.gui._controls_config`.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1680,6 +1693,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         PointsVisual
         """
+        controls = validate_controls(controls, "points", name)
         self._check_controls_docks(controls, name)
         visual = self._controller.add_points(
             self._resolve_data_store(data),
@@ -1702,7 +1716,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         name: str = "graph",
         transform: BaseTransform | None = None,
         trail: dict[int, TrailConfig] | None = None,
-        controls: GraphControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
@@ -1727,10 +1741,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Data-to-world transform. When ``None`` the store's own transform
             is used if it has one (a geff file's per-axis scale and offset),
             and identity otherwise.
-        controls : GraphControlsConfig or None
-            Appearance controls configuration.  When ``None`` (default), no
-            appearance controls are created.
-
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks: a
+            list of control models, drawn in the order of the list.  The
+            visual's fields are chosen with ``FieldControls([...])``.
+            ``None`` (default) or an empty list shows none.  See
+            :mod:`cellier.convenience.gui._controls_config`.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1759,6 +1775,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         GraphVisual
         """
+        controls = validate_controls(controls, "graph", name)
         self._check_controls_docks(controls, name)
         visual = self._controller.add_graph(
             self._resolve_data_store(data),
@@ -1781,7 +1798,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         appearance: LinesMemoryAppearance | None = None,
         name: str = "lines",
         transform: BaseTransform | None = None,
-        controls: LinesControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
@@ -1800,10 +1817,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Human-readable label. Default ``"lines"``.
         transform : BaseTransform or None
             Data-to-world transform. Defaults to identity when ``None``.
-        controls : LinesControlsConfig or None
-            Appearance controls configuration.  When ``None`` (default), no
-            appearance controls are created.
-
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks: a
+            list of control models, drawn in the order of the list.  The
+            visual's fields are chosen with ``FieldControls([...])``.
+            ``None`` (default) or an empty list shows none.  See
+            :mod:`cellier.convenience.gui._controls_config`.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1832,6 +1851,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         LinesVisual
         """
+        controls = validate_controls(controls, "lines", name)
         self._check_controls_docks(controls, name)
         visual = self._controller.add_lines(
             self._resolve_data_store(data),
@@ -1854,7 +1874,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         name: str = "image",
         render_config: MultiscaleImageRenderConfig | None = None,
         transform: BaseTransform | None = None,
-        controls: MultiscaleImageControlsConfig | None = None,
+        controls: list[Control] | None = None,
         *,
         single: MultiscaleImageSingleAppearance | None = None,
         channel_axis: int | None = None,
@@ -1881,8 +1901,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             GPU cache configuration.  Uses defaults when ``None``.
         transform : BaseTransform or None
             Data-to-world transform. Defaults to identity when ``None``.
-        controls : MultiscaleImageControlsConfig or None
-            Appearance panel configuration.
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks: a
+            list of control models, drawn in the order of the list.  The
+            image's fields are chosen with ``ImageControl(fields=[...])``.
+            ``None`` (default) or an empty list shows none.  See
+            :mod:`cellier.convenience.gui._controls_config`.
         single : single appearance or None
             Single mode's appearance.  ``None`` uses the defaults.
         channel_axis : int or None
@@ -1919,6 +1943,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         MultiscaleImageVisual
         """
+        controls = validate_controls(controls, "multiscale_image", name)
         self._check_controls_docks(controls, name)
         visual = self._controller.add_image_multiscale(
             self._resolve_data_store(data),
@@ -1948,7 +1973,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         name: str = "labels",
         render_config: MultiscaleLabelRenderConfig | None = None,
         transform: BaseTransform | None = None,
-        controls: MultiscaleLabelsControlsConfig | None = None,
+        controls: list[Control] | None = None,
         outline: VisualOutline | None = None,
         ambient_occlusion: bool | None = None,
         pick_write: bool = True,
@@ -1972,10 +1997,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             defaults when ``None``.
         transform : BaseTransform or None
             Data-to-world transform. Defaults to identity when ``None``.
-        controls : MultiscaleLabelsControlsConfig or None
-            Appearance controls configuration.  When ``None`` (default), no
-            appearance controls are created.
-
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks: a
+            list of control models, drawn in the order of the list.  The
+            visual's fields are chosen with ``FieldControls([...])``.
+            ``None`` (default) or an empty list shows none.  See
+            :mod:`cellier.convenience.gui._controls_config`.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -2021,6 +2048,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         -------
         MultiscaleLabelVisual
         """
+        controls = validate_controls(controls, "multiscale_labels", name)
         self._check_controls_docks(controls, name)
         visual = self._controller.add_labels_multiscale(
             self._resolve_data_store(data),

@@ -133,7 +133,7 @@ def test_an_edit_applies_and_an_invalid_one_is_refused(
 
 def test_a_group_control_edits_every_visual(controller, multiscale_image_store, qtbot):
     _scene, first, _g1 = _add(controller, multiscale_image_store)
-    scene2 = controller.add_scene(dim="3d", name="other")
+    scene2 = controller.add_scene(displayed_axes=("z", "y", "x"), name="other")
     second = controller.add_image_multiscale(multiscale_image_store, scene2.id)
     widget = _make("qt", [first.id, second.id], first.render_config.loading)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
@@ -156,22 +156,23 @@ def test_the_level_control_offers_the_stores_levels(qtbot):
 
 
 def test_the_panel_offers_it_only_when_asked(multiscale_image_store):
-    from cellier.convenience import MultiscaleImageControlsConfig
+    from cellier.convenience import LoadingConfigControl, LoadingIndicator
     from cellier.convenience.layout._shared import appearance_specs
     from cellier.visuals import MultiscaleImageVisual
     from tests._v2 import level_transforms
+    from tests.convenience._controls_lists import panel
 
     visual = MultiscaleImageVisual(
         name="image",
         data_store_id="store",
         level_transforms=level_transforms([[1.0, 1.0, 1.0]], [[0.0, 0.0, 0.0]]),
     )
-    off = appearance_specs(visual, MultiscaleImageControlsConfig(appearance=True))
+    off = appearance_specs(visual, panel("multiscale_image", None, LoadingIndicator()))
     assert "loading_config" not in [spec.kind for spec in off.specs]
 
     on = appearance_specs(
         visual,
-        MultiscaleImageControlsConfig(appearance=True, loading_controls=True),
+        panel("multiscale_image", None, LoadingIndicator(), LoadingConfigControl()),
         multiscale_image_store,
     )
     kinds = [spec.kind for spec in on.specs]

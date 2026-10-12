@@ -79,12 +79,14 @@ class PlaneRig(Rig):
         if time_axis:
             self.scene = self.controller.add_scene(
                 coordinate_system=[("t", "time"), *spatial_axes(*AXES)],
-                dim="3d",
+                displayed_axes=("z", "y", "x"),
                 name="scene",
             )
             data = np.stack([_ball(), _ball()])
         else:
-            self.scene = self.controller.add_scene(dim="3d", name="scene")
+            self.scene = self.controller.add_scene(
+                displayed_axes=("z", "y", "x"), name="scene"
+            )
             data = _ball()
         self.world = self.controller._model.scenes[
             self.scene.id
@@ -598,7 +600,9 @@ class MultiscaleRig(PlaneRig):
         self.controller.camera_reslice_enabled = False
         self.controller._render_manager.config.scheduler.dims_settle_s = SETTLE_S
         store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
-        self.scene = self.controller.add_scene(dim="3d", name="scene")
+        self.scene = self.controller.add_scene(
+            displayed_axes=("z", "y", "x"), name="scene"
+        )
         self.world = self.controller._model.scenes[
             self.scene.id
         ].dims.world_coordinate_system

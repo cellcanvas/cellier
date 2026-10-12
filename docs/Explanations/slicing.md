@@ -25,6 +25,32 @@ The table below describes the core objects and data types used to orchestrate sl
 | **`TileManager2D` / `TileManager3D`** | The atlas's slot geometry and a read-only `tilemap` view of what the LUT draws.  Which brick lives in which slot is the scheduler's registry. |
 | **LUT indirection texture** | Maps virtual brick-grid coordinates → physical atlas slot + level; the shader walks it to sample resident bricks. Painted coarsest→finest so finer bricks cover coarser fallbacks; bricks from earlier views are painted underneath (oldest first) until the current view is complete. The writer and the shaders share one cell → brick rule; see [Multiscale brick lookup](multiscale_brick_lookup.md). |
 
+## Displayed axes
+
+A scene displays two axes (2D) or three (3D) and slices the rest. The displayed axes are stated when the scene is made, and there is no default:
+
+```python
+viewer = Viewer(spatial_axes("x", "y", "z"), displayed_axes=("x", "y"))
+scene = controller.add_scene(displayed_axes=("z", "y", "x"))
+```
+
+Each entry is an axis name or an axis id (`Axis.id`). Axis names need not be unique, so an axis that shares its name with another is given by id. Two entries start the scene in 2D and three start it in 3D. The order is the display order: `("x", "y")` and `("y", "x")` are transposed views of the same slice. Any axis can be displayed, whatever its type. `Viewer.set_displayed_dimensions` takes the same entries and changes the displayed axes of a live viewer.
+
+### What the 2D/3D toggle remembers
+
+The "Switch to 3D" / "Switch to 2D" button of the dims panel returns to the axes the scene last showed in each mode. A viewer on `(x, y)` that goes to 3D and back is on `(x, y)` again, and a 3D view set to `("z", "y", "x")` is the 3D view the button comes back to. The dims panel holds this memory, not the scene: it records every displayed-axes change it sees, whether the button, a script or another widget made it, and nothing is saved with the scene.
+
+A mode the scene has not shown yet gets a default:
+
+- **2D stated, 3D not shown yet.** The 3D view is the 2D axes plus one more, in world order. The added axis is the last remaining spatial axis in world order. When no spatial axis remains, it is the last remaining axis of any type. `(y, x)` in a `(t, z, y, x)` world gives `(z, y, x)`; `(y, x)` in a `(t, y, x)` world gives `(t, y, x)`.
+- **3D stated, 2D not shown yet.** The 2D view is the last two of the 3D axes in world order. `("x", "y", "z")` gives `(y, z)`.
+
+The default is only a starting value. To choose the other mode's axes, start the scene in that mode, or call `set_displayed_dimensions` while in it; the panel then returns to what was given.
+
+One rule limits the memory. From a 3D view, the button uses the remembered 2D axes only when the 3D view shows both of them. Otherwise it uses the last two axes of the 3D view. In a `(t, z, y, x)` scene this keeps `t` from coming back on screen from a `(z, y, x)` view.
+
+A multiscale image or labels visual rebuilds its tile or brick grid when the displayed axes change to a different set, because the per-level scales of the grid are those of the displayed axes. A reorder of the same axes keeps the grid.
+
 ## Slice thickness
 
 A sliced axis has a position and a **half-thickness**, both in world units. The thickness lives on the scene (`scene.dims.selection.thickness`, set with `controller.update_thickness(scene_id, {axis: half_thickness})` or the "+/-" box next to each slider) and it is the only thickness in the slicing path. An axis with no entry has thickness 0: a plane. No visual adds a thickness of its own.
@@ -46,7 +72,7 @@ On an axis whose data axis is declared `sampling="discrete"` (a frame index), a 
 
 ### A mesh in a 2D view
 
-A 2D view cuts a mesh with the slice plane and draws the cut. How is set per mesh, on its `section` config (`MeshSectionConfig`), in `add_mesh(..., section=...)`, with `controller.update_section_field(visual_id, field, value)`, or in the "2D section" control group (`MeshControlsConfig(section_controls=True)`), which is shown only while the scene displays two dimensions:
+A 2D view cuts a mesh with the slice plane and draws the cut. How is set per mesh, on its `section` config (`MeshSectionConfig`), in `add_mesh(..., section=...)`, with `controller.update_section_field(visual_id, field, value)`, or in the "2D section" control group (`MeshSectionControl()` in the mesh's `controls=` list), which is shown only while the scene displays two dimensions:
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -111,7 +137,7 @@ From the perspective of slicing, there are two main flavors of visuals: in-memor
 6. **`before_draw`** on each canvas runs **`ChunkScheduler.commit_round`** for its scene: every arrived brick takes a free slot, or evicts the least important `RECENT` brick, and **`Residency.write`** uploads it.  A 50 ms fallback timer commits for canvases that are not drawing.
 7. **`Residency.rebuild_draw`**: repaints the LUT once per touched atlas.  The backstop is part of the current view, so it stays drawn under the target, which covers it wherever the target has data.  Until the current view is complete, bricks from earlier views are painted underneath it, oldest first; in 2D that background is clipped to the viewport, so stale tiles outside the view are not referenced.
 8. When every wanted brick of a visual is resident, the coordinator emits `ResliceCompletedEvent` for each reslice announced since its last completion.
-9. **Progress**: after each pass, commit round, given-up read or invalidation, the coordinator emits one `ResliceProgressEvent` per touched visual (coalesced to once per loop iteration), carrying a `LoadingProgress` summed over its atlases, and `BackstopCompleteEvent` once a plan's backstop is resident.  The multiscale image and labels panels show it with a loading indicator (`MultiscaleImageControlsConfig.loading_indicator`); `CellierController.loading_progress` reads it on demand.
+9. **Progress**: after each pass, commit round, given-up read or invalidation, the coordinator emits one `ResliceProgressEvent` per touched visual (coalesced to once per loop iteration), carrying a `LoadingProgress` summed over its atlases, and `BackstopCompleteEvent` once a plan's backstop is resident.  The multiscale image and labels panels show it with a loading indicator (`LoadingIndicator()` in the visual's `controls=` list); `CellierController.loading_progress` reads it on demand.
 
 **Store changes and paint**
 
@@ -267,7 +293,7 @@ During a dims scrub (a slider drag, or `controller.dims_interaction`) and while 
 - **The mouse wheel switches level once per notch** when the notches are more than about 0.4 s apart. One notch is a camera motion of its own: it starts, glides, and ends 0.3 s after the camera last moved, so the mesh goes coarse at the notch and fine again before the next one. Notches closer together than that are one motion, and the mesh stays coarse until the last one ends. Set `camera_motion="full"` on a mesh that should not switch.
 - **Set `dims_drag_draw="full"` on a small static mesh.** The default draws the coarse level of a mesh the scrub does not change, which shows as a level switch at the scrub's start and at its end. It is there for meshes too large to draw at the scrub's frame rate; a mesh the GPU draws easily gains nothing from it.
 - `controller.set_lod_config(visual_id, dims_drag_draw="full")` changes a setting on a mesh that is in a scene. `dims_drag_draw` and `camera_motion` apply in the next frame with nothing read; `dims_drag` is read by the next scrub. `coarse_level` is fixed when the mesh is added. `Viewer.set_lod_config(visual, ...)` is the same call, and `OrthoViewer.set_lod_config(visual, ...)` changes every panel. Each change emits `LodConfigChangedEvent` (`controller.on_lod_config_changed`).
-- **The "LOD" control group** (`MeshControlsConfig(lod_controls=True)`) has one row for each of the three settings and changes them the same way. A mesh with one level has no such group.
+- **The "LOD" control group** (`MeshLodControl()` in the `controls=` list of `add_multiscale_mesh`) has one row for each of the three settings and changes them the same way. A mesh with one level has no such group.
 
 Build the levels yourself; cellier does not simplify a mesh. Use quadric decimation rather than quadric clustering: a decimated level stays closed, so its 2D section is still filled. A coarse level that is open draws its outline only where its cut does not close. `examples/multiscale_mesh_decimation.py` builds the levels with pyvista's `decimate`.
 
@@ -313,7 +339,7 @@ The times below were measured on one machine (Apple M-series, macOS, a 900 x 700
 
 ### The "Data fetch status" group for a mesh
 
-A mesh that is loading is not drawn, so an empty view does not say whether the mesh is loading or has nothing at this position. `MeshControlsConfig(loading_indicator=True)` adds the "Data fetch status" group to a mesh's controls. It reads the same `LoadingProgress` a multiscale image reports (`controller.loading_progress`, `ResliceProgressEvent`), worded in levels:
+A mesh that is loading is not drawn, so an empty view does not say whether the mesh is loading or has nothing at this position. `LoadingIndicator()` in the mesh's `controls=` list adds the "Data fetch status" group to its controls. It reads the same `LoadingProgress` a multiscale image reports (`controller.loading_progress`, `ResliceProgressEvent`), worded in levels:
 
 | Text | Meaning |
 |---|---|

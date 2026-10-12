@@ -2208,7 +2208,7 @@ class RenderManager:
     def set_camera_depth_range(
         self,
         canvas_id: UUID,
-        depth_range: tuple[float, float],
+        depth_range: tuple[float, float] | None,
     ) -> None:
         """Set the near/far clip distances for a canvas camera.
 
@@ -2216,8 +2216,9 @@ class RenderManager:
         ----------
         canvas_id : UUID
             ID of the target canvas.
-        depth_range : tuple[float, float]
-            ``(near, far)`` clip distances in world units.
+        depth_range : tuple[float, float] or None
+            ``(near, far)`` clip distances in world units.  ``None`` makes
+            the range automatic.
         """
         self._canvases[canvas_id].set_depth_range(depth_range)
 

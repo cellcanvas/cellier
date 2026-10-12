@@ -154,7 +154,7 @@ def _min_gap(interval: float) -> float:
 async def test_a_burst_of_changes_reslices_once_now_and_once_after(
     controller, image_volume, monkeypatch
 ):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(image_volume, scene.id)
     controller.add_canvas(scene_id=scene.id)
     await drain_loading(controller)
@@ -174,7 +174,7 @@ async def test_a_burst_of_changes_reslices_once_now_and_once_after(
 async def test_a_steady_stream_is_capped_and_the_last_change_is_resliced(
     controller, image_volume, monkeypatch
 ):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(image_volume, scene.id)
     controller.add_canvas(scene_id=scene.id)
     await drain_loading(controller)
@@ -201,7 +201,7 @@ async def test_a_steady_stream_is_capped_and_the_last_change_is_resliced(
 async def test_each_store_has_its_own_cap(
     controller, image_volume, labels_volume, monkeypatch
 ):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(image_volume, scene.id)
     controller.add_labels(labels_volume, scene.id)
     controller.add_canvas(scene_id=scene.id)
@@ -215,7 +215,7 @@ async def test_each_store_has_its_own_cap(
 
 
 async def test_close_cancels_a_pending_reslice(controller, image_volume):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(image_volume, scene.id)
     controller.add_canvas(scene_id=scene.id)
     image_volume.notify_changed("contents")

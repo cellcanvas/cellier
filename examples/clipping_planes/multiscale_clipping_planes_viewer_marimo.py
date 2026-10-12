@@ -63,10 +63,14 @@ def _():
 
     from cellier.convenience import (
         AppearanceControls,
+        BoundingBoxControl,
+        ClippingPlanesControl,
+        FieldControls,
+        ImageControl,
         Layout,
-        MeshControlsConfig,
-        MultiscaleImageControlsConfig,
-        MultiscaleLabelsControlsConfig,
+        LevelOfDetailControl,
+        LoadingIndicator,
+        MeshSectionControl,
         Viewer,
         axis_values_from_viewer,
         display,
@@ -93,14 +97,18 @@ def _():
         DataCoordinateSystem,
         GeometryLodConfig,
         Layout,
-        MeshControlsConfig,
+        BoundingBoxControl,
+        ClippingPlanesControl,
+        FieldControls,
+        ImageControl,
+        LevelOfDetailControl,
+        LoadingIndicator,
+        MeshSectionControl,
         MeshFlatAppearance,
         MeshLevel,
         MultiscaleImageAppearance,
-        MultiscaleImageControlsConfig,
         MultiscaleImageSingleAppearance,
         MultiscaleLabelsAppearance,
-        MultiscaleLabelsControlsConfig,
         MultiscaleMeshStore,
         MultiscaleZarrDataStore,
         Path,
@@ -283,13 +291,17 @@ def _(
     ClippingPlane,
     GeometryLodConfig,
     Layout,
-    MeshControlsConfig,
+    BoundingBoxControl,
+    ClippingPlanesControl,
+    FieldControls,
+    ImageControl,
+    LevelOfDetailControl,
+    LoadingIndicator,
+    MeshSectionControl,
     MeshFlatAppearance,
     MultiscaleImageAppearance,
-    MultiscaleImageControlsConfig,
     MultiscaleImageSingleAppearance,
     MultiscaleLabelsAppearance,
-    MultiscaleLabelsControlsConfig,
     SIDE,
     Viewer,
     axis_values_from_viewer,
@@ -300,7 +312,7 @@ def _(
     mesh_store,
     spatial_axes,
 ):
-    viewer = Viewer(spatial_axes(*AXES), dim="3d", gui="anywidget")
+    viewer = Viewer(spatial_axes(*AXES), displayed_axes=AXES, gui="anywidget")
 
     def half(store, normal):
         """One plane through the middle of the data, keeping *normal*'s side."""
@@ -330,11 +342,13 @@ def _(
         name="image (ISO)",
         transform=beside(image_store, 0),
         clipping_planes=half(image_store, (0, 0, 1)),
-        controls=MultiscaleImageControlsConfig(
-            appearance=["visible", "render_mode", "iso_threshold", "level_of_detail"],
-            clipping_controls=True,
-            loading_indicator=True,
-        ),
+        controls=[
+            ImageControl(fields=["visible", "render_mode", "iso_threshold"]),
+            LevelOfDetailControl(),
+            BoundingBoxControl(),
+            ClippingPlanesControl(),
+            LoadingIndicator(),
+        ],
     )
     labels_visual = viewer.add_labels_multiscale(
         labels_store,
@@ -342,9 +356,15 @@ def _(
         name="labels",
         transform=beside(labels_store, 1),
         clipping_planes=half(labels_store, (0, 1, 1)),
-        controls=MultiscaleLabelsControlsConfig(
-            appearance=True, clipping_controls=True, loading_indicator=True
-        ),
+        controls=[
+            FieldControls(
+                ["visible", "opacity", "render_mode", "salt", "background_label"]
+            ),
+            LevelOfDetailControl(),
+            BoundingBoxControl(),
+            ClippingPlanesControl(),
+            LoadingIndicator(),
+        ],
     )
     mesh_visual = viewer.add_multiscale_mesh(
         mesh_store,
@@ -354,9 +374,21 @@ def _(
         clipping_planes=half(mesh_store, (0, 0, 1)),
         # Keep the coarsest level beside the finest.
         lod=GeometryLodConfig(coarse_level=None),
-        controls=MeshControlsConfig(
-            appearance=True, clipping_controls=True, section_controls=True
-        ),
+        controls=[
+            FieldControls(
+                [
+                    "visible",
+                    "opacity",
+                    "color",
+                    "side",
+                    "wireframe",
+                    "wireframe_thickness",
+                ]
+            ),
+            BoundingBoxControl(),
+            MeshSectionControl(),
+            ClippingPlanesControl(),
+        ],
     )
 
     # The bounding box of each visual's whole data.  It is not clipped, so it

@@ -24,6 +24,7 @@ from cellier.render.visuals._image import (
 from cellier.scene.dims import spatial_axes
 from cellier.transform import AffineTransform
 from cellier.visuals._image_memory import ImageVisual, InMemoryImageAppearance
+from tests._displayed import trailing_axes
 from tests._v2 import bound, scale_and_translation, systems
 
 
@@ -33,8 +34,9 @@ def _appearance():
 
 def _controller_and_scene(axes=None):
     controller = CellierController(gui="offscreen")
+    axes = axes or spatial_axes("z", "y", "x")
     scene = controller.add_scene(
-        coordinate_system=axes or spatial_axes("z", "y", "x"), dim="3d"
+        coordinate_system=axes, displayed_axes=trailing_axes(axes, "3d")
     )
     return controller, scene
 

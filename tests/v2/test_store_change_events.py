@@ -30,7 +30,9 @@ def controller():
 
 @pytest.fixture
 def scene(controller):
-    return controller.add_scene(coordinate_system=spatial_axes("z", "y", "x"))
+    return controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=spatial_axes("z", "y", "x")
+    )
 
 
 def _points_store() -> PointsMemoryStore:
@@ -160,7 +162,9 @@ def test_remove_data_store_stops_relaying(controller, scene):
 def test_a_restored_store_is_relayed():
     """``from_model`` registers deep copies; their announcements still arrive."""
     source = CellierController(gui="offscreen")
-    scene = source.add_scene(coordinate_system=spatial_axes("z", "y", "x"))
+    scene = source.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=spatial_axes("z", "y", "x")
+    )
     source.add_points(_points_store(), scene.id)
 
     restored = CellierController.from_model(source.to_model())

@@ -162,6 +162,7 @@ from cellier.scene.dims import (
     AxisAlignedSelection,
     DimsManager,
     WorldAxesLike,
+    resolve_displayed_axes,
     spatial_axes,
     world_coordinate_system,
 )
@@ -179,7 +180,7 @@ from cellier.viewer_model import DataManager, ViewerModel
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
-    from cellier.transform import Plane
+    from cellier.transform import AxisRef, Plane
     from cellier.visuals._base_visual import BaseVisual, VisualOutline
     from cellier.visuals._label_memory import OutlineMode
 from cellier.visuals._canvas_overlay import CanvasOverlay, CenteredAxes2D
@@ -1257,7 +1258,7 @@ class CellierController:
         self,
         *,
         name: str = "scene",
-        dim: Literal["2d", "3d"] = "3d",
+        displayed_axes: Sequence[AxisRef],
         coordinate_system: WorldAxesLike | None = None,
         render_modes: set[Literal["2d", "3d"]] | None = None,
         lighting: Literal["none", "default"] = "none",
@@ -1269,10 +1270,11 @@ class CellierController:
         ----------
         name : str
             Human-readable scene name.
-        dim : "2d" or "3d"
-            Initial display dimensionality.  ``"3d"`` sets
-            ``displayed_axes`` to the last three axes of the coordinate
-            system; ``"2d"`` sets it to the last two.
+        displayed_axes : sequence of str or UUID
+            The axes the scene displays first, in display order.  Two
+            entries start the scene in 2D, three in 3D.  Each entry is an
+            axis name or an axis id; an axis whose name another axis shares
+            is given by id.  Any axis can be displayed, whatever its type.
         coordinate_system : WorldAxesLike or None
             The scene's world axes: a ``WorldCoordinateSystem``, or a sequence
             of ``Axis`` objects and/or ``(name, axis_type)`` pairs.  Axis
@@ -1293,6 +1295,16 @@ class CellierController:
         -------
         Scene
             The newly created and registered Scene.
+
+        Raises
+        ------
+        TypeError
+            If an entry of ``displayed_axes`` is neither a name nor an id.
+        ValueError
+            If ``displayed_axes`` does not have 2 or 3 entries, an entry
+            names no axis or an ambiguous one, an axis is given twice, or
+            ``render_modes`` does not include the mode the number of
+            entries selects.
         """
         world = (
             world_coordinate_system(spatial_axes("z", "y", "x"))
@@ -1300,26 +1312,21 @@ class CellierController:
             else world_coordinate_system(coordinate_system)
         )
         ndim = world.ndim
-        n_displayed = 3 if dim == "3d" else 2
-        if ndim < n_displayed:
-            raise ValueError(
-                f"coordinate_system has {ndim} axes but dim={dim!r} requires "
-                f"at least {n_displayed}."
-            )
-        displayed_axes = tuple(range(ndim - n_displayed, ndim))
+        modes = render_modes if render_modes is not None else {"2d", "3d"}
+        displayed = resolve_displayed_axes(world, displayed_axes, modes)
         # Every axis gets a position, displayed ones included (D36).
         slice_indices = dict.fromkeys(range(ndim), 0.0)
         dims = DimsManager(
             world_coordinate_system=world,
             selection=AxisAlignedSelection(
-                displayed_axes=displayed_axes,
+                displayed_axes=displayed,
                 slice_indices=slice_indices,
             ),
         )
         scene = Scene(
             name=name,
             dims=dims,
-            render_modes=render_modes if render_modes is not None else {"2d", "3d"},
+            render_modes=modes,
             lighting=lighting,
             background=background if background is not None else BackgroundAppearance(),
         )
@@ -3653,13 +3660,15 @@ class CellierController:
         for dim_key, camera_model in canvas_model.cameras.items():
             if dim_key == initial_dim:
                 continue
-            canvas_view.set_depth_range_for_dim(
-                dim_key,
-                (
-                    camera_model.near_clipping_plane,
-                    camera_model.far_clipping_plane,
-                ),
+            reserve_range = (
+                camera_model.near_clipping_plane,
+                camera_model.far_clipping_plane,
             )
+            # A model saved while the camera state reported an automatic
+            # range as ``(0.0, 0.0)`` holds an empty one; it was automatic.
+            if reserve_range[0] == reserve_range[1]:
+                reserve_range = None
+            canvas_view.set_depth_range_for_dim(dim_key, reserve_range)
 
         self._canvas_to_scene[canvas_model.id] = scene_id
         self._scene_to_canvases[scene_id].append(canvas_model.id)
@@ -9197,8 +9206,11 @@ class CellierController:
         camera_model.position = np.array(camera_state.position, dtype=np.float32)
         camera_model.rotation = np.array(camera_state.rotation, dtype=np.float32)
         camera_model.zoom = camera_state.zoom
-        camera_model.near_clipping_plane = camera_state.depth_range[0]
-        camera_model.far_clipping_plane = camera_state.depth_range[1]
+        # An automatic range has no planes to write; the model keeps the
+        # ones it was configured with.
+        if camera_state.depth_range is not None:
+            camera_model.near_clipping_plane = camera_state.depth_range[0]
+            camera_model.far_clipping_plane = camera_state.depth_range[1]
 
         # Type-specific fields.
         if isinstance(camera_model, PerspectiveCamera):
@@ -9246,7 +9258,7 @@ class CellierController:
     def set_camera_depth_range(
         self,
         canvas_id: UUID,
-        depth_range: tuple[float, float],
+        depth_range: tuple[float, float] | None,
         *,
         interactive: bool = False,
     ) -> None:
@@ -9258,8 +9270,9 @@ class CellierController:
         ----------
         canvas_id : UUID
             ID of the target canvas.
-        depth_range : tuple[float, float]
-            ``(near, far)`` clip distances in world units.
+        depth_range : tuple[float, float] or None
+            ``(near, far)`` clip distances in world units.  ``None`` makes
+            the range automatic.
         interactive : bool
             Whether the move is a tick of a camera motion instead of a jump;
             see :meth:`set_camera_state`.

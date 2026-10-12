@@ -90,7 +90,7 @@ def controller(qtbot):
 
 
 def _add_mesh(controller, name="mesh", lod=None) -> MultiscaleMeshVisual:
-    scene = controller.add_scene(dim="3d", name=f"scene-{name}")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=f"scene-{name}")
     return controller.add_multiscale_mesh(
         _store(8, 4, name=name), scene.id, MeshFlatAppearance(), name, lod=lod
     )
@@ -200,13 +200,14 @@ def _kinds(visual, config) -> list[str]:
 
 
 def test_the_panel_offers_it_only_when_asked(controller):
-    from cellier.convenience import MeshControlsConfig
+    from cellier.convenience import MeshLodControl
     from cellier.convenience.layout._shared import appearance_specs
+    from tests.convenience._controls_lists import panel
 
     visual = _add_mesh(controller)
 
-    assert "lod_config" not in _kinds(visual, MeshControlsConfig(appearance=True))
-    asked = MeshControlsConfig(appearance=True, lod_controls=True)
+    assert "lod_config" not in _kinds(visual, panel("multiscale_mesh"))
+    asked = panel("multiscale_mesh", None, MeshLodControl())
     spec = next(
         spec
         for spec in appearance_specs(visual, asked).specs
@@ -217,9 +218,10 @@ def test_the_panel_offers_it_only_when_asked(controller):
 
 
 def test_a_mesh_with_one_level_has_no_lod_group(controller):
-    from cellier.convenience import MeshControlsConfig
+    from cellier.convenience import MeshLodControl
+    from tests.convenience._controls_lists import panel
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     positions, indices = uv_sphere(5.0, (8.0, 8.0, 8.0))
     visual = controller.add_mesh(
         MeshMemoryStore(positions=positions, indices=indices),
@@ -227,18 +229,19 @@ def test_a_mesh_with_one_level_has_no_lod_group(controller):
         MeshFlatAppearance(),
     )
 
-    config = MeshControlsConfig(appearance=True, lod_controls=True)
+    config = panel("multiscale_mesh", None, MeshLodControl())
     assert "lod_config" not in _kinds(visual, config)
 
 
 def test_a_mesh_panel_offers_the_fetch_status_when_asked(controller):
-    from cellier.convenience import MeshControlsConfig
+    from cellier.convenience import LoadingIndicator
     from cellier.convenience.layout._shared import appearance_specs
+    from tests.convenience._controls_lists import panel
 
     visual = _add_mesh(controller)
 
-    assert "loading" not in _kinds(visual, MeshControlsConfig(appearance=True))
-    asked = MeshControlsConfig(appearance=True, loading_indicator=True)
+    assert "loading" not in _kinds(visual, panel("multiscale_mesh"))
+    asked = panel("multiscale_mesh", None, LoadingIndicator())
     spec = next(
         spec for spec in appearance_specs(visual, asked).specs if spec.kind == "loading"
     )
@@ -248,15 +251,13 @@ def test_a_mesh_panel_offers_the_fetch_status_when_asked(controller):
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
 def test_the_builders_make_both_controls(controller, toolkit):
-    from cellier.convenience import MeshControlsConfig
+    from cellier.convenience import LoadingIndicator, MeshLodControl
     from cellier.convenience.gui._appearance_widgets import ANYWIDGET_BUILDERS
     from cellier.convenience.gui._appearance_widgets_qt import QT_BUILDERS
     from cellier.convenience.layout._shared import appearance_specs
 
     visual = _add_mesh(controller)
-    config = MeshControlsConfig(
-        appearance=True, lod_controls=True, loading_indicator=True
-    )
+    config = [MeshLodControl(), LoadingIndicator()]
     builders = QT_BUILDERS if toolkit == "qt" else ANYWIDGET_BUILDERS
     built = {
         spec.kind: _owned(builders[spec.kind](spec, [visual.id], controller))
@@ -276,7 +277,9 @@ def test_the_builders_make_both_controls(controller, toolkit):
 def test_the_viewer_changes_the_lod_config(qtbot):
     from cellier.convenience import Viewer
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     mesh = viewer.add_multiscale_mesh(_store(8, 4), MeshFlatAppearance())
 
     new = viewer.set_lod_config(mesh, camera_motion="full")
@@ -288,8 +291,9 @@ def test_the_viewer_changes_the_lod_config(qtbot):
 
 
 def test_the_ortho_viewer_adds_a_multiscale_mesh_to_every_panel(qtbot):
-    from cellier.convenience import MeshControlsConfig, OrthoViewer
+    from cellier.convenience import MeshLodControl, OrthoViewer
     from cellier.convenience.layout._shared import appearance_targets
+    from tests.convenience._controls_lists import panel
 
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui="offscreen")
     section = MeshSectionConfig(fill=False)
@@ -299,7 +303,7 @@ def test_the_ortho_viewer_adds_a_multiscale_mesh_to_every_panel(qtbot):
         name="cell",
         section=section,
         lod=GeometryLodConfig(coarse_level=2, dims_drag="full"),
-        controls=MeshControlsConfig(appearance=True, lod_controls=True),
+        controls=panel("multiscale_mesh", None, MeshLodControl()),
     )
 
     assert set(visuals) == set(ortho.scenes)
@@ -331,7 +335,9 @@ def test_the_ortho_viewer_adds_a_multiscale_mesh_to_every_panel(qtbot):
 def test_a_viewer_with_a_multiscale_mesh_round_trips_through_a_file(qtbot, tmp_path):
     from cellier.convenience import Viewer
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="2d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="offscreen"
+    )
     store = _store(8, 6, 4, name="cell")
     viewer.add_multiscale_mesh(
         store,

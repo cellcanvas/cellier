@@ -48,7 +48,7 @@ blobs_3d = binary_blobs(length=200, n_dim=3, rng=0).astype(np.float32)
 # Viewer model
 # ---------------------------------------------------------------------------
 
-viewer = Viewer(spatial_axes("z", "y", "x"), dim="2d")
+viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
 
 store = ImageMemoryStore(data=blobs_3d, name="blobs")
 viewer.controller.add_data_store(store)

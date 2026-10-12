@@ -11,9 +11,11 @@ from skimage.measure import label
 
 from cellier.convenience import (
     AppearanceControls,
-    InMemoryImageControlsConfig,
-    LabelsControlsConfig,
+    BoundingBoxControl,
+    FieldControls,
+    ImageControl,
     Layout,
+    RenderPlanesControl,
     Viewer,
     axis_values_from_viewer,
     run,
@@ -73,7 +75,7 @@ labels_store = LabelMemoryStore(
 
 # The channel axis is a world axis: a composite draws along it, and a plane
 # on (z, y, x) does not constrain it.
-viewer = Viewer([("c", "channel"), *spatial_axes(*AXES)], dim="3d")
+viewer = Viewer([("c", "channel"), *spatial_axes(*AXES)], displayed_axes=AXES)
 world = viewer.scene.dims.world_coordinate_system
 
 
@@ -105,7 +107,20 @@ image_visual = viewer.add_image(
         ),
     },
     render_planes=planes_at(0.0),
-    controls=InMemoryImageControlsConfig(appearance=True, render_plane_controls=True),
+    controls=[
+        ImageControl(
+            fields=[
+                "visible",
+                "opacity",
+                "color_map",
+                "clim",
+                "render_mode",
+                "iso_threshold",
+            ]
+        ),
+        BoundingBoxControl(),
+        RenderPlanesControl(),
+    ],
 )
 
 labels_visual = viewer.add_labels(
@@ -121,7 +136,13 @@ labels_visual = viewer.add_labels(
         broadcast_output_axes=("c",),
     ),
     render_planes=planes_at(LABELS_X),
-    controls=LabelsControlsConfig(appearance=True, render_plane_controls=True),
+    controls=[
+        FieldControls(
+            ["visible", "opacity", "render_mode", "salt", "background_label"]
+        ),
+        BoundingBoxControl(),
+        RenderPlanesControl(),
+    ],
 )
 
 for _visual in (image_visual, labels_visual):

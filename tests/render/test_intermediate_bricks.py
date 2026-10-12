@@ -252,7 +252,9 @@ async def test_a_stage_is_planned_and_a_removed_offset_stops_being_wanted(
 ):
     """Levels 1 to 3 of 128^3 in 16-voxel bricks: target 1, stage 2, backstop 3."""
     store, _voxel_size = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
-    scene = controller.add_scene(dim=dim, name="scene")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"), name="scene"
+    )
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,

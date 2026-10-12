@@ -72,11 +72,13 @@ class Rig:
         if "t" in spec.axes:
             self.scene = controller.add_scene(
                 coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-                dim="3d",
+                displayed_axes=("z", "y", "x"),
                 name="scene",
             )
         else:
-            self.scene = controller.add_scene(dim="3d", name="scene")
+            self.scene = controller.add_scene(
+                displayed_axes=("z", "y", "x"), name="scene"
+            )
         self.depth = spec.shape0[-3]
         if labels:
             self.visual = controller.add_labels_multiscale(
@@ -508,7 +510,7 @@ async def test_a_2d_view_plans_a_clipping_change_on_every_tick(
     controller, pyramid_root, monkeypatch
 ):
     store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     system = store.data_coordinate_systems[0]
 
     def plane(x: float) -> ClippingPlane:

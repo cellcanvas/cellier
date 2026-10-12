@@ -14,11 +14,11 @@ from skimage.measure import label, marching_cubes
 
 from cellier.convenience import (
     AppearanceControls,
-    InMemoryImageControlsConfig,
-    LabelsControlsConfig,
+    BoundingBoxControl,
+    ClippingPlanesControl,
+    FieldControls,
+    ImageControl,
     Layout,
-    MeshControlsConfig,
-    PointsControlsConfig,
     Viewer,
     axis_values_from_viewer,
     run,
@@ -127,7 +127,7 @@ def half(store, normal) -> tuple[ClippingPlane, ...]:
 # Viewer: the four visuals side by side along x
 # ---------------------------------------------------------------------------
 
-viewer = Viewer(spatial_axes(*AXES), dim="3d")
+viewer = Viewer(spatial_axes(*AXES), displayed_axes=AXES)
 
 
 def beside(store, column: int):
@@ -151,14 +151,33 @@ image_visual = viewer.add_image(
     name="image (ISO)",
     transform=beside(image_store, 0),
     clipping_planes=half(image_store, (0, 0, 1)),
-    controls=InMemoryImageControlsConfig(appearance=True, clipping_controls=True),
+    controls=[
+        ImageControl(
+            fields=[
+                "visible",
+                "opacity",
+                "color_map",
+                "clim",
+                "render_mode",
+                "iso_threshold",
+            ]
+        ),
+        BoundingBoxControl(),
+        ClippingPlanesControl(),
+    ],
 )
 labels_visual = viewer.add_labels(
     labels_store,
     name="labels",
     transform=beside(labels_store, 1),
     clipping_planes=half(labels_store, (0, 1, 1)),
-    controls=LabelsControlsConfig(appearance=True, clipping_controls=True),
+    controls=[
+        FieldControls(
+            ["visible", "opacity", "render_mode", "salt", "background_label"]
+        ),
+        BoundingBoxControl(),
+        ClippingPlanesControl(),
+    ],
 )
 mesh_visual = viewer.add_mesh(
     mesh_store,
@@ -166,7 +185,13 @@ mesh_visual = viewer.add_mesh(
     name="mesh",
     transform=beside(mesh_store, 2),
     clipping_planes=half(mesh_store, (0, 0, 1)),
-    controls=MeshControlsConfig(appearance=True, clipping_controls=True),
+    controls=[
+        FieldControls(
+            ["visible", "opacity", "color", "side", "wireframe", "wireframe_thickness"]
+        ),
+        BoundingBoxControl(),
+        ClippingPlanesControl(),
+    ],
 )
 points_visual = viewer.add_points(
     points_store,
@@ -174,7 +199,11 @@ points_visual = viewer.add_points(
     name="points",
     transform=beside(points_store, 3),
     clipping_planes=half(points_store, (1, 0, 1)),
-    controls=PointsControlsConfig(appearance=True, clipping_controls=True),
+    controls=[
+        FieldControls(["visible", "opacity", "color", "size", "size_space"]),
+        BoundingBoxControl(),
+        ClippingPlanesControl(),
+    ],
 )
 
 # The bounding box of each visual's whole data.  It is not clipped, so it

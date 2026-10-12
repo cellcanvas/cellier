@@ -21,7 +21,9 @@ from tests.render.conftest import drain_loading
 
 
 def _add(controller, store, dim="3d"):
-    scene = controller.add_scene(dim=dim, name="scene")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"), name="scene"
+    )
     visual = controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,
@@ -248,7 +250,7 @@ async def test_an_undrawn_channel_retires_its_atlas(controller, tmp_path):
     )
     scene = controller.add_scene(
         coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
     )
     visual = controller.add_image_multiscale(

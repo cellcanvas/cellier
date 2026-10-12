@@ -288,7 +288,8 @@ class CameraState(NamedTuple):
         ``(width, height)`` in world units.  Orthographic cameras only;
         ``(0.0, 0.0)`` for perspective.
     depth_range :
-        ``(near, far)`` clip distances.
+        ``(near, far)`` clip distances, or ``None`` where the range is
+        automatic (a 2D camera's, until one is set).
     """
 
     camera_type: Literal["perspective", "orthographic"]
@@ -298,7 +299,7 @@ class CameraState(NamedTuple):
     fov: float
     zoom: float
     extent: tuple[float, float]
-    depth_range: tuple[float, float]
+    depth_range: tuple[float, float] | None
 ```
 
 `CameraState` and `DimsState` are both defined in `src/cellier/v2/_state.py` and

@@ -30,7 +30,7 @@ def paint_setup(qtbot):
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
     scene = controller.add_scene(
-        dim="2d",
+        displayed_axes=("y", "x"),
         coordinate_system=cs,
         name="paint_scene",
         render_modes={"2d"},

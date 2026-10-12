@@ -21,7 +21,7 @@ DEPTH_RANGE = (1.0, 8000.0)
 
 def _setup(controller, store):
     """A fitted 3D canvas on a 16^3 image; returns (scene, canvas id, view)."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_image_multiscale(
         data=store,
         scene_id=scene.id,

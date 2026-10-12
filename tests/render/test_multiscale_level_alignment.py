@@ -272,7 +272,7 @@ def _build_viewer(path):
 
     viewer = Viewer(
         spatial_axes("z", "y", "x"),
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         render_modes={"2d", "3d"},
         gui="offscreen",
     )

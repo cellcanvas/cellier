@@ -46,7 +46,7 @@ def _camera_events(viewer, scene) -> list[tuple]:
 
 
 async def test_viewer_slice_positions_jump_by_default():
-    viewer = Viewer(_WORLD, dim="2d", gui="offscreen")
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"), gui="offscreen")
     events = _dims_events(viewer, viewer.scene)
     viewer.set_slice_positions({0: 2.0, 1: 3.0})
     assert viewer.scene.dims.selection.slice_indices[0] == 2.0
@@ -55,7 +55,7 @@ async def test_viewer_slice_positions_jump_by_default():
 
 
 async def test_viewer_dims_interaction_scrubs_and_releases():
-    viewer = Viewer(_WORLD, dim="2d", gui="offscreen")
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"), gui="offscreen")
     events = _dims_events(viewer, viewer.scene)
     with viewer.dims_interaction():
         viewer.set_slice_positions({0: 1.0})
@@ -69,7 +69,9 @@ async def test_viewer_dims_interaction_scrubs_and_releases():
 
 
 async def test_viewer_camera_calls_use_its_canvas():
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     _add_image(viewer)
     with pytest.raises(ValueError, match="0 canvases"):
         viewer.get_camera_state()

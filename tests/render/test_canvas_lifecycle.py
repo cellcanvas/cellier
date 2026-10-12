@@ -23,7 +23,7 @@ def _controller_with_canvas(qtbot) -> CellierController:
     """A controller with one 2-D scene and one attached canvas."""
     controller = CellierController()
     scene = controller.add_scene(
-        dim="2d",
+        displayed_axes=("y", "x"),
         coordinate_system=world_coordinate_system(spatial_axes("y", "x"), name="world"),
         name="main",
         render_modes={"2d"},
@@ -103,7 +103,7 @@ def test_draw_frame_after_close_is_a_no_op(qtbot):
 def test_controller_close_closes_every_canvas(qtbot):
     controller = CellierController()
     scene = controller.add_scene(
-        dim="2d",
+        displayed_axes=("y", "x"),
         coordinate_system=world_coordinate_system(spatial_axes("y", "x"), name="world"),
         name="main",
         render_modes={"2d"},
@@ -153,7 +153,7 @@ def test_close_releases_canvas_for_both_guis(qtbot, gui):
 
     controller = CellierController(gui=gui)
     scene = controller.add_scene(
-        dim="2d",
+        displayed_axes=("y", "x"),
         coordinate_system=world_coordinate_system(spatial_axes("y", "x"), name="world"),
         name="main",
         render_modes={"2d"},

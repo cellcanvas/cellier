@@ -23,7 +23,12 @@ from cellier.gui._axis_values import (
     nearest_value_index,
 )
 from cellier.gui._constants import DIMS_SLIDER_THROTTLE_MS
-from cellier.gui._dims import initial_slice_indices, thickness_axes
+from cellier.gui._dims import (
+    DisplayedAxesMemory,
+    initial_slice_indices,
+    scene_toggle_axes,
+    thickness_axes,
+)
 from cellier.gui.anywidget._teardown import close_aux_widgets
 
 if TYPE_CHECKING:
@@ -152,8 +157,11 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         self._scene_id = scene_id
         self._axis_values = coerced
         self._applying = False
-        self._axes_2d = axes_2d
-        self._axes_3d = axes_3d
+        # What the toggle goes back to; ``None`` when there is no toggle.
+        self._axes_memory: DisplayedAxesMemory | None = None
+        if axes_2d is not None and axes_3d is not None:
+            self._axes_memory = DisplayedAxesMemory(axes_2d, axes_3d)
+            self._axes_memory.observe(displayed_axes)
         # The displayed axes the model last reported while a toggle's emit was
         # in flight, or ``None`` if it reported none; see ``_on_toggle_click``.
         self._model_displayed_during_toggle: tuple[int, ...] | None = None
@@ -171,31 +179,19 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
     ) -> AnywidgetDimsPanel:
         """Build a dims panel from a live scene.
 
-        Includes the 2D/3D toggle when the scene has 3 or more axes *and*
-        declares both render modes: 3D displays the last three axis indices,
-        2D the last two.  A scene that renders only one way -- each panel of
-        an ``OrthoViewer`` -- gets no toggle, because there is nothing to
-        switch to.
+        Includes the 2D/3D toggle when the scene declares both render modes
+        *and* has an axis to add to a 2D view.  It starts from the scene's
+        displayed axes; the mode not shown yet gets a default
+        (:func:`cellier.gui._dims.default_toggle_axes`).  A scene that
+        renders only one way -- each panel of an ``OrthoViewer`` -- gets no
+        toggle, because there is nothing to switch to.
         """
         axis_values = coerce_axis_values(axis_values)
         axis_labels_list = scene.dims.axis_labels
         axis_labels = dict(enumerate(axis_labels_list))
         selection = scene.dims.selection
 
-        axes_2d: tuple[int, ...] | None = None
-        axes_3d: tuple[int, ...] | None = None
-        # The toggle is offered only when the *scene* says it can render both
-        # ways.  An OrthoViewer panel declares exactly one mode -- three slice
-        # views and one volume -- so offering to switch it put the scene into a
-        # mode it was never configured for: the reslice produced no geometry,
-        # the scene had no bounds, and the panel went blank
-        # (``plans/gui_backend_seam.md`` D18).  A plain ``Viewer`` declares
-        # both, so its toggle is unaffected.
-        modes = {str(mode) for mode in getattr(scene, "render_modes", ())}
-        if len(axis_labels_list) >= 3 and {"2d", "3d"} <= modes:
-            ndim = len(axis_labels_list)
-            axes_3d = tuple(range(ndim - 3, ndim))
-            axes_2d = tuple(range(ndim - 2, ndim))
+        axes_2d, axes_3d = scene_toggle_axes(scene)
 
         return cls(
             scene_id=scene.id,
@@ -274,7 +270,12 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         self._set_field("slider_axes", [int(a) for a in event.slider_axes])
 
     def _apply_displayed(self, displayed_axes: tuple[int, ...]) -> None:
-        """Hide *displayed_axes*' sliders and label the toggle for the other mode."""
+        """Hide *displayed_axes*' sliders and label the toggle for the other mode.
+
+        Also records the set as the one the toggle returns to for its mode.
+        """
+        if self._axes_memory is not None:
+            self._axes_memory.observe(displayed_axes)
         self._set_field("displayed_axes", [int(a) for a in displayed_axes])
         if self.has_toggle:
             is_3d = len(displayed_axes) == 3
@@ -391,10 +392,10 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         )
 
     def _on_toggle_click(self, change) -> None:
-        if self._axes_2d is None or self._axes_3d is None:
+        if self._axes_memory is None:
             return
         previous = tuple(int(a) for a in self.displayed_axes)
-        target_displayed = self._axes_2d if len(previous) == 3 else self._axes_3d
+        target_displayed = self._axes_memory.toggle_target(previous)
 
         # Only ``displayed_axes`` is sent: every axis keeps its slice position
         # in the model whatever is displayed (D36).  The panel moves itself

@@ -41,7 +41,9 @@ def _points(controller, scene):
 def _lightsheet(*, composite: bool):
     """World ``(t, c, z, y, x)`` with a ``tczyx`` image and broadcast points."""
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     store = ImageMemoryStore(data=np.zeros((2, 3, 4, 5, 6), dtype=np.float32))
     if composite:
         image = controller.add_image(
@@ -105,13 +107,17 @@ def test_clearing_an_override_returns_the_axis_to_automatic():
 
 def test_a_scene_without_visuals_has_no_slider_axes():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     assert scene.slider_axes == ()
 
 
 def test_broadcast_axes_feed_nothing():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     _points(controller, scene)
     assert scene.slider_axes == (2, 3, 4)
 
@@ -124,7 +130,9 @@ def test_hidden_visuals_count():
 
 def test_a_visual_without_a_transform_contributes_nothing():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     store = ImageMemoryStore(data=np.zeros((2, 3, 4, 5, 6), dtype=np.float32))
     scene.visuals.append(
         ImageVisual(name="loose", data_store_id=str(store.id), appearance=_appearance())
@@ -135,7 +143,9 @@ def test_a_visual_without_a_transform_contributes_nothing():
 def test_a_transform_without_axis_correspondence_raises():
     """D37: that case is not designed yet, so the error is not swallowed."""
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
 
     def _no_correspondence():
         raise ValueError("a shear")
@@ -164,7 +174,9 @@ def _record(controller, scene):
 
 def test_adding_and_removing_a_visual_emits_on_change_only():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     events = _record(controller, scene)
 
     first = _points(controller, scene)
@@ -231,7 +243,7 @@ def test_a_direct_transform_assignment_emits():
     """``visual.transform = ...`` moves the derived set without a controller call."""
     world = [("w", "space"), *spatial_axes("z", "y", "x")]
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=world, dim="2d")
+    scene = controller.add_scene(coordinate_system=world, displayed_axes=("y", "x"))
     store = ImageMemoryStore(data=np.zeros((4, 5, 6), dtype=np.float32))
     image = controller.add_image(store, scene.id, appearance=_appearance())
     assert scene.slider_axes == (1, 2, 3)
@@ -261,13 +273,17 @@ def test_a_direct_transform_assignment_emits():
 
 def test_scene_creation_seeds_every_axis():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     assert set(scene.dims.selection.slice_indices) == {0, 1, 2, 3, 4}
 
 
 def test_a_slider_edit_keeps_the_other_positions():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     controller.update_slice_indices(scene.id, {0: 3.0, 2: 1.5})
     controller.update_slice_indices(scene.id, {1: 2.0})
     assert scene.dims.selection.slice_indices == {
@@ -281,7 +297,9 @@ def test_a_slider_edit_keeps_the_other_positions():
 
 def test_update_slice_indices_with_an_unknown_axis_raises():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     before = dict(scene.dims.selection.slice_indices)
     with pytest.raises(ValueError, match="outside the scene's world"):
         controller.update_slice_indices(scene.id, {0: 1.0, 7: 1.0})
@@ -290,7 +308,9 @@ def test_update_slice_indices_with_an_unknown_axis_raises():
 
 def test_set_slider_override_with_an_unknown_axis_raises():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     with pytest.raises(ValueError, match="outside the scene's world"):
         controller.set_slider_override(scene.id, 9, True)
 
@@ -299,7 +319,9 @@ def test_moving_a_displayed_axis_position_does_not_reslice():
     from cellier.events import DimsChangedEvent
 
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_TCZYX, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    )
     events: list = []
     controller._outgoing_events.subscribe(
         DimsChangedEvent, events.append, entity_id=scene.id

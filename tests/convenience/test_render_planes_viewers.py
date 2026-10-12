@@ -14,9 +14,10 @@ import numpy as np
 import pytest
 
 from cellier.convenience import (
-    InMemoryImageControlsConfig,
-    LabelsControlsConfig,
+    BoundingBoxControl,
+    ClippingPlanesControl,
     OrthoViewer,
+    RenderPlanesControl,
     Viewer,
 )
 from cellier.convenience._ortho_planes import SLICES_REASON
@@ -34,6 +35,7 @@ from cellier.visuals import (
 )
 from tests import _plane_fixtures as fx
 from tests._gpu_budget import SMALL_BUDGETS
+from tests.convenience._controls_lists import panel
 from tests.render.conftest import drain_loading
 
 AXES = ("z", "y", "x")
@@ -67,7 +69,7 @@ def make_viewer(qtbot):
 
     def _make(cls=Viewer, **kwargs):
         if cls is Viewer:
-            kwargs.setdefault("dim", "3d")
+            kwargs.setdefault("displayed_axes", AXES)
         viewer = cls(spatial_axes(*AXES), gui="offscreen", **kwargs)
         viewer.controller.camera_reslice_enabled = False
         made.append(viewer)
@@ -193,9 +195,7 @@ async def test_the_dock_builds_the_render_planes_control(make_viewer, backend, q
     visual = viewer.add_image(
         _image(),
         single=_plane_single(),
-        controls=InMemoryImageControlsConfig(
-            appearance=True, render_plane_controls=True
-        ),
+        controls=panel("image", None, RenderPlanesControl()),
     )
     viewer.add_canvas()
     (control,) = _plane_controls(viewer, backend)
@@ -213,11 +213,11 @@ async def test_the_dock_builds_the_render_planes_control(make_viewer, backend, q
 
 def test_the_control_is_opt_in_and_only_for_visuals_with_planes(make_viewer):
     viewer = make_viewer()
-    viewer.add_image(_image(), controls=InMemoryImageControlsConfig(appearance=True))
+    viewer.add_image(_image(), controls=panel("image"))
     viewer.add_labels(
         LabelMemoryStore(data=np.ones(SHAPE, np.int32)),
         name="with",
-        controls=LabelsControlsConfig(appearance=True, render_plane_controls=True),
+        controls=panel("labels", None, RenderPlanesControl()),
     )
     viewer.add_points(PointsMemoryStore(positions=np.zeros((3, 3), np.float32)))
     controls = _plane_controls(viewer)
@@ -227,22 +227,57 @@ def test_the_control_is_opt_in_and_only_for_visuals_with_planes(make_viewer):
     assert "render mode" in controls[0].blocked
 
 
-def test_the_flag_needs_the_appearance_dock(make_viewer):
+def test_the_control_needs_the_appearance_dock_and_nothing_else(make_viewer):
+    """Alone in the list it is valid; it used to need a field control too."""
     from cellier.convenience.layout._shared import missing_dock_node
 
-    config = InMemoryImageControlsConfig(render_plane_controls=True)
-    problem = missing_dock_node(
-        config, frozenset({"AppearanceControls"}), clipping_node="AppearanceControls"
-    )
-    assert "render_plane_controls=True and no appearance controls" in problem
-    config = InMemoryImageControlsConfig(appearance=True, render_plane_controls=True)
-    for node in ("AppearanceControls", "OrthoClippingControls"):
-        assert (
-            missing_dock_node(
-                config, frozenset({"AppearanceControls"}), clipping_node=node
+    for config in (
+        [RenderPlanesControl()],
+        panel("image", None, RenderPlanesControl()),
+    ):
+        for node in ("AppearanceControls", "OrthoClippingControls"):
+            assert (
+                missing_dock_node(
+                    config, frozenset({"AppearanceControls"}), clipping_node=node
+                )
+                is None
             )
-            is None
+            problem = missing_dock_node(config, frozenset(), clipping_node=node)
+            assert "RenderPlanesControl" in problem
+            assert "AppearanceControls()" in problem
+
+
+def test_a_viewer_builds_the_control_alone(make_viewer):
+    viewer = make_viewer()
+    viewer.add_image(_image(), single=_plane_single(), controls=[RenderPlanesControl()])
+    (control,) = _plane_controls(viewer)
+    assert control.blocked == ""
+
+
+def test_an_ortho_list_of_render_planes_alone_gives_a_3d_target_only(qtbot):
+    """Design F2: the 2D group has nothing to draw, so it is not offered."""
+    from cellier.convenience.layout._shared import appearance_targets
+
+    ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui="offscreen")
+    try:
+        ortho.add_image(_image(), name="cells", controls=[RenderPlanesControl()])
+        assert [t.label for t in appearance_targets(ortho)] == ["cells (3D view)"]
+
+        ortho.add_image(_image(), name="clipped", controls=[ClippingPlanesControl()])
+        assert [t.label for t in appearance_targets(ortho)] == ["cells (3D view)"]
+
+        ortho.add_image(
+            _image(),
+            name="both",
+            controls=[RenderPlanesControl(), BoundingBoxControl()],
         )
+        assert [t.label for t in appearance_targets(ortho)] == [
+            "cells (3D view)",
+            "both (2D views)",
+            "both (3D view)",
+        ]
+    finally:
+        ortho.controller.close()
 
 
 # -- OrthoViewer: passing through (10.2) ----------------------------------------
@@ -292,9 +327,7 @@ async def test_the_ortho_dock_shows_the_control_for_the_3d_view_only(make_viewer
     visuals = ortho.add_image(
         _image(),
         single=_plane_single(),
-        controls=InMemoryImageControlsConfig(
-            appearance=True, render_plane_controls=True
-        ),
+        controls=panel("image", None, RenderPlanesControl()),
     )
     for scene in ortho.scenes.values():
         ortho.controller.add_canvas(scene.id)
@@ -510,9 +543,7 @@ async def test_the_control_shows_the_slice_planes_read_only(
     visuals = ortho.add_image(
         _image(),
         single=_plane_single(),
-        controls=InMemoryImageControlsConfig(
-            appearance=True, render_plane_controls=True
-        ),
+        controls=panel("image", None, RenderPlanesControl()),
     )
     for scene in ortho.scenes.values():
         ortho.controller.add_canvas(scene.id)

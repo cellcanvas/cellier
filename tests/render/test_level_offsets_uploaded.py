@@ -47,7 +47,10 @@ def _store(root, dtype) -> MultiscaleZarrDataStore:
 @pytest.mark.parametrize("kind", ["image", "labels"])
 @pytest.mark.parametrize("dim", ["2d", "3d"])
 async def test_visuals_upload_level_offsets(controller, reslice, tmp_path, kind, dim):
-    scene = controller.add_scene(dim=dim, name=f"offsets-{kind}-{dim}")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+        name=f"offsets-{kind}-{dim}",
+    )
     if kind == "image":
         visual = controller.add_image_multiscale(
             data=_store(tmp_path, ts.float32),

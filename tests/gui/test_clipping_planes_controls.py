@@ -60,7 +60,7 @@ def _add_points(controller, names="zyx", name="points"):
         [[0.0] * len(names), [highs[n] for n in names]], dtype=np.float32
     )
     store = PointsMemoryStore(positions=positions, data_coordinate_systems=[system])
-    scene = controller.add_scene(dim="3d", name=f"scene-{name}")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=f"scene-{name}")
     visual = controller.add_points(data=store, scene_id=scene.id, name=name)
     return visual, store
 
@@ -578,12 +578,13 @@ def test_the_anywidget_ignores_a_malformed_edit(controller):
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
 async def test_the_position_range_follows_the_stores_extent(controller, toolkit):
-    from cellier.convenience import PointsControlsConfig
+    from cellier.convenience import ClippingPlanesControl
     from cellier.convenience.layout._shared import appearance_specs
+    from tests.convenience._controls_lists import panel
 
     visual, store = _add_points(controller)
     controller.add_canvas(scene_id=controller.get_visual_scene_id(visual.id))
-    config = PointsControlsConfig(appearance=True, clipping_controls=True)
+    config = panel("points", None, ClippingPlanesControl())
     spec = next(
         spec
         for spec in appearance_specs(visual, config, store).specs
@@ -671,7 +672,7 @@ def test_the_anywidget_puts_back_rows_a_host_overwrites(controller):
 
 def test_a_group_control_edits_every_visual(controller):
     first, store = _add_points(controller, name="a")
-    scene = controller.add_scene(dim="2d", name="second view")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="second view")
     second = controller.add_points(data=store, scene_id=scene.id, name="b")
     widget = _make("qt", [first.id, second.id], first, store)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
@@ -711,16 +712,17 @@ def test_both_toolkits_carry_the_shared_title():
 
 
 def test_the_panel_offers_it_only_when_asked(controller):
-    from cellier.convenience import PointsControlsConfig
+    from cellier.convenience import ClippingPlanesControl
     from cellier.convenience.layout._shared import appearance_specs
+    from tests.convenience._controls_lists import panel
 
     visual, store = _add_points(controller)
 
     def kinds(config):
         return [spec.kind for spec in appearance_specs(visual, config, store).specs]
 
-    assert "clipping_planes" not in kinds(PointsControlsConfig(appearance=True))
-    asked = PointsControlsConfig(appearance=True, clipping_controls=True)
+    assert "clipping_planes" not in kinds(panel("points"))
+    asked = panel("points", None, ClippingPlanesControl())
     assert "clipping_planes" in kinds(asked)
     spec = next(
         spec
@@ -733,8 +735,9 @@ def test_the_panel_offers_it_only_when_asked(controller):
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
 def test_the_panel_builders_make_the_control(controller, toolkit):
-    from cellier.convenience import PointsControlsConfig
+    from cellier.convenience import ClippingPlanesControl
     from cellier.convenience.layout._shared import appearance_specs
+    from tests.convenience._controls_lists import panel
 
     visual, store = _add_points(controller)
     controller.add_canvas(scene_id=controller.get_visual_scene_id(visual.id))
@@ -743,7 +746,7 @@ def test_the_panel_builders_make_the_control(controller, toolkit):
             store.data_coordinate_system, (0, 0, 9), (0, 0, 1)
         ),
     )
-    config = PointsControlsConfig(appearance=True, clipping_controls=True)
+    config = panel("points", None, ClippingPlanesControl())
     spec = next(
         spec
         for spec in appearance_specs(visual, config, store).specs
@@ -845,7 +848,7 @@ def test_the_gizmo_data_refuses_ids_that_do_not_go_together(controller):
         get_clipping_plane_gizmo_data(controller, visual.id, uuid4())
 
     # A canvas of another scene.
-    elsewhere = controller.add_scene(dim="3d", name="elsewhere")
+    elsewhere = controller.add_scene(displayed_axes=("z", "y", "x"), name="elsewhere")
     controller.add_canvas(scene_id=elsewhere.id)
     (other_canvas,) = controller.get_canvas_ids(elsewhere.id)
     with pytest.raises(ValueError, match="does not show scene"):
@@ -994,11 +997,12 @@ async def test_a_refused_request_shows_its_reason_and_leaves_the_toggle_off(cont
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
 def test_the_panel_builders_give_the_control_its_gizmo(controller, toolkit):
-    from cellier.convenience import PointsControlsConfig
+    from cellier.convenience import ClippingPlanesControl
     from cellier.convenience.layout._shared import appearance_specs
+    from tests.convenience._controls_lists import panel
 
     visual, store, canvas_id = _gizmo_scene(controller)
-    config = PointsControlsConfig(appearance=True, clipping_controls=True)
+    config = panel("points", None, ClippingPlanesControl())
     spec = next(
         spec
         for spec in appearance_specs(visual, config, store).specs

@@ -22,7 +22,12 @@ from cellier.convenience import (
     Viewer,
     run,
 )
-from cellier.convenience.gui import MeshControlsConfig, build_canvas_widget
+from cellier.convenience.gui import (
+    BoundingBoxControl,
+    FieldControls,
+    MeshSectionControl,
+    build_canvas_widget,
+)
 from cellier.data.mesh import MeshMemoryStore
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import MeshPhongAppearance, MeshSectionConfig
@@ -93,12 +98,16 @@ nucleus_store = MeshMemoryStore(
 
 viewer = Viewer(
     spatial_axes("z", "y", "x"),
-    dim="2d",
+    displayed_axes=("y", "x"),
     # Phong shading needs lights (for the 3D view).
     lighting="default",
 )
 
-controls = MeshControlsConfig(appearance=True, section_controls=True)
+controls = [
+    FieldControls(["visible", "opacity", "color", "side", "shininess", "flat_shading"]),
+    BoundingBoxControl(),
+    MeshSectionControl(),
+]
 
 viewer.add_mesh(
     nucleus_store,

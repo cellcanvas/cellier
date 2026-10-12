@@ -16,7 +16,7 @@ async def test_render_scene_returns_rgba_frame(
     controller, render_scene, drive_reslice, gradient_image
 ):
     """A gradient image renders to a non-empty RGBA frame of the right size."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
@@ -40,7 +40,7 @@ async def test_render_scene_reflects_gradient_orientation(
     controller, render_scene, drive_reslice, gradient_image
 ):
     """The 0->1 gradient along X maps to viridis dark(left)->bright(right)."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
@@ -78,7 +78,7 @@ async def test_render_scene_background_is_transparent(
     test in this suite leans on when it treats ``alpha > 0`` as "a visual drew
     here".  The background itself is covered by the two tests below.
     """
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
@@ -108,7 +108,7 @@ async def test_render_scene_draws_the_default_background_when_asked(
     shipped default covered: it is opaque, and it runs darker at the bottom of
     the canvas to lighter at the top.
     """
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,
@@ -139,7 +139,7 @@ async def test_background_change_reaches_the_frame(
     The pixel-level end of the ``BackgroundAppearance`` -> ``SceneManager``
     push; the unit tests either side of it stop at the pygfx material.
     """
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(
         data=gradient_image,
         scene_id=scene.id,

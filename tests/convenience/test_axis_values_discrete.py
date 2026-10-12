@@ -112,7 +112,7 @@ def _add_ome(viewer, store, transform=None):
 
 
 def test_an_ome_zarr_channel_axis_is_discrete_and_labelled(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path, labels=("mem9", "H2B")))
 
     values = axis_values_from_viewer(viewer)
@@ -121,7 +121,7 @@ def test_an_ome_zarr_channel_axis_is_discrete_and_labelled(tmp_path):
 
 
 def test_an_ome_zarr_time_axis_is_discrete(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     assert axis_values_from_viewer(viewer)[0] == DiscreteAxisValues(
@@ -130,7 +130,7 @@ def test_an_ome_zarr_time_axis_is_discrete(tmp_path):
 
 
 def test_space_axes_stay_continuous_though_the_grid_is_discrete(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     values = axis_values_from_viewer(viewer)
@@ -141,14 +141,14 @@ def test_space_axes_stay_continuous_though_the_grid_is_discrete(tmp_path):
 
 
 def test_without_channel_names_the_channel_axis_is_unlabelled(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     assert axis_values_from_viewer(viewer)[1] == DiscreteAxisValues(values=(0.0, 1.0))
 
 
 def test_the_transform_places_the_samples(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     store = _ome_store(tmp_path)
     world = viewer.scene.dims.world_coordinate_system
     transform = AffineTransform.from_axis_map(
@@ -165,7 +165,7 @@ def test_the_transform_places_the_samples(tmp_path):
 
 
 def test_stores_with_different_frame_counts_take_the_union(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path, labels=("mem9", "H2B")))
     longer = ImageMemoryStore(
         data=np.zeros((5, 2, 4, 6, 8), dtype=np.float32),
@@ -194,7 +194,7 @@ def test_stores_with_different_frame_counts_take_the_union(tmp_path):
 
 
 def test_one_continuous_contributor_keeps_the_axis_continuous(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
     # Axes inherited from the world are continuous, like any bare store's.
     points = PointsMemoryStore(
@@ -209,7 +209,7 @@ def test_one_continuous_contributor_keeps_the_axis_continuous(tmp_path):
 
 
 def test_disagreeing_channel_names_drop_the_labels(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path, "a.ome.zarr", labels=("mem9", "H2B")))
     _add_ome(viewer, _ome_store(tmp_path, "b.ome.zarr", labels=("dapi", "gfp")))
 
@@ -218,7 +218,7 @@ def test_disagreeing_channel_names_drop_the_labels(tmp_path):
 
 def test_too_many_samples_fall_back_to_continuous(tmp_path, monkeypatch):
     monkeypatch.setattr(geometry, "MAX_DISCRETE_VALUES", 2)
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     values = axis_values_from_viewer(viewer)
@@ -229,7 +229,7 @@ def test_too_many_samples_fall_back_to_continuous(tmp_path, monkeypatch):
 
 def test_an_in_memory_image_keeps_continuous_sliders():
     """A bare store inherits continuous axes from the world: nothing changes."""
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     viewer.add_image(
         ImageMemoryStore(data=np.zeros(_SHAPE, dtype=np.float32)),
         appearance=InMemoryImageAppearance(),
@@ -248,7 +248,7 @@ def test_an_in_memory_image_keeps_continuous_sliders():
 
 
 def test_no_axis_draws_ticks_by_default(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     values = axis_values_from_viewer(viewer)
@@ -258,7 +258,7 @@ def test_no_axis_draws_ticks_by_default(tmp_path):
 
 
 def test_draw_ticks_marks_only_the_named_axes(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path, labels=("mem9", "H2B")))
 
     values = axis_values_from_viewer(viewer, draw_ticks=["c"])
@@ -271,7 +271,7 @@ def test_draw_ticks_marks_only_the_named_axes(tmp_path):
 
 
 def test_draw_ticks_names_a_continuous_axis_raises(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     with pytest.raises(ValueError, match=r"'z'.*continuous slider"):
@@ -280,7 +280,7 @@ def test_draw_ticks_names_a_continuous_axis_raises(tmp_path):
 
 def test_draw_ticks_raises_when_the_data_makes_the_axis_continuous(tmp_path):
     """Discreteness is the data's call: one continuous store undoes it."""
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
     viewer.add_points(
         PointsMemoryStore(
@@ -293,7 +293,7 @@ def test_draw_ticks_raises_when_the_data_makes_the_axis_continuous(tmp_path):
 
 
 def test_draw_ticks_rejects_an_unknown_axis_name(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     with pytest.raises(ValueError, match=r"'q'.*not a world axis"):
@@ -303,7 +303,9 @@ def test_draw_ticks_rejects_an_unknown_axis_name(tmp_path):
 def test_draw_ticks_checks_names_before_measuring():
     """A bad name is reported even on a viewer with nothing to measure."""
     with pytest.raises(ValueError, match="not a world axis"):
-        axis_values_from_viewer(Viewer(_WORLD), draw_ticks=["q"])
+        axis_values_from_viewer(
+            Viewer(_WORLD, displayed_axes=("y", "x")), draw_ticks=["q"]
+        )
 
 
 @pytest.mark.parametrize(
@@ -311,7 +313,7 @@ def test_draw_ticks_checks_names_before_measuring():
     [("c", r"draw_ticks=\['c'\]"), ([1], "axis names"), (True, "not iterable")],
 )
 def test_draw_ticks_takes_names_only(tmp_path, draw_ticks, match):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     with pytest.raises(TypeError, match=match):
@@ -322,7 +324,7 @@ def test_draw_ticks_on_a_long_axis_still_warns(tmp_path, monkeypatch):
     from cellier.gui import _axis_values
 
     monkeypatch.setattr(_axis_values, "TICK_WARNING_LIMIT", 2)
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))  # three frames
 
     with pytest.warns(UserWarning):
@@ -352,7 +354,7 @@ def test_ortho_draw_ticks(tmp_path):
 
 
 def test_every_continuous_axis_steps_by_one_by_default(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     values = axis_values_from_viewer(viewer)
@@ -361,7 +363,7 @@ def test_every_continuous_axis_steps_by_one_by_default(tmp_path):
 
 
 def test_step_size_sets_only_the_named_axes(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
     default = axis_values_from_viewer(viewer)
 
@@ -376,7 +378,7 @@ def test_step_size_sets_only_the_named_axes(tmp_path):
 
 
 def test_step_size_names_a_discrete_axis_raises(tmp_path):
-    viewer = Viewer(_WORLD)
+    viewer = Viewer(_WORLD, displayed_axes=("y", "x"))
     _add_ome(viewer, _ome_store(tmp_path))
 
     with pytest.raises(ValueError, match=r"'c'.*discrete slider"):
@@ -386,13 +388,17 @@ def test_step_size_names_a_discrete_axis_raises(tmp_path):
 def test_step_size_checks_names_before_measuring():
     """A bad name is reported even on a viewer with nothing to measure."""
     with pytest.raises(ValueError, match=r"'q'.*not a world axis"):
-        axis_values_from_viewer(Viewer(_WORLD), step_size={"q": 1.0})
+        axis_values_from_viewer(
+            Viewer(_WORLD, displayed_axes=("y", "x")), step_size={"q": 1.0}
+        )
 
 
 @pytest.mark.parametrize("step", [0.0, -1.0, float("inf"), float("nan")])
 def test_step_size_must_be_positive_and_finite(step):
     with pytest.raises(ValueError, match=r"step_size\['z'\].*finite and > 0"):
-        axis_values_from_viewer(Viewer(_WORLD), step_size={"z": step})
+        axis_values_from_viewer(
+            Viewer(_WORLD, displayed_axes=("y", "x")), step_size={"z": step}
+        )
 
 
 @pytest.mark.parametrize(
@@ -408,7 +414,9 @@ def test_step_size_must_be_positive_and_finite(step):
 )
 def test_step_size_takes_a_mapping_of_names_to_numbers(step_size, match):
     with pytest.raises(TypeError, match=match):
-        axis_values_from_viewer(Viewer(_WORLD), step_size=step_size)
+        axis_values_from_viewer(
+            Viewer(_WORLD, displayed_axes=("y", "x")), step_size=step_size
+        )
 
 
 def test_ortho_step_size(tmp_path):

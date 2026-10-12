@@ -134,18 +134,22 @@ def test_no_old_gizmo_name_is_left() -> None:
 
 def test_the_old_controls_key_is_refused() -> None:
     from cellier.convenience.gui._controls_config import (
-        MultiscaleImageControlsConfig,
-        MultiscaleLabelsControlsConfig,
+        FieldControls,
+        ImageControl,
+        LevelOfDetailControl,
+        validate_controls,
     )
 
-    for config_cls in (MultiscaleImageControlsConfig, MultiscaleLabelsControlsConfig):
-        # The Phase 2 key went too, when the level of detail control came.
-        for old in (LOD_BIAS, "settled_" + LOD_BIAS):
-            with pytest.raises(ValueError, match="use 'level_of_detail'"):
-                config_cls(appearance=[old])
-        assert config_cls(appearance=["level_of_detail"]).appearance == [
-            "level_of_detail"
-        ]
+    for kind, control_cls in (
+        ("multiscale_image", ImageControl),
+        ("multiscale_labels", FieldControls),
+    ):
+        # The Phase 2 key went too, when the level of detail control came;
+        # and that is its own item of the controls list now, not a field.
+        for old in (LOD_BIAS, "settled_" + LOD_BIAS, "level_of_detail"):
+            with pytest.raises(ValueError, match=r"add LevelOfDetailControl\(\)"):
+                validate_controls([control_cls(fields=[old])], kind, "v")
+        assert validate_controls([LevelOfDetailControl()], kind, "v")
 
 
 # --------------------------------------------------------------------------- #
@@ -244,3 +248,29 @@ def test_no_image_dims_drag_is_left() -> None:
 def test_no_other_old_name_is_left(pattern) -> None:
     hits = _hits(re.compile(pattern), set())
     assert not hits, "\n".join(hits)
+
+
+# --------------------------------------------------------------------------- #
+# The controls config classes are gone (ordered controls list, design D4)
+# --------------------------------------------------------------------------- #
+
+
+def test_no_controls_config_class_is_left() -> None:
+    """``controls=`` is a list of control models: no old class, no alias."""
+    import cellier.convenience as convenience
+    import cellier.convenience.gui as convenience_gui
+
+    old = "Controls" + "Config"
+    for module in (convenience, convenience_gui):
+        assert not [name for name in dir(module) if old in name]
+
+    root = Path(__file__).resolve().parents[1]
+    hits = [
+        f"{path.relative_to(root)}:{number}"
+        for folder, pattern in (("src", "*.py"), ("examples", "*.py"), ("docs", "*.md"))
+        for path in sorted((root / folder).rglob(pattern))
+        if "__marimo__" not in path.parts
+        for number, line in enumerate(path.read_text().splitlines(), 1)
+        if old in line
+    ]
+    assert hits == []

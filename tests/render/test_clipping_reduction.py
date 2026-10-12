@@ -36,10 +36,7 @@ def _points_visual(controller, world_names, data_names, displayed, scale, shift)
         )
     )
     scene = controller.add_scene(
-        coordinate_system=world, dim="3d" if len(displayed) == 3 else "2d", name="s"
-    )
-    controller.set_displayed_axes(
-        scene.id, tuple(world_names.index(n) for n in displayed)
+        coordinate_system=world, displayed_axes=tuple(displayed), name="s"
     )
     system = DataCoordinateSystem(
         name="data",

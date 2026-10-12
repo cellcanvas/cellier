@@ -11,9 +11,13 @@ from skimage.data import binary_blobs
 
 from cellier.convenience import (
     AppearanceControls,
+    BoundingBoxControl,
+    ImageControl,
     Layout,
-    MultiscaleImageControlsConfig,
+    LevelOfDetailControl,
+    LoadingIndicator,
     OrthoViewer,
+    RenderPlanesControl,
     axis_values_from_ortho,
     run,
 )
@@ -104,10 +108,13 @@ visuals = viewer.add_image_multiscale(
     ),
     render_config=MultiscaleImageRenderConfig(block_size=16),
     name="image",
-    controls=MultiscaleImageControlsConfig(
-        appearance=["visible", "color_map", "render_mode", "level_of_detail"],
-        render_plane_controls=True,
-    ),
+    controls=[
+        ImageControl(fields=["visible", "color_map", "render_mode"]),
+        LevelOfDetailControl(),
+        BoundingBoxControl(),
+        RenderPlanesControl(),
+        LoadingIndicator(),
+    ],
 )
 vol_visual = visuals["vol"]
 vol_visual.aabb.enabled = True

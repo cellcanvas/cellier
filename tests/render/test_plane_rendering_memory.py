@@ -49,7 +49,7 @@ async def _image(
     controller, reslice, make_planes, *, transform="identity", clipping=(), **single
 ):
     scale, shift = TRANSFORMS[transform]
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = h.world_of(controller, scene)
     store = ImageMemoryStore(data=h.image_data(SHAPE), name="image")
     planes = tuple(make_planes(world, _centre(scale, shift)))
@@ -103,7 +103,7 @@ async def test_an_image_plane_shows_the_voxel_the_ray_meets(
 
 async def _labels(controller, reslice, make_planes, *, transform="identity", **extra):
     scale, shift = TRANSFORMS[transform]
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = h.world_of(controller, scene)
     store = LabelMemoryStore(data=h.label_data(SHAPE), name="labels")
     planes = tuple(make_planes(world, _centre(scale, shift)))
@@ -464,7 +464,7 @@ async def test_a_translucent_plane_is_blended_once(
     """
     from cellier.visuals import InMemoryImageAppearance
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = h.world_of(controller, scene)
     store = ImageMemoryStore(data=h.image_data(SHAPE), name="image")
     planes = tuple(_crossing(world, _centre(*TRANSFORMS["identity"])))
@@ -506,7 +506,7 @@ async def test_a_composite_draws_every_channel_on_the_planes(controller, reslice
 
     scene = controller.add_scene(
         coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="channels",
     )
     world = h.world_of(controller, scene)
@@ -595,7 +595,7 @@ async def test_a_translucent_mesh_behind_a_plane_follows_its_depth_write(
     where the visual writes depth, and shows through where it does not."""
     from cellier.visuals import InMemoryImageAppearance
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = h.world_of(controller, scene)
     store = ImageMemoryStore(data=h.image_data(SHAPE), name="image")
     plane = h.plane_zyx(world, _centre(*TRANSFORMS["identity"]), POSES["xy"])
@@ -804,7 +804,7 @@ async def test_a_plane_on_three_axes_of_a_4d_scene_shows_the_current_time_point(
 
     scene = controller.add_scene(
         coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
     )
     world = h.world_of(controller, scene)

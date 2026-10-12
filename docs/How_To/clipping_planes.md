@@ -198,14 +198,36 @@ kept side.
 
 ## The control
 
-Every controls config takes `clipping_controls=True`:
+Put `ClippingPlanesControl()` in the `controls=` list of any `add_*` method:
 
 ```python
 viewer.add_image(
     store,
-    controls=InMemoryImageControlsConfig(appearance=True, clipping_controls=True),
+    controls=[
+        ImageControl(fields=["visible", "color_map", "clim"]),
+        BoundingBoxControl(),
+        ClippingPlanesControl(),
+    ],
 )
 ```
+
+`controls=` is a list of control models. An item in the list means its
+control is shown, and **the order of the list is the order of the dock**.
+To move the clipping planes above the image control, move its line:
+
+```python
+viewer.add_image(
+    store,
+    controls=[
+        ClippingPlanesControl(),
+        ImageControl(fields=["visible", "color_map", "clim"]),
+        BoundingBoxControl(),
+    ],
+)
+```
+
+To drop a control, delete its line. Nothing is shown that the list does not
+name, and a list may hold `ClippingPlanesControl()` alone.
 
 The "Clipping planes" group has a row per plane: on or off, a flip button,
 a remove button, the normal, a position slider along the normal, and
@@ -384,14 +406,14 @@ They are in their own dock node:
 ortho.add_image(
     store,
     name="cells",
-    controls=InMemoryImageControlsConfig(clipping_controls=True),
+    controls=[ClippingPlanesControl()],
 )
 layout = Layout(center=grid, right_dock=OrthoClippingControls())
 ```
 
 At the top is a "Link" selector for the mode, bound both ways to
 `ortho.clipping_controller.mode`. Under it, each visual added with
-`clipping_controls=True` has one control per group of linked panels:
+`ClippingPlanesControl()` has one control per group of linked panels:
 
 | "Link" | Controls per visual | "Gizmo" toggle |
 |---|---|---|
@@ -401,9 +423,12 @@ At the top is a "Link" selector for the mode, bound both ways to
 
 - A control only writes to panels that are linked, so it always shows the
   planes of every panel it edits.
-- `clipping_controls=True` with no `OrthoClippingControls()` in the layout
-  raises `ValueError`. The dock with no flagged visual is fine: it shows
+- `ClippingPlanesControl()` with no `OrthoClippingControls()` in the layout
+  raises `ValueError`. The dock with no such visual is fine: it shows
   the selector and "No visuals with clipping controls".
+- Where `ClippingPlanesControl()` sits in the list does not matter on an
+  `OrthoViewer`: the control is in this dock, not in an appearance dock. A
+  list that holds nothing else gives the visual no appearance entry.
 - A visual that has lost a panel (`controller.remove_visual` on one of the
   four) keeps controls for the panels that are left.
 

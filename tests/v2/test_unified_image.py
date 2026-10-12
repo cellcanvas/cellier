@@ -21,6 +21,7 @@ from cellier.visuals import (
     InMemoryImageChannelAppearance,
     effective_transparency_mode,
 )
+from tests._displayed import trailing_axes
 from tests._planning import planned_requests_3d
 
 #: World ``(c, y, x)``; a 2D scene displays ``(y, x)`` and slices ``c``.
@@ -34,7 +35,9 @@ def _channels(*indices, **overrides):
 def _setup(*, composite=False, channels=None, channel_axis=0, dim="2d", shape=None):
     controller = CellierController(gui="offscreen")
     world = _CYX if dim == "2d" else [("c", "channel"), *spatial_axes("z", "y", "x")]
-    scene = controller.add_scene(coordinate_system=world, dim=dim)
+    scene = controller.add_scene(
+        coordinate_system=world, displayed_axes=trailing_axes(world, dim)
+    )
     controller.add_canvas(scene.id)
     if shape is None:
         shape = (3, 8, 8) if dim == "2d" else (3, 4, 8, 8)
@@ -127,7 +130,7 @@ def test_the_channel_axis_must_map_to_a_world_axis():
 
 def test_compositing_a_displayed_axis_is_refused_on_add():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_CYX, dim="2d")
+    scene = controller.add_scene(coordinate_system=_CYX, displayed_axes=("y", "x"))
     store = ImageMemoryStore(data=np.ones((3, 8, 8), dtype=np.float32))
     with pytest.raises(ValueError, match="displays"):
         controller.add_image(store, scene.id, channel_axis=1, composite=True)

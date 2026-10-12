@@ -12,8 +12,8 @@ import pytest
 
 from cellier.convenience import (
     AppearanceControls,
+    ClippingPlanesControl,
     HStack,
-    LabelsControlsConfig,
     Layout,
     OrthoClippingControls,
     OrthoViewer,
@@ -34,6 +34,7 @@ from cellier.gui._clipping_planes import rows_from_planes
 from cellier.scene.dims import spatial_axes
 from cellier.transform import Axis, DataCoordinateSystem
 from cellier.visuals import ClippingPlane
+from tests.convenience._controls_lists import panel
 
 PANELS = ("xy", "xz", "yz", "vol")
 TOOLKITS = ["qt", "anywidget"]
@@ -55,6 +56,14 @@ def _host(toolkit):
     return QtLayoutHost() if toolkit == "qt" else JupyterHost()
 
 
+def _controls(*, appearance, clipping):
+    """A labels controls list: the full panel, the clipping control, or both."""
+    return [
+        *(panel("labels") if appearance else []),
+        *([ClippingPlanesControl()] if clipping else []),
+    ]
+
+
 def _add(ortho, name="cells", *, flagged=True, appearance=True):
     system = DataCoordinateSystem(
         name="data",
@@ -69,7 +78,7 @@ def _add(ortho, name="cells", *, flagged=True, appearance=True):
         store,
         name=name,
         clipping_planes=(plane,),
-        controls=LabelsControlsConfig(appearance=appearance, clipping_controls=flagged),
+        controls=_controls(appearance=appearance, clipping=flagged),
     )
 
 
@@ -482,7 +491,9 @@ def test_the_dock_node_renders_the_widget(make_ortho, toolkit, qtbot):
 
 
 def test_the_dock_node_is_for_an_ortho_viewer(qtbot):
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     try:
         with pytest.raises(TypeError, match="needs an OrthoViewer"):
             render_dock(OrthoClippingControls(), viewer, JupyterHost(), [])
@@ -544,20 +555,21 @@ _APPEARANCE = frozenset({"AppearanceControls"})
 _CLIPPING = frozenset({"OrthoClippingControls"})
 _VIEWER, _ORTHO = "AppearanceControls", "OrthoClippingControls"
 
-#: (appearance, clipping_controls, dock nodes, the viewer's clipping node,
-#: what the message names, or None when every flag has its node).
+#: (appearance controls, a clipping control, dock nodes, the viewer's clipping
+#: node, what the message names, or None when every control has its node).
 _FLAG_CASES = [
     # Nothing asked for: nothing needed.
     (False, False, _NONE, _VIEWER, None),
     (False, False, _NONE, _ORTHO, None),
     # Appearance needs its dock, on both viewers.
     (True, False, _NONE, _VIEWER, "AppearanceControls()"),
-    (["opacity"], False, _NONE, _ORTHO, "AppearanceControls()"),
+    (True, False, _NONE, _ORTHO, "AppearanceControls()"),
     (True, False, _APPEARANCE, _VIEWER, None),
-    # On a Viewer the clipping control is in the appearance dock.
+    # On a Viewer the clipping control is in the appearance dock, with or
+    # without any other control.
     (True, True, _APPEARANCE, _VIEWER, None),
-    (False, True, _APPEARANCE, _VIEWER, "appearance=True"),
-    (False, True, _NONE, _VIEWER, "appearance=True"),
+    (False, True, _APPEARANCE, _VIEWER, None),
+    (False, True, _NONE, _VIEWER, "AppearanceControls()"),
     # On an OrthoViewer it has its own dock.
     (False, True, _NONE, _ORTHO, "OrthoClippingControls()"),
     (True, True, _APPEARANCE, _ORTHO, "OrthoClippingControls()"),
@@ -572,7 +584,7 @@ _FLAG_CASES = [
 def test_a_flag_needs_its_dock_node(
     appearance, clipping, nodes, clipping_node, missing
 ):
-    config = LabelsControlsConfig(appearance=appearance, clipping_controls=clipping)
+    config = _controls(appearance=appearance, clipping=clipping)
     problem = missing_dock_node(config, nodes, clipping_node=clipping_node)
     if missing is None:
         assert problem is None
@@ -697,11 +709,20 @@ def _viewer_add(viewer, name, **flags):
     store = LabelMemoryStore(
         data=np.ones((8, 9, 10), np.int32), data_coordinate_systems=[system]
     )
-    return viewer.add_labels(store, name=name, controls=LabelsControlsConfig(**flags))
+    return viewer.add_labels(
+        store,
+        name=name,
+        controls=_controls(
+            appearance=flags.get("appearance", False),
+            clipping=flags.get("clipping_controls", False),
+        ),
+    )
 
 
 def test_a_viewer_flag_needs_the_appearance_dock(qtbot):
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     try:
         viewer.add_canvas()
         # Not rendered: flags are recorded and nothing is checked.
@@ -723,10 +744,9 @@ def test_a_viewer_flag_needs_the_appearance_dock(qtbot):
         try:
             # Rendered with the dock: flagged visuals can follow.
             _viewer_add(viewer, "more", appearance=True, clipping_controls=True)
-            # Clipping controls with no appearance controls: nowhere to go.
-            with pytest.raises(ValueError, match=r"'bare'.*appearance=True"):
-                _viewer_add(viewer, "bare", clipping_controls=True)
-            assert [v.name for v in viewer.scene.visuals] == ["cells", "more"]
+            # A clipping control alone is in the appearance dock as well.
+            _viewer_add(viewer, "bare", clipping_controls=True)
+            assert [v.name for v in viewer.scene.visuals] == ["cells", "more", "bare"]
         finally:
             for closeable in view.closeables:
                 closeable.close()
@@ -735,7 +755,9 @@ def test_a_viewer_flag_needs_the_appearance_dock(qtbot):
 
 
 def test_a_viewer_rendered_with_no_dock_refuses_a_flagged_add(qtbot):
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     try:
         viewer.add_canvas()
         _viewer_add(viewer, "plain")  # no flags

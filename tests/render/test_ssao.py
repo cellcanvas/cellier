@@ -835,7 +835,7 @@ def ssao_controller(qtbot, offscreen_renderer):
         )
     )
     controller.camera_reslice_enabled = False
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_image(
         data=ImageMemoryStore(data=data, name="volume"),
         scene_id=scene.id,
@@ -885,7 +885,7 @@ def test_a_2d_canvas_never_runs_the_pass(qtbot, offscreen_renderer):
         )
     )
     controller.camera_reslice_enabled = False
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_canvas(scene_id=scene.id)
     canvas = next(iter(controller._render_manager._canvases.values()))
 
@@ -1045,7 +1045,7 @@ def test_the_canvas_carries_the_normal_target_when_enabled(ssao_controller):
 
     plain = CellierController()
     plain.camera_reslice_enabled = False
-    scene = plain.add_scene(dim="3d", name="scene")
+    scene = plain.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     plain.add_canvas(scene_id=scene.id)
     plain_canvas = next(iter(plain._render_manager._canvases.values()))
     assert not isinstance(plain_canvas._renderer._blender, CellierBlender)
@@ -1155,7 +1155,7 @@ async def test_in_memory_volume_writes_the_normal_target(
     """``image_volume.wgsl`` -- the in-memory image volume, iso mode."""
     from cellier.visuals import InMemoryImageAppearance
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_image(
         data=image_volume,
         scene_id=scene.id,
@@ -1177,7 +1177,7 @@ async def test_in_memory_labels_volume_writes_the_normal_target(
     """``label_volume.wgsl`` -- the in-memory labels volume."""
     from cellier.visuals import InMemoryLabelsAppearance
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_labels(
         data=labels_volume,
         scene_id=scene.id,
@@ -1206,7 +1206,7 @@ async def test_multiscale_volume_writes_the_normal_target(
         MultiscaleImageRenderConfig,
     )
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_image_multiscale(
         data=multiscale_image_store,
         scene_id=scene.id,
@@ -1242,7 +1242,7 @@ async def test_multiscale_labels_volume_writes_the_normal_target(
         MultiscaleLabelsAppearance,
     )
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,

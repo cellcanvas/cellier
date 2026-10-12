@@ -208,7 +208,10 @@ def build_viewer(image_path: Path, gui: str = "qt"):
         ``(viewer, image_visual, labels_visual)``.
     """
     viewer = Viewer(
-        spatial_axes(*AXIS_NAMES), dim="3d", render_modes={"2d", "3d"}, gui=gui
+        spatial_axes(*AXIS_NAMES),
+        displayed_axes=AXIS_NAMES,
+        render_modes={"2d", "3d"},
+        gui=gui,
     )
     world = viewer.scene.dims.world_coordinate_system
 

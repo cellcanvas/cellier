@@ -68,8 +68,8 @@ from cellier.gui._axis_values import (
     nearest_value_index,
 )
 from cellier.gui._constants import DIMS_SLIDER_THROTTLE_MS
+from cellier.gui._dims import DisplayedAxesMemory, scene_toggle_axes, thickness_axes
 from cellier.gui._dims import initial_slice_indices as seed_slice_indices
-from cellier.gui._dims import thickness_axes
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
@@ -252,11 +252,14 @@ class QtDimsControl:
         Starting half-thicknesses; typically
         ``scene.dims.selection.thickness``.  An axis absent from it is 0.
     axes_2d :
-        Axis indices to display when toggling to 2D, or ``None`` to omit the
-        toggle button entirely (e.g. a scene with fewer than 3 axes).
+        Axis indices the toggle displays in 2D until the scene has shown a
+        2D set; after that it returns to the last 2D set shown.  ``None``
+        omits the toggle button entirely (e.g. a scene with fewer than 3
+        axes).
     axes_3d :
-        Axis indices to display when toggling to 3D, or ``None`` to omit the
-        toggle button entirely.
+        Axis indices the toggle displays in 3D until the scene has shown a
+        3D set; after that it returns to the last 3D set shown.  ``None``
+        omits the toggle button entirely.
     parent :
         Optional Qt parent widget for the internal container.
     """
@@ -293,8 +296,11 @@ class QtDimsControl:
         # in flight, or ``None`` if it reported none.  Decides whether a
         # raising toggle rolls the control back.
         self._model_displayed_during_toggle: tuple[int, ...] | None = None
-        self._axes_2d = axes_2d
-        self._axes_3d = axes_3d
+        # What the toggle goes back to; ``None`` when there is no toggle.
+        self._axes_memory: DisplayedAxesMemory | None = None
+        if axes_2d is not None and axes_3d is not None:
+            self._axes_memory = DisplayedAxesMemory(axes_2d, axes_3d)
+            self._axes_memory.observe(initial_displayed_axes)
 
         # Single-shot QTimer for rate-limiting rapid slider moves.
         # Fires at most once per interval; a dirty flag ensures the final
@@ -595,10 +601,10 @@ class QtDimsControl:
         )
 
     def _on_toggle_click(self) -> None:
-        if self._axes_2d is None or self._axes_3d is None:
+        if self._axes_memory is None:
             return
         previous = tuple(self._displayed_axes)
-        target_displayed = self._axes_2d if len(previous) == 3 else self._axes_3d
+        target_displayed = self._axes_memory.toggle_target(previous)
 
         # Only ``displayed_axes`` is sent: every axis keeps its slice position
         # in the model whatever is displayed (D36), so there is nothing to
@@ -625,7 +631,12 @@ class QtDimsControl:
             raise
 
     def _apply_displayed(self, displayed_axes: tuple[int, ...]) -> None:
-        """Hide *displayed_axes*' sliders and label the toggle for the other mode."""
+        """Hide *displayed_axes*' sliders and label the toggle for the other mode.
+
+        Also records the set as the one the toggle returns to for its mode.
+        """
+        if self._axes_memory is not None:
+            self._axes_memory.observe(displayed_axes)
         self._update_visibility(displayed_axes)
         if self._toggle_button is not None:
             is_3d = len(displayed_axes) == 3
@@ -779,8 +790,10 @@ class QtCanvasWidget:
         Derives axis labels and the initial dims state from *scene* so that
         callers only need to supply *axis_values* (which requires data-store
         knowledge not available on the dims model itself).  The 2D/3D toggle
-        is included automatically when the scene has 3 or more axes: 3D
-        displays the last three axis labels, 2D the last two.
+        is included automatically when the scene renders both ways and has
+        an axis to add to a 2D view.  It starts from the scene's displayed
+        axes; the mode not shown yet gets a default
+        (:func:`cellier.gui._dims.default_toggle_axes`).
 
         Call ``controller.connect_widget`` on the returned widget's
         ``dims_control`` after construction to wire subscriptions.
@@ -805,20 +818,7 @@ class QtCanvasWidget:
         initial_slice_indices = seed_slice_indices(selection, axis_values)
         initial_displayed_axes = getattr(selection, "displayed_axes", ())
 
-        axes_2d: tuple[int, ...] | None = None
-        axes_3d: tuple[int, ...] | None = None
-        # The toggle is offered only when the *scene* says it can render both
-        # ways.  An OrthoViewer panel declares exactly one mode -- three slice
-        # views and one volume -- so offering to switch it put the scene into a
-        # mode it was never configured for: the reslice produced no geometry,
-        # the scene had no bounds, and the panel went blank
-        # (``plans/gui_backend_seam.md`` D18).  A plain ``Viewer`` declares
-        # both, so its toggle is unaffected.
-        modes = {str(mode) for mode in getattr(scene, "render_modes", ())}
-        if len(axis_labels_list) >= 3 and {"2d", "3d"} <= modes:
-            ndim = len(axis_labels_list)
-            axes_3d = tuple(range(ndim - 3, ndim))
-            axes_2d = tuple(range(ndim - 2, ndim))
+        axes_2d, axes_3d = scene_toggle_axes(scene)
 
         dims_control = QtDimsControl(
             scene_id=scene.id,

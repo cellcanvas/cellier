@@ -36,6 +36,7 @@ from cellier.visuals import (
 )
 from cellier.visuals._image_memory import InMemoryImageAppearance
 from cellier.visuals._points_memory import PointsMarkerAppearance
+from tests._displayed import trailing_axes
 from tests._v2 import data_system
 
 
@@ -67,7 +68,9 @@ def _raw_2d(
 def _make_2d_controller():
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim="2d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("y", "x"), coordinate_system=cs, name="main"
+    )
     return controller, scene.id
 
 
@@ -213,7 +216,9 @@ def test_hover_move_without_press_has_none_gesture_id():
 def _controller_with_points():
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     positions = np.array(
         [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]], dtype=np.float32
     )
@@ -229,7 +234,9 @@ def _controller_with_points():
 def _controller_with_lines():
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     # 3 edges -> 6 vertices.
     positions = np.array(
         [
@@ -284,7 +291,9 @@ def test_extract_lines_vertex_to_edge_mapping():
 def _controller_with_mesh():
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     pos = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float32)
     idx = np.array([[0, 1, 2], [0, 1, 3]], dtype=np.int32)
     visual = controller.add_mesh(
@@ -538,7 +547,9 @@ def _image_visual_with_transform(
     """A controller holding one in-memory image under a stated data -> world map."""
     controller = CellierController()
     cs = world_coordinate_system(world_axes, name="world")
-    scene = controller.add_scene(dim=dim, coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=trailing_axes(cs, dim), coordinate_system=cs, name="main"
+    )
     store = ImageMemoryStore(
         data=np.zeros(shape, dtype=np.float32),
         name="img",

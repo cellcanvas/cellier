@@ -243,7 +243,7 @@ def test_a_store_added_to_a_scene_takes_the_worlds_trailing_axes():
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
         coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
     )
     store = ImageMemoryStore(data=np.zeros((4, 5, 6), dtype=np.float32))
     controller.add_image(
@@ -264,7 +264,9 @@ def test_a_store_added_to_a_scene_takes_the_worlds_trailing_axes():
 
 def test_a_store_that_already_knows_its_axes_is_left_alone():
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=spatial_axes("z", "y", "x"))
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=spatial_axes("z", "y", "x")
+    )
     store = ImageMemoryStore(
         data=np.zeros((4, 5, 6), dtype=np.float32),
         data_coordinate_systems=[data_system(("depth", "row", "col"))],

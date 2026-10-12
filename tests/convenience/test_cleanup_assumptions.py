@@ -25,9 +25,9 @@ from cellier.convenience import AppearanceControls, Viewer
 from cellier.convenience._backend import ANYWIDGET_BACKEND
 from cellier.convenience._hosts import QtLayoutHost
 from cellier.convenience.gui._controls_config import (
-    BaseControlsConfig,
-    InMemoryImageControlsConfig,
-    MultiscaleImageControlsConfig,
+    BoundingBoxControl,
+    ImageControl,
+    validate_controls,
 )
 from cellier.convenience.layout._walk import build_appearance_widgets, render_dock
 from cellier.data.image._image_memory_store import ImageMemoryStore
@@ -70,7 +70,9 @@ def _two_image_viewer() -> tuple[Viewer, list]:
     Stands in for the ``OrthoViewer`` sibling group: what the fan-out tests
     need is N visuals one widget can be subscribed to, not four panels.
     """
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="anywidget")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="anywidget"
+    )
     visuals = [
         viewer.add_image(
             _image_store(),
@@ -294,49 +296,30 @@ def test_every_visual_model_has_an_aabb_field():
 
 
 # ---------------------------------------------------------------------------
-# Assumption: ``MultiscaleImageControlsConfig`` subclasses
-# ``InMemoryImageControlsConfig``, so ``isinstance`` passes one way only.
-# Assumed by: stages 3 and 4 (per-subclass vocabulary narrowing).
+# ``appearance=True`` (stage 5's "default panel") is gone: ``controls=`` is an
+# explicit list (ordered controls design D5).
 # ---------------------------------------------------------------------------
 
 
-def test_multiscale_config_isinstance_asymmetry():
-    in_memory = InMemoryImageControlsConfig()
-    multiscale = MultiscaleImageControlsConfig()
-
-    assert issubclass(MultiscaleImageControlsConfig, InMemoryImageControlsConfig)
-    assert isinstance(multiscale, InMemoryImageControlsConfig)
-    assert not isinstance(in_memory, MultiscaleImageControlsConfig)
-
-    # Both are BaseControlsConfig, which is what the renderers' non-channel
-    # filter actually tests.
-    assert isinstance(in_memory, BaseControlsConfig)
-    assert isinstance(multiscale, BaseControlsConfig)
-
-
-# ---------------------------------------------------------------------------
-# Assumption: ``appearance=True`` is a dead value today.
-# Assumed by: stage 5, which repurposes it as "use the default field list".
-# ---------------------------------------------------------------------------
-
-
-def test_appearance_true_now_means_the_default_panel_in_both_renderers(qtbot):
-    """**Stage 5 landed here.**  ``appearance=True`` was a dead value.
-
-    This row of the section 6.2 table was pinned *because* stage 5 repurposes
-    it: before, ``True`` took the same branch as ``False`` and produced no
-    panel on either front end, and the docstring only documented
-    ``list[str]`` / ``False``.  It now resolves to the config class's default
-    field list -- everything it can drive (section 11.2).
-
-    The assumption held while it needed to; this is the change it existed to
-    make visible, not a failure of it.
-    """
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+def test_an_explicit_list_builds_the_same_panel_in_both_renderers(qtbot):
+    """What ``appearance=True`` built for an image, now written out."""
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     visual = viewer.add_image(
         _image_store(),
         appearance=InMemoryImageAppearance(),
-        controls=InMemoryImageControlsConfig(appearance=True),
+        controls=[
+            ImageControl(
+                fields=[
+                    "visible",
+                    "opacity",
+                    "color_map",
+                    "clim",
+                    "render_mode",
+                    "iso_threshold",
+                ]
+            ),
+            BoundingBoxControl(),
+        ],
         single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
     config = viewer._controls_configs[visual.id]
@@ -357,10 +340,10 @@ def test_appearance_true_now_means_the_default_panel_in_both_renderers(qtbot):
 
 
 @pytest.mark.parametrize("value", [False, True])
-def test_appearance_bool_accepted_by_the_config(value):
-    """Both booleans are valid values, so stage 5 changes meaning, not type."""
-    config = InMemoryImageControlsConfig(appearance=value)
-    assert config.appearance is value
+def test_a_bool_is_not_a_controls_value(value):
+    """There is no default list, so neither boolean means anything."""
+    with pytest.raises(TypeError, match="list the controls to show"):
+        validate_controls(value, "image", "image")
 
 
 # ---------------------------------------------------------------------------

@@ -38,7 +38,7 @@ _POSITIONS = np.array(
 def _viewer(scale=(2.0, 0.5, 0.5), translation=(10.0, 0.0, 0.0)):
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
-        coordinate_system=spatial_axes("z", "y", "x"), dim="2d"
+        coordinate_system=spatial_axes("z", "y", "x"), displayed_axes=("y", "x")
     )
     controller.add_canvas(scene.id)
     store = PointsMemoryStore(positions=_POSITIONS.copy(), name="pts")
@@ -158,7 +158,7 @@ async def test_the_uploaded_positions_are_in_ascending_data_axis_order():
 async def test_lines_require_both_endpoints_as_they_always_did():
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
-        coordinate_system=spatial_axes("z", "y", "x"), dim="2d"
+        coordinate_system=spatial_axes("z", "y", "x"), displayed_axes=("y", "x")
     )
     controller.add_canvas(scene.id)
     # Two segments: the first lies on the slice, the second straddles it.

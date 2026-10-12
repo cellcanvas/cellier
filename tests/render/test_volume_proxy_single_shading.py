@@ -65,7 +65,9 @@ def _image(controller, tmp_path, mirrored):
         level_translations=[(0.0, 0.0, 0.0, 0.0), (0.0, 0.5, 0.5, 0.5)],
         name="czyx",
     )
-    scene = controller.add_scene(coordinate_system=_CZYX, dim="3d", name="scene")
+    scene = controller.add_scene(
+        coordinate_system=_CZYX, displayed_axes=("z", "y", "x"), name="scene"
+    )
     controller.add_image_multiscale(
         store,
         scene.id,
@@ -113,7 +115,7 @@ def _labels_multiscale(controller, tmp_path, mirrored):
         level_translations=[(0.0, 0.0, 0.0), (0.5, 0.5, 0.5)],
         name="labels",
     )
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     appearance = _labels_appearance(MultiscaleLabelsAppearance, force_level=1)
     controller.add_labels_multiscale(
         data=store,
@@ -130,7 +132,7 @@ def _labels_multiscale(controller, tmp_path, mirrored):
 
 def _labels_memory(controller, tmp_path, mirrored):
     store = LabelMemoryStore(data=np.full((16, 16, 16), 3, dtype=np.int32))
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_labels(
         data=store,
         scene_id=scene.id,

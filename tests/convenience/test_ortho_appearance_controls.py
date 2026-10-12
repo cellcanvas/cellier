@@ -22,8 +22,10 @@ from cellier.convenience import AppearanceControls, OrthoViewer, Viewer
 from cellier.convenience._backend import ANYWIDGET_BACKEND, QT_BACKEND
 from cellier.convenience._hosts import QtLayoutHost
 from cellier.convenience.gui._controls_config import (
-    InMemoryImageControlsConfig,
-    MultiscaleImageControlsConfig,
+    BoundingBoxControl,
+    FieldControls,
+    ImageControl,
+    LevelOfDetailControl,
 )
 from cellier.convenience.layout._shared import appearance_targets
 from cellier.convenience.layout._walk import build_appearance_widgets, render_dock
@@ -61,13 +63,18 @@ def _target(ortho, label):
     return target
 
 
+def _image_controls(*fields, **options):
+    """An image's fields and its bounding box."""
+    return [ImageControl(fields=list(fields), **options), BoundingBoxControl()]
+
+
 def _ortho_with_controls(**config_kwargs):
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
     visuals = ortho.add_image(
         _store(),
         appearance=_appearance(),
-        controls=InMemoryImageControlsConfig(
-            appearance=config_kwargs.pop("appearance", ["clim"]), **config_kwargs
+        controls=_image_controls(
+            *config_kwargs.pop("appearance", ["clim"]), **config_kwargs
         ),
         single=_single(),
     )
@@ -101,7 +108,7 @@ def test_add_image_multiscale_records_the_config_and_the_group(multiscale_image_
     visuals = ortho.add_image_multiscale(
         multiscale_image_store,
         appearance=MultiscaleImageAppearance(),
-        controls=MultiscaleImageControlsConfig(appearance=["level_of_detail"]),
+        controls=[LevelOfDetailControl()],
         single=MultiscaleImageSingleAppearance(color_map="viridis"),
         render_config=MultiscaleImageRenderConfig(**SMALL_BUDGETS),
     )
@@ -143,7 +150,7 @@ def test_the_labels_follow_the_name():
     ortho.add_image(
         _store(),
         name="nuclei",
-        controls=InMemoryImageControlsConfig(appearance=["clim"]),
+        controls=_image_controls("clim"),
     )
 
     assert [t.label for t in appearance_targets(ortho)] == [
@@ -153,11 +160,11 @@ def test_the_labels_follow_the_name():
 
 
 def test_target_on_a_single_scene_viewer_is_one_id():
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     visual = viewer.add_image(
         _store(),
         appearance=_appearance(),
-        controls=InMemoryImageControlsConfig(appearance=["clim"]),
+        controls=_image_controls("clim"),
     )
 
     (target,) = appearance_targets(viewer)
@@ -387,7 +394,7 @@ def test_appearance_dock_renders_on_an_ortho_viewer_anywidget():
     visuals = ortho.add_image(
         _store(),
         appearance=_appearance(),
-        controls=InMemoryImageControlsConfig(appearance=["clim"]),
+        controls=_image_controls("clim"),
         single=_single(),
     )
     for label, keys, n_displayed in (
@@ -468,18 +475,19 @@ def test_the_group_helpers_stamp_the_given_source_id():
     assert {event.source_id for event in received} == {source_id}
 
 
-def test_the_renderer_warns_about_a_field_the_model_does_not_have(qtbot):
-    """The residual drop stage 3's validation cannot catch, on ortho too."""
+def test_the_renderer_warns_about_a_field_the_model_does_not_have(qtbot, mesh_store):
+    """The drop ``validate_controls`` cannot catch, on ortho too."""
+    from cellier.visuals._mesh_memory import MeshFlatAppearance
 
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
-    ortho.add_image(
-        _store(),
-        appearance=_appearance(),
-        # Valid for the multiscale config class; absent from the in-memory model.
-        controls=MultiscaleImageControlsConfig(appearance=["clim", "level_of_detail"]),
+    ortho.add_mesh(
+        mesh_store,
+        appearance=MeshFlatAppearance(),
+        # Valid for a mesh; absent from the flat appearance model.
+        controls=[FieldControls(["visible", "shininess"])],
     )
 
-    with pytest.warns(UserWarning, match="level_of_detail"):
+    with pytest.warns(UserWarning, match="shininess"):
         container = render_dock(AppearanceControls(), ortho, QtLayoutHost(), [])
 
     assert container is not None

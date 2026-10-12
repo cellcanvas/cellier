@@ -31,7 +31,7 @@ async def test_label_block_paint_fallback_renders(
     Covers the ``paint_cache_texture is None`` / ``paint_lut_texture is None``
     fallbacks in ``LabelBlockShader.get_bindings`` (``_label_multiscale.py``).
     """
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,

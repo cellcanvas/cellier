@@ -16,6 +16,7 @@ import pytest
 
 from cellier.data.mesh import MeshLevel, MultiscaleMeshStore
 from cellier.visuals import GeometryLodConfig, MeshFlatAppearance, MeshSectionConfig
+from tests._displayed import trailing_axes
 from tests._meshes import uv_sphere
 from tests.render.test_mesh_loading import _TZYX, Rig
 from tests.render.test_mesh_multiscale import LevelReads
@@ -373,7 +374,9 @@ async def test_a_capture_mid_scrub_draws_the_finest(rig, reads):
 async def test_a_scrub_of_one_scene_leaves_another_scene_fine(rig, reads):
     """Two scenes on one store, as the panels of an ortho viewer are."""
     store = _static_store()
-    other = rig.controller.add_scene(dim="3d", coordinate_system=_TZYX, name="other")
+    other = rig.controller.add_scene(
+        displayed_axes=trailing_axes(_TZYX, "3d"), coordinate_system=_TZYX, name="other"
+    )
     rig.controller.add_canvas(other.id, canvas_size=(120, 90))
     other_view = rig.controller.get_canvas_view(
         rig.controller.get_canvas_ids(other.id)[0]

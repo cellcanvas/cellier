@@ -17,7 +17,7 @@ from cellier.visuals._image_memory import InMemoryImageAppearance
 
 
 def _viewer() -> Viewer:
-    return Viewer(spatial_axes("z", "y", "x"))
+    return Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
 
 
 def _add_image(viewer: Viewer, data: np.ndarray, name: str = "img"):
@@ -110,7 +110,9 @@ def test_an_axis_only_broadcast_visuals_reach_falls_back_to_the_origin():
 
     from cellier.transform import AffineTransform
 
-    viewer = Viewer([("c", "channel"), *spatial_axes("z", "y", "x")])
+    viewer = Viewer(
+        [("c", "channel"), *spatial_axes("z", "y", "x")], displayed_axes=("y", "x")
+    )
     _add_image(viewer, np.zeros((4, 6, 8), dtype=np.float32))
     (visual,) = viewer.scene.visuals
     store = viewer.controller.get_data_store(UUID(visual.data_store_id))

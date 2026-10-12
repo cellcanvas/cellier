@@ -53,7 +53,7 @@ def controller():
 
 @pytest.fixture
 def scene(controller):
-    return controller.add_scene(dim="3d", name="scene")
+    return controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
 
 
 def _add_mesh(controller, scene, name="mesh"):
@@ -475,7 +475,7 @@ def test_outlining_while_the_pass_is_off_warns(scene):
     controller = CellierController()  # outline pass defaults to off
     controller.camera_reslice_enabled = False
     try:
-        own_scene = controller.add_scene(dim="3d", name="scene")
+        own_scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
         visual = _add_mesh(controller, own_scene)
         with pytest.warns(RuntimeWarning, match="outline pass is off"):
             visual.outline.slot = 1

@@ -142,3 +142,54 @@ def assert_panel_renders(container: QWidget | None) -> None:
         f"panel painted only {n_colors} distinct colours "
         f"(< {_MIN_DISTINCT_COLORS}); it looks blank"
     )
+
+
+def qt_control_name(native: QWidget) -> str:
+    """What one built Qt control calls itself.
+
+    A built Qt control has no ``title`` or ``label`` attribute: its name is
+    on its own chrome -- the labelled row, the group box or the collapsible.
+    """
+    from qtpy.QtWidgets import QGroupBox, QLabel
+    from superqt import QCollapsible
+
+    from cellier.gui.qt.visuals._chrome import LABELLED_ROW_OBJECT_NAME
+
+    if native.objectName() == LABELLED_ROW_OBJECT_NAME:
+        first = native.layout().itemAt(0).widget()
+        return first.text() if isinstance(first, QLabel) else ""
+    if isinstance(native, QCollapsible):
+        return native.text()
+    if isinstance(native, QGroupBox):
+        return native.title()
+    return (control_labels(native) or [""])[0]
+
+
+def qt_stacking(root: QWidget, widgets: list) -> list[int]:
+    """Indices of *widgets* sorted by where each sits in *root*, top first.
+
+    ``list(range(len(widgets)))`` when the dock stacks its controls in the
+    order it built them.
+    """
+    from qtpy.QtCore import QPoint
+    from qtpy.QtWidgets import QApplication
+
+    root.resize(400, 4000)
+    root.show()
+    QApplication.instance().processEvents()
+    tops = []
+    for index, widget in enumerate(widgets):
+        native = getattr(widget, "widget", widget)
+        assert root.isAncestorOf(native), f"control {index} is not in the dock"
+        tops.append((native.mapTo(root, QPoint(0, 0)).y(), index))
+    return [index for _top, index in sorted(tops)]
+
+
+def anywidget_stacking(dock: object, root: object, widgets: list) -> list[int]:
+    """Indices of *widgets* in the order of the slot's (or section's) children."""
+    natives = [getattr(widget, "widget", widget) for widget in widgets]
+    holder = dock.sections[0].widget if dock.sections else root
+    return [
+        next(index for index, native in enumerate(natives) if native is child)
+        for child in holder.children
+    ]

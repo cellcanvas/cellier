@@ -56,19 +56,19 @@ def _collector_off() -> Iterator[None]:
 
 
 def _add_image(controller: CellierController, request) -> UUID:
-    scene = controller.add_scene(dim="3d")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"))
     controller.add_image(request.getfixturevalue("image_volume"), scene.id)
     return scene.id
 
 
 def _add_labels(controller: CellierController, request) -> UUID:
-    scene = controller.add_scene(dim="3d")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"))
     controller.add_labels(request.getfixturevalue("labels_volume"), scene.id)
     return scene.id
 
 
 def _add_image_multiscale(controller: CellierController, request) -> UUID:
-    scene = controller.add_scene(dim="3d")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"))
     controller.add_image_multiscale(
         request.getfixturevalue("multiscale_image_store"),
         scene.id,
@@ -80,7 +80,7 @@ def _add_image_multiscale(controller: CellierController, request) -> UUID:
 
 
 def _add_labels_multiscale(controller: CellierController, request) -> UUID:
-    scene = controller.add_scene(dim="3d")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"))
     controller.add_labels_multiscale(
         request.getfixturevalue("multiscale_labels_store"),
         scene.id,

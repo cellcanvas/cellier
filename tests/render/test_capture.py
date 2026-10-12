@@ -27,7 +27,7 @@ def loaded_volume_scene(controller, image_volume, offscreen_renderer):
     canvas, so a scene without one loads nothing and every capture of it is a
     correct picture of an empty scene.
     """
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_image(
         data=image_volume,
         scene_id=scene.id,

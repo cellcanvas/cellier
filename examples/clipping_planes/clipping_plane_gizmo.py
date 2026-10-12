@@ -9,7 +9,9 @@ from skimage.data import binary_blobs
 
 from cellier.convenience import (
     AppearanceControls,
-    InMemoryImageControlsConfig,
+    BoundingBoxControl,
+    ClippingPlanesControl,
+    ImageControl,
     Layout,
     Viewer,
     axis_values_from_viewer,
@@ -50,7 +52,7 @@ planes = (
     ),
 )
 
-viewer = Viewer(spatial_axes(*AXES), dim="3d")
+viewer = Viewer(spatial_axes(*AXES), displayed_axes=AXES)
 visual = viewer.add_image(
     store,
     single=InMemoryImageSingleAppearance(
@@ -58,7 +60,20 @@ visual = viewer.add_image(
     ),
     name="image (ISO)",
     clipping_planes=planes,
-    controls=InMemoryImageControlsConfig(appearance=True, clipping_controls=True),
+    controls=[
+        ImageControl(
+            fields=[
+                "visible",
+                "opacity",
+                "color_map",
+                "clim",
+                "render_mode",
+                "iso_threshold",
+            ]
+        ),
+        BoundingBoxControl(),
+        ClippingPlanesControl(),
+    ],
 )
 visual.aabb.enabled = True
 

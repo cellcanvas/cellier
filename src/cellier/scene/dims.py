@@ -22,10 +22,11 @@ from cellier.transform import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Collection, Sequence
 
     from cellier.transform import (
         AffineTransform,
+        AxisRef,
         AxisType,
         RenderedCoordinateSystem,
     )
@@ -118,6 +119,106 @@ def world_coordinate_system(
             ) from error
         built.append(Axis(name=axis_name, axis_type=axis_type))
     return WorldCoordinateSystem(name=name, axes=tuple(built))
+
+
+def resolve_displayed_axes(
+    world: WorldCoordinateSystem,
+    displayed_axes: Sequence[AxisRef],
+    render_modes: Collection[str] | None = None,
+) -> tuple[int, ...]:
+    """Resolve the axes a scene displays to world axis indices.
+
+    The one place a displayed-axes argument is read, so the constructors and
+    ``Viewer.set_displayed_dimensions`` agree.  Any axis can be displayed,
+    whatever its type: nothing here looks at ``axis_type``.
+
+    Parameters
+    ----------
+    world : WorldCoordinateSystem
+        The scene's world axes.
+    displayed_axes : sequence of str or UUID
+        Two entries display the scene in 2D, three in 3D, in display order.
+        A ``str`` is an axis name and a ``UUID`` an axis id.  Axis names
+        need not be unique; an axis whose name another axis shares is given
+        by id.
+    render_modes : collection of str or None
+        When given, the modes the scene renders (``"2d"``, ``"3d"``); the
+        number of displayed axes must be one of them.
+
+    Returns
+    -------
+    tuple[int, ...]
+        The world axis indices, in the order given.
+
+    Raises
+    ------
+    TypeError
+        If *displayed_axes* is a single name or id, or an entry is neither a
+        ``str`` nor a ``UUID``.
+    ValueError
+        If there are not 2 or 3 entries, an entry names no axis, a name is
+        shared by several axes, two entries are the same axis, or the scene
+        does not render the mode the number of entries selects.
+    """
+    names = list(world.axis_names())
+    if isinstance(displayed_axes, (str, uuid.UUID)):
+        raise TypeError(
+            f"displayed_axes must be a tuple of 2 or 3 axis names or ids; got "
+            f"the single value {displayed_axes!r}.  For example "
+            f"displayed_axes={tuple(names[-2:])!r}."
+        )
+    entries = tuple(displayed_axes)
+    if len(entries) not in (2, 3):
+        raise ValueError(
+            f"displayed_axes must have 2 or 3 entries (2D or 3D); got "
+            f"{len(entries)}: {entries!r}.  The axes are {names}."
+        )
+    indices: list[int] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            matches = [index for index, name in enumerate(names) if name == entry]
+            if not matches:
+                raise ValueError(
+                    f"Unknown axis name {entry!r} in displayed_axes.  "
+                    f"The axes are {names}."
+                )
+            if len(matches) > 1:
+                ids = [str(world.axes[index].id) for index in matches]
+                raise ValueError(
+                    f"Axis name {entry!r} in displayed_axes is shared by "
+                    f"{len(matches)} axes.  Pass the id (a UUID) of the one "
+                    f"to display instead: {ids}."
+                )
+            indices.append(matches[0])
+        elif isinstance(entry, uuid.UUID):
+            try:
+                indices.append(world.index_of(entry))
+            except KeyError:
+                raise ValueError(
+                    f"No axis has the id {entry} given in displayed_axes.  "
+                    f"The axes are {names}."
+                ) from None
+        else:
+            raise TypeError(
+                f"Each entry of displayed_axes must be an axis name (str) or "
+                f"an axis id (UUID); got {entry!r}.  Axis indices are not "
+                f"accepted: use the name, one of {names}."
+            )
+    if len(set(indices)) != len(indices):
+        raise ValueError(
+            f"displayed_axes names the same axis more than once: {entries!r}."
+        )
+    if render_modes is not None:
+        mode = "3d" if len(indices) == 3 else "2d"
+        modes = sorted(str(m) for m in render_modes)
+        if mode not in modes:
+            raise ValueError(
+                f"displayed_axes has {len(indices)} entries, which displays "
+                f"the scene in {mode}, but render_modes is {modes}.  Give "
+                f"{2 if mode == '3d' else 3} displayed axes, or add {mode!r} "
+                f"to render_modes."
+            )
+    return tuple(indices)
 
 
 class AxisAlignedSelection(EventedModel):

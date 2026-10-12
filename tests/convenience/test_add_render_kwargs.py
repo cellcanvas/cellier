@@ -25,6 +25,7 @@ from cellier.visuals import (
     MultiscaleLabelsAppearance,
     VisualOutline,
 )
+from tests._displayed import trailing_axes
 
 _ZYX = spatial_axes("z", "y", "x")
 _ZCYX = [("z", "space"), ("c", "channel"), ("y", "space"), ("x", "space")]
@@ -120,7 +121,9 @@ _LABELS_METHODS = ("add_labels", "add_labels_multiscale")
 
 def _add(method: str, request, viewer_kwargs: dict | None = None, **kwargs):
     world, dim, fixture, call = _ADDERS[method]
-    viewer = Viewer(world, dim=dim, **(viewer_kwargs or {}))
+    viewer = Viewer(
+        world, displayed_axes=trailing_axes(world, dim), **(viewer_kwargs or {})
+    )
     return call(viewer, request.getfixturevalue(fixture), **kwargs)
 
 
@@ -206,7 +209,7 @@ def test_pick_write_false_reaches_every_render_material(method, request):
     the model said, which only a later change to ``pick_write`` corrected.
     """
     world, dim, fixture, call = _ADDERS[method]
-    viewer = Viewer(world, dim=dim)
+    viewer = Viewer(world, displayed_axes=trailing_axes(world, dim))
     visual = call(viewer, request.getfixturevalue(fixture), pick_write=False)
 
     pick_writes = _gfx_pick_writes(viewer, visual)

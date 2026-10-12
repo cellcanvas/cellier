@@ -722,7 +722,7 @@ async def test_render_2d_draws_pixels(controller, render_scene, reslice):
     pos = np.array([[0, 2, 2], [0, 2, 28], [0, 20, 2], [0, 20, 28]], dtype=np.float32)
     idx = np.array([[0, 1, 2], [1, 2, 3]], dtype=np.int32)
     store = MeshMemoryStore(positions=pos, indices=idx)
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_mesh(
         data=store,
         scene_id=scene.id,
@@ -738,7 +738,7 @@ async def test_render_3d_draws_pixels(controller, render_scene, reslice):
     pos = np.array([[2, 2, 2], [2, 2, 28], [2, 20, 2], [10, 20, 28]], dtype=np.float32)
     idx = np.array([[0, 1, 2], [1, 2, 3]], dtype=np.int32)
     store = MeshMemoryStore(positions=pos, indices=idx)
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_mesh(
         data=store,
         scene_id=scene.id,

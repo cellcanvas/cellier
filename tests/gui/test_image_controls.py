@@ -34,7 +34,7 @@ _FIELDS = ["visible", "clim", "opacity", "render_mode", "iso_threshold"]
 
 def _image(*, channel_axis=0, composite=False, n_channels=2):
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_CYX, dim="2d")
+    scene = controller.add_scene(coordinate_system=_CYX, displayed_axes=("y", "x"))
     store = ImageMemoryStore(data=np.zeros((3, 8, 8), dtype=np.float32))
     visual = controller.add_image(
         store,

@@ -1,15 +1,13 @@
 """``controls=`` for the non-image visual types.
 
-Stage 5 of ``plans/convenience_cleanup.md`` (section 11): the API half of
-section 8.4.  Stage 4 built the widgets; this makes them reachable by giving
-every visual family a config class and every ``add_*`` method a ``controls=``
-argument.
+Every ``add_*`` method takes a ``controls=`` list of control models
+(``plans/ordered_controls_list_design.md``).
 
-The highest-value tests here are the end-to-end ones (section 11.5): a config
-with ``appearance=True`` produces a dock containing the expected controls, per
-visual type.  That is what actually proves stages 3, 4 and 5 line up -- the
-vocabulary, the widgets, and the plumbing are three separate declarations and
-nothing else checks that they agree.
+The highest-value tests here are the end-to-end ones: a list naming every
+field of a visual type produces a dock containing the expected controls.
+That is what proves the vocabulary, the widgets and the plumbing line up --
+they are three separate declarations and nothing else checks that they
+agree.
 """
 
 from __future__ import annotations
@@ -20,13 +18,14 @@ from cellier.convenience import AppearanceControls, OrthoViewer, Viewer
 from cellier.convenience._backend import ANYWIDGET_BACKEND
 from cellier.convenience._hosts import QtLayoutHost
 from cellier.convenience.gui._controls_config import (
-    GraphControlsConfig,
-    LabelsControlsConfig,
-    LinesControlsConfig,
-    MeshControlsConfig,
-    MultiscaleImageControlsConfig,
-    MultiscaleLabelsControlsConfig,
-    PointsControlsConfig,
+    FIELD_KINDS,
+    BoundingBoxControl,
+    DatasetInfoControl,
+    FieldControls,
+    ImageControl,
+    LevelOfDetailControl,
+    LoadingIndicator,
+    validate_controls,
 )
 from cellier.convenience.layout._shared import (
     appearance_specs,
@@ -36,6 +35,7 @@ from cellier.convenience.layout._walk import build_appearance_widgets, render_do
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import MultiscaleImageAppearance, MultiscaleImageSingleAppearance
 from cellier.visuals._mesh_memory import MeshFlatAppearance, MeshPhongAppearance
+from tests.convenience._controls_lists import panel
 
 _PANELS = ("xy", "xz", "yz", "vol")
 
@@ -57,13 +57,13 @@ def _add(viewer, kind, stores, **kwargs):
     raise AssertionError(kind)
 
 
-CONFIGS = {
-    "labels": LabelsControlsConfig,
-    "mesh": MeshControlsConfig,
-    "points": PointsControlsConfig,
-    "lines": LinesControlsConfig,
-    "graph": GraphControlsConfig,
-}
+KINDS = ["labels", "mesh", "points", "lines", "graph"]
+
+
+def _visual_ids(viewer) -> list:
+    """Every visual of *viewer*'s scenes."""
+    scenes = viewer.controller._model.scenes.values()
+    return [visual.id for scene in scenes for visual in scene.visuals]
 
 
 @pytest.fixture
@@ -78,41 +78,68 @@ def stores(labels_store, mesh_store, points_store, lines_store, graph_store):
 
 
 # ---------------------------------------------------------------------------
-# The twelve new signatures record the config
+# The signatures record the list
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", list(CONFIGS))
-def test_viewer_add_records_the_config(kind, stores):
-    viewer = Viewer(spatial_axes("z", "y", "x"))
-    config = CONFIGS[kind](appearance=True)
+@pytest.mark.parametrize("kind", KINDS)
+def test_viewer_add_records_the_list(kind, stores):
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
+    config = panel(kind)
 
     visual = _add(viewer, kind, stores, controls=config)
 
     assert viewer._controls_configs == {visual.id: config}
+    # A copy: editing the caller's list afterwards does not change the dock.
+    assert viewer._controls_configs[visual.id] is not config
 
 
-@pytest.mark.parametrize("kind", list(CONFIGS))
+@pytest.mark.parametrize("kind", KINDS)
+def test_viewer_add_with_an_empty_list_records_nothing(kind, stores):
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
+    _add(viewer, kind, stores, controls=[])
+    assert viewer._controls_configs == {}
+
+
+@pytest.mark.parametrize("viewer_cls", [Viewer, OrthoViewer])
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_refused_list_adds_no_visual(viewer_cls, kind, stores):
+    """The list is checked before anything is added."""
+    kwargs = {"displayed_axes": ("y", "x")} if viewer_cls is Viewer else {}
+    viewer = viewer_cls(spatial_axes("z", "y", "x"), **kwargs)
+
+    with pytest.raises(TypeError, match="list the controls to show"):
+        _add(viewer, kind, stores, controls=True)
+    with pytest.raises(ValueError, match="ImageControl is not available"):
+        _add(viewer, kind, stores, controls=[ImageControl(fields=["visible"])])
+
+    assert viewer._controls_configs == {}
+    assert _visual_ids(viewer) == []
+
+
+@pytest.mark.parametrize("kind", KINDS)
 def test_viewer_add_without_controls_records_nothing(kind, stores):
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     _add(viewer, kind, stores)
     assert viewer._controls_configs == {}
 
 
-@pytest.mark.parametrize("kind", list(CONFIGS))
+@pytest.mark.parametrize("kind", KINDS)
 def test_ortho_add_records_the_2d_and_3d_groups(kind, stores):
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
-    config = CONFIGS[kind](appearance=True)
+    config = panel(kind)
 
     visuals = _add(ortho, kind, stores, controls=config)
 
     ids_2d = [visuals[key].id for key in ("xy", "xz", "yz")]
     vol_id = visuals["vol"].id
     assert ortho._controls_configs == {ids_2d[0]: config, vol_id: config}
+    # One list for both groups: a re-keyed group is followed by identity.
+    assert ortho._controls_configs[ids_2d[0]] is ortho._controls_configs[vol_id]
     assert ortho._visual_groups == {ids_2d[0]: ids_2d, vol_id: [vol_id]}
 
 
-@pytest.mark.parametrize("kind", list(CONFIGS))
+@pytest.mark.parametrize("kind", KINDS)
 def test_ortho_add_without_controls_records_nothing(kind, stores):
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
     _add(ortho, kind, stores)
@@ -120,11 +147,11 @@ def test_ortho_add_without_controls_records_nothing(kind, stores):
     assert ortho._visual_groups == {}
 
 
-def test_add_labels_multiscale_takes_the_multiscale_config(multiscale_labels_store):
+def test_add_labels_multiscale_takes_the_multiscale_controls(multiscale_labels_store):
     from cellier.visuals._labels import MultiscaleLabelsAppearance
 
-    viewer = Viewer(spatial_axes("z", "y", "x"))
-    config = MultiscaleLabelsControlsConfig(appearance=["level_of_detail"])
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
+    config = [LevelOfDetailControl()]
 
     visual = viewer.add_labels_multiscale(
         multiscale_labels_store,
@@ -182,18 +209,18 @@ EXPECTED_DEFAULT_TITLES = {
 }
 
 
-@pytest.mark.parametrize("kind", list(CONFIGS))
-def test_appearance_true_builds_the_default_qt_dock(qtbot, kind, stores):
-    """The test section 11.5 calls the highest-value one in the group.
+@pytest.mark.parametrize("kind", KINDS)
+def test_every_field_builds_the_full_qt_dock(qtbot, kind, stores):
+    """The highest-value test in the group.
 
     It fails if the vocabulary, the widget catalog and the plumbing disagree
-    anywhere -- a valid field with no widget, a widget with no config entry, a
-    config the renderer cannot resolve.
+    anywhere -- a valid field with no widget, a widget with no table entry, a
+    list the renderer cannot resolve.
     """
     from tests.convenience._qt_acceptance import assert_panel_renders, control_labels
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
-    _add(viewer, kind, stores, controls=CONFIGS[kind](appearance=True))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
+    _add(viewer, kind, stores, controls=panel(kind))
 
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
@@ -201,13 +228,15 @@ def test_appearance_true_builds_the_default_qt_dock(qtbot, kind, stores):
     assert_panel_renders(container)
 
 
-@pytest.mark.parametrize("kind", list(CONFIGS))
-def test_appearance_true_builds_the_same_anywidget_dock(kind, stores):
+@pytest.mark.parametrize("kind", KINDS)
+def test_every_field_builds_the_same_anywidget_dock(kind, stores):
     """Same names, same order, other toolkit -- section 4.2's whole point."""
     from tests.convenience._qt_acceptance import control_labels_anywidget
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="anywidget")
-    _add(viewer, kind, stores, controls=CONFIGS[kind](appearance=True))
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="anywidget"
+    )
+    _add(viewer, kind, stores, controls=panel(kind))
     (target,) = appearance_targets(viewer)
 
     built = build_appearance_widgets(
@@ -237,26 +266,34 @@ def test_dataset_info_reaches_both_docks(qtbot, multiscale_image_store):
     rows = [("Scale levels", "2"), ("Data type", "float32")]
     expected = ["Image", "Bounding box", "Data fetch status", "Dataset info"]
 
-    qt_viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    qt_viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     qt_viewer.add_image_multiscale(
         multiscale_image_store,
         appearance=MultiscaleImageAppearance(),
-        controls=MultiscaleImageControlsConfig(
-            appearance=["color_map"], dataset_info=rows
-        ),
+        controls=[
+            ImageControl(fields=["color_map"]),
+            BoundingBoxControl(),
+            LoadingIndicator(),
+            DatasetInfoControl(info=rows),
+        ],
         single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     container = render_dock(AppearanceControls(), qt_viewer, QtLayoutHost(), [])
     assert control_labels(container) == expected
     assert_panel_renders(container)
 
-    any_viewer = Viewer(spatial_axes("z", "y", "x"), gui="anywidget")
+    any_viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="anywidget"
+    )
     any_viewer.add_image_multiscale(
         multiscale_image_store,
         appearance=MultiscaleImageAppearance(),
-        controls=MultiscaleImageControlsConfig(
-            appearance=["color_map"], dataset_info=rows
-        ),
+        controls=[
+            ImageControl(fields=["color_map"]),
+            BoundingBoxControl(),
+            LoadingIndicator(),
+            DatasetInfoControl(info=rows),
+        ],
         single=MultiscaleImageSingleAppearance(color_map="viridis", clim=(0.0, 1.0)),
     )
     (target,) = appearance_targets(any_viewer)
@@ -292,15 +329,15 @@ def test_dataset_info_rows_reach_each_front_end_as_data(qtbot):
     assert isinstance(form.itemAt(0, form.ItemRole.FieldRole).widget(), QLabel)
 
 
-@pytest.mark.parametrize("kind", list(CONFIGS))
-def test_appearance_false_still_hides_the_panel(qtbot, kind, stores):
-    """``appearance=False`` asks for no panel, so the visual is not offered."""
+@pytest.mark.parametrize("kind", KINDS)
+def test_an_empty_list_shows_no_panel(qtbot, kind, stores):
+    """An empty list asks for no controls, so the visual is not offered."""
     from qtpy.QtWidgets import QLabel
 
     from cellier.convenience.layout._controls_dock import APPEARANCE_PLACEHOLDER
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
-    _add(viewer, kind, stores, controls=CONFIGS[kind](appearance=False))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
+    _add(viewer, kind, stores, controls=[])
 
     assert appearance_targets(viewer) == []
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
@@ -308,22 +345,21 @@ def test_appearance_false_still_hides_the_panel(qtbot, kind, stores):
     assert APPEARANCE_PLACEHOLDER in labels
 
 
-def test_a_phong_mesh_gets_its_own_fields_from_the_same_config(qtbot, mesh_store):
-    """One ``MeshControlsConfig`` covers both mesh models.
+def test_a_phong_mesh_gets_its_own_fields(qtbot, mesh_store):
+    """``FieldControls`` covers both mesh models.
 
-    ``wireframe`` is flat-only and ``shininess`` phong-only; the panel follows
-    the model the visual actually carries, so ``appearance=True`` is safe on
-    either without two config classes.
+    ``wireframe`` is flat-only and ``shininess`` phong-only; the list names
+    the fields of the model the visual carries.
     """
     from tests.convenience._qt_acceptance import control_labels
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     # A phong mesh warns about scene lighting, which is unrelated to controls.
     with pytest.warns(UserWarning, match="requires lights"):
         viewer.add_mesh(
             mesh_store,
             appearance=MeshPhongAppearance(),
-            controls=MeshControlsConfig(appearance=True),
+            controls=panel("mesh", MeshPhongAppearance()),
         )
 
     assert control_labels(
@@ -343,10 +379,8 @@ def test_the_labels_combo_offers_the_models_own_render_modes(qtbot, labels_store
     """In-memory labels: two modes, and no image render modes."""
     from cellier.gui.qt.visuals import QtLabelsRenderModeCombo
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
-    visual = viewer.add_labels(
-        labels_store, controls=LabelsControlsConfig(appearance=["render_mode"])
-    )
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
+    visual = viewer.add_labels(labels_store, controls=[FieldControls(["render_mode"])])
 
     spec = appearance_specs(visual, viewer._controls_configs[visual.id]).specs[0]
     widget = QtLabelsRenderModeCombo(visual.id, **spec.values)
@@ -363,10 +397,8 @@ def test_the_labels_combo_offers_the_models_own_render_modes(qtbot, labels_store
 def test_a_rendered_control_writes_the_model(qtbot, points_store):
     from cellier.convenience.layout._spec import AppearanceControls
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
-    visual = viewer.add_points(
-        points_store, controls=PointsControlsConfig(appearance=["size"])
-    )
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
+    visual = viewer.add_points(points_store, controls=[FieldControls(["size"])])
 
     container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
     from PySide6.QtWidgets import QDoubleSpinBox
@@ -385,9 +417,7 @@ def test_an_ortho_non_image_edit_reaches_the_2d_panels(qtbot, points_store):
     from cellier.convenience.layout._spec import AppearanceControls
 
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
-    visuals = ortho.add_points(
-        points_store, controls=PointsControlsConfig(appearance=["size"])
-    )
+    visuals = ortho.add_points(points_store, controls=[FieldControls(["size"])])
 
     container = render_dock(AppearanceControls(), ortho, QtLayoutHost(), [])
     from PySide6.QtWidgets import QDoubleSpinBox
@@ -408,11 +438,11 @@ def test_a_visible_toggle_reaches_the_model_on_its_own_event(qtbot, mesh_store):
     """
     from cellier.convenience.layout._spec import AppearanceControls
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     visual = viewer.add_mesh(
         mesh_store,
         appearance=MeshFlatAppearance(),
-        controls=MeshControlsConfig(appearance=["visible"]),
+        controls=[FieldControls(["visible"])],
     )
     assert visual.appearance.visible is True
 
@@ -425,46 +455,31 @@ def test_a_visible_toggle_reaches_the_model_on_its_own_event(qtbot, mesh_store):
 
 
 # ---------------------------------------------------------------------------
-# Vocabulary, per new config class
+# A field the visual's model lacks
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", list(CONFIGS))
-def test_every_new_config_accepts_the_universal_fields(kind):
-    assert CONFIGS[kind](appearance=["visible", "opacity"]).appearance == [
-        "visible",
-        "opacity",
-    ]
+def test_a_field_the_mesh_model_lacks_warns_and_builds_the_rest(qtbot, mesh_store):
+    """No quiet drop: every name is one the caller wrote."""
+    from tests.convenience._qt_acceptance import control_labels
 
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
+    viewer.add_mesh(
+        mesh_store,
+        appearance=MeshFlatAppearance(),
+        controls=[FieldControls(["shininess", "wireframe", "visible"])],
+    )
 
-@pytest.mark.parametrize(
-    ("kind", "field"),
-    [
-        ("labels", "size"),
-        ("mesh", "thickness"),
-        ("points", "wireframe"),
-        ("lines", "node_size"),
-        ("graph", "shininess"),
-    ],
-)
-def test_a_field_from_another_visual_family_is_rejected(kind, field):
-    """The vocabulary is per family, so a mesh field is not a points field."""
-    with pytest.raises(ValueError, match=field):
-        CONFIGS[kind](appearance=[field])
+    with pytest.warns(UserWarning, match=r"\['shininess'\]"):
+        container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
-
-def test_level_of_detail_is_multiscale_labels_only():
-    with pytest.raises(ValueError, match="level_of_detail"):
-        LabelsControlsConfig(appearance=["level_of_detail"])
-    assert MultiscaleLabelsControlsConfig(
-        appearance=["level_of_detail"]
-    ).appearance == ["level_of_detail"]
+    assert control_labels(container) == ["Wireframe", "Visible"]
 
 
 def test_colormap_mode_is_not_in_the_labels_vocabulary():
     """It is ``frozen=True``; a control for it could only raise."""
     with pytest.raises(ValueError, match="colormap_mode"):
-        LabelsControlsConfig(appearance=["colormap_mode"])
+        validate_controls([FieldControls(["colormap_mode"])], "labels", "labels")
 
 
 def test_the_shared_widget_table_agrees_with_the_field_classes():
@@ -571,28 +586,18 @@ def test_composite_default_titles_match_the_shared_vocabulary():
 
 
 def test_every_valid_field_name_has_a_widget():
-    """Section 10.1's rule, checked across every config class at once.
+    """A name is valid only if a widget exists for it, on every visual kind.
 
-    A name that passes validation and then renders nothing is the exact bug
-    stage 3 removed; widening a vocabulary past the widgets would reintroduce
-    it.
+    A name that passes validation and then renders nothing is a silent
+    failure; widening a vocabulary past the widgets would reintroduce it.
     """
-    from cellier.convenience.gui import _controls_config
     from cellier.gui._appearance_fields import APPEARANCE_FIELD_WIDGETS
 
-    bespoke = {"image", "level_of_detail"}
-    config_classes = [
-        value
-        for value in vars(_controls_config).values()
-        if isinstance(value, type)
-        and issubclass(value, _controls_config.BaseControlsConfig)
-    ]
-    assert config_classes
-
-    for config_class in config_classes:
-        for field, kind in config_class.APPEARANCE_CONTROLS.items():
-            assert kind in APPEARANCE_FIELD_WIDGETS or kind in bespoke, (
-                f"{config_class.__name__}.{field} -> {kind} has no widget"
+    assert FIELD_KINDS
+    for visual_kind, fields in FIELD_KINDS.items():
+        for field, kind in fields.items():
+            assert kind in APPEARANCE_FIELD_WIDGETS or kind == "image", (
+                f"{visual_kind}.{field} -> {kind} has no widget"
             )
 
 
@@ -758,14 +763,18 @@ def test_a_long_path_does_not_widen_the_qt_dock(qtbot, multiscale_image_store):
     )
 
     def dock_width(path: str) -> int:
-        viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+        viewer = Viewer(
+            spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt"
+        )
         viewer.add_image_multiscale(
             multiscale_image_store,
             appearance=MultiscaleImageAppearance(),
-            controls=MultiscaleImageControlsConfig(
-                appearance=["color_map"],
-                dataset_info=[("Path", path), ("Data type", "float32")],
-            ),
+            controls=[
+                ImageControl(fields=["color_map"]),
+                BoundingBoxControl(),
+                LoadingIndicator(),
+                DatasetInfoControl(info=[("Path", path), ("Data type", "float32")]),
+            ],
             single=MultiscaleImageSingleAppearance(
                 color_map="viridis", clim=(0.0, 1.0)
             ),

@@ -14,8 +14,13 @@ from skimage.data import binary_blobs
 
 from cellier.convenience import (
     AppearanceControls,
+    BoundingBoxControl,
+    ClippingPlanesControl,
+    ImageControl,
     Layout,
-    MultiscaleImageControlsConfig,
+    LevelOfDetailControl,
+    LoadingIndicator,
+    RenderPlanesControl,
     Viewer,
     axis_values_from_viewer,
     run,
@@ -110,7 +115,7 @@ store = MultiscaleZarrDataStore.from_scale_and_translation(
 # Viewer, planes and visual
 # ---------------------------------------------------------------------------
 
-viewer = Viewer(spatial_axes(*AXES), dim="3d")
+viewer = Viewer(spatial_axes(*AXES), displayed_axes=AXES)
 controller = viewer.controller
 
 # The render plane is in world coordinates and faces z; it runs to the edge
@@ -139,12 +144,14 @@ visual = viewer.add_image_multiscale(
     name="image (plane)",
     render_planes=(render_plane,),
     clipping_planes=(clipping_plane,),
-    controls=MultiscaleImageControlsConfig(
-        appearance=["visible", "level_of_detail"],
-        render_plane_controls=True,
-        clipping_controls=True,
-        loading_indicator=True,
-    ),
+    controls=[
+        ImageControl(fields=["visible"]),
+        LevelOfDetailControl(),
+        BoundingBoxControl(),
+        ClippingPlanesControl(),
+        RenderPlanesControl(),
+        LoadingIndicator(),
+    ],
 )
 visual.aabb.enabled = True
 

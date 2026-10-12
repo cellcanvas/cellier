@@ -94,7 +94,11 @@ def _raw(canvas_id, scene_id, visual_id, details, *, action, camera, gesture_id=
 
 
 def _composite_image(controller, store, dim):
-    scene = controller.add_scene(coordinate_system=_CZYX, dim=dim, name="scene")
+    scene = controller.add_scene(
+        coordinate_system=_CZYX,
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+        name="scene",
+    )
     visual = controller.add_image_multiscale(
         store,
         scene.id,
@@ -234,7 +238,9 @@ async def test_multiscale_labels_value_arrives_asynchronously(
     controller, drive_reslice, labels_store
 ):
     scene = controller.add_scene(
-        coordinate_system=spatial_axes("z", "y", "x"), dim="3d", name="scene"
+        coordinate_system=spatial_axes("z", "y", "x"),
+        displayed_axes=("z", "y", "x"),
+        name="scene",
     )
     visual = controller.add_labels_multiscale(
         labels_store,

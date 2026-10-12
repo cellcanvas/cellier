@@ -643,7 +643,7 @@ async def test_a_composite_splits_the_cache_and_every_channel_plans_the_same_bri
         store, voxel = fx.open_pyramid(pyramid_root(spec), spec, name=f"c{n_channels}")
         scene = controller.add_scene(
             coordinate_system=spatial_axes("c", "z", "y", "x"),
-            dim="3d",
+            displayed_axes=("z", "y", "x"),
             name=f"channels-{n_channels}",
         )
         controller._ensure_data_coordinate_systems(scene.id, store)

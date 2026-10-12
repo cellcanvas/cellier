@@ -76,7 +76,9 @@ def bright_multiscale_store(tmp_path) -> MultiscaleZarrDataStore:
 @pytest.fixture
 def multiscale_viewer(bright_multiscale_store, offscreen_gpu) -> Viewer:
     """A headless 2D ``Viewer`` holding the bright multiscale image, no canvas."""
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="2d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="offscreen"
+    )
     viewer.add_image_multiscale(
         bright_multiscale_store,
         appearance=MultiscaleImageAppearance(),

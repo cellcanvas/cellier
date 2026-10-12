@@ -198,7 +198,7 @@ def main() -> None:
     for i, shape in enumerate(store.level_shapes):
         print(f"  level {i}: shape={shape}")
 
-    viewer = Viewer(spatial_axes(*AXES), dim="3d")
+    viewer = Viewer(spatial_axes(*AXES), displayed_axes=("z", "y", "x"))
 
     # Voxel indices -> physical units, so the anisotropic volume is not squashed.
     transform = AffineTransform.from_axis_map(

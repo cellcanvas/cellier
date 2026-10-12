@@ -24,7 +24,10 @@ from cellier.visuals import InMemoryImageChannelAppearance, MeshFlatAppearance
 def _scene(controller, axis_labels=("z", "y", "x")):
     cs = world_coordinate_system(spatial_axes(*axis_labels), name="world")
     return controller.add_scene(
-        dim="3d", coordinate_system=cs, name="s", render_modes={"2d", "3d"}
+        displayed_axes=tuple(axis_labels[-3:]),
+        coordinate_system=cs,
+        name="s",
+        render_modes={"2d", "3d"},
     )
 
 

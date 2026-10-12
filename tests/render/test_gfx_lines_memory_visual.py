@@ -470,7 +470,7 @@ async def test_render_2d_draws_pixels(controller, render_scene, reslice):
         [[0, 2, 2], [0, 20, 28], [0, 4, 26], [0, 22, 4]], dtype=np.float32
     )
     store = LinesMemoryStore(positions=positions)
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_lines(
         data=store,
         scene_id=scene.id,
@@ -487,7 +487,7 @@ async def test_render_3d_draws_pixels(controller, render_scene, reslice):
         [[2, 2, 2], [10, 20, 28], [4, 4, 26], [8, 22, 4]], dtype=np.float32
     )
     store = LinesMemoryStore(positions=positions)
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_lines(
         data=store,
         scene_id=scene.id,

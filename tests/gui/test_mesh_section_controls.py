@@ -88,7 +88,7 @@ def controller(qtbot):
 
 
 def _add_mesh(controller, name="mesh"):
-    scene = controller.add_scene(dim="2d", name=f"scene-{name}")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name=f"scene-{name}")
     positions, indices = uv_sphere(5.0, (8.0, 8.0, 8.0))
     visual = controller.add_mesh(
         MeshMemoryStore(positions=positions, indices=indices, name=name),
@@ -171,16 +171,17 @@ def test_both_toolkits_carry_the_shared_title():
 
 
 def test_the_panel_offers_it_only_when_asked(controller):
-    from cellier.convenience import MeshControlsConfig
+    from cellier.convenience import MeshSectionControl
     from cellier.convenience.layout._shared import appearance_specs
+    from tests.convenience._controls_lists import panel
 
     _scene, visual = _add_mesh(controller)
 
     def kinds(config):
         return [spec.kind for spec in appearance_specs(visual, config).specs]
 
-    assert "mesh_section" not in kinds(MeshControlsConfig(appearance=True))
-    asked = MeshControlsConfig(appearance=True, section_controls=True)
+    assert "mesh_section" not in kinds(panel("mesh"))
+    asked = panel("mesh", None, MeshSectionControl())
     assert "mesh_section" in kinds(asked)
     spec = next(
         spec
@@ -196,7 +197,9 @@ def test_the_viewers_take_a_section(qtbot):
     from cellier.scene.dims import spatial_axes
 
     positions, indices = uv_sphere(5.0, (8.0, 8.0, 8.0))
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="2d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="offscreen"
+    )
     visual = viewer.add_mesh(
         MeshMemoryStore(positions=positions, indices=indices),
         MeshFlatAppearance(),

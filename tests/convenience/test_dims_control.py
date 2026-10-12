@@ -14,7 +14,7 @@ from cellier.scene.dims import spatial_axes
 
 
 def test_rejects_wrong_arity():
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     with pytest.raises(ValueError, match="2 or 3 entries"):
         viewer.set_displayed_dimensions(("x",))
     with pytest.raises(ValueError, match="2 or 3 entries"):
@@ -22,14 +22,15 @@ def test_rejects_wrong_arity():
 
 
 def test_rejects_unknown_axis_name():
-    viewer = Viewer(spatial_axes("z", "y", "x"))
-    with pytest.raises(ValueError, match="Unknown axis names"):
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
+    with pytest.raises(ValueError, match="Unknown axis name 'q'"):
         viewer.set_displayed_dimensions(("q", "x"))
 
 
 def test_switch_2d_to_3d_sets_displayed_axes():
     viewer = Viewer(
-        [("t", "time"), ("z", "space"), ("y", "space"), ("x", "space")], dim="2d"
+        [("t", "time"), ("z", "space"), ("y", "space"), ("x", "space")],
+        displayed_axes=("y", "x"),
     )
     scene = viewer.scene
     assert tuple(scene.dims.selection.displayed_axes) == (2, 3)
@@ -42,7 +43,8 @@ def test_switch_2d_to_3d_sets_displayed_axes():
 
 def test_roundtrip_restores_saved_slice_position():
     viewer = Viewer(
-        [("t", "time"), ("z", "space"), ("y", "space"), ("x", "space")], dim="2d"
+        [("t", "time"), ("z", "space"), ("y", "space"), ("x", "space")],
+        displayed_axes=("y", "x"),
     )
     scene = viewer.scene
 
@@ -62,7 +64,8 @@ def test_roundtrip_restores_saved_slice_position():
 
 def test_unseen_axis_defaults_to_zero_on_contract():
     viewer = Viewer(
-        [("t", "time"), ("z", "space"), ("y", "space"), ("x", "space")], dim="3d"
+        [("t", "time"), ("z", "space"), ("y", "space"), ("x", "space")],
+        displayed_axes=("z", "y", "x"),
     )
     scene = viewer.scene
     # Displaying z, y, x leaves t (axis 0) sliced.

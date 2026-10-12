@@ -19,7 +19,10 @@ from cellier.convenience import (
     OrthoViewer,
     Viewer,
 )
-from cellier.convenience.gui._controls_config import InMemoryImageControlsConfig
+from cellier.convenience.gui._controls_config import (
+    BoundingBoxControl,
+    ImageControl,
+)
 from cellier.convenience.layout import Layout, RenderControls, VStack
 from cellier.convenience.layout._controls_dock import APPEARANCE_PLACEHOLDER
 from cellier.convenience.layout._walk import render_dock
@@ -40,7 +43,9 @@ def _add_image(viewer, name: str, *, controls: bool = True):
         _store(),
         appearance=InMemoryImageAppearance(),
         name=name,
-        controls=InMemoryImageControlsConfig(appearance=["clim"]) if controls else None,
+        controls=[ImageControl(fields=["clim"]), BoundingBoxControl()]
+        if controls
+        else None,
         single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
@@ -64,7 +69,7 @@ def _subscriptions_of(viewer, widget) -> list:
 
 
 def test_recording_controls_emits_once():
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     calls = _changes(viewer)
 
     visual = _add_image(viewer, "a")
@@ -74,7 +79,7 @@ def test_recording_controls_emits_once():
 
 
 def test_an_add_without_controls_emits_nothing():
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     calls = _changes(viewer)
 
     _add_image(viewer, "a", controls=False)
@@ -83,7 +88,7 @@ def test_an_add_without_controls_emits_nothing():
 
 
 def test_removing_a_configured_visual_prunes_and_emits():
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     a = _add_image(viewer, "a")
     b = _add_image(viewer, "b")
     calls = _changes(viewer)
@@ -96,7 +101,7 @@ def test_removing_a_configured_visual_prunes_and_emits():
 
 
 def test_removing_an_unconfigured_visual_emits_nothing():
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     _add_image(viewer, "a")
     plain = _add_image(viewer, "plain", controls=False)
     calls = _changes(viewer)
@@ -107,7 +112,7 @@ def test_removing_an_unconfigured_visual_emits_nothing():
 
 
 def test_removing_a_scene_prunes_its_visuals():
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     _add_image(viewer, "a")
     _add_image(viewer, "b")
 
@@ -174,7 +179,7 @@ def test_ortho_removing_every_panel_drops_the_entry():
 
 def test_a_dropped_viewer_is_not_kept_alive_by_its_controller():
     """The removal subscription is weak: the controller may outlive the viewer."""
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     controller = viewer.controller
     ref = weakref.ref(viewer)
 
@@ -235,7 +240,7 @@ def _assert_placeholder(root, gui: str, text: str) -> None:
 
 def test_two_configured_visuals_get_a_selector(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     a = _add_image(viewer, "a")
     _add_image(viewer, "b")
 
@@ -250,7 +255,7 @@ def test_two_configured_visuals_get_a_selector(toolkit):
 
 def test_one_configured_visual_has_no_selector(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
 
     dock, root = _render(viewer, host_cls)
@@ -262,7 +267,7 @@ def test_one_configured_visual_has_no_selector(toolkit):
 
 def test_selecting_swaps_to_the_other_visuals_controls(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     b = _add_image(viewer, "b")
     dock, root = _render(viewer, host_cls)
@@ -290,7 +295,7 @@ def test_selecting_never_builds_widgets(toolkit):
     there raised inside marimo and left the dock showing closed controls.
     """
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     _add_image(viewer, "b")
     dock, _root = _render(viewer, host_cls)
@@ -310,7 +315,7 @@ def test_hidden_qt_controls_survive_the_old_column_being_deleted(qtbot):
 
     from cellier.convenience._hosts import QtLayoutHost
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     _add_image(viewer, "a")
     _add_image(viewer, "b")
     dock, root = _render(viewer, QtLayoutHost)
@@ -327,7 +332,7 @@ def test_hidden_qt_controls_survive_the_old_column_being_deleted(qtbot):
 
 def test_the_selected_controls_drive_the_selected_visual(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     a = _add_image(viewer, "a")
     b = _add_image(viewer, "b")
     dock, _root = _render(viewer, host_cls)
@@ -342,7 +347,7 @@ def test_the_selected_controls_drive_the_selected_visual(toolkit):
 
 def test_a_visual_added_after_render_joins_without_taking_the_selection(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     b = _add_image(viewer, "b")
     dock, root = _render(viewer, host_cls)
@@ -360,7 +365,7 @@ def test_a_visual_added_after_render_joins_without_taking_the_selection(toolkit)
 
 def test_a_second_visual_added_after_render_brings_the_selector(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     dock, root = _render(viewer, host_cls)
     assert dock.selector is None
@@ -373,7 +378,7 @@ def test_a_second_visual_added_after_render_brings_the_selector(toolkit):
 
 def test_removing_the_selected_visual_falls_back_to_the_first(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     a = _add_image(viewer, "a")
     b = _add_image(viewer, "b")
     dock, root = _render(viewer, host_cls)
@@ -390,7 +395,7 @@ def test_removing_the_selected_visual_falls_back_to_the_first(toolkit):
 
 def test_removing_every_visual_shows_the_placeholder_and_an_add_fills_it(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     a = _add_image(viewer, "a")
     dock, root = _render(viewer, host_cls)
 
@@ -409,7 +414,7 @@ def test_removing_every_visual_shows_the_placeholder_and_an_add_fills_it(toolkit
 
 def test_an_unconfigured_viewer_renders_a_placeholder_a_later_add_fills(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     dock, root = _render(viewer, host_cls)
     _assert_placeholder(root, gui, APPEARANCE_PLACEHOLDER)
 
@@ -421,7 +426,7 @@ def test_an_unconfigured_viewer_renders_a_placeholder_a_later_add_fills(toolkit)
 
 def test_duplicate_names_are_told_apart(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "image")
     _add_image(viewer, "image")
 
@@ -432,7 +437,7 @@ def test_duplicate_names_are_told_apart(toolkit):
 
 def test_closing_the_dock_stops_following_the_viewer(toolkit):
     gui, host_cls = toolkit
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui)
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui=gui)
     _add_image(viewer, "a")
     dock, _root = _render(viewer, host_cls)
     old = dock.widgets

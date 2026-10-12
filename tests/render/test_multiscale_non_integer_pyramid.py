@@ -168,7 +168,10 @@ def _resident_levels(tile_manager) -> set[int]:
 
 
 async def _render_image(controller, render_scene, reslice, root, dim, level):
-    scene = controller.add_scene(dim=dim, name=f"image-{dim}-{level}")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+        name=f"image-{dim}-{level}",
+    )
     visual = controller.add_image_multiscale(
         data=_store(root, f"ramp-{dim}-{level}"),
         scene_id=scene.id,
@@ -193,7 +196,10 @@ async def _render_image(controller, render_scene, reslice, root, dim, level):
 
 
 async def _render_labels(controller, render_scene, reslice, root, dim, level):
-    scene = controller.add_scene(dim=dim, name=f"labels-{dim}-{level}")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+        name=f"labels-{dim}-{level}",
+    )
     visual = controller.add_labels_multiscale(
         data=_store(root, f"bands-{dim}-{level}"),
         scene_id=scene.id,

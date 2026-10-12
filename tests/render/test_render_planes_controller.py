@@ -76,10 +76,12 @@ def _scene(controller, spec=fx.ISO, dim="3d"):
     if "t" in spec.axes:
         return controller.add_scene(
             coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-            dim=dim,
+            displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
             name="scene",
         )
-    return controller.add_scene(dim=dim, name="scene")
+    return controller.add_scene(
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"), name="scene"
+    )
 
 
 def _multiscale_image(controller, pyramid_root, *, spec=fx.ISO, dim="3d", **kwargs):
@@ -106,7 +108,7 @@ def _multiscale_image(controller, pyramid_root, *, spec=fx.ISO, dim="3d", **kwar
 
 def _memory_image(controller, *, channels=None, **kwargs):
     """An in-memory image; channel axis 0 when *channels* is given."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     rng = np.random.default_rng(0)
     if channels is None:
         store = ImageMemoryStore(data=rng.random((8, 8, 8), dtype=np.float32))
@@ -115,7 +117,7 @@ def _memory_image(controller, *, channels=None, **kwargs):
         kwargs.update(channel_axis=0, channels=channels)
         scene = controller.add_scene(
             coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")],
-            dim="3d",
+            displayed_axes=("z", "y", "x"),
             name="channels",
         )
     visual = controller.add_image(data=store, scene_id=scene.id, **kwargs)
@@ -145,7 +147,7 @@ def test_the_four_visuals_take_render_planes_and_plane_mode(
 ):
     image_store, _ = fx.open_pyramid(pyramid_root(fx.ISO), fx.ISO)
     label_store, _ = fx.open_pyramid(pyramid_root(fx.ISO, labels=True), fx.ISO)
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     plane = _plane(_world(controller, scene))
 
     visuals = [
@@ -185,7 +187,7 @@ def test_the_four_visuals_take_render_planes_and_plane_mode(
 def test_render_planes_default_to_empty_and_are_validated_on_assignment(
     controller, image_volume
 ):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_image(data=image_volume, scene_id=scene.id)
     assert visual.render_planes == ()
     assert visual.plane_mode() is False
@@ -198,7 +200,7 @@ def test_render_planes_default_to_empty_and_are_validated_on_assignment(
 
 
 def test_a_visual_without_render_planes_is_refused(controller):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     points = controller.add_points(
         data=PointsMemoryStore(positions=np.zeros((4, 3), dtype=np.float32)),
         scene_id=scene.id,
@@ -215,8 +217,8 @@ def test_a_visual_without_render_planes_is_refused(controller):
 def test_bad_tuples_are_refused_and_the_last_good_one_put_back(
     controller, image_volume
 ):
-    scene = controller.add_scene(dim="3d", name="scene")
-    other = controller.add_scene(dim="3d", name="other")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
+    other = controller.add_scene(displayed_axes=("z", "y", "x"), name="other")
     visual = controller.add_image(data=image_volume, scene_id=scene.id)
     world = _world(controller, scene)
     good = _plane(world)
@@ -249,7 +251,7 @@ def test_a_plane_on_an_axis_the_data_does_not_span_is_refused(controller, image_
     """P16: each plane axis must be one data axis, scaled and shifted."""
     scene = controller.add_scene(
         coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
     )
     visual = controller.add_image(data=image_volume, scene_id=scene.id)  # zyx data
@@ -269,8 +271,8 @@ def test_a_plane_on_an_axis_the_data_does_not_span_is_refused(controller, image_
 
 
 def test_a_visual_added_with_bad_planes_is_refused(controller, image_volume):
-    scene = controller.add_scene(dim="3d", name="scene")
-    other = controller.add_scene(dim="3d", name="other")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
+    other = controller.add_scene(displayed_axes=("z", "y", "x"), name="other")
     with pytest.raises(ValueError, match="world coordinate system"):
         controller.add_image(
             data=image_volume,
@@ -410,7 +412,7 @@ async def test_single_and_channel_modes_are_independent(controller):
 
 
 def test_only_an_image_has_a_channel_render_mode(controller, labels_volume):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     labels = controller.add_labels(data=labels_volume, scene_id=scene.id)
     with pytest.raises(TypeError, match="image visual"):
         controller.set_image_render_mode(labels.id, "plane")
@@ -422,7 +424,9 @@ async def test_the_multiscale_channels_follow_the_rule_and_reslice_once(
     spec = fx.channel_spec(2, fx.ISO)
     store, _ = fx.open_pyramid(pyramid_root(spec), spec)
     scene = controller.add_scene(
-        coordinate_system=spatial_axes("c", "z", "y", "x"), dim="3d", name="scene"
+        coordinate_system=spatial_axes("c", "z", "y", "x"),
+        displayed_axes=("z", "y", "x"),
+        name="scene",
     )
     visual = controller.add_image_multiscale(
         data=store,
@@ -459,7 +463,7 @@ async def test_the_multiscale_channels_follow_the_rule_and_reslice_once(
 def test_one_changed_event_per_assignment_with_the_source_stamped(
     controller, image_volume
 ):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_image(data=image_volume, scene_id=scene.id)
     world = _world(controller, scene)
     log = _events(controller, visual)
@@ -486,7 +490,7 @@ def test_one_changed_event_per_assignment_with_the_source_stamped(
 
 
 def test_set_render_plane_replaces_one_plane_and_keeps_its_id(controller, image_volume):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_image(data=image_volume, scene_id=scene.id)
     world = _world(controller, scene)
     first, second = _plane(world, 2.0), _plane(world, 4.0)
@@ -607,7 +611,7 @@ async def test_entering_and_leaving_plane_mode_reslices(
 async def test_an_in_memory_visual_is_sliced_when_its_first_plane_appears(
     controller, image_volume, monkeypatch
 ):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_image(
         data=image_volume,
         scene_id=scene.id,
@@ -787,7 +791,7 @@ async def test_an_eager_render_plane_drag_plans_every_tick(
 def test_an_in_memory_plane_drag_is_announced_and_reads_nothing(
     controller, image_volume, monkeypatch
 ):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = _world(controller, scene)
     visual = controller.add_image(
         data=image_volume,
@@ -817,7 +821,7 @@ def test_the_gui_combos_offer_plane(controller, image_volume, labels_volume):
     from cellier.gui._appearance_fields import literal_choices
     from cellier.gui._image_controls import image_control_values
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     image = controller.add_image(data=image_volume, scene_id=scene.id)
     labels = controller.add_labels(data=labels_volume, scene_id=scene.id)
     assert (
@@ -834,7 +838,7 @@ async def test_a_plane_mode_visual_builds_and_draws(
 
     The pixels are checked in ``test_plane_rendering_memory.py``.
     """
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = _world(controller, scene)
     if kind == "image":
         assert isinstance(image_volume, ImageMemoryStore)

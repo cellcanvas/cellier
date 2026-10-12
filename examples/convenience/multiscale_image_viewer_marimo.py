@@ -30,7 +30,7 @@ def _(mo):
     - **LOD bias** -- coarsen or refine level-of-detail (most visible when zoomed out)
     - **Bounding box** -- enable, line width, and color
     - **Dataset info** -- expand the detail block for array metadata, built
-      by the data store from its own metadata (`dataset_info=True`)
+      by the data store from its own metadata (`DatasetInfoControl()`)
 
     **Interaction (3D):** orbit (left-drag), zoom (scroll), pan (right-drag)
 
@@ -61,7 +61,11 @@ def _():
         display,
     )
     from cellier.convenience.gui import (
-        MultiscaleImageControlsConfig,
+        BoundingBoxControl,
+        DatasetInfoControl,
+        ImageControl,
+        LevelOfDetailControl,
+        LoadingIndicator,
         build_canvas_widget,
     )
     from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
@@ -74,7 +78,11 @@ def _():
         AppearanceControls,
         Layout,
         MultiscaleImageAppearance,
-        MultiscaleImageControlsConfig,
+        BoundingBoxControl,
+        DatasetInfoControl,
+        ImageControl,
+        LevelOfDetailControl,
+        LoadingIndicator,
         MultiscaleImageSingleAppearance,
         MultiscaleZarrDataStore,
         Path,
@@ -162,7 +170,11 @@ def _(Path, block_average, concentric_shells, tempfile, write_zarr3):
 @app.cell
 def _(
     MultiscaleImageAppearance,
-    MultiscaleImageControlsConfig,
+    BoundingBoxControl,
+    DatasetInfoControl,
+    ImageControl,
+    LevelOfDetailControl,
+    LoadingIndicator,
     MultiscaleImageSingleAppearance,
     MultiscaleZarrDataStore,
     Viewer,
@@ -177,7 +189,9 @@ def _(
 
     from cellier.scene.dims import spatial_axes
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="anywidget")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="anywidget"
+    )
 
     viewer.add_image_multiscale(
         store,
@@ -191,35 +205,39 @@ def _(
             render_mode="iso",
             iso_threshold=0.45,
         ),
-        controls=MultiscaleImageControlsConfig(
-            appearance=[
-                # First in the panel: the group order follows the config
-                # class's control map, not this list.
-                "visible",
-                "color_map",
-                "clim",
-                "render_mode",
-                "iso_threshold",
-                "attenuation",
-                "level_of_detail",
-            ],
-            colormap_names=[
-                "grays",
-                "viridis",
-                "plasma",
-                "inferno",
-                "magma",
-                "cividis",
-                "turbo",
-                "hot",
-                "bwr",
-                "RdYlBu",
-            ],
-            clim_range=(0.0, 1.0),
+        controls=[
+            ImageControl(
+                # The rows of the image control.  The list chooses rows; it
+                # does not order them.
+                fields=[
+                    "visible",
+                    "color_map",
+                    "clim",
+                    "render_mode",
+                    "iso_threshold",
+                    "attenuation",
+                ],
+                colormap_names=[
+                    "grays",
+                    "viridis",
+                    "plasma",
+                    "inferno",
+                    "magma",
+                    "cividis",
+                    "turbo",
+                    "hot",
+                    "bwr",
+                    "RdYlBu",
+                ],
+                clim_range=(0.0, 1.0),
+            ),
+            LevelOfDetailControl(),
+            BoundingBoxControl(),
+            LoadingIndicator(),
             # The store describes itself: path, dtype, and the per-level
             # shapes and scales read off its own level_transforms.
-            dataset_info=True,
-        ),
+            DatasetInfoControl(),
+        ],
     )
     return store, viewer
 

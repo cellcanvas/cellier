@@ -51,7 +51,7 @@ def _opaque_colors(frame: np.ndarray) -> np.ndarray:
 
 def test_construction_2d(controller, labels_volume):
     """In-memory label visuals build both inner nodes eagerly at construction."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels(data=labels_volume, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
 
@@ -61,7 +61,7 @@ def test_construction_2d(controller, labels_volume):
 
 
 def test_construction_3d(controller, labels_volume):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_labels(data=labels_volume, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
 
@@ -79,7 +79,7 @@ async def test_render_2d_shows_two_labels(
     controller, render_scene, reslice, labels_volume
 ):
     """The two label blocks upload and render as two distinct colours."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_labels(data=labels_volume, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
 
@@ -91,7 +91,7 @@ async def test_render_2d_shows_two_labels(
 
 
 async def test_render_3d_draws(controller, render_scene, reslice, labels_volume):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_labels(data=labels_volume, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
 
@@ -102,7 +102,7 @@ async def test_render_3d_draws(controller, render_scene, reslice, labels_volume)
 
 async def test_data_ready_uploads_label_texture(controller, reslice, labels_volume):
     """After reslice the inner node's texture holds the label ids (max == 7)."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels(data=labels_volume, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
 
@@ -119,7 +119,7 @@ async def test_data_ready_uploads_label_texture(controller, reslice, labels_volu
 
 
 async def test_opacity_update(controller, reslice, labels_volume):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels(data=labels_volume, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -138,7 +138,7 @@ async def test_salt_and_background_label_update_params(
     0-dimensional structured buffer, which raised ``IndexError`` on every salt /
     background_label / direct-recolor change.  Fields must be written directly.
     """
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels(data=labels_volume, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -154,7 +154,7 @@ async def test_salt_and_background_label_update_params(
 
 
 async def test_render_mode_update_3d(controller, reslice, labels_volume):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_labels(data=labels_volume, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)
@@ -175,7 +175,7 @@ async def test_color_dict_direct_mode_rebuilds_lut(controller, render_scene, res
     data[:, 9:14, 9:14] = 2
     store = LabelMemoryStore(data=data, name="direct_labels")
 
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels(
         data=store,
         scene_id=scene.id,
@@ -218,7 +218,7 @@ async def test_render_3d_direct_mode_binds_lut(controller, render_scene, reslice
     data[1:5, 9:14, 9:14] = 2
     store = LabelMemoryStore(data=data, name="direct_labels_3d")
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_labels(
         data=store,
         scene_id=scene.id,
@@ -238,7 +238,7 @@ async def test_render_3d_direct_mode_binds_lut(controller, render_scene, reslice
 
 
 async def test_visibility_toggle(controller, render_scene, reslice, labels_volume):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels(data=labels_volume, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)

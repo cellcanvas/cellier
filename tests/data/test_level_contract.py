@@ -159,7 +159,7 @@ def test_a_store_placed_by_a_scene_is_checked_when_added(pyramid_path):
     assert store.level_transforms == []
     controller = CellierController()
     try:
-        scene = controller.add_scene(dim="3d", name="contract")
+        scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="contract")
         with pytest.raises(ValueError, match="C3 translation"):
             controller.add_image_multiscale(data=store, scene_id=scene.id)
     finally:
@@ -187,7 +187,7 @@ def test_transforms_set_directly_are_checked_when_added(pyramid_path):
     ]
     controller = CellierController()
     try:
-        scene = controller.add_scene(dim="3d", name="contract")
+        scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="contract")
         with pytest.raises(ValueError, match="C3 translation"):
             controller.add_image_multiscale(data=store, scene_id=scene.id)
     finally:

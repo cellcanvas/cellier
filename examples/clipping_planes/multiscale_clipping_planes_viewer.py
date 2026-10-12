@@ -17,10 +17,14 @@ from skimage.measure import label, marching_cubes
 
 from cellier.convenience import (
     AppearanceControls,
+    BoundingBoxControl,
+    ClippingPlanesControl,
+    FieldControls,
+    ImageControl,
     Layout,
-    MeshControlsConfig,
-    MultiscaleImageControlsConfig,
-    MultiscaleLabelsControlsConfig,
+    LevelOfDetailControl,
+    LoadingIndicator,
+    MeshSectionControl,
     Viewer,
     axis_values_from_viewer,
     run,
@@ -164,7 +168,7 @@ def half(store, normal) -> tuple[ClippingPlane, ...]:
 # Viewer: the three visuals side by side along x
 # ---------------------------------------------------------------------------
 
-viewer = Viewer(spatial_axes(*AXES), dim="3d")
+viewer = Viewer(spatial_axes(*AXES), displayed_axes=AXES)
 
 
 def beside(store, column: int) -> AffineTransform:
@@ -187,12 +191,14 @@ image_visual = viewer.add_image_multiscale(
     name="image (ISO)",
     transform=beside(image_store, 0),
     clipping_planes=half(image_store, (0, 0, 1)),
-    controls=MultiscaleImageControlsConfig(
-        appearance=["visible", "render_mode", "iso_threshold", "level_of_detail"],
-        clipping_controls=True,
+    controls=[
+        ImageControl(fields=["visible", "render_mode", "iso_threshold"]),
+        LevelOfDetailControl(),
+        BoundingBoxControl(),
+        ClippingPlanesControl(),
         # How much of the plan is loaded: watch it while a plane moves.
-        loading_indicator=True,
-    ),
+        LoadingIndicator(),
+    ],
 )
 labels_visual = viewer.add_labels_multiscale(
     labels_store,
@@ -200,9 +206,15 @@ labels_visual = viewer.add_labels_multiscale(
     name="labels",
     transform=beside(labels_store, 1),
     clipping_planes=half(labels_store, (0, 1, 1)),
-    controls=MultiscaleLabelsControlsConfig(
-        appearance=True, clipping_controls=True, loading_indicator=True
-    ),
+    controls=[
+        FieldControls(
+            ["visible", "opacity", "render_mode", "salt", "background_label"]
+        ),
+        LevelOfDetailControl(),
+        BoundingBoxControl(),
+        ClippingPlanesControl(),
+        LoadingIndicator(),
+    ],
 )
 mesh_visual = viewer.add_multiscale_mesh(
     mesh_store,
@@ -212,9 +224,14 @@ mesh_visual = viewer.add_multiscale_mesh(
     clipping_planes=half(mesh_store, (0, 0, 1)),
     # Keep the coarsest level beside the finest.
     lod=GeometryLodConfig(coarse_level=None),
-    controls=MeshControlsConfig(
-        appearance=True, clipping_controls=True, section_controls=True
-    ),
+    controls=[
+        FieldControls(
+            ["visible", "opacity", "color", "side", "wireframe", "wireframe_thickness"]
+        ),
+        BoundingBoxControl(),
+        MeshSectionControl(),
+        ClippingPlanesControl(),
+    ],
 )
 
 # The bounding box of each visual's whole data.  It is not clipped, so it

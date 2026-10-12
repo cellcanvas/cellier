@@ -11,7 +11,10 @@ import numpy as np
 import pytest
 
 from cellier.convenience import Viewer
-from cellier.convenience.gui._controls_config import InMemoryImageControlsConfig
+from cellier.convenience.gui._controls_config import (
+    BoundingBoxControl,
+    ImageControl,
+)
 from cellier.convenience.layout._shared import appearance_targets
 from cellier.convenience.layout._walk import build_appearance_widgets
 from cellier.data.image._image_memory_store import ImageMemoryStore
@@ -21,12 +24,17 @@ from cellier.scene.dims import spatial_axes
 def _image_control(gui, dim):
     from cellier.convenience._backend import backend_for
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui=gui, dim=dim)
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"),
+        gui=gui,
+        displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"),
+    )
     viewer.add_image(
         ImageMemoryStore(data=np.zeros((4, 8, 8), dtype=np.float32)),
-        controls=InMemoryImageControlsConfig(
-            appearance=["clim", "render_mode", "iso_threshold"]
-        ),
+        controls=[
+            ImageControl(fields=["clim", "render_mode", "iso_threshold"]),
+            BoundingBoxControl(),
+        ],
     )
     (target,) = appearance_targets(viewer)
     image, *_rest = build_appearance_widgets(

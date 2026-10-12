@@ -18,8 +18,9 @@ pytest.importorskip("superqt")
 from cellier.convenience import Viewer
 from cellier.convenience._hosts import QtLayoutHost
 from cellier.convenience.gui import (
-    InMemoryImageControlsConfig,
-    MultiscaleImageControlsConfig,
+    BoundingBoxControl,
+    ImageControl,
+    LevelOfDetailControl,
 )
 from cellier.convenience.layout._qt_renderer import (
     _wrap_dock_widget,
@@ -68,11 +69,11 @@ def _control_names(container):
 
 
 def test_appearance_controls_builds_colormap_and_clim_groups(qtbot, image_store):
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     viewer.add_image(
         image_store,
         appearance=InMemoryImageAppearance(),
-        controls=InMemoryImageControlsConfig(appearance=["color_map", "clim"]),
+        controls=[ImageControl(fields=["color_map", "clim"]), BoundingBoxControl()],
         single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
@@ -83,13 +84,14 @@ def test_appearance_controls_builds_colormap_and_clim_groups(qtbot, image_store)
 
 
 def test_appearance_controls_explicit_clim_range(qtbot, image_store):
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     viewer.add_image(
         image_store,
         appearance=InMemoryImageAppearance(),
-        controls=InMemoryImageControlsConfig(
-            appearance=["clim"], clim_range=(0.0, 5.0)
-        ),
+        controls=[
+            ImageControl(fields=["clim"], clim_range=(0.0, 5.0)),
+            BoundingBoxControl(),
+        ],
         single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
@@ -100,13 +102,11 @@ def test_appearance_controls_explicit_clim_range(qtbot, image_store):
 
 
 def test_appearance_controls_multiscale_render_and_lod(qtbot, multiscale_image_store):
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     viewer.add_image_multiscale(
         multiscale_image_store,
         appearance=MultiscaleImageAppearance(),
-        controls=MultiscaleImageControlsConfig(
-            appearance=["render_mode", "level_of_detail"]
-        ),
+        controls=[ImageControl(fields=["render_mode"]), LevelOfDetailControl()],
         single=MultiscaleImageSingleAppearance(color_map="viridis", render_mode="mip"),
     )
 
@@ -122,7 +122,7 @@ def test_appearance_controls_placeholder_without_configs(qtbot, image_store):
 
     from cellier.convenience.layout._controls_dock import APPEARANCE_PLACEHOLDER
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     viewer.add_image(
         image_store,
         appearance=InMemoryImageAppearance(),
@@ -192,16 +192,16 @@ def test_wrap_dock_widget_orientation(qtbot, position, layout_cls):
 
 
 def test_render_dock_none_returns_none(qtbot, image_store):
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     assert render_dock(None, viewer, QtLayoutHost(), []) is None
 
 
 def test_render_dock_stack_of_appearance(qtbot, image_store):
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     viewer.add_image(
         image_store,
         appearance=InMemoryImageAppearance(),
-        controls=InMemoryImageControlsConfig(appearance=["color_map"]),
+        controls=[ImageControl(fields=["color_map"]), BoundingBoxControl()],
         single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
@@ -220,11 +220,11 @@ def test_render_dock_stack_of_appearance(qtbot, image_store):
 def test_render_qt_builds_window_with_dock(qtbot, image_store):
     from PySide6 import QtWidgets
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     viewer.add_image(
         image_store,
         appearance=InMemoryImageAppearance(),
-        controls=InMemoryImageControlsConfig(appearance=["color_map", "clim"]),
+        controls=[ImageControl(fields=["color_map", "clim"]), BoundingBoxControl()],
         single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
     leaf = _leaf()

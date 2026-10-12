@@ -60,7 +60,7 @@ def _add(controller, scene_id, store, appearance, block_size=8, **kwargs):
 
 def test_construction_2d_builds_2d_material(controller, multiscale_image_store):
     """A 2D scene builds ``node_2d`` + a 2D image material and tile cache."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = _add(
         controller,
         scene.id,
@@ -79,7 +79,7 @@ def test_construction_2d_builds_2d_material(controller, multiscale_image_store):
 
 def test_construction_3d_builds_3d_material(controller, multiscale_image_store):
     """A 3D scene builds ``node_3d`` + a volume material and brick cache."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _add(
         controller,
         scene.id,
@@ -104,7 +104,7 @@ async def test_render_2d_commits_tiles_and_draws(
     controller, render_scene, reslice, multiscale_image_store
 ):
     """The 2D pyramid commits tiles (LUT + material build) and draws pixels."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = _add(
         controller,
         scene.id,
@@ -127,7 +127,7 @@ async def test_render_3d_mip_commits_bricks_and_draws(
     controller, render_scene, reslice, multiscale_image_store
 ):
     """The 3D pyramid commits bricks and MIP-renders the bright interior."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _add(
         controller,
         scene.id,
@@ -194,7 +194,7 @@ async def test_reslice_2d_with_a_nonuniform_axis_transform(
     not exist on a ``ByDimensionTransform`` -- the type every visual sharing
     the non-uniform time axis carries, whether or not it broadcasts.
     """
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     transform = _nonuniform_z_transform(controller, scene.id, multiscale_image_store)
     visual = controller.add_image_multiscale(
         data=multiscale_image_store,
@@ -291,7 +291,7 @@ async def test_reslice_3d_with_a_nonuniform_axis_transform(
     is collapsed (not displayed) in 3D, matching the real light-sheet viewer.
     """
     scene = controller.add_scene(
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
         coordinate_system=(
             Axis(name="t", axis_type="time"),
@@ -328,7 +328,7 @@ async def test_slider_positions_on_the_same_frame_share_brick_keys(
     key the second reslice missed every brick and fetched them all again.
     """
     scene = controller.add_scene(
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
         coordinate_system=(
             Axis(name="t", axis_type="time"),
@@ -389,7 +389,7 @@ async def test_colormap_and_clim_updates_apply_to_materials(
     Driven through the controller: the render visual re-reads the model, so
     the change has to land there first.
     """
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = _add(
         controller,
         scene.id,
@@ -416,7 +416,7 @@ async def test_render_mode_and_iso_threshold_update_3d_material(
     controller, reslice, multiscale_image_store
 ):
     """``render_mode`` / ``iso_threshold`` push onto the live volume material."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _add(
         controller,
         scene.id,
@@ -447,7 +447,7 @@ async def test_attenuation_update_3d_material(
     (``_multiscale_volume_brick.py``), used by ``"attenuated_mip"`` mode and
     unreached by the other 3D tests.
     """
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _add(
         controller,
         scene.id,
@@ -468,7 +468,7 @@ async def test_attenuation_update_3d_material(
 async def test_visibility_toggle_hides_multiscale_image(
     controller, render_scene, reslice, multiscale_image_store
 ):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = _add(
         controller,
         scene.id,
@@ -501,7 +501,7 @@ def test_volume_material_is_brick_material(controller, multiscale_image_store):
     """The 3D inner node uses the multiscale brick volume material."""
     from cellier.render.visuals._image import MultiscaleVolumeBrickMaterial
 
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = _add(
         controller,
         scene.id,

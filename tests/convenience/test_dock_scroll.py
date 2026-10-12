@@ -51,7 +51,7 @@ def _window(qtbot, column):
 
     from cellier.convenience.layout._qt_renderer import render_qt
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     layout = Layout(center=_leaf(QtWidgets.QLabel("canvas")), right_dock=_DOCK)
     window = render_qt(layout, viewer)
     qtbot.addWidget(window)
@@ -87,7 +87,7 @@ def test_the_real_dock_scrolls(qtbot):
 
     from cellier.convenience.layout._qt_renderer import render_qt
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     layout = Layout(
         center=_leaf(QtWidgets.QLabel()),
         left_dock=_DOCK,
@@ -261,7 +261,7 @@ def test_short_side_docks_start_at_the_top(qtbot):
     from cellier.convenience.layout import VStack
     from cellier.convenience.layout._qt_renderer import render_qt
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     layout = Layout(
         center=_leaf(QtWidgets.QLabel()),
         left_dock=_DOCK,  # a dock_panel column, Expanding

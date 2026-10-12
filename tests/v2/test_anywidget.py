@@ -20,7 +20,10 @@ from cellier.convenience.layout._walk import build_appearance_widgets
 rendercanvas_anywidget = pytest.importorskip("rendercanvas.anywidget")
 
 from cellier.controller import CellierController  # noqa: E402
-from cellier.convenience.gui import InMemoryImageControlsConfig  # noqa: E402
+from cellier.convenience.gui import (  # noqa: E402
+    BoundingBoxControl,
+    ImageControl,
+)
 from cellier.render.canvas_view import CanvasView  # noqa: E402
 from cellier.scene.dims import (  # noqa: E402
     AxisAlignedSelection,
@@ -106,7 +109,9 @@ def test_viewer_gui_property():
     """Viewer exposes the chosen gui and threads it to the controller."""
     from cellier.convenience import Viewer
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="anywidget")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="anywidget"
+    )
     assert viewer.gui == "anywidget"
     assert viewer.controller._gui == "anywidget"
 
@@ -124,7 +129,7 @@ def test_viewer_default_gui_is_qt():
     """Viewer defaults to the Qt gui."""
     from cellier.convenience import Viewer
 
-    assert Viewer(spatial_axes("z", "y", "x")).gui == "qt"
+    assert Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x")).gui == "qt"
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +380,9 @@ def _image_viewer():
     from cellier.data.image._image_memory_store import ImageMemoryStore
 
     blobs = np.zeros((8, 8, 8), dtype=np.float32)
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="2d", gui="anywidget")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="anywidget"
+    )
     store = ImageMemoryStore(data=blobs, name="blobs")
     viewer.controller.add_data_store(store)
     viewer.add_image(store, single={"color_map": "viridis", "clim": (0.0, 1.0)})
@@ -390,13 +397,15 @@ def _image_viewer_with_controls():
     from cellier.data.image._image_memory_store import ImageMemoryStore
 
     blobs = np.zeros((8, 8, 8), dtype=np.float32)
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="2d", gui="anywidget")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="anywidget"
+    )
     store = ImageMemoryStore(data=blobs, name="blobs")
     viewer.controller.add_data_store(store)
     viewer.add_image(
         store,
         appearance={"color_map": "viridis", "clim": (0.0, 1.0)},
-        controls=InMemoryImageControlsConfig(appearance=["color_map", "clim"]),
+        controls=[ImageControl(fields=["color_map", "clim"]), BoundingBoxControl()],
     )
     return viewer, axis_values_from_viewer(viewer)
 
@@ -837,7 +846,7 @@ def test_aabb_widget_user_color_change_emits_aabb_update():
 
 
 def test_build_appearance_widgets_anywidget_from_visual():
-    """Builds one widget per spec, plus the always-on AABB.
+    """Builds one widget per spec, in the order of the list.
 
     Names come from the shared ``appearance_specs`` layer so the two front
     ends name the same control the same way (stage 1, section 7.3), and each
@@ -847,20 +856,21 @@ def test_build_appearance_widgets_anywidget_from_visual():
     import numpy as np
 
     from cellier.convenience import Viewer
-    from cellier.convenience.gui._controls_config import InMemoryImageControlsConfig
     from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.gui.anywidget.visuals import (
         AnywidgetAABBWidget,
         AnywidgetImageControls,
     )
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="anywidget")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="anywidget"
+    )
     store = ImageMemoryStore(data=np.zeros((4, 4, 4), dtype=np.float32), name="t")
     viewer.controller.add_data_store(store)
     viewer.add_image(store, single={"color_map": "viridis", "clim": (0.0, 1.0)})
 
     visual = viewer.scene.visuals[0]
-    controls_config = InMemoryImageControlsConfig(appearance=["color_map", "clim"])
+    controls_config = [ImageControl(fields=["color_map", "clim"]), BoundingBoxControl()]
 
     widgets = build_appearance_widgets(
         visual, controls_config, viewer.controller, None, backend=ANYWIDGET_BACKEND
@@ -893,13 +903,15 @@ def test_renderer_builds_appearance_widgets_for_configured_visual(monkeypatch):
         AnywidgetImageControls,
     )
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="anywidget")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="anywidget"
+    )
     store = ImageMemoryStore(data=np.zeros((4, 4, 4), dtype=np.float32), name="t")
     viewer.controller.add_data_store(store)
     viewer.add_image(
         store,
         single={"color_map": "viridis", "clim": (0.0, 1.0)},
-        controls=InMemoryImageControlsConfig(appearance=["color_map", "clim"]),
+        controls=[ImageControl(fields=["color_map", "clim"]), BoundingBoxControl()],
     )
 
     ranges = axis_values_from_viewer(viewer)

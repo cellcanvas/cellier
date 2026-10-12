@@ -25,7 +25,7 @@ def test_serialization_roundtrip(tmp_path, image_store):
     """Viewer serializes and deserializes with equivalent ViewerModels."""
     viewer = Viewer(
         spatial_axes("z", "y", "x"),
-        dim="2d",
+        displayed_axes=("y", "x"),
         render_config=RenderManagerConfig(slicing=SlicingConfig(batch_size=16)),
     )
     viewer.add_image(
@@ -62,7 +62,7 @@ def _channels(cls, count: int) -> dict:
 def test_serialization_roundtrip_unified_image(tmp_path, composite, n_channels):
     """Unified image design 3.11: mode, channels and the single page survive."""
     store = ImageMemoryStore(data=np.zeros((2, 4, 8, 8), dtype=np.float32), name="c")
-    viewer = Viewer(_CZYX, dim="2d")
+    viewer = Viewer(_CZYX, displayed_axes=("y", "x"))
     viewer.add_image(
         store,
         channel_axis=0,
@@ -92,7 +92,7 @@ def test_serialization_roundtrip_unified_image(tmp_path, composite, n_channels):
 def test_serialization_roundtrip_unified_multiscale_image(
     tmp_path, multichannel_multiscale_store, composite
 ):
-    viewer = Viewer(_CZYX, dim="2d")
+    viewer = Viewer(_CZYX, displayed_axes=("y", "x"))
     viewer.add_image_multiscale(
         multichannel_multiscale_store,
         channel_axis=0,

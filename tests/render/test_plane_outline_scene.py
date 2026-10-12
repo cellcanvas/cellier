@@ -71,7 +71,7 @@ def _labels(controller, scene, planes, *, shape=SHAPE, data=None, **kwargs):
 
 
 def _scene(controller):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     return scene, _world(controller, scene)
 
 
@@ -186,7 +186,7 @@ async def test_an_outline_is_shown_only_on_the_plane_s_own_axes(controller):
     """A tzyx scene: a zyx plane is drawn in the zyx view and not in tyx."""
     scene = controller.add_scene(
         coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
     )
     world = _world(controller, scene)
@@ -226,7 +226,7 @@ async def test_a_pyramid_s_outline_is_there_before_any_brick(controller, tmp_pat
 async def test_a_composite_has_one_outline_whatever_its_channels(controller):
     scene = controller.add_scene(
         coordinate_system=[("c", "channel"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
     )
     world = _world(controller, scene)

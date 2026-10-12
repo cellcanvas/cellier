@@ -98,7 +98,7 @@ def _live_materials(render_visual) -> list:
 def test_planes_given_at_construction_reach_the_materials(controller):
     store = _points_store()
     system = store.data_coordinate_systems[0]
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_points(
         data=store, scene_id=scene.id, clipping_planes=(_plane(system),)
     )
@@ -111,7 +111,7 @@ def test_planes_given_at_construction_reach_the_materials(controller):
 def test_an_assignment_emits_one_event_and_updates_the_materials(controller):
     store = _points_store()
     system = store.data_coordinate_systems[0]
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_points(data=store, scene_id=scene.id)
     controller.add_canvas(scene_id=scene.id)
     events: list[ClippingPlanesChangedEvent] = []
@@ -134,7 +134,7 @@ def test_an_assignment_emits_one_event_and_updates_the_materials(controller):
 def test_set_clipping_planes_stamps_the_source(controller):
     store = _points_store()
     system = store.data_coordinate_systems[0]
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_points(data=store, scene_id=scene.id)
     events: list = []
     controller.on_clipping_planes_changed(visual.id, events.append, owner_id=uuid4())
@@ -154,7 +154,7 @@ def test_set_clipping_planes_stamps_the_source(controller):
 def test_a_plane_of_another_system_is_refused(controller):
     store = _points_store()
     system = store.data_coordinate_systems[0]
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_points(data=store, scene_id=scene.id)
     good = (_plane(system),)
     visual.clipping_planes = good
@@ -165,7 +165,7 @@ def test_a_plane_of_another_system_is_refused(controller):
         visual.clipping_planes = (_plane(_system()),)
     assert visual.clipping_planes == good
 
-    other_scene = controller.add_scene(dim="3d", name="t")
+    other_scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="t")
     with pytest.raises(ValueError, match="data coordinate system"):
         controller.add_points(
             data=_points_store(),
@@ -179,7 +179,7 @@ def test_a_plane_of_the_wrong_rank_is_refused(controller):
 
     store = _points_store()
     system = store.data_coordinate_systems[0]
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_points(data=store, scene_id=scene.id)
     short = ClippingPlane(
         plane=Plane(coordinate_system=system.id, normal=(1, 0), offset=0)
@@ -191,7 +191,7 @@ def test_a_plane_of_the_wrong_rank_is_refused(controller):
 def test_two_planes_with_one_id_are_refused(controller):
     store = _points_store()
     system = store.data_coordinate_systems[0]
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_points(data=store, scene_id=scene.id)
     plane = _plane(system)
     twin = plane.model_copy(update={"enabled": False})
@@ -203,7 +203,7 @@ def test_two_planes_with_one_id_are_refused(controller):
 def test_one_plane_is_read_and_moved_by_its_id(controller):
     store = _points_store()
     system = store.data_coordinate_systems[0]
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_points(data=store, scene_id=scene.id)
     first, second = _plane(system), _plane(system, x=20.0, enabled=False)
     controller.set_clipping_planes(visual.id, [first, second])
@@ -239,7 +239,7 @@ def test_one_plane_is_read_and_moved_by_its_id(controller):
 
 
 async def test_planes_survive_material_changes(controller, tmp_path):
-    scene = controller.add_scene(dim="3d", name="everything")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="everything")
     rng = np.random.default_rng(0)
     shape = (16, 16, 16)
     positions, indices = uv_sphere(
@@ -338,7 +338,7 @@ async def test_a_point_is_kept_or_dropped_whole(controller, render_scene):
         positions=np.array([[16, 16, 16]], dtype=np.float32),
         data_coordinate_systems=[system],
     )
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_points(
         data=store,
         scene_id=scene.id,
@@ -367,7 +367,7 @@ async def test_a_mesh_is_cut_open(controller, render_scene):
     store = MeshMemoryStore(
         positions=positions, indices=indices, data_coordinate_systems=[system]
     )
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_mesh(
         data=store, scene_id=scene.id, appearance=MeshFlatAppearance()
     )
@@ -390,7 +390,7 @@ async def test_lines_and_graph_edges_are_cut_in_3d(kind, controller, render_scen
     system = _system()
     rng = np.random.default_rng(1)
     positions = (rng.random((600, 3)) * 32).astype(np.float32)
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     if kind == "lines":
         store = LinesMemoryStore(positions=positions, data_coordinate_systems=[system])
         visual = controller.add_lines(data=store, scene_id=scene.id)
@@ -424,7 +424,7 @@ async def test_the_clipped_part_of_a_mesh_cannot_be_picked(controller):
     store = MeshMemoryStore(
         positions=positions, indices=indices, data_coordinate_systems=[system]
     )
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual = controller.add_mesh(
         data=store, scene_id=scene.id, appearance=MeshFlatAppearance()
     )
@@ -486,7 +486,9 @@ async def test_clipped_bricks_and_tiles_are_not_read(
 ):
     counts = {}
     for tag, clip in (("whole", False), ("clipped", True)):
-        scene = controller.add_scene(dim=dim, name=f"{tag}")
+        scene = controller.add_scene(
+            displayed_axes=("z", "y", "x") if dim == "3d" else ("y", "x"), name=f"{tag}"
+        )
         visual, store = h.add_visual(
             kind, controller, scene.id, h.data_for(kind), tmp_path, f"{kind}_{tag}"
         )
@@ -510,7 +512,7 @@ async def test_clipped_bricks_and_tiles_are_not_read(
 async def test_a_plane_change_reslices_a_multiscale_visual_only(
     controller, reslice, tmp_path, reads
 ):
-    scene = controller.add_scene(dim="3d", name="s")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="s")
     visual, store = h.add_visual(
         "image_multiscale_mip", controller, scene.id, h.image_data(), tmp_path, "ms"
     )
@@ -536,7 +538,7 @@ async def test_a_plane_change_reslices_a_multiscale_visual_only(
 
 
 async def _slab_scene(controller, add):
-    scene = controller.add_scene(dim="2d", name="slab")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="slab")
     visual, store = add(scene)
     controller.add_canvas(scene_id=scene.id)
     controller.update_slice_indices(scene.id, {0: 16.0})
@@ -694,7 +696,7 @@ async def test_the_brush_writes_only_what_is_drawn(controller):
     store = LabelMemoryStore(
         data=np.zeros((16, 16, 16), dtype=np.int32), data_coordinate_systems=[system]
     )
-    scene = controller.add_scene(dim="2d", name="paint")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="paint")
     visual = controller.add_labels(data=store, scene_id=scene.id)
     canvas_id = controller.add_canvas(scene_id=scene.id)
     controller.update_slice_indices(scene.id, {0: 8.0})

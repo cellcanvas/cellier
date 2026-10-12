@@ -257,7 +257,7 @@ def test_enabling_ssao_installs_the_normal_target_on_a_live_canvas(
     controller, offscreen_renderer
 ):
     """The whole point: a canvas built without the target gains it on demand."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_canvas(scene_id=scene.id)
     canvas_view = controller.get_canvas_view(next(iter(scene.canvases)))
     assert canvas_view._normal_target_available is False
@@ -274,7 +274,7 @@ def test_enabling_outlines_installs_the_label_key_target_on_a_live_canvas(
     controller, offscreen_renderer
 ):
     """Same for outlines, whose target carries the per-label key."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_canvas(scene_id=scene.id)
     canvas_view = controller.get_canvas_view(next(iter(scene.canvases)))
     assert canvas_view._outline_id_available is False
@@ -297,7 +297,7 @@ def test_a_canvas_built_with_the_feature_on_pays_no_late_swap(offscreen_renderer
     )
     controller.camera_reslice_enabled = False
     try:
-        scene = controller.add_scene(dim="3d", name="scene")
+        scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
         controller.add_canvas(scene_id=scene.id)
         canvas_view = controller.get_canvas_view(next(iter(scene.canvases)))
         assert canvas_view._normal_target_available is True
@@ -316,7 +316,7 @@ def test_disabling_a_feature_keeps_its_target(controller, offscreen_renderer):
     Dropping one would buy back its memory at the price of a second
     recompile, for a feature the user may switch straight back on.
     """
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_canvas(scene_id=scene.id)
     canvas_view = controller.get_canvas_view(next(iter(scene.canvases)))
 

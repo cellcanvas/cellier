@@ -67,7 +67,11 @@ def _make_volume() -> np.ndarray:
 
 def build() -> Viewer:
     """Build the viewer ``cellier.convenience.capture`` will capture."""
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="offscreen")
+    # Three displayed axes: with two the scene is a single z slice, and the
+    # picture a flat cross-section rather than a volume.
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     viewer.add_image(
         data=ImageMemoryStore(data=_make_volume(), name="spheres"),
         single=InMemoryImageSingleAppearance(
@@ -85,7 +89,4 @@ def build() -> Viewer:
     # kernel rotation away.  Without AO the image is identical on the first
     # frame and "converged" just draws 44 of them for the same picture.
     viewer.ambient_occlusion_enabled = True
-    # Without this the scene displays two axes -- a single z slice -- and the
-    # picture is a flat cross-section rather than a volume.
-    viewer.set_displayed_dimensions(("z", "y", "x"))
     return viewer

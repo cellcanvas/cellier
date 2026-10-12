@@ -25,7 +25,7 @@ def controller_with_canvas():
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
         coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
     )
     controller.add_canvas(scene.id)
     store = ImageMemoryStore(data=np.zeros((4, 5, 6), dtype=np.float32))

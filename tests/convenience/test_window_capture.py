@@ -28,7 +28,7 @@ def window_with_canvas(qtbot, offscreen_gpu):
 
     controller = CellierController(gui="qt")
     controller.camera_reslice_enabled = False
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(
         data=ImageMemoryStore(data=data, name="gradient"),
         scene_id=scene.id,

@@ -120,7 +120,7 @@ def test_to_selection_bounds_only_the_sliced_axes():
 
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
-        coordinate_system=spatial_axes("z", "y", "x"), dim="2d"
+        coordinate_system=spatial_axes("z", "y", "x"), displayed_axes=("y", "x")
     )
     controller.update_slice_indices(scene.id, {0: 2.0, 1: 5.0, 2: 6.0})
     controller.add_canvas(scene.id)

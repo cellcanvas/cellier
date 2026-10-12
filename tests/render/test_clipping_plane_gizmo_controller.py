@@ -181,7 +181,7 @@ async def test_what_is_refused(make_rig):
     with pytest.raises(KeyError):
         controller.add_clipping_plane_gizmo(rig.visual.id, uuid4(), item.id)
 
-    other_scene = controller.add_scene(dim="3d", name="other")
+    other_scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="other")
     other = controller.add_image(
         data=ImageMemoryStore(data=np.zeros((4, 4, 4), np.float32)),
         scene_id=other_scene.id,
@@ -512,7 +512,7 @@ async def test_a_plane_tilted_on_a_hidden_axis_has_no_gizmo(make_rig):
     rig = make_rig()
     controller = rig.controller
     scene = controller.add_scene(
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="tzyx",
         coordinate_system=[
             ("t", "time"),

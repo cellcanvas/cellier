@@ -59,4 +59,6 @@ class CameraState(NamedTuple):
     fov: float
     zoom: float
     extent: tuple[float, float]
-    depth_range: tuple[float, float]
+    # ``None`` is an automatic range: pygfx works it out from what the
+    # camera is fitted to.  A 2D camera has one until a range is set.
+    depth_range: tuple[float, float] | None

@@ -70,7 +70,7 @@ def controller(qtbot):
 
 def _add_image(controller, *, render_mode="plane", canvas=False, name="image"):
     """An in-memory image in a 3D scene; returns ``(scene, visual)``."""
-    scene = controller.add_scene(dim="3d", name=f"scene-{name}")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=f"scene-{name}")
     data = np.random.default_rng(0).random(SHAPE, dtype=np.float32)
     visual = controller.add_image(
         data=ImageMemoryStore(data=data),
@@ -643,7 +643,9 @@ def test_the_qt_row_marks_a_plane_outside_the_box(controller):
 
 def test_the_qt_row_names_the_planes_own_axes(controller):
     scene = controller.add_scene(
-        coordinate_system=[("t", "time"), *spatial_axes(*AXES)], dim="3d", name="tzyx"
+        coordinate_system=[("t", "time"), *spatial_axes(*AXES)],
+        displayed_axes=("z", "y", "x"),
+        name="tzyx",
     )
     data = np.zeros((2, *SHAPE), dtype=np.float32)
     visual = controller.add_image(
@@ -1095,7 +1097,7 @@ def test_choosing_plane_in_a_2d_view_adds_nothing(controller):
 
 
 def test_a_labels_combo_adds_a_plane_too(controller):
-    scene = controller.add_scene(dim="3d", name="labels")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="labels")
     data = np.zeros(SHAPE, dtype=np.int32)
     visual = controller.add_labels(
         data=LabelMemoryStore(data=data),
@@ -1113,7 +1115,7 @@ def test_one_channels_combo_moves_every_channel_and_adds_one_plane(controller):
     """Composite: the combos move together (D-P53), and one plane is added."""
     scene = controller.add_scene(
         coordinate_system=[("c", "channel"), *spatial_axes(*AXES)],
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="channels",
     )
     data = np.random.default_rng(0).random((3, *SHAPE), dtype=np.float32)

@@ -26,7 +26,7 @@ _POS = np.array([[0, 0, 0], [1, 1, 1]], dtype=np.float32)
 def _controller_with_visual():
     controller = CellierController()
     scene = controller.add_scene(
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         coordinate_system=world_coordinate_system(
             spatial_axes("z", "y", "x"), name="world"
         ),
@@ -300,20 +300,22 @@ def test_closing_a_displayed_viewer_releases_every_widget():
     from cellier.convenience import (
         AppearanceControls,
         Layout,
-        MeshControlsConfig,
         Viewer,
         display,
     )
     from cellier.convenience.gui import build_canvas_widget
     from cellier.visuals._mesh_memory import MeshFlatAppearance
+    from tests.convenience._controls_lists import panel
 
     before = _widget_registry()
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="anywidget")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="anywidget"
+    )
     viewer.add_mesh(
         _mesh_store(),
         appearance=MeshFlatAppearance(),
-        controls=MeshControlsConfig(appearance=True),
+        controls=panel("mesh"),
     )
     handle = display(
         viewer,
@@ -338,12 +340,12 @@ def test_closing_an_ortho_viewer_releases_every_widget():
     from cellier.convenience import (
         AppearanceControls,
         Layout,
-        MeshControlsConfig,
         OrthoViewer,
         display,
     )
     from cellier.convenience.gui import build_ortho_grid_widget
     from cellier.visuals._mesh_memory import MeshFlatAppearance
+    from tests.convenience._controls_lists import panel
 
     before = _widget_registry()
 
@@ -351,7 +353,7 @@ def test_closing_an_ortho_viewer_releases_every_widget():
     ortho.add_mesh(
         _mesh_store(),
         appearance=MeshFlatAppearance(),
-        controls=MeshControlsConfig(appearance=True),
+        controls=panel("mesh"),
     )
     handle = display(
         ortho,
@@ -424,18 +426,20 @@ def _qt_viewer_with_window():
     from cellier.convenience import (
         AppearanceControls,
         Layout,
-        MeshControlsConfig,
         Viewer,
     )
     from cellier.convenience.gui import build_canvas_widget
     from cellier.convenience.layout._qt_renderer import render_qt
     from cellier.visuals._mesh_memory import MeshFlatAppearance
+    from tests.convenience._controls_lists import panel
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="qt")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="qt"
+    )
     viewer.add_mesh(
         _mesh_store(),
         appearance=MeshFlatAppearance(),
-        controls=MeshControlsConfig(appearance=True),
+        controls=panel("mesh"),
     )
     canvas = build_canvas_widget(viewer, _RANGES)
     window = render_qt(Layout(center=canvas, left_dock=AppearanceControls()), viewer)

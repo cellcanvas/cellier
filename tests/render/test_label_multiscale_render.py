@@ -52,7 +52,7 @@ def _opaque_colors(frame: np.ndarray) -> np.ndarray:
 
 def test_construction_2d_scene_builds_only_2d_node(controller, multiscale_labels_store):
     """A 2D scene builds ``node_2d`` (Group) and defers ``node_3d``."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -72,7 +72,7 @@ def test_construction_2d_scene_builds_only_2d_node(controller, multiscale_labels
 
 def test_construction_3d_scene_builds_3d_node(controller, multiscale_labels_store):
     """A 3D scene builds ``node_3d`` and its 3D brick cache."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -111,7 +111,7 @@ def test_construction_with_a_broadcast_transform_does_not_misindex_the_store(
         name="broadcast_labels_store",
     )
     scene = controller.add_scene(
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         name="scene",
         coordinate_system=(
             Axis(name="t", axis_type="time"),
@@ -161,7 +161,7 @@ async def test_render_2d_shows_labels(
     controller, render_scene, reslice, multiscale_labels_store
 ):
     """The 2D tile pyramid commits and renders the two labelled blocks."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -185,7 +185,7 @@ async def test_render_3d_commits_bricks_and_draws(
     controller, render_scene, reslice, multiscale_labels_store
 ):
     """The 3D brick pyramid commits at least one brick and draws opaque pixels."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -217,7 +217,7 @@ async def test_render_2d_direct_mode_binds_lut(
     ``LabelBlockShader.get_bindings`` (``_label_multiscale.py``), unreached by
     the random-mode tests.  The store's labels are 3 and 7.
     """
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -245,7 +245,7 @@ async def test_render_3d_direct_mode_binds_lut(
     Covers the direct-mode branch of ``LabelVolumeBrickShader.get_bindings``
     (``_label_multiscale.py``), unreached by the random-mode 3D tests.
     """
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -275,7 +275,7 @@ async def test_salt_change_reseeds_colormap_buffer(
     controller, reslice, multiscale_labels_store
 ):
     """Changing ``salt`` writes the new seed into the label params buffer."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -304,7 +304,7 @@ async def test_render_mode_change_updates_3d_material(
     controller, reslice, multiscale_labels_store
 ):
     """Switching ``render_mode`` pushes onto the live 3D material."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -330,7 +330,7 @@ async def test_render_mode_change_updates_3d_material(
 async def test_opacity_change_applies_to_material(
     controller, reslice, multiscale_labels_store
 ):
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -357,7 +357,7 @@ async def test_visibility_toggle_hides_render(
     controller, render_scene, reslice, multiscale_labels_store
 ):
     """Hiding the visual empties the rendered frame; re-showing restores it."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -422,7 +422,7 @@ def test_the_label_selection_survives_a_geometry_rebuild(
     kept its outline but every selected label went back to unselected.  The
     visual records the selection now and puts it back.
     """
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -445,7 +445,7 @@ def test_the_label_selection_survives_a_geometry_rebuild(
 
 def test_the_selection_is_recorded_on_the_model(controller, multiscale_labels_store):
     """``set_label_selection`` writes the visual, which is what persists it."""
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -486,7 +486,7 @@ async def test_a_2d_start_switches_to_3d_and_back(
     2D node out for ``None`` and the 3D planner raised ``AttributeError`` on
     the missing geometry.  Starting in 3D was unaffected.
     """
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,
@@ -516,7 +516,7 @@ async def test_the_3d_node_built_on_switch_takes_the_current_state(
     controller, reslice, multiscale_labels_store
 ):
     """The late 3D material carries the appearance and selection set in 2D."""
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels_multiscale(
         data=multiscale_labels_store,
         scene_id=scene.id,

@@ -8,6 +8,7 @@ import pytest
 from cellier.render.scheduling import (
     DEAD,
     CacheRegistry,
+    ChunkClass,
     ChunkState,
     RegistryView,
     Tier,
@@ -131,3 +132,73 @@ def test_paint_groups_with_nothing_resident() -> None:
     groups = view.paint_groups()
     assert len(groups) == 1
     assert len(groups[0]) == 0
+
+
+# -- an order that keeps some of the background above the backstop -----------
+
+BACKSTOP, TARGET, STAGE = int(ChunkClass.BACKSTOP), int(ChunkClass.TARGET), 2
+
+
+def _view_keeping(rows, complete: bool = False) -> tuple[RegistryView, np.ndarray]:
+    """``(key, state, tier, slice_id, wanted_gen, cls, current)`` rows."""
+    arr = np.array(rows, dtype=np.int64)
+    arrays = {
+        "key": arr[:, 0],
+        "state": arr[:, 1].astype(np.uint8),
+        "tier": arr[:, 2].astype(np.uint8),
+        "cls": arr[:, 5].astype(np.uint8),
+        "rank": np.zeros(len(rows), np.int32),
+        "slot": np.arange(len(rows), dtype=np.int32),
+        "slice_id": arr[:, 3].astype(np.int32),
+        "wanted_gen": arr[:, 4].astype(np.int32),
+    }
+    view = RegistryView.from_arrays(arrays, generation=9, complete=complete)
+    return view, arr[:, 6].astype(bool)
+
+
+_KEEPING_ROWS = [
+    (1, R, RC, 5, 2, TARGET, 0),  # stale, slice 5
+    (2, R, RC, 8, 4, TARGET, 1),  # kept
+    (3, R, RC, 6, 1, TARGET, 0),  # stale, slice 6: the oldest
+    (4, R, V, 8, 9, TARGET, 0),
+    (5, R, V, 8, 9, BACKSTOP, 0),
+    (6, R, V, 8, 9, STAGE, 0),
+    (7, Q, V, 8, 9, TARGET, 0),  # not resident: not drawn
+    (8, R, RC, 8, 3, BACKSTOP, 1),  # kept, whatever class it was wanted as
+    (9, Q, RC, 8, 3, TARGET, 1),  # marked, but not resident
+]
+
+
+def test_paint_groups_keeping_orders_stale_backstop_kept_target() -> None:
+    view, current = _view_keeping(_KEEPING_ROWS)
+    groups, n_background = view.paint_groups_keeping(current)
+    assert [view.key[g].tolist() for g in groups] == [[3], [1], [5], [2, 6, 8], [4]]
+    assert n_background == 2
+
+
+def test_paint_groups_keeping_nothing_is_todays_order() -> None:
+    view, current = _view_keeping(_KEEPING_ROWS)
+    groups, n_background = view.paint_groups_keeping(np.zeros_like(current))
+    today = view.paint_groups()
+    assert n_background == len(today) - 1
+    for mine, theirs in zip(groups[:n_background], today[:-1], strict=True):
+        assert mine.tolist() == theirs.tolist()
+    # The foreground, split by class: backstop, stages, target.
+    assert [view.key[g].tolist() for g in groups[n_background:]] == [[5], [6], [4]]
+    assert sorted(np.concatenate(groups[n_background:]).tolist()) == today[-1].tolist()
+
+
+def test_paint_groups_keeping_ignores_a_mark_on_the_foreground() -> None:
+    view, current = _view_keeping(_KEEPING_ROWS)
+    current[:] = True
+    groups, n_background = view.paint_groups_keeping(current)
+    assert n_background == 0
+    assert [view.key[g].tolist() for g in groups] == [[5], [1, 2, 3, 6, 8], [4]]
+
+
+def test_paint_groups_keeping_is_the_foreground_alone_once_complete() -> None:
+    view, current = _view_keeping(_KEEPING_ROWS, complete=True)
+    groups, n_background = view.paint_groups_keeping(current)
+    assert n_background == 0
+    assert [view.key[g].tolist() for g in groups] == [[4, 5, 6]]
+    assert groups[0].tolist() == view.paint_groups()[0].tolist()

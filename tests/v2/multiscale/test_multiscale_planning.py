@@ -18,6 +18,7 @@ from cellier.render.visuals._slicing import round_world_to_voxel
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import MultiscaleImageRenderConfig, MultiscaleImageSingleAppearance
 from cellier.visuals._image import MultiscaleImageAppearance
+from tests._displayed import trailing_axes
 from tests._gpu_budget import SMALL_BUDGETS
 from tests._planning import planned_requests_3d
 from tests._v2 import pyramid_levels
@@ -67,9 +68,9 @@ def _store(path):
 
 def _viewer(path, world=None):
     controller = CellierController(gui="offscreen")
+    world = world or [("t", "time"), *spatial_axes("z", "y", "x")]
     scene = controller.add_scene(
-        coordinate_system=world or [("t", "time"), *spatial_axes("z", "y", "x")],
-        dim="3d",
+        coordinate_system=world, displayed_axes=trailing_axes(world, "3d")
     )
     controller.add_canvas(scene.id)
     store = _store(path)

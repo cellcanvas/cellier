@@ -110,7 +110,7 @@ def test_a_removed_field_is_refused(controller, multiscale_image_store, field):
 
 
 def test_a_visual_that_is_not_multiscale_raises(controller, image_volume):
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     visual = controller.add_image(image_volume, scene.id)
     with pytest.raises(TypeError, match="multiscale"):
         controller.set_loading_config(visual.id, backstop_extent="view")
@@ -164,7 +164,9 @@ def viewer_with_image(qtbot, multiscale_image_store):
         MultiscaleImageRenderConfig,
     )
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     visual = viewer.add_image_multiscale(
         multiscale_image_store,
         MultiscaleImageAppearance(force_level=1),

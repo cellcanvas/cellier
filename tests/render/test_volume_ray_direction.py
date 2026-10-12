@@ -55,7 +55,7 @@ def _fill(arr: np.ndarray) -> None:
 def _labels_memory(controller, tmp_path):
     labels = np.empty((16, 16, 16), dtype=np.int32)
     _fill(labels)
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_labels(
         data=LabelMemoryStore(data=labels),
         scene_id=scene.id,
@@ -78,7 +78,7 @@ def _labels_multiscale(controller, tmp_path):
         level_translations=[(0.0, 0.0, 0.0), (0.5, 0.5, 0.5)],
         name="labels",
     )
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_labels_multiscale(
         data=store,
         scene_id=scene.id,

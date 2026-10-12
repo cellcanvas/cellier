@@ -62,7 +62,7 @@ def visual_setup(qtbot, tmp_path):
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("y", "x"), name="world")
     scene = controller.add_scene(
-        dim="2d",
+        displayed_axes=("y", "x"),
         coordinate_system=cs,
         name="paint_scene",
         render_modes={"2d"},

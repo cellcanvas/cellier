@@ -19,7 +19,15 @@ from cellier.convenience import (
     Viewer,
     run,
 )
-from cellier.convenience.gui import MeshControlsConfig, build_canvas_widget
+from cellier.convenience.gui import (
+    BoundingBoxControl,
+    DatasetInfoControl,
+    FieldControls,
+    MeshSectionControl,
+    OutlineControl,
+    PickingControl,
+    build_canvas_widget,
+)
 from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
 from cellier.render import OutlineConfig, RenderManagerConfig
 from cellier.scene.dims import spatial_axes
@@ -172,7 +180,7 @@ store = MeshMemoryStore(
 
 viewer = Viewer(
     [("t", "time"), *spatial_axes("z", "y", "x")],
-    dim="3d",
+    displayed_axes=("z", "y", "x"),
     # Phong shading needs lights.
     lighting="default",
     # The screen-space outline pass, for the "Outline" controls.
@@ -185,12 +193,16 @@ viewer.add_mesh(
     name="cells",
     # How a 2D view draws the mesh: an outline and a fill of the cut.
     section=MeshSectionConfig(mode="cut", outline=True, fill=True, outline_width=2.0),
-    controls=MeshControlsConfig(
-        appearance=True,
-        section_controls=True,
-        outline_controls=True,
-        dataset_info=True,
-    ),
+    controls=[
+        FieldControls(
+            ["visible", "opacity", "color", "side", "shininess", "flat_shading"]
+        ),
+        BoundingBoxControl(),
+        MeshSectionControl(),
+        OutlineControl(),
+        PickingControl(),
+        DatasetInfoControl(),
+    ],
 )
 
 # ---------------------------------------------------------------------------

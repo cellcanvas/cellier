@@ -30,6 +30,7 @@ from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
     MultiscaleLabelsAppearance,
 )
+from tests._displayed import trailing_axes
 from tests._gpu_budget import SMALL_BUDGETS
 from tests.render.conftest import _write_multiscale_zarr
 
@@ -131,8 +132,11 @@ def _graph_store() -> GraphMemoryStore:
 
 
 def _scene(controller, tmp_path):
+    world_axes = _world_axes()
     scene = controller.add_scene(
-        dim="2d", name="scene", coordinate_system=_world_axes()
+        displayed_axes=trailing_axes(world_axes, "2d"),
+        name="scene",
+        coordinate_system=world_axes,
     )
     world = scene.dims.world_coordinate_system
     labels_store = _labels_store(tmp_path)

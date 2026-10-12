@@ -871,6 +871,28 @@ class ImageGeometry3D:
 # ---------------------------------------------------------------------------
 
 
+_CARRIED_MATERIAL_FIELDS = (
+    "opacity",
+    "depth_test",
+    "depth_write",
+    "depth_compare",
+    "alpha_mode",
+)
+
+
+def _carry_over_node_state(old_node, old_material, new_node, new_material) -> None:
+    """Give a rebuilt node the draw state of the node it replaces.
+
+    A geometry rebuild makes a new node and a new material.  Without this a
+    change of the displayed pair reset the opacity, depth settings,
+    visibility and render order to the constructor defaults.
+    """
+    for name in _CARRIED_MATERIAL_FIELDS:
+        setattr(new_material, name, getattr(old_material, name))
+    new_node.visible = old_node.visible
+    new_node.render_order = old_node.render_order
+
+
 def _fetch_order(displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
     """The displayed axes in the order the fetched array carries them.
 
@@ -1722,8 +1744,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         """Rebuild geometry and GPU resources after a displayed_axes change.
 
         Returns ``(old_node, new_node)`` for the active node so the caller
-        can swap it in the scene graph.  Derives the 3D and 2D axis subsets
-        from ``ndim`` (last-three and last-two axes respectively).
+        can swap it in the scene graph.  The geometry of the mode
+        *displayed_axes* selects is replaced when its fetch axes changed
+        (:meth:`_sync_geometry_3d`).
 
         Parameters
         ----------
@@ -1750,13 +1773,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             if self._volume_geometry is None:
                 self._lazy_init_3d(displayed_axes)
             else:
-                fetch_3d = _fetch_order(
-                    _world_axes_to_data_axes(self._transform, displayed_axes)
-                )
-                shapes_3d = [tuple(s[ax] for ax in fetch_3d) for s in level_shapes]
-                if shapes_3d != self._volume_geometry.level_shapes:
-                    self._volume_geometry.update(shapes_3d)
-                    self._rebuild_3d_resources()
+                self._sync_geometry_3d(displayed_axes, level_shapes)
             new_node = self.node_3d
 
         if "2d" in self.render_modes and len(displayed_axes) == 2:
@@ -1764,17 +1781,87 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             if self._image_geometry_2d is None:
                 self._lazy_init_2d(displayed_axes)
             else:
-                fetch_2d = _fetch_order(
-                    _world_axes_to_data_axes(self._transform, displayed_axes)
-                )
-                shapes_2d_full = [tuple(s[ax] for ax in fetch_2d) for s in level_shapes]
-                shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
-                if shapes_2d != self._image_geometry_2d.level_shapes:
-                    self._image_geometry_2d.update(shapes_2d)
-                    self._rebuild_2d_resources()
+                self._sync_geometry_2d(displayed_axes, level_shapes)
             new_node = self.node_2d
 
         return old_node, new_node
+
+    def _sync_geometry_3d(
+        self,
+        displayed_axes: tuple[int, ...],
+        level_shapes: list[tuple[int, ...]],
+    ) -> None:
+        """Bring the built 3D geometry in line with *displayed_axes*.
+
+        A change of the fetch axes replaces the geometry, because the scale
+        and translation vectors are projected onto those axes when it is
+        constructed.  A change of the shapes alone (a mutated store) keeps
+        the geometry and updates its grids.
+        """
+        fetch_3d = _fetch_order(
+            _world_axes_to_data_axes(self._transform, displayed_axes)
+        )
+        shapes_3d = [tuple(s[ax] for ax in fetch_3d) for s in level_shapes]
+        geo = self._volume_geometry
+        if fetch_3d != geo.fetch_axes:
+            self._volume_geometry = MultiscaleBrickLayout3D(
+                level_shapes=shapes_3d,
+                level_transforms=self._level_transforms,
+                block_size=geo.block_size,
+                fetch_axes=fetch_3d,
+            )
+            self._set_volume_params(displayed_axes)
+            self._rebuild_3d_resources()
+        elif shapes_3d != geo.level_shapes:
+            geo.update(shapes_3d)
+            self._rebuild_3d_resources()
+
+    def _sync_geometry_2d(
+        self,
+        displayed_axes: tuple[int, ...],
+        level_shapes: list[tuple[int, ...]],
+    ) -> None:
+        """Bring the built 2D geometry in line with *displayed_axes*.
+
+        See :meth:`_sync_geometry_3d`.
+        """
+        fetch_2d = _fetch_order(
+            _world_axes_to_data_axes(self._transform, displayed_axes)
+        )
+        shapes_2d_full = [tuple(s[ax] for ax in fetch_2d) for s in level_shapes]
+        shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
+        geo = self._image_geometry_2d
+        if fetch_2d != geo.fetch_axes:
+            self._image_geometry_2d = ImageGeometry3D(
+                level_shapes=shapes_2d,
+                block_size=geo.block_size,
+                n_levels=len(level_shapes),
+                level_transforms=self._level_transforms,
+                fetch_axes=fetch_2d,
+            )
+            self._rebuild_2d_resources()
+        elif shapes_2d != geo.level_shapes:
+            geo.update(shapes_2d)
+            self._rebuild_2d_resources()
+
+    def _set_volume_params(self, displayed_axes: tuple[int, ...]) -> None:
+        """Size the 3D proxy box and its params buffer from the 3D geometry."""
+        ds = self._volume_geometry.level_shapes[0]
+        self._dataset_size = np.asarray(
+            swap_axes(tuple(float(s) for s in ds), (2, 1, 0)),
+            dtype=np.float64,
+        )
+        _check_transform_no_rotation(self._transform)
+        self._norm_size = _norm_size_from_transform(
+            self._transform, displayed_axes, self._dataset_size
+        )
+        self._norm_size_axes = displayed_axes
+        self._vol_params_buffer = build_vol_params_buffer(
+            norm_size=self._norm_size,
+            dataset_size=self._dataset_size,
+            base_layout=self._volume_geometry.base_layout,
+            cache_info=self._block_cache_3d.info,
+        )
 
     # ── GFXVisual protocol ──────────────────────────────────────────────
 
@@ -1824,23 +1911,10 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         self._full_level_shapes = list(level_shapes)
         self._last_displayed_axes = displayed_axes
         if mode == "3d" and self._volume_geometry is not None:
-            fetch_3d = _fetch_order(
-                _world_axes_to_data_axes(self._transform, displayed_axes)
-            )
-            shapes_3d = [tuple(s[ax] for ax in fetch_3d) for s in level_shapes]
-            if shapes_3d != self._volume_geometry.level_shapes:
-                self._volume_geometry.update(shapes_3d)
-                self._rebuild_3d_resources()
+            self._sync_geometry_3d(displayed_axes, level_shapes)
             return self.node_3d
         if mode == "2d" and self._image_geometry_2d is not None:
-            fetch_2d = _fetch_order(
-                _world_axes_to_data_axes(self._transform, displayed_axes)
-            )
-            shapes_2d_full = [tuple(s[ax] for ax in fetch_2d) for s in level_shapes]
-            shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
-            if shapes_2d != self._image_geometry_2d.level_shapes:
-                self._image_geometry_2d.update(shapes_2d)
-                self._rebuild_2d_resources()
+            self._sync_geometry_2d(displayed_axes, level_shapes)
             return self.node_2d
         return None
 
@@ -1885,22 +1959,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             level_shapes=self._volume_geometry.level_shapes,
             border=cache_parameters_3d.overlap,
         )
-        ds = self._volume_geometry.level_shapes[0]
-        self._dataset_size = np.asarray(
-            swap_axes(tuple(float(s) for s in ds), (2, 1, 0)),
-            dtype=np.float64,
-        )
-        _check_transform_no_rotation(self._transform)
-        self._norm_size = _norm_size_from_transform(
-            self._transform, displayed_axes, self._dataset_size
-        )
-        self._norm_size_axes = displayed_axes
-        self._vol_params_buffer = build_vol_params_buffer(
-            norm_size=self._norm_size,
-            dataset_size=self._dataset_size,
-            base_layout=self._volume_geometry.base_layout,
-            cache_info=self._block_cache_3d.info,
-        )
+        self._set_volume_params(displayed_axes)
         self._brick_scales_buffer = build_brick_scales_buffer(
             self._volume_geometry._scale_vecs_data,
             level_shapes=self._volume_geometry.level_shapes,
@@ -2031,17 +2090,22 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             clim = self.material_3d.clim
             threshold = self.material_3d.threshold
             attenuation = self.material_3d.attenuation
+            old_material, old_node = self.material_3d, self.node_3d
             inner, self.material_3d, self._proxy_tex_3d = self._build_3d_node(
                 colormap=colormap,
                 clim=clim,
                 threshold=threshold,
                 attenuation=attenuation,
+                pick_write=old_material.pick_write,
             )
             self._inner_node_3d = inner
             self._aabb_line_3d = self._build_aabb_line_3d()
             self.node_3d = gfx.Group()
             self.node_3d.add(inner)
             self.node_3d.add(self._aabb_line_3d)
+            _carry_over_node_state(
+                old_node, old_material, self.node_3d, self.material_3d
+            )
             if self._last_displayed_axes is not None:
                 self._update_node_matrix(self._last_displayed_axes)
 
@@ -2075,14 +2139,21 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             colormap = self.material_2d.map
             clim = self.material_2d.clim
             interpolation = self.material_2d.interpolation
+            old_material, old_node = self.material_2d, self.node_2d
             inner, self.material_2d, self._proxy_tex_2d = self._build_2d_node(
-                colormap=colormap, clim=clim, interpolation=interpolation
+                colormap=colormap,
+                clim=clim,
+                interpolation=interpolation,
+                pick_write=old_material.pick_write,
             )
             self._inner_node_2d = inner
             self._aabb_line_2d = self._build_aabb_line_2d()
             self.node_2d = gfx.Group()
             self.node_2d.add(inner)
             self.node_2d.add(self._aabb_line_2d)
+            _carry_over_node_state(
+                old_node, old_material, self.node_2d, self.material_2d
+            )
             if self._last_displayed_axes is not None:
                 self._update_node_matrix(self._last_displayed_axes)
 

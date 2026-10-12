@@ -88,7 +88,7 @@ def label_scene(qtbot, offscreen_renderer):
 
     controller = CellierController(render_config=_config())
     controller.camera_reslice_enabled = False
-    scene = controller.add_scene(dim="2d", name="scene")
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     visual = controller.add_labels(
         data=LabelMemoryStore(data=_label_volume(), name="labels"),
         scene_id=scene.id,
@@ -524,7 +524,7 @@ def test_canvas_view_keeps_both_couplings_when_outlines_are_enabled(
 
     controller = CellierController(render_config=_config())
     controller.camera_reslice_enabled = False
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     controller.add_canvas(scene_id=scene.id)
 
     canvas = next(iter(controller._render_manager._canvases.values()))

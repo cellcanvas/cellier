@@ -24,7 +24,15 @@ from cellier.convenience import (
     Viewer,
     run,
 )
-from cellier.convenience.gui import MeshControlsConfig, build_canvas_widget
+from cellier.convenience.gui import (
+    BoundingBoxControl,
+    DatasetInfoControl,
+    FieldControls,
+    MeshSectionControl,
+    OutlineControl,
+    PickingControl,
+    build_canvas_widget,
+)
 from cellier.data.mesh import MeshLevel, MultiscaleMeshStore
 from cellier.render import OutlineConfig, RenderManagerConfig
 from cellier.scene.dims import spatial_axes
@@ -186,7 +194,7 @@ store = MultiscaleMeshStore(
 
 viewer = Viewer(
     [("t", "time"), *spatial_axes("z", "y", "x")],
-    dim="3d",
+    displayed_axes=("z", "y", "x"),
     # Phong shading needs lights.
     lighting="default",
     # The screen-space outline pass, for the "Outline" controls.
@@ -203,12 +211,16 @@ viewer.add_multiscale_mesh(
     # what a slider drag loads: "coarse" loads the coarse level while the
     # slider moves and the finest when it rests.
     lod=GeometryLodConfig(coarse_level=None, dims_drag="coarse"),
-    controls=MeshControlsConfig(
-        appearance=True,
-        section_controls=True,
-        outline_controls=True,
-        dataset_info=True,
-    ),
+    controls=[
+        FieldControls(
+            ["visible", "opacity", "color", "side", "shininess", "flat_shading"]
+        ),
+        BoundingBoxControl(),
+        MeshSectionControl(),
+        OutlineControl(),
+        PickingControl(),
+        DatasetInfoControl(),
+    ],
 )
 
 # ---------------------------------------------------------------------------

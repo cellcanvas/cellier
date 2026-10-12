@@ -24,7 +24,9 @@ from cellier.visuals import (
 
 
 def _viewer(gui: str = "offscreen") -> Viewer:
-    viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d", gui=gui)
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui=gui
+    )
     viewer.add_image(ImageMemoryStore(data=np.zeros((4, 6, 8), dtype=np.float32)))
     return viewer
 

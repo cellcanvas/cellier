@@ -210,7 +210,7 @@ def test_render_manager_routes_graph_picks(qtbot):
     controller = CellierController()
     controller.camera_reslice_enabled = False
     scene = controller.add_scene(
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         coordinate_system=world_coordinate_system(
             spatial_axes("z", "y", "x"), name="world"
         ),

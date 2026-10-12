@@ -183,7 +183,7 @@ def test_serialization_roundtrip(tmp_path, image_store):
 
 def test_from_file_rejects_non_ortho_model(tmp_path, image_store):
     """A single-scene Viewer file is not a valid OrthoViewer file."""
-    viewer = Viewer(spatial_axes("z", "y", "x"))
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
     viewer.controller.add_data_store(image_store)
     viewer.add_image(
         image_store,

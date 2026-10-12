@@ -62,7 +62,7 @@ async def _memory(controller, kind, make_planes, *, transform="identity", clippi
     The labels have no background, so a plane draws on every pixel of it.
     """
     scale, shift = TRANSFORMS[transform]
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     world = h.world_of(controller, scene)
     if kind == "memory_image":
         store = ImageMemoryStore(data=h.image_data(SHAPE), name="image")

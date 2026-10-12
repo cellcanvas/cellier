@@ -86,7 +86,9 @@ def _make_lines_store() -> LinesMemoryStore:
 def test_add_scene_registers_in_model():
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     assert scene.id in controller._model.scenes
     assert controller._model.scenes[scene.id].name == "main"
 
@@ -102,7 +104,9 @@ def test_add_data_store_registers_in_model(small_zarr_store):
 def test_add_image_populates_scene_and_render_layer(small_zarr_store):
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     appearance = _make_appearance(
         settled_lod_bias=1.0, force_level=None, frustum_cull=True
@@ -123,7 +127,9 @@ def test_add_image_auto_registers_data_store(small_zarr_store):
     """add_image should register the data store even without add_data_store."""
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -133,7 +139,9 @@ def test_add_image_auto_registers_data_store(small_zarr_store):
 
 def test_add_mesh_defaults_transform_to_identity():
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     store = _make_mesh_store()
 
     visual = controller.add_mesh(
@@ -151,7 +159,9 @@ def test_add_mesh_defaults_transform_to_identity():
 
 def test_add_mesh_uses_explicit_transform():
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     store = _make_mesh_store()
     transform = bound(controller, scene.id, store, (1.5, 2.0, 3.0), (4.0, 5.0, 6.0))
 
@@ -170,7 +180,9 @@ def test_add_mesh_uses_explicit_transform():
 
 def test_add_points_defaults_transform_to_identity():
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     store = _make_points_store()
 
     visual = controller.add_points(
@@ -188,7 +200,9 @@ def test_add_points_defaults_transform_to_identity():
 
 def test_add_points_uses_explicit_transform():
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     store = _make_points_store()
     transform = bound(controller, scene.id, store, (1.5, 2.0, 3.0), (4.0, 5.0, 6.0))
 
@@ -207,7 +221,9 @@ def test_add_points_uses_explicit_transform():
 
 def test_add_lines_defaults_transform_to_identity():
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     store = _make_lines_store()
 
     visual = controller.add_lines(
@@ -225,7 +241,9 @@ def test_add_lines_defaults_transform_to_identity():
 
 def test_add_lines_uses_explicit_transform():
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     store = _make_lines_store()
     transform = bound(controller, scene.id, store, (1.5, 2.0, 3.0), (4.0, 5.0, 6.0))
 
@@ -245,7 +263,9 @@ def test_add_lines_uses_explicit_transform():
 def test_get_scene_by_name():
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="my_scene")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="my_scene"
+    )
     found = controller.get_scene_by_name("my_scene")
     assert found.id == scene.id
     with pytest.raises(KeyError):
@@ -256,7 +276,9 @@ def test_reslice_scene_reads_appearance_fields(small_zarr_store):
     """reslice_scene must translate MultiscaleImageAppearance fields into VisualRenderConfig."""  # noqa: E501
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     appearance = _make_appearance(
         settled_lod_bias=2.5, force_level=1, frustum_cull=False
@@ -284,7 +306,9 @@ def test_reslice_scene_reads_appearance_fields(small_zarr_store):
 def test_to_file_roundtrip(tmp_path, small_zarr_store):
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -306,7 +330,9 @@ def test_to_file_roundtrip(tmp_path, small_zarr_store):
 def test_dims_bridge_emits_event():
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
 
     fired = []
     controller.on_dims_changed(scene.id, fired.append, owner_id=uuid4())
@@ -321,7 +347,9 @@ def test_dims_bridge_emits_event():
 def test_dims_bridge_displayed_axes_flag_true():
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
 
     events = []
     controller._outgoing_events.subscribe(
@@ -338,7 +366,9 @@ def test_dims_bridge_displayed_axes_flag_true():
 def test_dims_bridge_displayed_axes_flag_false():
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
 
     events = []
     controller._outgoing_events.subscribe(
@@ -365,7 +395,9 @@ def test_dims_update_event_merges_positions_and_sets_displayed_axes():
 
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="2d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("y", "x"), coordinate_system=cs, name="main"
+    )
     assert scene.dims.selection.slice_indices == {0: 0.0, 1: 0.0, 2: 0.0}
     controller.update_slice_indices(scene.id, {2: 7.0})
 
@@ -386,7 +418,9 @@ def test_switching_displayed_axes_keeps_every_position():
     """3D -> 2D -> 3D -> 2D reuses each axis's stored position."""
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="2d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("y", "x"), coordinate_system=cs, name="main"
+    )
     controller.update_slice_indices(scene.id, {0: 5.0, 1: 3.0})
 
     for displayed in [(0, 1, 2), (1, 2), (0, 1, 2), (1, 2)]:
@@ -399,7 +433,9 @@ def test_appearance_bridge_shared_field(small_zarr_store):
 
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -421,7 +457,9 @@ def test_appearance_bridge_lod_bias(small_zarr_store):
 
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -448,7 +486,9 @@ def test_appearance_bridge_force_level(small_zarr_store):
 
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -475,7 +515,9 @@ def test_appearance_bridge_frustum_cull(small_zarr_store):
 
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -500,7 +542,9 @@ def test_appearance_bridge_frustum_cull(small_zarr_store):
 def test_appearance_bridge_interpolation_does_not_reslice(small_zarr_store):
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -520,7 +564,9 @@ def test_appearance_bridge_visible(small_zarr_store):
 
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -549,7 +595,9 @@ def test_scene_added_event_emitted():
     controller._outgoing_events.subscribe(SceneAddedEvent, events.append)
 
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
 
     assert len(events) == 1
     assert events[0].scene_id == scene.id
@@ -560,7 +608,9 @@ def test_visual_added_event_emitted(small_zarr_store):
 
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
 
     events = []
@@ -578,7 +628,9 @@ def test_visual_added_event_emitted(small_zarr_store):
 def test_on_dims_changed_callback():
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
 
     fired = []
     controller.on_dims_changed(scene.id, fired.append, owner_id=uuid4())
@@ -593,7 +645,9 @@ def test_unsubscribe_all_cleans_up(small_zarr_store):
 
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -650,7 +704,9 @@ def _make_settle_controller(small_zarr_store, threshold_s=0.05):
         )
     )
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store,
@@ -837,7 +893,9 @@ def test_on_camera_changed_updates_orthographic_camera_model():
 def test_wire_transform_emits_event(small_zarr_store):
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -860,7 +918,9 @@ def test_wire_transform_emits_event(small_zarr_store):
 def test_transform_change_triggers_reslice(small_zarr_store):
     controller = CellierController()
     cs = _make_cs()
-    scene = controller.add_scene(dim="3d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=cs, name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -890,7 +950,9 @@ def test_transform_change_triggers_reslice(small_zarr_store):
 
 def _make_scene_with_visual(controller, small_zarr_store):
     """Add a scene, data store, and image visual; return (scene, visual, store)."""
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     store = _make_store(small_zarr_store)
     visual = controller.add_image_multiscale(
         data=store, scene_id=scene.id, appearance=_make_appearance(), name="vol"
@@ -1134,7 +1196,9 @@ def _capture_visual_reslices(controller) -> list:
 def test_hidden_image_visual_disables_slicing(small_zarr_store):
     """A hidden multiscale image is planned with slicing_enabled=False."""
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     visual = controller.add_image_multiscale(
         data=_make_store(small_zarr_store),
         scene_id=scene.id,
@@ -1154,7 +1218,9 @@ def test_hidden_image_visual_disables_slicing(small_zarr_store):
 def test_showing_image_visual_reslices_it(small_zarr_store):
     """Showing a hidden image reslices it; hiding one does not."""
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     visual = controller.add_image_multiscale(
         data=_make_store(small_zarr_store),
         scene_id=scene.id,
@@ -1176,7 +1242,9 @@ def test_showing_image_visual_reslices_it(small_zarr_store):
 def test_hidden_non_image_visual_keeps_slicing():
     """The hidden-visual gate only applies to image visuals."""
     controller = CellierController()
-    scene = controller.add_scene(dim="3d", coordinate_system=_make_cs(), name="main")
+    scene = controller.add_scene(
+        displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
+    )
     visual = controller.add_lines(
         data=_make_lines_store(),
         scene_id=scene.id,

@@ -41,7 +41,9 @@ _SHAPE = (10, 20, 30, 40)
 def _viewer(kind, transform_spec=None):
     """Add one visual of *kind* to a ``TZYX`` scene with one canvas."""
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(coordinate_system=_WORLD, dim="3d")
+    scene = controller.add_scene(
+        coordinate_system=_WORLD, displayed_axes=("z", "y", "x")
+    )
     controller.add_canvas(scene.id)
     if kind == "image":
         store = ImageMemoryStore(data=np.zeros(_SHAPE, dtype=np.float32))

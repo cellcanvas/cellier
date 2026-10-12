@@ -107,7 +107,7 @@ def test_rebuild_visuals_geometry_delegates_to_get_node_for_dims(
     controller = CellierController()
     cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
     scene = controller.add_scene(
-        dim="3d",
+        displayed_axes=("z", "y", "x"),
         coordinate_system=cs,
         name="test",
         render_modes={"2d", "3d"},

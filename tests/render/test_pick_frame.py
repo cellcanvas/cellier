@@ -29,7 +29,7 @@ KINDS = [
 async def test_a_pick_frame_agrees_with_get_pick_info(
     kind, controller, reslice, tmp_path
 ):
-    scene = controller.add_scene(dim="3d", name=kind)
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=kind)
     h.add_visual(kind, controller, scene.id, h.data_for(kind), tmp_path, kind)
     controller.add_canvas(scene_id=scene.id)
     await reslice(controller, scene.id)

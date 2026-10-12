@@ -22,9 +22,13 @@ pytest.importorskip("superqt")
 
 from cellier.convenience import Viewer
 from cellier.convenience.gui import (
-    InMemoryImageControlsConfig,
-    MultiscaleImageControlsConfig,
+    BoundingBoxControl,
+    FieldControls,
+    ImageControl,
+    LevelOfDetailControl,
+    LoadingIndicator,
 )
+from cellier.convenience.gui._controls_config import validate_controls
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import (
     InMemoryImageSingleAppearance,
@@ -37,31 +41,34 @@ from tests.convenience._qt_acceptance import (
     control_labels,
 )
 
-# The full field vocabulary the appearance path accepts today.  Kept explicit
-# so the expected-title lists below are read against a request for everything.
+# The image fields of a multiscale image.  Kept explicit so the
+# expected-title lists below are read against a request for everything.
 _ALL_MULTISCALE_FIELDS = [
     "color_map",
     "clim",
     "render_mode",
     "iso_threshold",
     "attenuation",
-    "level_of_detail",
 ]
 
 
 def test_multiscale_panel_control_names_in_order(qtbot, multiscale_image_store):
-    """Every field requested, so this is the maximal panel Qt builds today.
+    """Every field listed; the dock follows the order of the list.
 
-    ``level_of_detail`` and the three render fields are multiscale-only; the render
-    trio collapses into the single "Render mode" group.  The bounding box is
-    not requested by name -- ``aabb`` is on ``BaseVisual`` with a default
-    factory, so every configured panel gets it, on both toolkits.
+    The image fields collapse into the single "Image" control.  The level of
+    detail, the bounding box and the loading indicator are each their own
+    item.
     """
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     viewer.add_image_multiscale(
         multiscale_image_store,
         appearance=MultiscaleImageAppearance(),
-        controls=MultiscaleImageControlsConfig(appearance=_ALL_MULTISCALE_FIELDS),
+        controls=[
+            ImageControl(fields=_ALL_MULTISCALE_FIELDS),
+            LevelOfDetailControl(),
+            BoundingBoxControl(),
+            LoadingIndicator(),
+        ],
         single=MultiscaleImageSingleAppearance(color_map="viridis", render_mode="mip"),
     )
 
@@ -78,44 +85,63 @@ def test_multiscale_panel_control_names_in_order(qtbot, multiscale_image_store):
     assert_panel_renders(container)
 
 
-def test_in_memory_panel_control_names_in_order(qtbot, image_store):
-    """The in-memory model has no ``settled_lod_bias``/``attenuation``.
-
-    This is the one drop stage 3's validation cannot catch, and so the reason
-    ``appearance_specs`` still reports ``skipped``: a **multiscale** config is
-    paired with an in-memory visual, so every name is valid for the config
-    class and two of them are still absent from the model.  The renderer warns
-    rather than dropping them silently (section 9.5 step 4).
-
-    Requesting the same fields on an ``InMemoryImageControlsConfig`` now
-    raises at construction -- see ``test_controls_config_validation.py``.
-    """
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
-    viewer.add_image(
-        image_store,
-        appearance=InMemoryImageAppearance(),
-        controls=MultiscaleImageControlsConfig(appearance=_ALL_MULTISCALE_FIELDS),
-        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
+def test_a_reordered_list_reorders_the_panel(qtbot, multiscale_image_store):
+    """Move the lines and the dock follows."""
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
+    viewer.add_image_multiscale(
+        multiscale_image_store,
+        appearance=MultiscaleImageAppearance(),
+        controls=[
+            LoadingIndicator(),
+            BoundingBoxControl(),
+            ImageControl(fields=_ALL_MULTISCALE_FIELDS),
+            LevelOfDetailControl(),
+        ],
+        single=MultiscaleImageSingleAppearance(color_map="viridis", render_mode="mip"),
     )
 
-    with pytest.warns(UserWarning, match="attenuation"):
-        container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
+    container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
 
-    assert control_labels(container) == ["Image", "Bounding box"]
+    assert control_labels(container) == [
+        "Data fetch status",
+        "Bounding box",
+        "Image",
+        "Level of detail",
+        "Settled bias",
+    ]
     assert_panel_renders(container)
 
 
-def test_panel_order_follows_the_builder_not_the_config(qtbot, image_store):
-    """Group order is the builder's fixed order, not the config's field order.
+def test_a_field_the_model_lacks_warns_and_the_rest_is_built(qtbot, mesh_store):
+    """The one drop ``validate_controls`` cannot catch.
 
-    The docstring on ``appearance`` says "in display order"; it is not.  Pinned
-    so stage 1's shared spec list either preserves this or changes it visibly.
+    ``shininess`` is a valid mesh field and the flat appearance model does
+    not carry it.  ``appearance_specs`` reports it as ``skipped`` and the
+    renderer warns rather than dropping it silently.
     """
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    from cellier.visuals._mesh_memory import MeshFlatAppearance
+
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
+    viewer.add_mesh(
+        mesh_store,
+        appearance=MeshFlatAppearance(),
+        controls=[FieldControls(["opacity", "shininess"]), BoundingBoxControl()],
+    )
+
+    with pytest.warns(UserWarning, match="shininess"):
+        container = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
+
+    assert control_labels(container) == ["Opacity", "Bounding box"]
+    assert_panel_renders(container)
+
+
+def test_the_image_rows_do_not_follow_the_field_order(qtbot, image_store):
+    """``ImageControl.fields`` chooses rows; it does not order them (D1)."""
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     viewer.add_image(
         image_store,
         appearance=InMemoryImageAppearance(),
-        controls=InMemoryImageControlsConfig(appearance=["clim", "color_map"]),
+        controls=[ImageControl(fields=["clim", "color_map"]), BoundingBoxControl()],
         single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
 
@@ -124,16 +150,19 @@ def test_panel_order_follows_the_builder_not_the_config(qtbot, image_store):
     assert control_labels(container) == ["Image", "Bounding box"]
 
 
-def test_a_typo_never_reaches_the_dock_at_all(qtbot, image_store):
-    """The useless panel a typo used to produce cannot be built any more.
+def test_a_misspelled_field_never_reaches_the_dock_at_all(qtbot, image_store):
+    """The useless panel a misspelling used to produce cannot be built.
 
-    The history is the point.  Before stage 1 a misspelled field gave Qt a
-    dock with *zero* groups and the anywidget front end a dock holding only
-    the bounding box; stage 1 made Qt match; stage 3 stops the config being
-    constructed at all, so no dock of either shape exists to render.
+    ``add_image`` refuses the list before anything is added, so no dock of
+    any shape exists to render.
     """
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
+    misspelled = "colo" + "ur" + "_map"
     with pytest.raises(ValueError, match="color_map"):
-        InMemoryImageControlsConfig(appearance=["colour_map"])
+        viewer.add_image(image_store, controls=[ImageControl(fields=[misspelled])])
+    with pytest.raises(ValueError, match="color_map"):
+        validate_controls([ImageControl(fields=[misspelled])], "image", "image")
+    assert viewer.scene.visuals == []
 
 
 def test_bounding_box_group_is_seeded_from_the_visual(qtbot, image_store):
@@ -145,11 +174,11 @@ def test_bounding_box_group_is_seeded_from_the_visual(qtbot, image_store):
     """
     from PySide6.QtWidgets import QCheckBox, QDoubleSpinBox, QGroupBox
 
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="qt")
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     visual = viewer.add_image(
         image_store,
         appearance=InMemoryImageAppearance(),
-        controls=InMemoryImageControlsConfig(appearance=["color_map"]),
+        controls=[ImageControl(fields=["color_map"]), BoundingBoxControl()],
         single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
     )
     visual.aabb.enabled = True

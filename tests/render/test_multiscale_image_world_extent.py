@@ -112,7 +112,7 @@ def test_multiscale_3d_volume_bounds_are_the_voxel_extent(
     """
     # One store per case: both fixtures write their zarr into ``tmp_path``.
     store = request.getfixturevalue(f"multiscale_{kind}_store")
-    scene = controller.add_scene(dim="3d", name="scene")
+    scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
     # Non-uniform (z, y, x) scale on a 16^3 store, so a cube-shaped or
     # axis-swapped box cannot pass.
     scale_zyx = (1.0, 2.0, 4.0)

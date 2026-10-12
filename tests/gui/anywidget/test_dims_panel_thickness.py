@@ -11,12 +11,15 @@ from cellier.gui._axis_values import ContinuousAxisValues
 from cellier.gui.anywidget._dims_panel import AnywidgetDimsPanel
 from cellier.scene.dims import spatial_axes, world_coordinate_system
 from cellier.transform import Axis
+from tests._displayed import trailing_axes
 
 
 def _panel(axes=None, thickness=None):
     controller = CellierController()
     cs = world_coordinate_system(axes or spatial_axes("z", "y", "x"), name="world")
-    scene = controller.add_scene(dim="2d", coordinate_system=cs, name="main")
+    scene = controller.add_scene(
+        displayed_axes=trailing_axes(cs, "2d"), coordinate_system=cs, name="main"
+    )
     if thickness:
         controller.update_thickness(scene.id, thickness)
     panel = AnywidgetDimsPanel.from_scene(

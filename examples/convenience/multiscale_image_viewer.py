@@ -23,7 +23,7 @@ Visible : checkbox in the appearance dock.  Known issue: the canvas does not
 Toggle  : "Switch to 2D / 3D" button in the bottom dock
 Z slice : dims slider (2D mode only)
 Dataset info : collapsible block at the bottom of the appearance dock,
-          built by the store from its own metadata (``dataset_info=True``)
+          built by the store from its own metadata (``DatasetInfoControl()``)
 """
 
 from __future__ import annotations
@@ -41,7 +41,14 @@ from cellier.convenience import (
     axis_values_from_viewer,
     run,
 )
-from cellier.convenience.gui import MultiscaleImageControlsConfig, build_canvas_widget
+from cellier.convenience.gui import (
+    BoundingBoxControl,
+    DatasetInfoControl,
+    ImageControl,
+    LevelOfDetailControl,
+    LoadingIndicator,
+    build_canvas_widget,
+)
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import MultiscaleImageAppearance, MultiscaleImageSingleAppearance
@@ -119,7 +126,7 @@ store = MultiscaleZarrDataStore(
     level_translations=[(0.0, 0.0, 0.0), (0.5, 0.5, 0.5), (1.5, 1.5, 1.5)],
 )
 
-viewer = Viewer(spatial_axes("z", "y", "x"), dim="3d")
+viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"))
 
 viewer.add_image_multiscale(
     store,
@@ -133,35 +140,39 @@ viewer.add_image_multiscale(
         render_mode="iso",
         iso_threshold=0.45,
     ),
-    controls=MultiscaleImageControlsConfig(
-        appearance=[
-            # First in the panel: the group order follows the config class's
-            # control map, not this list.
-            "visible",
-            "color_map",
-            "clim",
-            "render_mode",
-            "iso_threshold",
-            "attenuation",
-            "level_of_detail",
-        ],
-        colormap_names=[
-            "grays",
-            "viridis",
-            "plasma",
-            "inferno",
-            "magma",
-            "cividis",
-            "turbo",
-            "hot",
-            "bwr",
-            "RdYlBu",
-        ],
-        clim_range=(0.0, 1.0),
+    controls=[
+        ImageControl(
+            # The rows of the image control.  The list chooses rows; it does
+            # not order them.
+            fields=[
+                "visible",
+                "color_map",
+                "clim",
+                "render_mode",
+                "iso_threshold",
+                "attenuation",
+            ],
+            colormap_names=[
+                "grays",
+                "viridis",
+                "plasma",
+                "inferno",
+                "magma",
+                "cividis",
+                "turbo",
+                "hot",
+                "bwr",
+                "RdYlBu",
+            ],
+            clim_range=(0.0, 1.0),
+        ),
+        LevelOfDetailControl(),
+        BoundingBoxControl(),
+        LoadingIndicator(),
         # The store describes itself: path, dtype, axes, and the per-level
         # shapes and scales read off its own level_transforms.
-        dataset_info=True,
-    ),
+        DatasetInfoControl(),
+    ],
 )
 
 # ---------------------------------------------------------------------------

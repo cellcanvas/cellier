@@ -31,7 +31,9 @@ def volume_store() -> ImageMemoryStore:
 @pytest.fixture
 def offscreen_viewer(volume_store, offscreen_gpu) -> Viewer:
     """A headless ``Viewer`` holding one image, with no canvas yet."""
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="offscreen"
+    )
     viewer.add_image(
         data=volume_store,
         appearance=InMemoryImageAppearance(),

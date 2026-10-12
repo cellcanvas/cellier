@@ -117,7 +117,7 @@ from cellier.controller import CellierController
 from cellier.render._capture import write_png
 
 controller = CellierController(gui="offscreen")
-scene = controller.add_scene(dim="3d", name="scene")
+scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
 controller.add_image(data=store, scene_id=scene.id, appearance=appearance)
 
 # Required: slice requests are planned per canvas, so a scene without one
@@ -229,9 +229,10 @@ rather than an empty scene.
 ```python
 # my_demo.py
 def build():
-    viewer = Viewer(spatial_axes("z", "y", "x"), gui="offscreen")
+    viewer = Viewer(
+        spatial_axes("z", "y", "x"), displayed_axes=("z", "y", "x"), gui="offscreen"
+    )
     viewer.add_image(data=store, appearance=InMemoryImageAppearance())
-    viewer.set_displayed_dimensions(("z", "y", "x"))
     return viewer
 ```
 
@@ -241,7 +242,7 @@ def build():
 scripts and tests that only ever capture:
 
 ```python
-viewer = Viewer(spatial_axes("z", "y", "x"), gui="offscreen")
+viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="offscreen")
 ```
 
 It has no embeddable widget, so `build_canvas_widget`, `launch`, `show` and
