@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "cellier[logging,pyside,remote] @ git+https://github.com/kevinyamauchi/cellier@main",
+#     "cellier[logging,pyside,remote],
 # ]
 # ///
 
