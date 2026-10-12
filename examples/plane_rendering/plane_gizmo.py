@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+#     "scikit-image",
+# ]
+# ///
+
 """Control the plane being rendered in a multiscale image with a gizmo."""
 
 from __future__ import annotations

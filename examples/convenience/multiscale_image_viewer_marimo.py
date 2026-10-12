@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[anywidget]",
+#     "marimo",
+# ]
+# ///
+
 """Multiscale image viewer marimo app."""
 
 import marimo
@@ -35,12 +43,6 @@ def _(mo):
     **Interaction (3D):** orbit (left-drag), zoom (scroll), pan (right-drag)
 
     **Interaction (2D):** pan (left-drag), zoom (scroll), slice (z slider)
-
-    Note that this requires installing render canvas from main and tensorstore:
-
-    ```bash
-    uv pip install git+https://github.com/pygfx/rendercanvas.git tensorstore
-    ```
     """)
     return
 

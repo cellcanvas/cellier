@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+#     "scikit-image",
+# ]
+# ///
+
 """Clipping planes on an image, labels, a mesh and points.
 
 Each visual has a clipping plane attached. Each visual controls widget

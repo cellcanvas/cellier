@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier",
+# ]
+# ///
+
 r"""A capture target: three spheres in a volume.
 
 Meant for ``cellier.convenience.capture``.

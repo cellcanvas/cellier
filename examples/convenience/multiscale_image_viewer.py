@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+# ]
+# ///
+
 """Multiscale image viewer using the cellier Viewer convenience class.
 
 Creates three scale levels from a (64, 128, 128) float32 concentric-shell

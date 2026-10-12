@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+#     "scikit-image",
+# ]
+# ///
+
 """Move a clipping plane by dragging a gizmo in the 3D view."""
 
 from __future__ import annotations

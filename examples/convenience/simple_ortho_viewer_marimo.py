@@ -1,3 +1,12 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[anywidget]",
+#     "marimo",
+#     "scikit-image",
+# ]
+# ///
+
 """Simple orthoviewer marimo app."""
 
 import marimo
@@ -25,12 +34,6 @@ def _(mo):
 
     - 2D panels: pan (left-drag), zoom (scroll); slice slider below each canvas.
     - 3D panel: orbit (left-drag), zoom (scroll), pan (right-drag).
-
-    Note that this requires installing rendercanvas from main:
-
-    ```bash
-    uv pip install git+https://github.com/pygfx/rendercanvas.git
-    ```
     """)
     return
 

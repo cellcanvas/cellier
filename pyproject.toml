@@ -91,7 +91,11 @@ dev = [
 logging = ["rich>=13.0"]
 
 # dependencies for the example scripts
-examples = ["scikit-image", "pyvista", "cellier[logging]"]
+examples = [
+    "marimo",
+    "scikit-image",
+    "cellier[anywidget,graph,logging,pyside,remote]",
+]
 
 # get all dependencies for development
 dev-all = ["cellier[dev,test,pyside,examples,logging,remote,anywidget,graph]"]

@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+# ]
+# ///
+
 """Plane rendering validation example.
 
 A `tczyx` scene with three time points and three visuals that read three

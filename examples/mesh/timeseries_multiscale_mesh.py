@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+# ]
+# ///
+
 """A time series of moving ellipsoid meshes, with levels of detail.
 
 The same scene as ``timeseries_mesh.py``, but the mesh is stored at two

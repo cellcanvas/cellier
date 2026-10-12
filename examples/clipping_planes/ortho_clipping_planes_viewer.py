@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+# ]
+# ///
+
 """Clipping planes in an OrthoViewer, linked across its panels.
 
 The right dock has the clipping plane controls.  The "Link" combobox

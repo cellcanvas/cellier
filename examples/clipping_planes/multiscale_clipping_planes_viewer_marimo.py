@@ -1,3 +1,12 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[anywidget]",
+#     "marimo",
+#     "scikit-image",
+# ]
+# ///
+
 """Clipping planes on multiscale visuals, as a marimo app."""
 
 import marimo

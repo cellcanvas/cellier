@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[anywidget]",
+#     "marimo",
+# ]
+# ///
+
 """Points, labels and an image that must line up on a plane, as a marimo app."""
 
 import marimo

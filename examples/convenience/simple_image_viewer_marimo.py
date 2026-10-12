@@ -1,3 +1,12 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[anywidget]",
+#     "marimo",
+#     "scikit-image",
+# ]
+# ///
+
 """Simple blob viewer marimo app."""
 
 import marimo
@@ -23,12 +32,6 @@ def _(mo):
     - 2D mode: pan (left-drag), zoom (scroll); use the `z` slider to reslice.
     - 3D mode: orbit (left-drag), zoom (scroll), pan (right-drag).
     - The "Switch to 3D / 2D" button toggles the displayed dimensions.
-
-    Note that this requires installing render canvas from main:
-
-    ```bash
-    uv pip install git+https://github.com/pygfx/rendercanvas.git
-    ```
     """)
     return
 

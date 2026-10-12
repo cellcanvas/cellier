@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[graph,pyside,remote]",
+# ]
+# ///
+
 """View a timelapse light-sheet organoid dataset in 2D and 3D.
 
 The dataset is movie of a growing organoid with a sgmentation and tracking graph

@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+#     "scikit-image",
+# ]
+# ///
+
 """Simple 3-D blob viewer using the cellier Viewer convenience class.
 
 Creates a (200, 200, 200) float32 image from scikit-image blobs, displays it

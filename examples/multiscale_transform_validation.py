@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside,remote]",
+#     "scikit-image",
+# ]
+# ///
+
 """Check that multiscale images and labels stay aligned across pyramid levels.
 
 This example shows multiscale image and labels visuals that are overlaid.

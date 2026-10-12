@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+#     "scikit-image",
+# ]
+# ///
+
 """A mulitscale orthoviewer where the 3d view has each 2d view rendered as a plane."""
 
 from __future__ import annotations

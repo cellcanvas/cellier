@@ -1,7 +1,14 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[logging,pyside,remote]",
+# ]
+# ///
+
 """View a large remote image in 2d and 3d.
 
 The dataset is the 20.07 um overview scan of the left hemisphere of brain
-I74, imaged by HiP-CT from the the Human Organ Atlas (https://human-organ-atlas.esrf.fr).
+I74, imaged by HiP-CT from the Human Organ Atlas (https://human-organ-atlas.esrf.fr).
 The image is stored as an OME-Zarr file on Google Cloud Storage.
 
 There are widgets to adding and controlling clipping planes. Try using the Gizmo to

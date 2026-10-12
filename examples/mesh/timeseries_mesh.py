@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+# ]
+# ///
+
 """A time series of moving ellipsoid meshes.
 
 This is an example of how time series meshes can be visualized

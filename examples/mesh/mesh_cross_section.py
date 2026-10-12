@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "cellier[pyside]",
+# ]
+# ///
+
 """An example of how 2d cross-sections appear for watertight meshes.
 
 The scene has two meshes:
