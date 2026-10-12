@@ -26,6 +26,8 @@ from cellier.data._dataset_info import (
     RowSection,
     format_bytes,
     format_scale,
+    source_label,
+    uri_file_name,
 )
 
 
@@ -221,3 +223,36 @@ def test_format_scale_spells_out_anisotropy():
 )
 def test_format_bytes(n_bytes, expected):
     assert format_bytes(n_bytes) == expected
+
+
+# -- URIs and Windows paths ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("uri", "expected"),
+    [
+        ("/data/a.zarr", "local file"),
+        ("file:///data/a.zarr", "local file"),
+        ("s3://bucket/a.zarr", "S3"),
+        ("https://host/a.zarr", "HTTP"),
+        # A drive letter is not a URL scheme.
+        ("C:\\data\\a.zarr", "local file"),
+        ("d:/data/a.zarr", "local file"),
+    ],
+)
+def test_source_label(uri, expected):
+    assert source_label(uri) == expected
+
+
+@pytest.mark.parametrize(
+    ("uri", "expected"),
+    [
+        ("/data/a.zarr", "a.zarr"),
+        ("s3://bucket/path/a.zarr/", "a.zarr"),
+        ("C:\\data\\a.zarr", "a.zarr"),
+        ("D:\\data\\a.zarr\\", "a.zarr"),
+        ("d:/data/a.zarr", "a.zarr"),
+    ],
+)
+def test_uri_file_name(uri, expected):
+    assert uri_file_name(uri) == expected

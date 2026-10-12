@@ -240,8 +240,18 @@ def _number(value: float) -> str:
     return f"{float(value):.4g}"
 
 
+def _is_windows_drive_path(uri: str) -> bool:
+    """Whether *uri* starts with a Windows drive letter (so is not a URI).
+
+    ``urlparse`` reads the drive letter as a one-letter URL scheme.
+    """
+    return len(uri) >= 2 and uri[1] == ":" and uri[0].isalpha()
+
+
 def source_label(uri: str) -> str:
     """Map a URI scheme to a human-readable source label."""
+    if _is_windows_drive_path(str(uri)):
+        return "local file"
     scheme = urlparse(str(uri)).scheme
     return {
         "": "local file",
@@ -256,7 +266,11 @@ def source_label(uri: str) -> str:
 
 def uri_file_name(uri: str) -> str:
     """Extract the final path component from a URI."""
-    path = urlparse(str(uri)).path or str(uri)
+    uri = str(uri)
+    if _is_windows_drive_path(uri):
+        path = uri.replace("\\", "/")
+    else:
+        path = urlparse(uri).path or uri
     return path.rstrip("/").rsplit("/", 1)[-1]
 
 

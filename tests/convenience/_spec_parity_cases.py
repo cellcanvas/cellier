@@ -262,8 +262,11 @@ def normalise(value: Any, tmp: Path | None = None) -> Any:
         if isinstance(value, str):
             # Ids are new on every run, as objects or already as text.
             value = _UUID_TEXT.sub("<uuid>", value)
-            if tmp is not None:
+            if tmp is not None and str(tmp) in value:
+                # Windows writes the rest of the path with backslashes; the
+                # golden holds forward slashes.
                 value = value.replace(str(tmp), _TMP)
+                value = value.replace("\\", "/")
         return value
     if isinstance(value, float):
         return value

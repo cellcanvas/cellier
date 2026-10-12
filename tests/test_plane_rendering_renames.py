@@ -270,7 +270,7 @@ def test_no_controls_config_class_is_left() -> None:
         for folder, pattern in (("src", "*.py"), ("examples", "*.py"), ("docs", "*.md"))
         for path in sorted((root / folder).rglob(pattern))
         if "__marimo__" not in path.parts
-        for number, line in enumerate(path.read_text().splitlines(), 1)
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if old in line
     ]
     assert hits == []
