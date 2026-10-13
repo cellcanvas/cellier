@@ -101,8 +101,8 @@ examples = [
 dev-all = ["cellier[dev,test,pyside,examples,logging,remote,anywidget,graph]"]
 
 [project.urls]
-homepage = "https://github.com/kevinyamauchi/cellier"
-repository = "https://github.com/kevinyamauchi/cellier"
+homepage = "https://github.com/cellcanvas/cellier"
+repository = "https://github.com/cellcanvas/cellier"
 
 # Entry points
 # https://peps.python.org/pep-0621/#entry-points

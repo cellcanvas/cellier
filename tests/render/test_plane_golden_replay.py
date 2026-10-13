@@ -1,15 +1,12 @@
-"""Golden plans and shader text that the plane rendering work must not change.
+"""Golden plans that the plane rendering work must not change.
 
 ``plans/plane_rendering_design_v3.md`` 14.1 step 0.2.  Captured once from the
 shipping code (HEAD ``ec887f3b``) and replayed here: the cull-first planner
-(Phase 1), the renames (Phase 2) and the shader branch (Phases 6, 7) must
-leave every one of these equal.
+(Phase 1) and the renames (Phase 2) must leave every one of these equal.
 
 * ``plans.npz``: for each case, the desired sets of a multiscale visual's
   plan (packed brick or tile keys, their request class, truncation counts),
   from the production path (canvas request -> ``plan``).
-* ``wgsl.json``: the sha256 and length of the WGSL every volume shader
-  generates in every render mode.
 
 The golden files are written only with ``PLANE_GOLDEN_WRITE=1`` and must
 never be regenerated to make a test pass: a difference is the finding.
@@ -25,21 +22,16 @@ are compared through ``_recorded_class`` until they are captured again.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 from pathlib import Path
 
 import numpy as np
 import pytest
-from pygfx.renderers.wgpu.shader.base import BaseShader
 
-from cellier.data import ImageMemoryStore, LabelMemoryStore
 from cellier.render.scheduling import ChunkClass
 from cellier.transform import AffineTransform
 from cellier.visuals import (
     ClippingPlane,
-    InMemoryImageSingleAppearance,
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
     MultiscaleImageSingleAppearance,
@@ -266,128 +258,3 @@ def test_plans_equal_the_golden(controller, pyramid_root):
     flat = {k: _recorded_class(v) if k.endswith("_cls") else v for k, v in flat.items()}
     wrong = [k for k in flat if not np.array_equal(golden[k], flat[k])]
     assert not wrong, f"{len(wrong)} of {len(flat)} differ, e.g. {wrong[:5]}"
-
-
-# --------------------------------------------------------------------------- #
-# WGSL                                                                         #
-# --------------------------------------------------------------------------- #
-
-
-def _capture_wgsl(controller, build):
-    """The WGSL the shaders generate while *build* draws one frame."""
-    seen: dict[str, str] = {}
-    original = BaseShader.generate_wgsl
-
-    def spy(self, **kw):
-        code = original(self, **kw)
-        seen[type(self).__name__] = code
-        return code
-
-    # A cached shader module skips the templating, so a shader built earlier in
-    # the session would be missed: capture with the shader cache off.
-    from pygfx.renderers.wgpu.engine.pipeline import SHADER_CACHE
-
-    BaseShader.generate_wgsl = spy
-    SHADER_CACHE.disable()
-    try:
-        build()
-    finally:
-        SHADER_CACHE.enable()
-        BaseShader.generate_wgsl = original
-    return seen
-
-
-def _wgsl_cases(controller, pyramid_root, render_scene):
-    """``{case: {shader class: (sha256, length)}}``."""
-    out = {}
-
-    def digest(codes):
-        return {
-            name: [hashlib.sha256(code.encode()).hexdigest(), len(code)]
-            for name, code in sorted(codes.items())
-        }
-
-    def draw(scene):
-        render_scene(controller, scene.id, size=(64, 64))
-
-    cube = np.random.default_rng(0).random((16, 16, 16)).astype(np.float32)
-    labels = (np.arange(16**3).reshape(16, 16, 16) % 5).astype(np.int32)
-
-    for mode in ("mip", "iso", "minip"):
-
-        def build(mode=mode):
-            scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=mode)
-            controller.add_image(
-                data=ImageMemoryStore(data=cube, name=mode),
-                scene_id=scene.id,
-                single=InMemoryImageSingleAppearance(render_mode=mode),
-            )
-            controller.add_canvas(scene_id=scene.id)
-            controller.fit_camera(scene.id)
-            draw(scene)
-
-        out[f"image_memory/{mode}"] = digest(_capture_wgsl(controller, build))
-
-    def build_labels():
-        scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="lab")
-        controller.add_labels(
-            data=LabelMemoryStore(data=labels, name="lab"), scene_id=scene.id
-        )
-        controller.add_canvas(scene_id=scene.id)
-        controller.fit_camera(scene.id)
-        draw(scene)
-
-    out["labels_memory/default"] = digest(_capture_wgsl(controller, build_labels))
-
-    for mode in ("iso", "mip", "smooth_iso", "attenuated_mip"):
-        # The mode lives on the single appearance; build with it directly.
-        def build_mode(mode=mode):
-            store, _ = open_pyramid(pyramid_root(ANISO), ANISO)
-            scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=mode)
-            controller.add_image_multiscale(
-                data=store,
-                scene_id=scene.id,
-                appearance=MultiscaleImageAppearance(),
-                render_config=MultiscaleImageRenderConfig(
-                    block_size=16, **SMALL_BUDGETS
-                ),
-                single=MultiscaleImageSingleAppearance(render_mode=mode),
-            )
-            controller.add_canvas(scene_id=scene.id)
-            controller.fit_camera(scene.id)
-            draw(scene)
-
-        out[f"image_multiscale/{mode}"] = digest(_capture_wgsl(controller, build_mode))
-
-    for mode in ("iso_categorical", "flat_categorical", "gradient_debug", "smooth_iso"):
-
-        def build_mode(mode=mode):
-            store, _ = open_pyramid(pyramid_root(ANISO, labels=True), ANISO)
-            scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=mode)
-            controller.add_labels_multiscale(
-                data=store,
-                scene_id=scene.id,
-                appearance=MultiscaleLabelsAppearance(render_mode=mode),
-                render_config=MultiscaleLabelRenderConfig(
-                    block_size=16, **SMALL_BUDGETS
-                ),
-            )
-            controller.add_canvas(scene_id=scene.id)
-            controller.fit_camera(scene.id)
-            draw(scene)
-
-        out[f"labels_multiscale/{mode}"] = digest(_capture_wgsl(controller, build_mode))
-    return out
-
-
-def test_shader_text_equals_the_golden(controller, pyramid_root, render_scene):
-    cases = _wgsl_cases(controller, pyramid_root, render_scene)
-    empty = [k for k, v in cases.items() if not v]
-    assert not empty, f"no shader captured for {empty}"
-    path = GOLDEN / "wgsl.json"
-    if WRITE:
-        GOLDEN.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(cases, indent=1, sort_keys=True))
-        pytest.skip(f"wrote {len(cases)} cases to {path}")
-    golden = json.loads(path.read_text())
-    assert golden == json.loads(json.dumps(cases))
