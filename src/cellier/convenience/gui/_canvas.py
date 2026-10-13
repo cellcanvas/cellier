@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from cellier.gui.anywidget._dims_panel import AnywidgetDimsPanel
     from cellier.gui.qt import QtCanvasWidget
     from cellier.scene.scene import Scene
+    from cellier.transform import AxisRef
 
 
 def _resolve_gui(viewer: Viewer, gui: str | None) -> str:
@@ -93,6 +94,8 @@ def build_canvas_view(
     depth_range_3d: tuple[float, float] = (1.0, 8000.0),
     depth_range_2d: tuple[float, float] = (-500.0, 500.0),
     canvas_size: tuple[int, int] | None = None,
+    fit_view_direction_3d: Mapping[AxisRef, float] | None = None,
+    fit_up_3d: Mapping[AxisRef, float] | None = None,
 ):
     """Build a wired canvas leaf for *scene*, reusing any existing canvas.
 
@@ -123,6 +126,11 @@ def build_canvas_view(
         ``(near, far)`` clip distances for a new 3D / 2D camera.
     canvas_size : tuple[int, int] or None
         Initial CSS pixel size.  Meaningful to the anywidget backend only.
+    fit_view_direction_3d, fit_up_3d : Mapping[AxisRef, float] or None
+        The view direction and up vector the 3D camera is fitted with, each
+        as the component along named world axes, e.g. ``{"z": -1.0}``.
+        ``None`` (default) looks along minus all three displayed axes with
+        the first displayed axis up.  See ``CellierController.add_canvas``.
 
     Notes
     -----
@@ -151,6 +159,8 @@ def build_canvas_view(
             depth_range_3d=depth_range_3d,
             depth_range_2d=depth_range_2d,
             canvas_size=canvas_size,
+            fit_view_direction_3d=fit_view_direction_3d,
+            fit_up_3d=fit_up_3d,
         )
         canvas_ids = controller.get_canvas_ids(scene.id)
         _center_displayed_axes(controller, scene, axis_values)
@@ -205,6 +215,8 @@ def build_canvas_widget(
     depth_range_3d: tuple[float, float] = (1.0, 8000.0),
     depth_range_2d: tuple[float, float] = (-500.0, 500.0),
     canvas_size: tuple[int, int] | None = None,
+    fit_view_direction_3d: Mapping[AxisRef, float] | None = None,
+    fit_up_3d: Mapping[AxisRef, float] | None = None,
 ) -> QtCanvasWidget | AnywidgetCanvasView:
     """Build a canvas widget with wired dims sliders for the viewer.
 
@@ -246,6 +258,11 @@ def build_canvas_widget(
     canvas_size : tuple[int, int] or None
         Initial CSS pixel size for the anywidget canvas.  Ignored for the Qt
         gui.  Defaults to ``(600, 600)`` for the anywidget gui.
+    fit_view_direction_3d, fit_up_3d : Mapping[AxisRef, float] or None
+        The view direction and up vector the 3D camera is fitted with, each
+        as the component along named world axes, e.g. ``{"z": -1.0}``.
+        ``None`` (default) looks along minus all three displayed axes with
+        the first displayed axis up.  See ``CellierController.add_canvas``.
 
     Returns
     -------
@@ -278,6 +295,8 @@ def build_canvas_widget(
         depth_range_3d=depth_range_3d,
         depth_range_2d=depth_range_2d,
         canvas_size=canvas_size,
+        fit_view_direction_3d=fit_view_direction_3d,
+        fit_up_3d=fit_up_3d,
     )
 
 

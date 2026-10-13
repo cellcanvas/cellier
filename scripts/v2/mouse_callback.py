@@ -110,9 +110,7 @@ def main() -> None:
         nonlocal _fitted
         if not _fitted:
             _fitted = True
-            controller.look_at_visual(
-                image_visual.id, canvas_id, view_direction=(0, 0, -1), up=(0, 1, 0)
-            )
+            controller.look_at_visual(image_visual.id, canvas_id)
 
     controller.on_reslice_completed(
         image_visual.id, _on_first_data, owner_id=controller._id

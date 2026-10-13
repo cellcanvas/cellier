@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from cellier.convenience._ortho_viewer import OrthoViewer
     from cellier.gui._axis_values import AxisValues
     from cellier.gui._constants import GuiName
+    from cellier.transform import AxisRef
 
 #: ``(row, column, panel key, header)`` for the 2x2 ortho layout.
 #:
@@ -86,6 +87,8 @@ def build_ortho_grid_widget(
     depth_range_3d: tuple[float, float] = (1.0, 8000.0),
     depth_range_2d: tuple[float, float] = (-500.0, 500.0),
     canvas_size: tuple[int, int] | None = None,
+    fit_view_direction_3d: Mapping[AxisRef, float] | None = None,
+    fit_up_3d: Mapping[AxisRef, float] | None = None,
 ) -> OrthoCanvasGrid:
     """Build the 2x2 canvas grid for an :class:`OrthoViewer`.
 
@@ -108,6 +111,11 @@ def build_ortho_grid_widget(
         ``(near, far)`` clip distances for the 3D / 2D cameras.
     canvas_size : tuple[int, int] or None
         Initial CSS pixel size per panel.  Meaningful to anywidget only.
+    fit_view_direction_3d, fit_up_3d : Mapping[AxisRef, float] or None
+        The view direction and up vector the 3D panel's camera is fitted with, each
+        as the component along named world axes, e.g. ``{"z": -1.0}``.
+        ``None`` (default) looks along minus all three displayed axes with
+        the first displayed axis up.  See ``CellierController.add_canvas``.
 
     Returns
     -------
@@ -143,6 +151,8 @@ def build_ortho_grid_widget(
                 depth_range_3d=depth_range_3d,
                 depth_range_2d=depth_range_2d,
                 canvas_size=canvas_size,
+                fit_view_direction_3d=fit_view_direction_3d,
+                fit_up_3d=fit_up_3d,
             )
             for key, scene in ortho.scenes.items()
         }

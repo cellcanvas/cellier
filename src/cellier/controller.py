@@ -150,6 +150,12 @@ from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
 from cellier.render.visuals._scene_overlay import GFXSceneBoundingBox
 from cellier.scene._background import BackgroundAppearance
 from cellier.scene._bounds import scene_world_bounds
+from cellier.scene._fit_orientation import (
+    AxisVector,
+    check_not_parallel,
+    normalize_axis_vector,
+    resolve_fit_orientation,
+)
 from cellier.scene.cameras import (
     CameraType,
     OrbitCameraController,
@@ -3553,6 +3559,8 @@ class CellierController:
         depth_range_3d: tuple[float, float] = (1.0, 8000.0),
         depth_range_2d: tuple[float, float] = (-500.0, 500.0),
         canvas_size: tuple[int, int] | None = None,
+        fit_view_direction_3d: Mapping[AxisRef, float] | None = None,
+        fit_up_3d: Mapping[AxisRef, float] | None = None,
     ) -> QWidget:
         """Create a canvas attached to a scene and return its embeddable widget.
 
@@ -3583,6 +3591,20 @@ class CellierController:
             Initial CSS pixel size for the anywidget canvas.  Ignored for the
             Qt gui (which is sized by its parent layout).  Defaults to
             ``(600, 600)`` when ``None`` for the anywidget gui.
+        fit_view_direction_3d : Mapping[AxisRef, float] or None
+            The direction the 3D camera looks along whenever it is fitted to
+            the scene, as the component along each named world axis, e.g.
+            ``{"z": 1.0, "y": -1.0, "x": -1.0}``.  An axis left out has
+            component 0.  ``None`` (default) looks along minus all three
+            displayed axes.
+
+            The vector is used only while every axis it has a component on is
+            displayed; otherwise the fit uses the default, without a warning.
+            The same holds when it is parallel to the up vector in use.
+        fit_up_3d : Mapping[AxisRef, float] or None
+            The up direction of a fitted 3D camera, given like
+            *fit_view_direction_3d*, e.g. ``{"z": -1.0}``.  ``None``
+            (default) is the first displayed axis.
 
         Returns
         -------
@@ -3591,11 +3613,22 @@ class CellierController:
 
         Raises
         ------
+        TypeError
+            If a fit vector is not a mapping.
+        KeyError
+            If a fit vector names an axis the scene's world does not have.
         ValueError
             If ``initial_dim`` is supplied but is not a member of
-            ``render_modes``.
+            ``render_modes``, or a fit vector is zero, not finite, or the
+            two are parallel.
         """
         scene = self._model.scenes[scene_id]
+        world = scene.dims.world_coordinate_system
+        fit_view_direction = normalize_axis_vector(
+            world, fit_view_direction_3d, "fit_view_direction_3d"
+        )
+        fit_up = normalize_axis_vector(world, fit_up_3d, "fit_up_3d")
+        check_not_parallel(fit_view_direction, fit_up)
 
         if render_modes is None:
             render_modes = scene.render_modes
@@ -3625,7 +3658,11 @@ class CellierController:
                 controller=PanZoomCameraController(enabled=True),
             )
 
-        canvas_model = Canvas(cameras=cameras)
+        canvas_model = Canvas(
+            cameras=cameras,
+            fit_view_direction_3d=fit_view_direction,
+            fit_up_3d=fit_up,
+        )
         return self.add_canvas_model(
             scene_id, canvas_model, initial_dim=initial_dim, canvas_size=canvas_size
         )
@@ -3758,6 +3795,7 @@ class CellierController:
         rendered, embedding = self._build_rendered(scene_id, canvas_model.id)
         self._rendered[canvas_model.id] = (rendered, embedding)
         self._register_coordinate_systems(rendered)
+        self._push_fit_orientation(scene_id, canvas_model.id)
         # The first canvas is what makes a rendered system exist, so visuals
         # added before it could not be placed.  They can be now.
         self._push_render_spaces(scene_id)
@@ -4371,6 +4409,49 @@ class CellierController:
             rendered, embedding = self._build_rendered(scene_id, canvas_id)
             self._rendered[canvas_id] = (rendered, embedding)
             self._register_coordinate_systems(rendered)
+            # Before the camera switch that follows a displayed-axes change,
+            # so a first fit in 3D already has the orientation for the new
+            # axes.
+            self._push_fit_orientation(scene_id, canvas_id)
+
+    def _resolve_fit_orientation_3d(
+        self,
+        scene_id: UUID,
+        canvas_id: UUID,
+        view_direction: AxisVector | None = None,
+        up: AxisVector | None = None,
+    ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """A 3D fit's view direction and up vector, in pygfx ``(x, y, z)`` order.
+
+        Each vector is the argument when it lies on the displayed axes, else
+        the canvas model's, else the default; see
+        :func:`~cellier.scene._fit_orientation.resolve_fit_orientation`.
+        The scene must display three axes.
+        """
+        scene = self._model.scenes[scene_id]
+        world = scene.dims.world_coordinate_system
+        canvas_model = scene.canvases[canvas_id]
+        resolved_view_direction, resolved_up = resolve_fit_orientation(
+            [view_direction, canvas_model.fit_view_direction_3d],
+            [up, canvas_model.fit_up_3d],
+            [world.axes[axis].id for axis in scene.dims.selection.displayed_axes],
+        )
+        # Displayed order is cellier's; pygfx's is the reverse.
+        return resolved_view_direction[::-1], resolved_up[::-1]
+
+    def _push_fit_orientation(self, scene_id: UUID, canvas_id: UUID) -> None:
+        """Give a canvas the 3D fit orientation for the displayed axes.
+
+        Does nothing while the scene displays two axes: the orientation is
+        pushed when it next displays three, before the camera is fitted.
+        """
+        canvas_view = self._render_manager._canvases.get(canvas_id)
+        scene = self._model.scenes[scene_id]
+        if canvas_view is None or len(scene.dims.selection.displayed_axes) != 3:
+            return
+        canvas_view.set_fit_orientation_3d(
+            *self._resolve_fit_orientation_3d(scene_id, canvas_id)
+        )
 
     def _rebuild_rendered_embedding(self, scene_id: UUID) -> None:
         """Refresh only the ``rendered -> world`` half after a slice move.
@@ -9327,8 +9408,8 @@ class CellierController:
         self,
         visual_id: UUID,
         canvas_id: UUID,
-        view_direction: tuple[float, float, float] = (-1, -1, -1),
-        up: tuple[float, float, float] = (0, 0, 1),
+        view_direction: Mapping[AxisRef, float] | None = None,
+        up: Mapping[AxisRef, float] | None = None,
         *,
         interactive: bool = False,
     ) -> None:
@@ -9343,15 +9424,48 @@ class CellierController:
             ID of the target visual.
         canvas_id : UUID
             ID of the canvas whose camera should be fitted.
-        view_direction : tuple[float, float, float]
-            Camera look direction vector (need not be normalized).
-        up : tuple[float, float, float]
-            Camera up vector.
+        view_direction : Mapping[AxisRef, float] or None
+            The direction the camera looks along, as the component along
+            each named world axis, e.g. ``{"z": 1.0, "y": -1.0}`` (need not
+            be normalized).  An axis left out has component 0.  ``None``
+            (default) is the canvas's own ``fit_view_direction_3d``.
+
+            Used only in a 3D view, and only when every axis it has a
+            component on is displayed; otherwise the canvas's own is used,
+            without a warning.  A 2D view always looks down on its plane.
+        up : Mapping[AxisRef, float] or None
+            The camera's up vector, given like *view_direction*.  ``None``
+            (default) is the canvas's own ``fit_up_3d``.
         interactive : bool
             Whether the move is a tick of a camera motion instead of a jump;
             see :meth:`set_camera_state`.
+
+        Raises
+        ------
+        TypeError
+            If a vector is not a mapping.
+        KeyError
+            If a vector names an axis the scene's world does not have.
+        ValueError
+            If a vector is zero or not finite, or the two are parallel.
         """
-        self._render_manager.look_at_visual(visual_id, canvas_id, view_direction, up)
+        scene_id = self._canvas_to_scene[canvas_id]
+        scene = self._model.scenes[scene_id]
+        world = scene.dims.world_coordinate_system
+        view_direction = normalize_axis_vector(world, view_direction, "view_direction")
+        up = normalize_axis_vector(world, up, "up")
+        check_not_parallel(view_direction, up)
+        canvas_view = self._render_manager._canvases[canvas_id]
+        if canvas_view.dim == "3d" and len(scene.dims.selection.displayed_axes) == 3:
+            self._render_manager.look_at_visual(
+                visual_id,
+                canvas_id,
+                *self._resolve_fit_orientation_3d(
+                    scene_id, canvas_id, view_direction, up
+                ),
+            )
+        else:
+            self._render_manager.look_at_visual(visual_id, canvas_id)
         self._after_programmatic_camera_move(canvas_id, interactive=interactive)
 
     def set_camera_depth_range(

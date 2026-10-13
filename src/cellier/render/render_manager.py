@@ -1797,8 +1797,8 @@ class RenderManager:
         self,
         visual_id: UUID,
         canvas_id: UUID,
-        view_direction: tuple[float, float, float] = (-1, -1, -1),
-        up: tuple[float, float, float] = (0, 0, 1),
+        view_direction: tuple[float, float, float] | None = None,
+        up: tuple[float, float, float] | None = None,
     ) -> None:
         """Fit a canvas camera to a visual's bounding box.
 
@@ -1808,15 +1808,22 @@ class RenderManager:
             ID of the target visual.
         canvas_id : UUID
             ID of the canvas whose camera should be fitted.
-        view_direction : tuple[float, float, float]
-            Camera look direction vector (need not be normalized).
-        up : tuple[float, float, float]
-            Camera up vector.
+        view_direction : tuple[float, float, float] or None
+            Camera look direction vector, in rendered ``(x, y, z)`` order
+            (need not be normalized).  ``None`` is the canvas's own fit
+            orientation.
+        up : tuple[float, float, float] or None
+            Camera up vector, in rendered ``(x, y, z)`` order.  ``None`` is
+            the canvas's own fit orientation.
         """
         scene_id = self._visual_to_scene[visual_id]
         gfx_scene = self.get_scene(scene_id)
-        self._canvases[canvas_id]._camera.show_object(
-            gfx_scene, view_dir=view_direction, up=up
+        canvas_view = self._canvases[canvas_id]
+        fit_view_direction, fit_up = canvas_view.fit_orientation()
+        canvas_view._camera.show_object(
+            gfx_scene,
+            view_dir=fit_view_direction if view_direction is None else view_direction,
+            up=fit_up if up is None else up,
         )
 
     def set_dims_scrubbing(self, scene_id: UUID, scrubbing: bool) -> None:

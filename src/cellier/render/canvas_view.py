@@ -257,6 +257,10 @@ class CanvasView:
 
         # Track which dims have been fitted to the scene.
         self._fitted: set[str] = set()
+        # The orientation of a 3D fit, in rendered (x, y, z) order.  The
+        # controller resolves it from the canvas model's axis-keyed vectors.
+        self._fit_view_dir_3d: tuple[float, float, float] = (-1.0, -1.0, -1.0)
+        self._fit_up_3d: tuple[float, float, float] = (0.0, 0.0, 1.0)
 
         self._accum_pass = TemporalAccumulationPass(alpha=0.2)
         if dim == "2d":
@@ -821,12 +825,45 @@ class CanvasView:
         """
         if scene.get_world_bounding_sphere() is None:
             return False
-        if self._dim == "2d":
-            self._camera.show_object(scene, view_dir=(0, 0, -1), up=(0, 1, 0))
-        else:
-            self._camera.show_object(scene, view_dir=(-1, -1, -1), up=(0, 0, 1))
+        view_dir, up = self.fit_orientation()
+        self._camera.show_object(scene, view_dir=view_dir, up=up)
         self._fitted.add(self._dim)
         return True
+
+    def fit_orientation(
+        self,
+    ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """The view direction and up vector a fit of the active camera uses.
+
+        Returns
+        -------
+        view_dir, up : tuple[float, float, float]
+            In rendered ``(x, y, z)`` order.  The 2D camera's are fixed; the
+            3D camera's are set by :meth:`set_fit_orientation_3d`.
+        """
+        if self._dim == "2d":
+            return (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)
+        return self._fit_view_dir_3d, self._fit_up_3d
+
+    def set_fit_orientation_3d(
+        self,
+        view_dir: tuple[float, float, float],
+        up: tuple[float, float, float],
+    ) -> None:
+        """Set the orientation the 3D camera is fitted with.
+
+        Nothing moves: the next :meth:`show_object` in 3D uses it.
+
+        Parameters
+        ----------
+        view_dir : tuple[float, float, float]
+            The direction the camera looks along, in rendered ``(x, y, z)``
+            order.  Need not be normalized.
+        up : tuple[float, float, float]
+            The camera's up vector, in rendered ``(x, y, z)`` order.
+        """
+        self._fit_view_dir_3d = tuple(float(value) for value in view_dir)
+        self._fit_up_3d = tuple(float(value) for value in up)
 
     @property
     def camera(self) -> gfx.Camera:

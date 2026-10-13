@@ -12,7 +12,9 @@ import asyncio
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import numpy as np
 import pygfx.controllers._base as pygfx_controller_base
+import pylinalg as la
 import pytest
 
 from cellier.controller import CellierController
@@ -55,6 +57,7 @@ class Rig:
         n_canvases: int = 1,
         render_modes: set[str] | None = None,
         with_image: bool = True,
+        canvas_kwargs: dict | None = None,
     ) -> None:
         self.clock = clock
         self.controller = CellierController(
@@ -74,7 +77,9 @@ class Rig:
         self.canvas_ids = []
         self.views = []
         for _ in range(n_canvases):
-            self.controller.add_canvas(self.scene.id, canvas_size=(200, 150))
+            self.controller.add_canvas(
+                self.scene.id, canvas_size=(200, 150), **(canvas_kwargs or {})
+            )
             canvas_id = self.controller.get_canvas_ids(self.scene.id)[-1]
             self.canvas_ids.append(canvas_id)
             self.views.append(self.controller.get_canvas_view(canvas_id))
@@ -556,7 +561,9 @@ async def test_look_at_visual_and_the_depth_range_are_jumps(make_rig):
     rig = make_rig()
     controller = rig.controller
     await rig.settle_first_frames()
-    controller.look_at_visual(rig.visual.id, rig.canvas_id, view_direction=(0, 0, -1))
+    controller.look_at_visual(
+        rig.visual.id, rig.canvas_id, view_direction={"z": -1.0}, up={"y": 1.0}
+    )
     assert len(rig.reslices) == 1
     controller.set_camera_depth_range(rig.canvas_id, (2.0, 500.0))
     assert len(rig.reslices) == 2
@@ -985,3 +992,144 @@ def test_with_no_event_loop_a_camera_end_reslices_after_the_render(
         assert controller._camera_reslices_after_draw == []
     finally:
         rig.controller.close()
+
+
+# -- the orientation of a fit ---------------------------------------------------
+
+#: Up is minus z and the camera looks from the low-z corner, on named axes.
+UPSIDE_DOWN = {
+    "fit_view_direction_3d": {"z": 1.0, "y": -1.0, "x": -1.0},
+    "fit_up_3d": {"z": -1.0},
+}
+#: The same two vectors in pygfx (x, y, z) order.
+UPSIDE_DOWN_VIEW_XYZ = (-1.0, -1.0, 1.0)
+UPSIDE_DOWN_UP_XYZ = (0.0, 0.0, -1.0)
+DEFAULT_VIEW_XYZ = (-1.0, -1.0, -1.0)
+DEFAULT_UP_XYZ = (0.0, 0.0, 1.0)
+
+
+def assert_camera_oriented(view, view_xyz, up_xyz) -> None:
+    """Assert the active camera looks along *view_xyz* with *up_xyz* up."""
+    rotation = view.camera.world.rotation
+    forward = la.vec_transform_quat((0.0, 0.0, -1.0), rotation)
+    camera_up = la.vec_transform_quat((0.0, 1.0, 0.0), rotation)
+    expected_forward = np.asarray(view_xyz) / np.linalg.norm(view_xyz)
+    # The camera's up is the up vector with its part along the view removed.
+    expected_up = np.asarray(up_xyz) - np.dot(up_xyz, expected_forward) * (
+        expected_forward
+    )
+    expected_up /= np.linalg.norm(expected_up)
+    np.testing.assert_allclose(forward, expected_forward, atol=1e-5)
+    np.testing.assert_allclose(camera_up, expected_up, atol=1e-5)
+
+
+async def test_a_fit_uses_the_default_orientation(make_rig):
+    rig = make_rig()
+    await rig.settle_first_frames()
+    assert_camera_oriented(rig.view, DEFAULT_VIEW_XYZ, DEFAULT_UP_XYZ)
+
+
+async def test_a_fit_uses_the_canvas_fit_orientation(make_rig):
+    rig = make_rig(canvas_kwargs=UPSIDE_DOWN)
+    await rig.settle_first_frames()
+    assert_camera_oriented(rig.view, UPSIDE_DOWN_VIEW_XYZ, UPSIDE_DOWN_UP_XYZ)
+
+
+async def test_one_fit_vector_leaves_the_other_at_its_default(make_rig):
+    rig = make_rig(canvas_kwargs={"fit_up_3d": {"z": -1.0}})
+    await rig.settle_first_frames()
+    assert_camera_oriented(rig.view, DEFAULT_VIEW_XYZ, UPSIDE_DOWN_UP_XYZ)
+
+
+async def test_the_first_visit_to_3d_uses_the_fit_orientation(make_rig):
+    rig = make_rig(dim="2d", render_modes={"2d", "3d"}, canvas_kwargs=UPSIDE_DOWN)
+    await rig.settle_first_frames()
+    # The 2D camera keeps its own orientation.
+    assert_camera_oriented(rig.view, (0.0, 0.0, -1.0), (0.0, 1.0, 0.0))
+
+    rig.controller.set_displayed_axes(rig.scene.id, (0, 1, 2))
+    assert_camera_oriented(rig.view, UPSIDE_DOWN_VIEW_XYZ, UPSIDE_DOWN_UP_XYZ)
+    await drain_loading(rig.controller)
+
+
+async def test_the_deferred_fit_uses_the_fit_orientation(make_rig):
+    rig = make_rig(
+        dim="2d",
+        render_modes={"2d", "3d"},
+        with_image=False,
+        canvas_kwargs=UPSIDE_DOWN,
+    )
+    controller = rig.controller
+    controller.set_displayed_axes(rig.scene.id, (0, 1, 2))
+    assert rig.canvas_id in controller._canvases_awaiting_fit
+
+    rig.visual = rig.add_image()
+    assert rig.canvas_id not in controller._canvases_awaiting_fit
+    assert_camera_oriented(rig.view, UPSIDE_DOWN_VIEW_XYZ, UPSIDE_DOWN_UP_XYZ)
+    await drain_loading(controller)
+
+
+async def test_the_fit_orientation_follows_a_transposed_display(make_rig):
+    rig = make_rig(canvas_kwargs=UPSIDE_DOWN)
+    await rig.settle_first_frames()
+    # Displayed (x, y, z): world z is now the last displayed axis, pygfx x.
+    rig.controller.set_displayed_axes(rig.scene.id, (2, 1, 0))
+    rig.controller.fit_camera(rig.scene.id)
+    assert_camera_oriented(rig.view, (1.0, -1.0, -1.0), (-1.0, 0.0, 0.0))
+    await drain_loading(rig.controller)
+
+
+async def test_look_at_visual_takes_vectors_on_named_axes(make_rig):
+    rig = make_rig()
+    await rig.settle_first_frames()
+    rig.controller.look_at_visual(
+        rig.visual.id, rig.canvas_id, view_direction={"x": 1.0}, up={"y": -1.0}
+    )
+    assert_camera_oriented(rig.view, (1.0, 0.0, 0.0), (0.0, -1.0, 0.0))
+    await drain_loading(rig.controller)
+
+
+async def test_look_at_visual_defaults_to_the_canvas_fit_orientation(make_rig):
+    rig = make_rig(canvas_kwargs=UPSIDE_DOWN)
+    await rig.settle_first_frames()
+    rig.controller.look_at_visual(rig.visual.id, rig.canvas_id, up={"y": 1.0})
+    assert_camera_oriented(rig.view, UPSIDE_DOWN_VIEW_XYZ, (0.0, 1.0, 0.0))
+    rig.controller.look_at_visual(rig.visual.id, rig.canvas_id)
+    assert_camera_oriented(rig.view, UPSIDE_DOWN_VIEW_XYZ, UPSIDE_DOWN_UP_XYZ)
+    await drain_loading(rig.controller)
+
+
+async def test_look_at_visual_in_2d_keeps_the_2d_orientation(make_rig):
+    rig = make_rig(dim="2d")
+    await rig.settle_first_frames()
+    rig.controller.look_at_visual(
+        rig.visual.id, rig.canvas_id, view_direction={"x": 1.0}, up={"y": -1.0}
+    )
+    assert_camera_oriented(rig.view, (0.0, 0.0, -1.0), (0.0, 1.0, 0.0))
+    await drain_loading(rig.controller)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"fit_up_3d": (0.0, 0.0, -1.0)}, TypeError),
+        ({"fit_up_3d": {"w": 1.0}}, KeyError),
+        ({"fit_up_3d": {"z": 0.0}}, ValueError),
+        ({"fit_up_3d": {"z": float("nan")}}, ValueError),
+        (
+            {"fit_up_3d": {"z": 1.0}, "fit_view_direction_3d": {"z": -2.0}},
+            ValueError,
+        ),
+    ],
+)
+def test_a_bad_fit_vector_is_refused(make_rig, kwargs, error):
+    with pytest.raises(error):
+        make_rig(canvas_kwargs=kwargs)
+
+
+def test_look_at_visual_refuses_a_bare_sequence(make_rig):
+    rig = make_rig()
+    with pytest.raises(TypeError, match="axis order"):
+        rig.controller.look_at_visual(
+            rig.visual.id, rig.canvas_id, view_direction=(0, 0, -1)
+        )

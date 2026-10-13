@@ -161,6 +161,8 @@ jobs:
       id-token: write
       # This permission allows writing releases
       contents: write
+      # This permission allows starting the docs workflow (last step)
+      actions: write
 
     steps:
       - uses: actions/checkout@v7
@@ -186,3 +188,29 @@ jobs:
         with:
           generate_release_notes: true
           files: './dist/*'
+
+      # The docs workflow publishes the example scripts of each release,
+      # pinned to that release, and leaves out a version that is not on PyPI
+      # (see plans/examples-distribution-v2.md). So wait until this one is
+      # there before starting it. The version is read from the sdist's name,
+      # which is the form PyPI knows it by (tag v0.1.0-rc1 is 0.1.0rc1).
+      - name: Wait for the release on PyPI
+        run: |
+          sdist=$(basename dist/cellier-*.tar.gz .tar.gz)
+          version="${sdist#cellier-}"
+          for _ in $(seq 30); do
+            if curl -fsS -o /dev/null "https://pypi.org/pypi/cellier/${version}/json"; then
+              echo "cellier ${version} is on PyPI"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "cellier ${version} did not appear on PyPI" >&2
+          exit 1
+
+      # The site can only be deployed from main, so the docs workflow is
+      # started there rather than run on this tag.
+      - name: Rebuild the docs site with this release's examples
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run docs.yml --repo "${{ github.repository }}" --ref main

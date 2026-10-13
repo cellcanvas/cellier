@@ -62,6 +62,7 @@ nav = [
         { "Debug events" = "How_To/debug_events.md" },
         { "Draw a volume on planes" = "How_To/render_planes.md" },
         { "Outline a visual" = "How_To/outlines.md" },
+        { "Set the orientation of the 3D camera" = "How_To/camera_fit_orientation.md" },
     ] },
     { "API Reference" = [
         { "CellierController" = "api/controller.md" },

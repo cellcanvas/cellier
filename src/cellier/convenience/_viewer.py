@@ -1020,6 +1020,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         depth_range_3d: tuple[float, float] = (1.0, 8000.0),
         depth_range_2d: tuple[float, float] = (-500.0, 500.0),
         canvas_size: tuple[int, int] | None = None,
+        fit_view_direction_3d: Mapping[AxisRef, float] | None = None,
+        fit_up_3d: Mapping[AxisRef, float] | None = None,
     ) -> QWidget:
         """Create a canvas attached to this viewer's scene.
 
@@ -1040,6 +1042,11 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         canvas_size : tuple[int, int] or None
             Initial CSS pixel size for the anywidget canvas. Ignored for the
             Qt gui. Defaults to ``(600, 600)`` for the anywidget gui.
+        fit_view_direction_3d, fit_up_3d : Mapping[AxisRef, float] or None
+            The view direction and up vector the 3D camera is fitted with, each
+            as the component along named world axes, e.g. ``{"z": -1.0}``.
+            ``None`` (default) looks along minus all three displayed axes with
+            the first displayed axis up.  See ``CellierController.add_canvas``.
 
         Returns
         -------
@@ -1057,6 +1064,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             depth_range_3d=depth_range_3d,
             depth_range_2d=depth_range_2d,
             canvas_size=canvas_size,
+            fit_view_direction_3d=fit_view_direction_3d,
+            fit_up_3d=fit_up_3d,
         )
 
     # ------------------------------------------------------------------

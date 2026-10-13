@@ -169,14 +169,7 @@ def main() -> None:
         mode = _current_dim[0]
         if mode not in _camera_fitted:
             _camera_fitted.add(mode)
-            if mode == "3d":
-                controller.look_at_visual(
-                    visual.id, canvas_id, view_direction=(-1, -1, -1), up=(0, 0, 1)
-                )
-            else:
-                controller.look_at_visual(
-                    visual.id, canvas_id, view_direction=(0, 0, -1), up=(0, 1, 0)
-                )
+            controller.look_at_visual(visual.id, canvas_id)
 
     controller.on_reslice_completed(visual.id, _on_data_ready, owner_id=controller._id)
 

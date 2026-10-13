@@ -286,20 +286,7 @@ def main(label_uri: str):
     outer_layout.addLayout(controls)
 
     def _fit_camera_for_mode() -> None:
-        if _mode[0] == "3d":
-            controller.look_at_visual(
-                visual.id,
-                canvas_id,
-                view_direction=(-1, -1, -1),
-                up=(0, 0, 1),
-            )
-        else:
-            controller.look_at_visual(
-                visual.id,
-                canvas_id,
-                view_direction=(0, 0, -1),
-                up=(0, 1, 0),
-            )
+        controller.look_at_visual(visual.id, canvas_id)
 
     def _apply_dims():
         if _mode[0] == "3d":
@@ -342,14 +329,7 @@ def main(label_uri: str):
         mode = _mode[0]
         if mode not in _camera_fitted:
             _camera_fitted.add(mode)
-            if mode == "3d":
-                controller.look_at_visual(
-                    visual.id, canvas_id, view_direction=(-1, -1, -1), up=(0, 0, 1)
-                )
-            else:
-                controller.look_at_visual(
-                    visual.id, canvas_id, view_direction=(0, 0, -1), up=(0, 1, 0)
-                )
+            controller.look_at_visual(visual.id, canvas_id)
 
     controller.on_reslice_completed(visual.id, _on_data_ready, owner_id=controller._id)
 
