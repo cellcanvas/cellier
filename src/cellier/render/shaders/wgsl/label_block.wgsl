@@ -11,7 +11,8 @@
 // t_label_keys   -- texture_2d<i32>  (direct mode: sorted label IDs)
 // t_label_colors -- texture_2d<f32>  (direct mode: RGBA per entry)
 // t_paint_lut    -- texture_2d<f32>, .r=slot_index .g=presence (0 = no slot)
-// t_paint_cache  -- texture_2d<f32>, .r=label_id_as_float32 .g=presence
+// t_paint_cache  -- texture_2d<f32>, .r=label_id_as_float32 .g=presence;
+//                   a row-major grid of block_size tiles, one per slot
 
 // NOTE: Do NOT define struct LabelParams, LutParams, or BlockScales here.
 // pygfx auto-generates them from numpy dtypes via structname=.
@@ -146,7 +147,9 @@ fn sample_paint_label_lut(texcoord: vec2<f32>) -> vec2<f32> {
     let slot   = i32(lutv.x);
     let bs     = i32(u_lut_params.block_size_x);
     let within = vec2<i32>(pos - tile_f * block_size);
-    let coord  = vec2<i32>(within.x, slot * bs + within.y);
+    // Slots fill a grid in row-major order; the texture is cols * bs wide.
+    let cols   = max(i32(textureDimensions(t_paint_cache).x) / bs, 1);
+    let coord  = vec2<i32>(slot % cols, slot / cols) * bs + within;
     let v      = textureLoad(t_paint_cache, coord, 0);
     return vec2<f32>(v.r, v.g);  // (label_id_as_float32, presence)
 }

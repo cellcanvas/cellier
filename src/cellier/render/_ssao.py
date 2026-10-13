@@ -126,7 +126,7 @@ class _AOComputePass:
     Deliberately **not** a ``FullQuadPass`` subclass, for the same reason
     ``_OutlineQuadPass`` is not: that class builds its binding layout from
     a naming convention knowing only ``float`` and ``depth`` sample types,
-    so the ``rgba16uint`` pick texture and the ``r8uint`` visual LUT cannot
+    so the ``rgba16uint`` pick texture and the ``rg16uint`` visual LUT cannot
     be declared through it.  The layout is built here and handed to the
     module-level ``create_full_quad_pipeline``, which is the documented
     low-level entry point ``FullQuadPass`` itself is built on -- so the

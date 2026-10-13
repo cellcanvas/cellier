@@ -3,8 +3,35 @@
 from __future__ import annotations
 
 import logging
+import math
 
 _logger = logging.getLogger(__name__)
+
+
+def paint_cache_grid(n_slots: int) -> tuple[int, int]:
+    """Return the ``(rows, cols)`` slot grid of the paint cache texture.
+
+    Slots fill the grid in row-major order: slot ``s`` sits at row
+    ``s // cols``, column ``s % cols``.  The grid is as square as it can
+    be, so neither texture dimension grows with ``n_slots`` alone.  The
+    paint shader derives ``cols`` from the texture width, so the layout
+    must stay ``cols * block_size`` pixels wide.
+
+    Parameters
+    ----------
+    n_slots : int
+        Number of paint slots (``paint_max_tiles``).
+
+    Returns
+    -------
+    rows, cols : tuple[int, int]
+        Slots per texture column and per texture row.
+    """
+    if n_slots <= 0:
+        raise ValueError(f"n_slots must be positive, got {n_slots!r}")
+    cols = math.isqrt(n_slots - 1) + 1
+    rows = -(-n_slots // cols)
+    return rows, cols
 
 
 class PaintTileSlotManager:

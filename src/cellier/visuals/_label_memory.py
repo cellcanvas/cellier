@@ -2,13 +2,53 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
 from cellier.visuals._render_plane import PLANE_RENDER_MODE, RenderPlane
 
-OutlineMode = Literal["per_label", "whole_object", "all_boundaries"]
+OutlineMode = Literal["per_label", "whole_object", "all_boundaries", "depth_threshold"]
 """How a labels visual is outlined; see ``BaseLabelsVisual``."""
+
+DEFAULT_OUTLINE_DEPTH_RANGE: tuple[float, float] = (0.01, 0.06)
+"""The default ``outline_depth_range`` of a labels visual."""
+
+
+def validate_outline_depth_range(value) -> tuple[float, float]:
+    """Return *value* as an ``outline_depth_range``, or raise.
+
+    Parameters
+    ----------
+    value :
+        ``(start, solid)``: two numbers with ``0 < start <= 1`` and
+        ``start <= solid``.
+
+    Returns
+    -------
+    tuple[float, float]
+        The pair as floats.
+
+    Raises
+    ------
+    ValueError
+        If *value* is not such a pair.
+    """
+    try:
+        start, solid = (float(part) for part in value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"outline_depth_range must be a pair (start, solid); got {value!r}."
+        ) from None
+    if not 0.0 < start <= 1.0:
+        raise ValueError(
+            f"the start of outline_depth_range must be in (0, 1]; got {start}."
+        )
+    if not solid >= start:
+        raise ValueError(
+            "the solid value of outline_depth_range must not be below its "
+            f"start; got {(start, solid)}."
+        )
+    return start, solid
 
 
 class BaseLabelsAppearance(BaseAppearance):
@@ -78,9 +118,39 @@ class BaseLabelsVisual(BaseVisual):
         between them.  The model field is left untouched, so switching back
         to ``"per_label"`` restores the selection.
 
+        ``"depth_threshold"`` is ``"all_boundaries"`` with one thing more:
+        a band where one part of a label passes in front of another part of
+        the *same* label, as where one branch of a tree crosses another.
+        How large a jump in depth is drawn, and how strongly, is
+        :attr:`outline_depth_range`.  With ``outline.placement = "inward"``
+        that band lies on the nearer surface, along its edge; with
+        ``"outward"`` on the farther one, just outside the edge of the
+        nearer.  It draws depth bands in a 3D view of a surface render mode
+        only: in 2D and in ``"plane"`` mode there is no jump in depth, and
+        it is ``"all_boundaries"``.  :attr:`outline_selected_labels` has no
+        effect in it either.
+
         With ``outline.placement = "outward"`` a boundary between two
         touching labels comes out double-width, since each side casts a halo
         onto the other.  ``"inward"`` is the default for labels visuals.
+    outline_depth_range : tuple[float, float]
+        ``(start, solid)`` of the depth bands of ``"depth_threshold"``
+        mode, both as fractions of the distance from the camera to the
+        nearer of the two surfaces.  A jump in depth of ``start`` is where
+        a line begins, at no alpha; from ``solid`` up the line is drawn in
+        full; between the two its alpha rises smoothly.  ``start ==
+        solid`` is a hard edge.  Needs ``0 < start <= 1`` and ``start <=
+        solid``.  Kept, and without effect, in the other modes.
+
+        The surface of a labels volume is made of voxel faces, and the step
+        from one voxel to the next is a real jump in depth.  Zoomed in far
+        enough that a voxel covers several pixels, or while a coarse level
+        of a multiscale volume is on screen, those steps are outlined too.
+        A larger ``start`` removes them.
+
+        The pair is checked when the visual is built and when it is set
+        through the controller (``update_visual_render_field``); assign it
+        there rather than on the model.
     outline_selected_labels : dict[int, int]
         Maps a label value to the palette slot the selection layer draws it
         in.  Empty (the default) means no label is selected, so an outlined
@@ -101,7 +171,11 @@ class BaseLabelsVisual(BaseVisual):
     ``whole_object``    pick id        ``outline.slot``
     ``per_label``       label field    ``outline_selected_labels``
     ``all_boundaries``  label field    ``outline.slot``
+    ``depth_threshold`` label field    ``outline.slot``
     ==================  =============  ==========================
+
+    ``depth_threshold`` has the kind of ``all_boundaries``; what sets it
+    apart is that its entry also carries :attr:`outline_depth_range`.
 
     ``render_planes`` are the planes the visual draws its labels on in a 3D
     view while ``appearance.render_mode`` is ``"plane"``; ignored otherwise.
@@ -116,7 +190,13 @@ class BaseLabelsVisual(BaseVisual):
 
     outline_mode: OutlineMode = "per_label"
     outline_selected_labels: dict[int, int] = Field(default_factory=dict)
+    outline_depth_range: tuple[float, float] = DEFAULT_OUTLINE_DEPTH_RANGE
     render_planes: tuple[RenderPlane, ...] = ()
+
+    @field_validator("outline_depth_range")
+    @classmethod
+    def _check_outline_depth_range(cls, value):
+        return validate_outline_depth_range(value)
 
     def plane_mode(self) -> bool:
         """Whether a 3D view draws this visual on its ``render_planes``."""

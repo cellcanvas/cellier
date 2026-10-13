@@ -914,8 +914,8 @@ class VisualRenderChangedEvent(NamedTuple):
     visual_id : UUID
         Model-layer ID of the visual whose settings changed.
     field_name : str
-        ``"outline.slot"``, ``"outline.placement"``,
-        ``"ambient_occlusion"`` or ``"outline_selected_labels"``.
+        One of ``VISUAL_RENDER_FIELDS``, such as ``"outline.slot"``,
+        ``"ambient_occlusion"`` or ``"outline_depth_range"``.
     new_value : Any
         The new field value.
     """

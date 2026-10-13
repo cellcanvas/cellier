@@ -171,7 +171,7 @@ def test_outline_mode_defaults_to_per_label(method, request):
     assert _add(method, request).outline_mode == "per_label"
 
 
-@pytest.mark.parametrize("mode", ["whole_object", "all_boundaries"])
+@pytest.mark.parametrize("mode", ["whole_object", "all_boundaries", "depth_threshold"])
 @pytest.mark.parametrize("method", _LABELS_METHODS)
 def test_outline_mode_reaches_the_model(method, mode, request):
     assert _add(method, request, outline_mode=mode).outline_mode == mode
@@ -180,6 +180,38 @@ def test_outline_mode_reaches_the_model(method, mode, request):
 def test_an_unknown_outline_mode_is_refused(request):
     with pytest.raises(ValueError, match="outline_mode"):
         _add("add_labels", request, outline_mode="silhouette")
+
+
+def test_only_labels_take_outline_depth_range():
+    assert {
+        name
+        for name in _ADDERS
+        if "outline_depth_range"
+        in inspect.signature(getattr(Viewer, name.split("[")[0])).parameters
+    } == set(_LABELS_METHODS)
+
+
+@pytest.mark.parametrize("method", _LABELS_METHODS)
+def test_outline_depth_range_defaults_to_the_models(method, request):
+    assert _add(method, request).outline_depth_range == (0.01, 0.06)
+
+
+@pytest.mark.parametrize("method", _LABELS_METHODS)
+def test_outline_depth_range_reaches_the_model(method, request):
+    visual = _add(
+        method,
+        request,
+        outline_mode="depth_threshold",
+        outline_depth_range=(0.02, 0.12),
+    )
+    assert visual.outline_mode == "depth_threshold"
+    assert visual.outline_depth_range == (0.02, 0.12)
+
+
+@pytest.mark.parametrize("method", _LABELS_METHODS)
+def test_a_bad_outline_depth_range_is_refused(method, request):
+    with pytest.raises(ValueError, match="outline_depth_range"):
+        _add(method, request, outline_depth_range=(0.06, 0.01))
 
 
 def _gfx_pick_writes(viewer, visual) -> list[bool]:

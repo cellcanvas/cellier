@@ -286,7 +286,9 @@ class CanvasView:
         # than a flicker.  DDAA stays last so it antialiases the outline.
         # The pass starts disabled and pygfx's flush() skips disabled passes
         # entirely, so this costs nothing until outlines are switched on.
-        self._outline_pass = OutlinePass(self._renderer)
+        self._outline_pass = OutlinePass(
+            self._renderer, get_camera=lambda: self._camera
+        )
         self._renderer.effect_passes = (
             self._ssao_pass,
             self._outline_pass,

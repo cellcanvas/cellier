@@ -86,8 +86,8 @@ def visual_setup(qtbot, tmp_path):
 @pytest.mark.asyncio
 async def test_paint_textures_are_allocated(visual_setup):
     _ctrl, gfx_visual = visual_setup
-    # block_size=16, paint_max_tiles=4 => paint cache shape (64, 16, 2).
-    assert gfx_visual._t_paint_cache.data.shape == (64, 16, 2)
+    # block_size=16, paint_max_tiles=4 => a 2 x 2 grid of 16-pixel slots.
+    assert gfx_visual._t_paint_cache.data.shape == (32, 32, 2)
     # LUT shape: 64x64 labels / 16-block = 4x4 grid.
     assert gfx_visual._t_paint_lut.data.shape == (4, 4, 2)
     np.testing.assert_array_equal(gfx_visual._t_paint_cache.data, 0.0)
@@ -107,7 +107,7 @@ async def test_patch_writes_label_and_presence(visual_setup):
     assert gfx_visual._paint_slot_manager.get((1, 2)) == 0
     # LUT entry: (slot=0, presence=1).
     np.testing.assert_array_equal(gfx_visual._t_paint_lut.data[1, 2], [0.0, 1.0])
-    # Stripes layout: slot 0 occupies rows 0..16.
+    # Grid layout: slot 0 occupies rows 0..16, columns 0..16.
     # Voxel (16, 32) -> ty=0, tx=0 in tile (1, 2) -> cache[0, 0]
     # Voxel (17, 33) -> ty=1, tx=1 in tile (1, 2) -> cache[1, 1]
     np.testing.assert_allclose(gfx_visual._t_paint_cache.data[0, 0], [7.0, 1.0])
@@ -123,6 +123,25 @@ async def test_multiple_tiles_get_distinct_slots(visual_setup):
     assert n == 3
     sm = gfx_visual._paint_slot_manager
     assert {sm.get((0, 0)), sm.get((1, 0)), sm.get((0, 1))} == {0, 1, 2}
+
+
+@pytest.mark.asyncio
+async def test_slots_fill_the_grid_in_row_major_order(visual_setup):
+    _ctrl, gfx_visual = visual_setup
+    # Four tiles in np.unique order take slots 0..3 of the 2 x 2 grid.
+    voxels = np.array([[1, 2], [3, 20], [20, 5], [21, 22]], dtype=np.int64)
+    values = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    assert gfx_visual.patch_paint_texture(voxels, values, displayed_axes=(0, 1)) == 4
+
+    sm = gfx_visual._paint_slot_manager
+    assert [sm.get(t) for t in [(0, 0), (0, 1), (1, 0), (1, 1)]] == [0, 1, 2, 3]
+    cache = gfx_visual._t_paint_cache.data
+    # Slot s sits at row s // 2, column s % 2; the in-tile offset is added.
+    np.testing.assert_allclose(cache[0 + 1, 0 + 2], [1.0, 1.0])
+    np.testing.assert_allclose(cache[0 + 3, 16 + 4], [2.0, 1.0])
+    np.testing.assert_allclose(cache[16 + 4, 0 + 5], [3.0, 1.0])
+    np.testing.assert_allclose(cache[16 + 5, 16 + 6], [4.0, 1.0])
+    assert np.count_nonzero(cache[..., 1]) == 4
 
 
 @pytest.mark.asyncio

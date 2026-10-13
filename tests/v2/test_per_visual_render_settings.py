@@ -32,6 +32,7 @@ from cellier.visuals import (
     InMemoryImageAppearance,
     InMemoryImageSingleAppearance,
     InMemoryLabelsAppearance,
+    LabelMemoryVisual,
     LinesMemoryAppearance,
     MeshFlatAppearance,
     PointsMarkerAppearance,
@@ -613,8 +614,13 @@ _FIELD_VALUES = {
 def test_the_field_table_matches_what_the_seam_accepts(controller, scene):
     """Every field in the table is settable, and the table lists them all."""
     visual = _add_mesh(controller, scene)
-    # The two labels-only fields are exercised in their own tests below.
-    covered = {*_FIELD_VALUES, "outline_selected_labels", "outline_mode"}
+    # The labels-only fields are exercised in their own tests.
+    covered = {
+        *_FIELD_VALUES,
+        "outline_selected_labels",
+        "outline_mode",
+        "outline_depth_range",
+    }
     assert covered == set(VISUAL_RENDER_FIELDS)
 
     for field, value in _FIELD_VALUES.items():
@@ -829,3 +835,190 @@ def test_the_add_warnings_fire_once(controller, scene):
 
     off_warnings = [w for w in record if "outline pass is off" in str(w.message)]
     assert len(off_warnings) == 1
+
+
+# ---------------------------------------------------------------------------
+# The depth_threshold outline mode and its range
+# ---------------------------------------------------------------------------
+
+
+def _outlined_labels(controller, scene):
+    labels = _add_labels(controller, scene)
+    labels.outline.slot = 1
+    return labels
+
+
+def _depth_range_in_the_renderer(controller, visual):
+    """The range the render layer holds for *visual*; ``None`` when off."""
+    from cellier.render._visual_lut import decode_depth_range
+
+    return decode_depth_range(
+        *controller._render_manager.get_visual_outline(visual.id)[3:]
+    )
+
+
+def test_the_depth_range_defaults_and_is_only_sent_in_depth_threshold_mode(
+    controller, scene
+):
+    """Every labels visual has the range; one mode sends it to the renderer.
+
+    ``depth_threshold`` has the kind of ``all_boundaries``.  What sets it
+    apart is the range in its table entry.
+    """
+    from cellier.render._visual_lut import KIND_LABEL_ALL
+
+    labels = _outlined_labels(controller, scene)
+    manager = controller._render_manager
+    assert labels.outline_depth_range == (0.01, 0.06)
+
+    for mode in ("per_label", "whole_object", "all_boundaries"):
+        controller.update_visual_render_field(labels.id, "outline_mode", mode)
+        assert manager.get_visual_outline(labels.id)[3:] == (0, 0), mode
+
+    controller.update_visual_render_field(labels.id, "outline_mode", "depth_threshold")
+    assert labels.outline_mode == "depth_threshold"
+    assert manager.get_visual_outline(labels.id)[2] == KIND_LABEL_ALL
+    # The codes of the default range.
+    assert manager.get_visual_outline(labels.id)[3:] == (655, 83)
+
+
+def test_the_depth_range_changes_at_runtime(controller, scene, seen):
+    """Set through the seam, it reaches the model, the renderer and the bus."""
+    labels = _outlined_labels(controller, scene)
+    controller.update_visual_render_field(labels.id, "outline_mode", "depth_threshold")
+    seen.clear()
+    source = uuid4()
+
+    # A list, as a GUI or a file would hand it over.
+    controller.update_visual_render_field(
+        labels.id, "outline_depth_range", [0.02, 0.12], source_id=source
+    )
+
+    assert labels.outline_depth_range == (0.02, 0.12)
+    start, solid = _depth_range_in_the_renderer(controller, labels)
+    assert start == pytest.approx(0.02, abs=1 / 65535)
+    assert solid == pytest.approx(0.12, rel=0.011)
+    assert [(e.field_name, e.new_value, e.source_id) for e in seen] == [
+        ("outline_depth_range", (0.02, 0.12), source)
+    ]
+
+
+def test_the_depth_range_is_kept_across_a_switch_of_mode(controller, scene):
+    """Leaving the mode stops the range being sent; the model keeps it."""
+    labels = _outlined_labels(controller, scene)
+    controller.update_visual_render_field(labels.id, "outline_mode", "depth_threshold")
+    controller.update_visual_render_field(
+        labels.id, "outline_depth_range", (0.03, 0.03)
+    )
+
+    controller.update_visual_render_field(labels.id, "outline_mode", "all_boundaries")
+    assert labels.outline_depth_range == (0.03, 0.03)
+    assert _depth_range_in_the_renderer(controller, labels) is None
+
+    # Changed while in another mode: stored, and still not sent.
+    controller.update_visual_render_field(labels.id, "outline_depth_range", (0.05, 0.2))
+    assert _depth_range_in_the_renderer(controller, labels) is None
+
+    controller.update_visual_render_field(labels.id, "outline_mode", "depth_threshold")
+    start, solid = _depth_range_in_the_renderer(controller, labels)
+    assert start == pytest.approx(0.05, abs=1 / 65535)
+    assert solid == pytest.approx(0.2, rel=0.011)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [(0.0, 0.1), (-0.01, 0.1), (1.5, 2.0), (0.06, 0.01), (0.01,), "wide", None],
+)
+def test_a_bad_depth_range_is_refused(controller, scene, bad):
+    """A start outside (0, 1], a solid value below it, or not a pair."""
+    labels = _outlined_labels(controller, scene)
+    controller.update_visual_render_field(labels.id, "outline_mode", "depth_threshold")
+
+    with pytest.raises(ValueError, match="outline_depth_range"):
+        controller.update_visual_render_field(labels.id, "outline_depth_range", bad)
+
+    assert labels.outline_depth_range == (0.01, 0.06)
+    assert controller._render_manager.get_visual_outline(labels.id)[3:] == (655, 83)
+
+
+def test_a_bad_depth_range_is_refused_when_the_visual_is_built(controller, scene):
+    data = np.zeros((8, 8, 8), dtype=np.int32)
+    with pytest.raises(ValueError, match="outline_depth_range"):
+        controller.add_labels(
+            data=LabelMemoryStore(data=data, name="bad"),
+            scene_id=scene.id,
+            name="bad",
+            outline_depth_range=(0.06, 0.01),
+        )
+    with pytest.raises(ValueError, match="outline_depth_range"):
+        LabelMemoryVisual(
+            name="bad",
+            data_store_id="store",
+            appearance=InMemoryLabelsAppearance(),
+            outline_depth_range=(0.06, 0.01),
+        )
+
+
+def test_an_unknown_outline_mode_is_refused_at_the_seam(controller, scene):
+    """It would otherwise be stored, and fail when pushed to the renderer."""
+    labels = _outlined_labels(controller, scene)
+    with pytest.raises(ValueError, match="outline_mode"):
+        controller.update_visual_render_field(labels.id, "outline_mode", "silhouette")
+    assert labels.outline_mode == "per_label"
+
+
+def test_the_depth_range_is_only_available_on_labels(controller, scene):
+    visual = _add_mesh(controller, scene)
+    with pytest.raises(ValueError, match="only available on labels visuals"):
+        controller.update_visual_render_field(
+            visual.id, "outline_depth_range", (0.01, 0.06)
+        )
+
+
+def test_depth_threshold_suppresses_the_label_selection(controller, scene):
+    """As ``all_boundaries`` does: every band takes the visual's own slot."""
+    labels = _outlined_labels(controller, scene)
+    controller.set_label_selection(labels.id, {1: 2})
+    manager = controller._render_manager
+    pushed = []
+    original = manager.set_label_selection
+    manager.set_label_selection = lambda visual_id, selection: (
+        pushed.append(dict(selection)),
+        original(visual_id, selection),
+    )
+
+    controller.update_visual_render_field(labels.id, "outline_mode", "depth_threshold")
+    assert pushed[-1] == {}
+    assert labels.outline_selected_labels == {1: 2}
+
+    # A selection made while in the mode is stored and still not pushed.
+    controller.set_label_selection(labels.id, {1: 3})
+    assert pushed[-1] == {}
+
+    controller.update_visual_render_field(labels.id, "outline_mode", "per_label")
+    assert pushed[-1] == {1: 3}
+
+
+def test_the_depth_mode_and_range_round_trip_through_a_file(
+    controller, scene, tmp_path
+):
+    labels = _outlined_labels(controller, scene)
+    controller.update_visual_render_field(labels.id, "outline_mode", "depth_threshold")
+    controller.update_visual_render_field(
+        labels.id, "outline_depth_range", (0.02, 0.12)
+    )
+
+    path = tmp_path / "viewer.json"
+    controller.to_file(path)
+    restored = CellierController.from_file(path)
+    try:
+        by_name = {
+            v.name: v for v in next(iter(restored._model.scenes.values())).visuals
+        }
+        assert by_name["labels"].outline_mode == "depth_threshold"
+        assert by_name["labels"].outline_depth_range == (0.02, 0.12)
+        start, solid = _depth_range_in_the_renderer(restored, by_name["labels"])
+        assert start == pytest.approx(0.02, abs=1 / 65535)
+        assert solid == pytest.approx(0.12, rel=0.011)
+    finally:
+        restored.close()

@@ -1387,6 +1387,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         pick_write: bool = True,
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
+        outline_depth_range: tuple[float, float] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
     ) -> LabelMemoryVisual:
@@ -1429,12 +1430,22 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Maps a label value to the palette slot the selection layer draws
             it in.  ``None`` (default) selects no label, so an outlined
             labels visual shows boundaries only.
-        outline_mode : {"per_label", "whole_object", "all_boundaries"}
-            How the labels are outlined.  ``"per_label"`` (default) outlines
-            the label values in ``outline_selected_labels``, each in its own
-            slot's colour.  ``"whole_object"`` outlines the volume as one
-            silhouette and ``"all_boundaries"`` every label's boundary, both
-            in the colour of the ``outline`` slot.
+        outline_mode : str
+            How the labels are outlined: ``"per_label"``, ``"whole_object"``,
+            ``"all_boundaries"`` or ``"depth_threshold"``.  ``"per_label"``
+            (default) outlines the label values in
+            ``outline_selected_labels``, each in its own slot's colour.
+            ``"whole_object"`` outlines the volume as one silhouette and
+            ``"all_boundaries"`` every label's boundary, both in the colour
+            of the ``outline`` slot.  ``"depth_threshold"`` is
+            ``"all_boundaries"`` and also a line where one part of a label
+            passes in front of another part of the same label.
+        outline_depth_range : tuple[float, float] or None
+            ``(start, solid)`` of the depth lines of ``"depth_threshold"``
+            mode, as fractions of the distance from the camera: a jump in
+            depth of ``start`` is where a line begins and from ``solid`` up
+            it is drawn in full.  ``None`` (default) keeps the model's
+            default, ``(0.01, 0.06)``.  No effect in the other modes.
 
         clipping_planes : Sequence[ClippingPlane]
             Clipping planes, in the store's level-0 data coordinates: the
@@ -1467,6 +1478,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             pick_write=pick_write,
             outline_selected_labels=outline_selected_labels,
             outline_mode=outline_mode,
+            outline_depth_range=outline_depth_range,
             clipping_planes=clipping_planes,
             render_planes=render_planes,
         )
@@ -1979,6 +1991,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         pick_write: bool = True,
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
+        outline_depth_range: tuple[float, float] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
     ) -> MultiscaleLabelVisual:
@@ -2023,12 +2036,22 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             Maps a label value to the palette slot the selection layer draws
             it in.  ``None`` (default) selects no label, so an outlined
             labels visual shows boundaries only.
-        outline_mode : {"per_label", "whole_object", "all_boundaries"}
-            How the labels are outlined.  ``"per_label"`` (default) outlines
-            the label values in ``outline_selected_labels``, each in its own
-            slot's colour.  ``"whole_object"`` outlines the volume as one
-            silhouette and ``"all_boundaries"`` every label's boundary, both
-            in the colour of the ``outline`` slot.
+        outline_mode : str
+            How the labels are outlined: ``"per_label"``, ``"whole_object"``,
+            ``"all_boundaries"`` or ``"depth_threshold"``.  ``"per_label"``
+            (default) outlines the label values in
+            ``outline_selected_labels``, each in its own slot's colour.
+            ``"whole_object"`` outlines the volume as one silhouette and
+            ``"all_boundaries"`` every label's boundary, both in the colour
+            of the ``outline`` slot.  ``"depth_threshold"`` is
+            ``"all_boundaries"`` and also a line where one part of a label
+            passes in front of another part of the same label.
+        outline_depth_range : tuple[float, float] or None
+            ``(start, solid)`` of the depth lines of ``"depth_threshold"``
+            mode, as fractions of the distance from the camera: a jump in
+            depth of ``start`` is where a line begins and from ``solid`` up
+            it is drawn in full.  ``None`` (default) keeps the model's
+            default, ``(0.01, 0.06)``.  No effect in the other modes.
 
         clipping_planes : Sequence[ClippingPlane]
             Clipping planes, in the store's level-0 data coordinates: the
@@ -2062,6 +2085,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             pick_write=pick_write,
             outline_selected_labels=outline_selected_labels,
             outline_mode=outline_mode,
+            outline_depth_range=outline_depth_range,
             clipping_planes=clipping_planes,
             render_planes=render_planes,
         )

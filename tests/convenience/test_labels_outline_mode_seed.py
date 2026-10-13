@@ -46,7 +46,9 @@ def _outline_widget(viewer, visual, backend):
     return widget
 
 
-@pytest.mark.parametrize("mode", ["per_label", "whole_object", "all_boundaries"])
+@pytest.mark.parametrize(
+    "mode", ["per_label", "whole_object", "all_boundaries", "depth_threshold"]
+)
 def test_the_spec_carries_the_mode(labels_store, mode):
     _viewer, visual = _labels(labels_store, mode)
 
@@ -76,3 +78,75 @@ def test_the_anywidget_control_draws_the_visuals_mode(labels_store):
     assert "outline_selected_labels" not in {
         entry["field"] for entry in widget.controls
     }
+
+
+def _outline_spec(visual):
+    (spec,) = [
+        s for s in appearance_specs(visual, _CONFIG).specs if s.kind == "labels_outline"
+    ]
+    return spec
+
+
+@pytest.mark.parametrize("mode", ["per_label", "depth_threshold"])
+def test_the_spec_carries_the_depth_range(labels_store, mode):
+    """In every mode: the mode can be entered from the panel."""
+    viewer, visual = _labels(labels_store, mode)
+    assert _outline_spec(visual).values["outline_depth_range"] == (0.01, 0.06)
+
+    viewer.controller.update_visual_render_field(
+        visual.id, "outline_depth_range", (0.02, 0.12)
+    )
+    assert _outline_spec(visual).values["outline_depth_range"] == (0.02, 0.12)
+
+
+def test_the_qt_control_draws_the_visuals_depth_range(qtbot, labels_store):
+    viewer, visual = _labels(labels_store, "depth_threshold")
+    viewer.controller.update_visual_render_field(
+        visual.id, "outline_depth_range", (0.02, 0.12)
+    )
+
+    widget = _outline_widget(viewer, visual, QT_BACKEND)
+
+    assert widget._mode() == "depth_threshold"
+    start_box, solid_box = widget._depth_range_boxes
+    assert (start_box.value(), solid_box.value()) == (0.02, 0.12)
+
+
+def test_the_anywidget_control_draws_the_visuals_depth_range(labels_store):
+    viewer, visual = _labels(labels_store, "depth_threshold")
+    viewer.controller.update_visual_render_field(
+        visual.id, "outline_depth_range", (0.02, 0.12)
+    )
+
+    widget = _outline_widget(viewer, visual, ANYWIDGET_BACKEND)
+
+    assert widget.values["outline_depth_range"] == [0.02, 0.12]
+    assert "outline_depth_range" in {entry["field"] for entry in widget.controls}
+
+
+def test_the_qt_range_row_drives_the_model(qtbot, labels_store):
+    """A box edit reaches the visual, and a change from code reaches the box."""
+    viewer, visual = _labels(labels_store, "depth_threshold")
+    widget = _outline_widget(viewer, visual, QT_BACKEND)
+    start_box, solid_box = widget._depth_range_boxes
+
+    solid_box.setValue(0.2)
+    assert visual.outline_depth_range == (0.01, 0.2)
+
+    viewer.controller.update_visual_render_field(
+        visual.id, "outline_depth_range", (0.03, 0.09)
+    )
+    assert (start_box.value(), solid_box.value()) == (0.03, 0.09)
+
+
+def test_the_anywidget_range_row_drives_the_model(labels_store):
+    viewer, visual = _labels(labels_store, "depth_threshold")
+    widget = _outline_widget(viewer, visual, ANYWIDGET_BACKEND)
+
+    widget.values = {**widget.values, "outline_depth_range": [0.02, 0.12]}
+    assert visual.outline_depth_range == (0.02, 0.12)
+
+    viewer.controller.update_visual_render_field(
+        visual.id, "outline_depth_range", (0.03, 0.09)
+    )
+    assert widget.values["outline_depth_range"] == [0.03, 0.09]

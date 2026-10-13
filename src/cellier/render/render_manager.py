@@ -22,6 +22,7 @@ from cellier.render._visual_lut import (
     PLACEMENT_INWARD,
     PLACEMENT_NAMES,
     PLACEMENT_OUTWARD,
+    encode_depth_range,
     encode_entry,
     get_shared_visual_lut,
     peek_shared_visual_lut,
@@ -131,9 +132,10 @@ class VisualFlags(NamedTuple):
 
     Parameters
     ----------
-    outline : tuple[int, int, int] or None
-        ``(slot, placement, kind)`` for the screen-space outline pass, or
-        ``None`` when the visual is not outlined.
+    outline : tuple[int, int, int, int, int] or None
+        ``(slot, placement, kind, depth_start_code, depth_ramp_code)`` for
+        the screen-space outline pass, or ``None`` when the visual is not
+        outlined.  Both codes are 0 when the visual has no depth range.
     ao : bool or None
         Whether the visual receives ambient occlusion.  ``None`` is auto:
         excluded when it renders in the MIP family, which writes the depth
@@ -141,7 +143,7 @@ class VisualFlags(NamedTuple):
         ``False`` are explicit and survive a render-mode change.
     """
 
-    outline: tuple[int, int, int] | None = None
+    outline: tuple[int, int, int, int, int] | None = None
     ao: bool | None = None
 
 
@@ -585,6 +587,7 @@ class RenderManager:
         slot: int = 1,
         placement: str | int = PLACEMENT_INWARD,
         kind: int = KIND_WHOLE_OBJECT,
+        depth_range: tuple[float, float] | None = None,
     ) -> None:
         """Record the outline assignment for one visual.
 
@@ -611,11 +614,15 @@ class RenderManager:
             keys on the label too but colours every one of them from *slot*.
             Both label kinds require the ``outline_id`` target; without it a
             label visual falls back to a whole-object silhouette.
+        depth_range : tuple[float, float] or None
+            ``(start, solid)`` of the visual's depth outline, as fractions
+            of the distance from the camera; see ``encode_depth_range``.
+            ``None`` gives the visual no depth test.
 
         Raises
         ------
         ValueError
-            If *slot* or *placement* is out of range.
+            If *slot*, *placement* or *depth_range* is out of range.
         """
         slot = int(slot)
         if not 0 <= slot <= MAX_SLOT:
@@ -631,12 +638,29 @@ class RenderManager:
         if placement not in (PLACEMENT_INWARD, PLACEMENT_OUTWARD):
             raise ValueError(f"unknown outline placement: {placement}")
 
-        outline = None if slot == 0 else (slot, int(placement), int(kind))
+        start_code, ramp_code = (
+            (0, 0) if depth_range is None else encode_depth_range(depth_range)
+        )
+        outline = (
+            None
+            if slot == 0
+            else (slot, int(placement), int(kind), start_code, ramp_code)
+        )
         self._update_visual_flags(visual_id, outline=outline)
         self._sync_visual_lut()
 
-    def get_visual_outline(self, visual_id: UUID) -> tuple[int, int, int] | None:
-        """Return ``(slot, placement, kind)`` for *visual_id*, or ``None``."""
+    def get_visual_outline(
+        self, visual_id: UUID
+    ) -> tuple[int, int, int, int, int] | None:
+        """Return the outline assignment of *visual_id*, or ``None``.
+
+        Returns
+        -------
+        tuple[int, int, int, int, int] or None
+            ``(slot, placement, kind, depth_start_code, depth_ramp_code)``.
+            The codes are those of the table (``decode_depth_range`` turns
+            them back into a range) and are 0 with no depth range.
+        """
         flags = self._visual_flags.get(visual_id)
         return None if flags is None else flags.outline
 
@@ -785,19 +809,20 @@ class RenderManager:
         mapping are cleared.  If outlines and ambient occlusion kept
         separate maps and synced independently, enabling outlines would
         wipe every occlusion exclusion.  That is why this walks one
-        authoritative map and writes one byte per object.
+        authoritative map and writes one entry per object.
         """
         ssao_on = self._config.ambient_occlusion.enabled
         if not self._visual_flags and not ssao_on:
             if peek_shared_visual_lut() is None:
                 # Neither feature has ever needed the table on this
                 # process, so there is nothing to sync and no reason to
-                # allocate 1 MB.
+                # allocate 4 MB.
                 return
 
         entries: dict[int, int] = {}
         has_inward = False
         has_outward = False
+        has_depth_edges = False
         n_excluded = 0
 
         for visual_id, scene_id in self._visual_to_scene.items():
@@ -813,14 +838,21 @@ class RenderManager:
                 continue
 
             if flags is not None and flags.outline is not None:
-                slot, placement, kind = flags.outline
-                value = encode_entry(slot, kind, placement)
+                slot, placement, kind, start_code, ramp_code = flags.outline
+                value = encode_entry(
+                    slot,
+                    kind,
+                    placement,
+                    depth_start_code=start_code,
+                    depth_ramp_code=ramp_code,
+                )
                 for object_id in self._world_object_ids(gfx_visual):
                     entries[object_id] = entries.get(object_id, 0) | value
                 if placement == PLACEMENT_OUTWARD:
                     has_outward = True
                 else:
                     has_inward = True
+                has_depth_edges = has_depth_edges or start_code > 0
 
             if not ssao_on:
                 continue
@@ -854,6 +886,7 @@ class RenderManager:
             canvas._outline_pass.set_placements(
                 has_inward=has_inward, has_outward=has_outward
             )
+            canvas._outline_pass.set_depth_edges(has_depth_edges)
             canvas._ssao_pass.set_has_exclusions(n_excluded > 0)
 
     @staticmethod

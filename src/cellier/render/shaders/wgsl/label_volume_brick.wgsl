@@ -269,7 +269,9 @@ fn setup_brick(
 }
 
 // ── Object-space label surface normal (iso_categorical + gradient_debug) ─
-$$ if render_mode == "iso_categorical" or render_mode == "gradient_debug"
+// Also compiled whenever the normal target is written: every mode but
+// smooth_iso then calls it (see needs_normal in the fragment shader).
+$$ if render_mode == "iso_categorical" or render_mode == "gradient_debug" or write_normal
 fn label_object_normal(
     voxel_pos:      vec3<f32>,
     lut_entry:      vec4<u32>,

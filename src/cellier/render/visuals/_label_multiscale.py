@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pygfx as gfx
+from pygfx.renderers.wgpu.engine.shared import get_shared
 
 from cellier.logging import _PERF_LOGGER
 from cellier.render._clipping import ClippingPlanesMixin, drawn_materials
@@ -101,7 +102,10 @@ from cellier.render.visuals._image_memory import (
     _make_aabb_line,
     _rect_wireframe_positions,
 )
-from cellier.render.visuals._paint_tile_slot_manager import PaintTileSlotManager
+from cellier.render.visuals._paint_tile_slot_manager import (
+    PaintTileSlotManager,
+    paint_cache_grid,
+)
 from cellier.render.visuals._pick import (
     multiscale_image_data_coordinate,
     multiscale_volume_data_coordinate,
@@ -288,6 +292,7 @@ class GFXMultiscaleLabelVisual(
         self._paint_slot_manager: PaintTileSlotManager | None = None
         self._t_paint_cache: gfx.Texture | None = None
         self._t_paint_lut: gfx.Texture | None = None
+        self._paint_cache_cols: int = 1
 
         # Build label colormap GPU resources
         if color_dict is None:
@@ -1764,7 +1769,20 @@ class GFXMultiscaleLabelVisual(
         gh, gw = self._image_geometry_2d.base_layout.grid_dims
         n_slots = self._paint_max_tiles
 
-        paint_cache_data = np.zeros((n_slots * bs, bs, 2), dtype=np.float32)
+        # Slots sit on a (rows, cols) grid so that neither texture dimension
+        # depends on the slot count alone.
+        rows, cols = paint_cache_grid(n_slots)
+        max_dim = int(get_shared().device.limits["max-texture-dimension-2d"])
+        if max(rows, cols) * bs > max_dim:
+            raise ValueError(
+                f"The 2D paint cache for paint_max_tiles={n_slots} and "
+                f"block_size={bs} is {cols * bs} x {rows * bs} pixels, over "
+                f"the device limit of {max_dim}. Lower "
+                "MultiscaleLabelRenderConfig.paint_max_tiles to at most "
+                f"{(max_dim // bs) ** 2}."
+            )
+        self._paint_cache_cols = cols
+        paint_cache_data = np.zeros((rows * bs, cols * bs, 2), dtype=np.float32)
         self._t_paint_cache = gfx.Texture(paint_cache_data, dim=2, format="2xf4")
 
         paint_lut_data = np.zeros((gh, gw, 2), dtype=np.float32)
@@ -1822,6 +1840,7 @@ class GFXMultiscaleLabelVisual(
 
         cache_data = self._t_paint_cache.data
         lut_data = self._t_paint_lut.data
+        cache_cols = self._paint_cache_cols
 
         cache_y_min = cache_data.shape[0]
         cache_y_max = 0
@@ -1849,17 +1868,18 @@ class GFXMultiscaleLabelVisual(
             tx_sel = tx[sel]
             v_sel = vals[sel]
 
-            slot_y0 = slot * bs
-            cache_data[slot_y0 + ty_sel, tx_sel, 0] = v_sel
-            cache_data[slot_y0 + ty_sel, tx_sel, 1] = 1.0
+            slot_y0 = (slot // cache_cols) * bs
+            slot_x0 = (slot % cache_cols) * bs
+            cache_data[slot_y0 + ty_sel, slot_x0 + tx_sel, 0] = v_sel
+            cache_data[slot_y0 + ty_sel, slot_x0 + tx_sel, 1] = 1.0
 
             lut_data[gy_t, gx_t, 0] = float(slot)
             lut_data[gy_t, gx_t, 1] = 1.0
 
             cache_y_min = min(cache_y_min, slot_y0)
             cache_y_max = max(cache_y_max, slot_y0 + bs)
-            cache_x_min = 0
-            cache_x_max = bs
+            cache_x_min = min(cache_x_min, slot_x0)
+            cache_x_max = max(cache_x_max, slot_x0 + bs)
             lut_y_min = min(lut_y_min, gy_t)
             lut_y_max = max(lut_y_max, gy_t + 1)
             lut_x_min = min(lut_x_min, gx_t)

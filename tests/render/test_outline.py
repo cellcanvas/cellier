@@ -27,13 +27,16 @@ from cellier.render._config import (
 )
 from cellier.render._pick_buffer import enable_pick_texture_binding, get_pick_view
 from cellier.render._visual_lut import (
+    KIND_LABEL_ALL,
     KIND_WHOLE_OBJECT,
     LUT_HEIGHT,
     LUT_WIDTH,
     PLACEMENT_INWARD,
     PLACEMENT_OUTWARD,
     VisualLut,
+    decode_depth_range,
     decode_entry,
+    encode_depth_range,
     encode_entry,
     lut_index,
 )
@@ -108,6 +111,8 @@ def test_encode_decode_entry_round_trips():
                         kind,
                         placement,
                         ao_excluded,
+                        0,
+                        0,
                     )
 
 
@@ -183,6 +188,170 @@ def test_lut_apply_clears_stale_entries(offscreen_renderer):
     lut.clear()
     assert lut.entries == {}
     assert lut.get_entry(987654) == 0
+
+
+# ---------------------------------------------------------------------------
+# The depth range in the table
+# ---------------------------------------------------------------------------
+
+#: Depth ranges across the sizes a user can set, the default among them.
+_DEPTH_RANGES = [
+    (0.01, 0.06),
+    (0.02, 0.12),
+    (0.001, 0.002),
+    (0.001, 0.2),
+    (0.0037, 0.0041),
+    (0.05, 0.05),
+    (0.3, 1.0),
+    (1.0, 1.0),
+    (1.0, 3.0),
+]
+
+
+def _read_lut_texel(lut: VisualLut, object_id: int) -> tuple[int, int]:
+    """Read ``(r, g)`` of *object_id*'s texel back from the GPU."""
+    x, y = lut_index(object_id)
+    raw = lut._device.queue.read_texture(
+        {"texture": lut.texture, "mip_level": 0, "origin": (x, y, 0)},
+        {"offset": 0, "bytes_per_row": 4, "rows_per_image": 1},
+        (1, 1, 1),
+    )
+    r, g = np.frombuffer(raw, np.uint16)
+    return int(r), int(g)
+
+
+def test_the_default_depth_range_has_the_documented_codes():
+    """The codes the design names for ``(0.01, 0.06)``."""
+    assert encode_depth_range((0.01, 0.06)) == (655, 83)
+
+
+@pytest.mark.parametrize("depth_range", _DEPTH_RANGES)
+def test_a_depth_range_round_trips_through_its_codes(depth_range):
+    """The start comes back within one code and the solid value within 1.1%."""
+    start, solid = depth_range
+    start_code, ramp_code = encode_depth_range(depth_range)
+    assert 1 <= start_code <= 65535
+    assert 0 <= ramp_code <= 255
+
+    coded_start, coded_solid = decode_depth_range(start_code, ramp_code)
+    assert abs(coded_start - start) <= 1 / 65535
+    assert abs(coded_solid / solid - 1) <= 0.011
+
+    # A hard edge is ramp 0, and nothing else is.
+    assert (ramp_code == 0) == (solid == start)
+    if solid == start:
+        assert coded_solid == coded_start
+
+
+def test_a_depth_range_that_is_on_never_encodes_as_off():
+    """A start too small for one code still gets a code; 0 is the off flag."""
+    start_code, ramp_code = encode_depth_range((1e-9, 1e-9))
+    assert start_code == 1
+    assert ramp_code == 0
+    assert decode_depth_range(0, 0) is None
+    assert decode_depth_range(0, 83) is None
+
+
+def test_a_ramp_is_never_rounded_to_a_hard_edge_and_is_clamped():
+    """``solid > start`` keeps a ramp however close the two are."""
+    assert encode_depth_range((0.02, 0.02 * (1 + 1e-9)))[1] == 1
+    # A ratio past what 8 bits hold takes the widest ramp.
+    assert encode_depth_range((0.001, 1000.0))[1] == 255
+
+
+@pytest.mark.parametrize(
+    "depth_range",
+    [(0.0, 0.1), (-0.01, 0.1), (1.5, 2.0), (0.02, 0.01), (float("nan"), 0.1)],
+)
+def test_encode_depth_range_rejects_a_bad_pair(depth_range):
+    """A start outside (0, 1] or a solid value below it raises."""
+    with pytest.raises(ValueError):
+        encode_depth_range(depth_range)
+
+
+def test_the_depth_codes_leave_the_entry_byte_alone():
+    """Every existing entry keeps its low byte whatever the codes are."""
+    for slot in range(MAX_OUTLINE_SLOT + 1):
+        for kind in (0, 1, 2, 3):
+            for placement in (PLACEMENT_INWARD, PLACEMENT_OUTWARD):
+                for ao_excluded in (False, True):
+                    plain = encode_entry(slot, kind, placement, ao_excluded=ao_excluded)
+                    for start_code, ramp_code in ((1, 0), (655, 83), (65535, 255)):
+                        value = encode_entry(
+                            slot,
+                            kind,
+                            placement,
+                            ao_excluded=ao_excluded,
+                            depth_start_code=start_code,
+                            depth_ramp_code=ramp_code,
+                        )
+                        assert value & 0xFF == plain
+                        assert decode_entry(value) == (
+                            slot,
+                            kind,
+                            placement,
+                            ao_excluded,
+                            start_code,
+                            ramp_code,
+                        )
+
+
+def test_encode_entry_rejects_out_of_range_depth_codes():
+    """The codes are checked like every other field."""
+    with pytest.raises(ValueError):
+        encode_entry(1, depth_start_code=65536)
+    with pytest.raises(ValueError):
+        encode_entry(1, depth_start_code=-1)
+    with pytest.raises(ValueError):
+        encode_entry(1, depth_ramp_code=256)
+
+
+def test_the_texel_holds_the_entry_in_two_channels(offscreen_renderer):
+    """``r`` is the byte under the ramp code and ``g`` the start code."""
+    lut = VisualLut()
+    assert lut.texture.format == wgpu.TextureFormat.rg16uint
+
+    object_id = 734_003
+    plain = encode_entry(3, KIND_LABEL_ALL, PLACEMENT_OUTWARD, ao_excluded=True)
+    lut.set_entry(object_id, plain)
+    assert _read_lut_texel(lut, object_id) == (plain, 0)
+
+    ranged = encode_entry(
+        3,
+        KIND_LABEL_ALL,
+        PLACEMENT_OUTWARD,
+        ao_excluded=True,
+        depth_start_code=655,
+        depth_ramp_code=83,
+    )
+    assert lut.set_entry(object_id, ranged) is True
+    assert lut.get_entry(object_id) == ranged
+    assert _read_lut_texel(lut, object_id) == (plain | (83 << 8), 655)
+
+    # The largest codes fill both channels and nothing spills.
+    full = encode_entry(15, 3, 1, True, depth_start_code=65535, depth_ramp_code=255)
+    lut.set_entry(object_id, full)
+    assert _read_lut_texel(lut, object_id) == (0xFFFF, 0xFFFF)
+
+    # A change of the range alone is a change of the entry.
+    assert lut.set_entry(object_id, ranged) is True
+    assert lut.set_entry(object_id, ranged) is False
+
+
+def test_lut_apply_clears_an_entry_with_a_depth_range(offscreen_renderer):
+    """The range goes with its id, on the GPU as on the Python side."""
+    lut = VisualLut()
+    value = encode_entry(
+        1, KIND_LABEL_ALL, PLACEMENT_INWARD, depth_start_code=655, depth_ramp_code=83
+    )
+    lut.apply({12345: value, 987654: value})
+    assert lut.entries == {12345: value, 987654: value}
+
+    lut.apply({987654: value})
+    assert lut.entries == {987654: value}
+    assert lut.get_entry(12345) == 0
+    assert _read_lut_texel(lut, 12345) == (0, 0)
+    assert _read_lut_texel(lut, 987654) == (value & 0xFFFF, 655)
 
 
 # ---------------------------------------------------------------------------
@@ -1138,3 +1307,109 @@ def test_canvas_with_outlines_off_never_allocates_the_lut(qtbot, offscreen_rende
         assert lut_module.peek_shared_visual_lut() is not None
     finally:
         lut_module._SHARED_LUT = saved
+
+
+# ---------------------------------------------------------------------------
+# The depth range: carried in the table, read by nothing yet
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("placement", [PLACEMENT_INWARD, PLACEMENT_OUTWARD])
+def test_depth_codes_in_an_entry_do_not_change_the_frame(offscreen_renderer, placement):
+    """The pass masks the bits it reads, so the codes beside them are inert."""
+    object_id = 600_123
+    ids = np.zeros((_SIZE, _SIZE), dtype=np.uint32)
+    ids[20:44, 20:44] = object_id
+
+    frames = []
+    for codes in ((0, 0), (65535, 255)):
+        harness = _SyntheticOutline(ids)
+        harness.configure(
+            OutlineConfig(
+                enabled=True,
+                boundaries=OutlineLayerConfig(enabled=True, inward_thickness=1),
+                selection=OutlineLayerConfig(
+                    enabled=True, inward_thickness=2, outward_thickness=2
+                ),
+                inner_thickness=2,
+                palette=[_SELECT],
+            ),
+            has_inward=placement == PLACEMENT_INWARD,
+            has_outward=placement == PLACEMENT_OUTWARD,
+        )
+        harness.set_entry(
+            object_id,
+            encode_entry(
+                1,
+                KIND_WHOLE_OBJECT,
+                placement,
+                depth_start_code=codes[0],
+                depth_ramp_code=codes[1],
+            ),
+        )
+        frames.append(harness.render())
+
+    assert _count_exact(frames[0], _SELECT) > 0
+    np.testing.assert_array_equal(frames[0], frames[1])
+
+
+def test_set_visual_outline_carries_the_depth_range(outline_controller):
+    """The range reaches every world object's entry and comes back as codes."""
+    from cellier.render._visual_lut import get_shared_visual_lut
+
+    controller, _scene, visual = outline_controller
+    manager = controller._render_manager
+    lut = get_shared_visual_lut()
+    lut.clear()
+
+    manager.set_visual_outline(visual.id, slot=2)
+    assert manager.get_visual_outline(visual.id) == (
+        2,
+        PLACEMENT_INWARD,
+        KIND_WHOLE_OBJECT,
+        0,
+        0,
+    )
+    plain = encode_entry(2, KIND_WHOLE_OBJECT, PLACEMENT_INWARD)
+    assert set(lut.entries.values()) == {plain}
+
+    manager.set_visual_outline(visual.id, slot=2, depth_range=(0.01, 0.06))
+    assert manager.get_visual_outline(visual.id)[3:] == (655, 83)
+    assert lut.entries
+    for object_id, value in lut.entries.items():
+        assert value == plain | (83 << 8) | (655 << 16)
+        assert _read_lut_texel(lut, object_id) == (plain | (83 << 8), 655)
+
+    # No range again: both codes go back to 0.
+    manager.set_visual_outline(visual.id, slot=2)
+    assert set(lut.entries.values()) == {plain}
+
+    with pytest.raises(ValueError):
+        manager.set_visual_outline(visual.id, slot=2, depth_range=(0.06, 0.01))
+
+
+def test_a_depth_range_follows_a_rebuilt_world_object(outline_controller):
+    """A rebuild hands out a new id; the range must move to it with the rest."""
+    from cellier.render._visual_lut import get_shared_visual_lut
+
+    controller, scene, visual = outline_controller
+    manager = controller._render_manager
+    lut = get_shared_visual_lut()
+    manager.set_visual_outline(visual.id, slot=1, depth_range=(0.02, 0.12))
+    original = dict(lut.entries)
+    assert original
+    (value,) = set(original.values())
+    assert decode_entry(value)[4:] == encode_depth_range((0.02, 0.12))
+
+    gfx_visual = manager._scenes[scene.id].get_visual(visual.id)
+    replacement = gfx.Mesh(gfx.box_geometry(), gfx.MeshBasicMaterial(pick_write=True))
+    gfx_visual.node_3d = replacement
+    gfx_visual.node_2d = replacement
+    gfx_visual.node = replacement
+
+    manager._sync_visual_lut()
+
+    assert lut.entries == {replacement.id: value}
+    assert _read_lut_texel(lut, replacement.id) == (value & 0xFFFF, value >> 16)
+    for stale_id in original:
+        assert _read_lut_texel(lut, stale_id) == (0, 0)

@@ -642,6 +642,7 @@ VISUAL_RENDER_FIELDS: tuple[str, ...] = (
     "ambient_occlusion",
     "outline_selected_labels",
     "outline_mode",
+    "outline_depth_range",
     "pick_write",
 )
 """``pick_write`` is here because both features depend on it.
@@ -678,14 +679,27 @@ def _resolve_render_config_route(section: str, field: str) -> _RenderConfigRoute
     )
 
 
-#: ``outline_mode`` -> the LUT ``kind`` that implements it.  Spelled out
-#: rather than tested against one mode, so a mode added to the model without
-#: a kind here fails loudly instead of silently outlining as a silhouette.
-_LABELS_OUTLINE_KINDS: dict[str, int] = {
-    "per_label": KIND_LABEL,
-    "whole_object": KIND_WHOLE_OBJECT,
-    "all_boundaries": KIND_LABEL_ALL,
+#: ``outline_mode`` -> the LUT ``kind`` that implements it, and whether the
+#: visual's ``outline_depth_range`` is sent with it.  Spelled out rather than
+#: tested against one mode, so a mode added to the model without an entry
+#: here fails loudly instead of silently outlining as a silhouette.
+_LABELS_OUTLINE_KINDS: dict[str, tuple[int, bool]] = {
+    "per_label": (KIND_LABEL, False),
+    "whole_object": (KIND_WHOLE_OBJECT, False),
+    "all_boundaries": (KIND_LABEL_ALL, False),
+    "depth_threshold": (KIND_LABEL_ALL, True),
 }
+
+#: The modes in which every band takes the colour of the visual's own slot,
+#: so that the per-label selection is suppressed on the GPU.
+_LABELS_SLOT_COLOUR_MODES: frozenset[str] = frozenset(
+    {"all_boundaries", "depth_threshold"}
+)
+
+#: The render fields only a labels visual has.
+_LABELS_ONLY_RENDER_FIELDS: frozenset[str] = frozenset(
+    {"outline_selected_labels", "outline_mode", "outline_depth_range"}
+)
 
 
 def _render_mode_for(displayed_axes: Sequence[int]) -> str:
@@ -710,8 +724,41 @@ def _outline_kind(visual) -> int:
     from cellier.visuals._label_memory import BaseLabelsVisual
 
     if isinstance(visual, BaseLabelsVisual):
-        return _LABELS_OUTLINE_KINDS[visual.outline_mode]
+        return _LABELS_OUTLINE_KINDS[visual.outline_mode][0]
     return KIND_WHOLE_OBJECT
+
+
+def _outline_depth_range(visual) -> tuple[float, float] | None:
+    """Return the depth range the outline pass should use for *visual*.
+
+    ``None`` unless the visual is a labels visual in a mode that draws depth
+    bands: the range is a field of every labels visual and is sent only then.
+    """
+    from cellier.visuals._label_memory import BaseLabelsVisual
+
+    if (
+        isinstance(visual, BaseLabelsVisual)
+        and _LABELS_OUTLINE_KINDS[visual.outline_mode][1]
+    ):
+        return tuple(visual.outline_depth_range)
+    return None
+
+
+def _check_outline_mode(outline_mode) -> None:
+    """Raise unless *outline_mode* is a mode of the labels model.
+
+    The labels model does not validate on assignment, so an unknown mode
+    would otherwise be stored silently.
+    """
+    from typing import get_args
+
+    from cellier.visuals._label_memory import OutlineMode
+
+    valid = get_args(OutlineMode)
+    if outline_mode not in valid:
+        raise ValueError(
+            f"outline_mode must be one of {list(valid)}; got {outline_mode!r}."
+        )
 
 
 def _default_placement(visual) -> str:
@@ -739,6 +786,7 @@ def _apply_render_settings(
     outline_selected_labels: dict[int, int] | None = None,
     pick_write: bool | None = None,
     outline_mode: str | None = None,
+    outline_depth_range: tuple[float, float] | None = None,
 ):
     """Apply the screen-space render settings an ``add_*`` call carried.
 
@@ -757,18 +805,15 @@ def _apply_render_settings(
     if pick_write is not None:
         visual_model.pick_write = pick_write
     if outline_mode is not None:
-        from typing import get_args
-
-        from cellier.visuals._label_memory import OutlineMode
-
-        # Checked here because the labels model does not validate on
-        # assignment: an unknown mode would otherwise be stored silently.
-        valid = get_args(OutlineMode)
-        if outline_mode not in valid:
-            raise ValueError(
-                f"outline_mode must be one of {list(valid)}; got {outline_mode!r}."
-            )
+        _check_outline_mode(outline_mode)
         visual_model.outline_mode = outline_mode
+    if outline_depth_range is not None:
+        from cellier.visuals._label_memory import validate_outline_depth_range
+
+        # Checked here for the same reason as the mode.
+        visual_model.outline_depth_range = validate_outline_depth_range(
+            outline_depth_range
+        )
     return visual_model
 
 
@@ -1716,6 +1761,7 @@ class CellierController:
         pick_write: bool = True,
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
+        outline_depth_range: tuple[float, float] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
     ) -> LabelMemoryVisual:
@@ -1754,12 +1800,22 @@ class CellierController:
             Maps a label value to the palette slot the selection layer
             draws it in.  ``None`` (default) selects no label, so an
             outlined labels visual shows boundaries only.
-        outline_mode : {"per_label", "whole_object", "all_boundaries"}
-            How the labels are outlined.  ``"per_label"`` (default) outlines
-            the label values in ``outline_selected_labels``, each in its own
-            slot's colour.  ``"whole_object"`` outlines the volume as one
-            silhouette and ``"all_boundaries"`` every label's boundary, both
-            in the colour of the ``outline`` slot.
+        outline_mode : str
+            How the labels are outlined: ``"per_label"``, ``"whole_object"``,
+            ``"all_boundaries"`` or ``"depth_threshold"``.  ``"per_label"``
+            (default) outlines the label values in
+            ``outline_selected_labels``, each in its own slot's colour.
+            ``"whole_object"`` outlines the volume as one silhouette and
+            ``"all_boundaries"`` every label's boundary, both in the colour
+            of the ``outline`` slot.  ``"depth_threshold"`` is
+            ``"all_boundaries"`` and also a line where one part of a label
+            passes in front of another part of the same label.
+        outline_depth_range : tuple[float, float] or None
+            ``(start, solid)`` of the depth lines of ``"depth_threshold"``
+            mode, as fractions of the distance from the camera: a jump in
+            depth of ``start`` is where a line begins and from ``solid`` up
+            it is drawn in full.  ``None`` (default) keeps the model's
+            default, ``(0.01, 0.06)``.  No effect in the other modes.
 
         clipping_planes : Sequence[ClippingPlane]
             Clipping planes, in the store's level-0 data coordinates: the
@@ -1799,6 +1855,7 @@ class CellierController:
             pick_write=pick_write,
             outline_selected_labels=outline_selected_labels,
             outline_mode=outline_mode,
+            outline_depth_range=outline_depth_range,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -2347,6 +2404,7 @@ class CellierController:
         pick_write: bool = True,
         outline_selected_labels: dict[int, int] | None = None,
         outline_mode: OutlineMode = "per_label",
+        outline_depth_range: tuple[float, float] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
     ) -> MultiscaleLabelVisual:
@@ -2388,12 +2446,22 @@ class CellierController:
             Maps a label value to the palette slot the selection layer
             draws it in.  ``None`` (default) selects no label, so an
             outlined labels visual shows boundaries only.
-        outline_mode : {"per_label", "whole_object", "all_boundaries"}
-            How the labels are outlined.  ``"per_label"`` (default) outlines
-            the label values in ``outline_selected_labels``, each in its own
-            slot's colour.  ``"whole_object"`` outlines the volume as one
-            silhouette and ``"all_boundaries"`` every label's boundary, both
-            in the colour of the ``outline`` slot.
+        outline_mode : str
+            How the labels are outlined: ``"per_label"``, ``"whole_object"``,
+            ``"all_boundaries"`` or ``"depth_threshold"``.  ``"per_label"``
+            (default) outlines the label values in
+            ``outline_selected_labels``, each in its own slot's colour.
+            ``"whole_object"`` outlines the volume as one silhouette and
+            ``"all_boundaries"`` every label's boundary, both in the colour
+            of the ``outline`` slot.  ``"depth_threshold"`` is
+            ``"all_boundaries"`` and also a line where one part of a label
+            passes in front of another part of the same label.
+        outline_depth_range : tuple[float, float] or None
+            ``(start, solid)`` of the depth lines of ``"depth_threshold"``
+            mode, as fractions of the distance from the camera: a jump in
+            depth of ``start`` is where a line begins and from ``solid`` up
+            it is drawn in full.  ``None`` (default) keeps the model's
+            default, ``(0.01, 0.06)``.  No effect in the other modes.
 
         clipping_planes : Sequence[ClippingPlane]
             Clipping planes, in the store's level-0 data coordinates: the
@@ -2433,6 +2501,7 @@ class CellierController:
             pick_write=pick_write,
             outline_selected_labels=outline_selected_labels,
             outline_mode=outline_mode,
+            outline_depth_range=outline_depth_range,
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
@@ -5627,7 +5696,8 @@ class CellierController:
         ``ambient_occlusion`` field, and -- on labels visuals only -- the
         ``outline_selected_labels`` map.  The sub-model reports which of its
         fields changed, so it gets the catch-all handler; the two plain
-        fields each know their own name.
+        fields each know their own name.  A labels visual's ``outline_mode``
+        and ``outline_depth_range`` are plain fields too.
         """
         handlers = self._visual_psygnal_handlers.setdefault(visual.id, [])
 
@@ -5649,6 +5719,12 @@ class CellierController:
             mode_handler = self._make_visual_render_handler(visual.id, "outline_mode")
             visual.events.outline_mode.connect(mode_handler)
             handlers.append((visual.events.outline_mode, mode_handler))
+
+            range_handler = self._make_visual_render_handler(
+                visual.id, "outline_depth_range"
+            )
+            visual.events.outline_depth_range.connect(range_handler)
+            handlers.append((visual.events.outline_depth_range, range_handler))
 
     def _make_visual_outline_handler(self, visual_id: UUID) -> Callable:
         """Return a catch-all handler for a visual's ``VisualOutline``."""
@@ -5756,8 +5832,11 @@ class CellierController:
         visual_id :
             Target visual.
         field :
-            ``"outline.slot"``, ``"outline.placement"``,
-            ``"ambient_occlusion"`` or ``"outline_selected_labels"``.
+            One of ``VISUAL_RENDER_FIELDS``: ``"outline.slot"``,
+            ``"outline.placement"``, ``"ambient_occlusion"``,
+            ``"pick_write"`` and, on a labels visual,
+            ``"outline_selected_labels"``, ``"outline_mode"`` and
+            ``"outline_depth_range"``.
         value :
             New value for the field.
         source_id :
@@ -5768,7 +5847,10 @@ class CellierController:
         Raises
         ------
         ValueError
-            If *field* is not a settable per-visual render field.
+            If *field* is not a settable per-visual render field, if it is
+            a labels field and the visual is not a labels visual, or if
+            *value* is not a valid ``outline_mode`` or
+            ``outline_depth_range``.
         """
         if field not in VISUAL_RENDER_FIELDS:
             close = difflib.get_close_matches(field, VISUAL_RENDER_FIELDS, n=1)
@@ -5778,13 +5860,21 @@ class CellierController:
                 f"{suggestion} Valid fields: {list(VISUAL_RENDER_FIELDS)}."
             )
         visual = self._get_visual_model(visual_id)
-        if field in {"outline_selected_labels", "outline_mode"} and not isinstance(
+        if field in _LABELS_ONLY_RENDER_FIELDS and not isinstance(
             visual, BaseLabelsVisual
         ):
             raise ValueError(
                 f"{field} is only available on labels visuals; "
                 f"a {type(visual).__name__} is outlined as one silhouette."
             )
+        # The labels model does not validate on assignment, and a bad value
+        # would fail later, inside the handler that pushes it to the renderer.
+        if field == "outline_mode":
+            _check_outline_mode(value)
+        elif field == "outline_depth_range":
+            from cellier.visuals._label_memory import validate_outline_depth_range
+
+            value = validate_outline_depth_range(value)
         target = visual.outline if field.startswith("outline.") else visual
         leaf = field.split(".")[-1]
         token = _visual_render_source_id_override.set(source_id)
@@ -5972,13 +6062,18 @@ class CellierController:
         elif field_name == "outline_selected_labels":
             self._push_label_selection(visual)
         elif field_name == "outline_mode":
-            # The mode is carried in the LUT entry's ``kind``, so re-pushing
-            # the outline covers the shader side -- no material rebuild.  The
-            # selection goes with it because ``all_boundaries`` suppresses it
-            # on the GPU: entering the mode has to clear it and leaving has to
-            # put it back.
+            # The mode is carried in the LUT entry (its ``kind``, and whether
+            # it has a depth range), so re-pushing the outline covers the
+            # shader side -- no material rebuild.  The selection goes with it
+            # because ``all_boundaries`` and ``depth_threshold`` suppress it
+            # on the GPU: entering such a mode has to clear it and leaving
+            # has to put it back.
             self._push_visual_outline(visual)
             self._push_label_selection(visual)
+        elif field_name == "outline_depth_range":
+            # Carried in the LUT entry too.  In a mode that does not send it
+            # the entry comes out unchanged and nothing is uploaded.
+            self._push_visual_outline(visual)
 
     def _push_visual_outline(self, visual: BaseVisual) -> None:
         """Send a visual's outline assignment to the render layer.
@@ -6015,23 +6110,27 @@ class CellierController:
         placement = visual.outline.placement or _default_placement(visual)
         kind = _outline_kind(visual)
         self._render_manager.set_visual_outline(
-            visual.id, slot=slot, placement=placement, kind=kind
+            visual.id,
+            slot=slot,
+            placement=placement,
+            kind=kind,
+            depth_range=_outline_depth_range(visual),
         )
 
     def _push_label_selection(self, visual: BaseVisual) -> None:
         """Send a labels visual's per-label selection to the render layer.
 
-        In ``all_boundaries`` mode the selection is suppressed on the GPU
-        rather than pushed.  It is not only a colour there: a selected
-        label's outline key *is* its slot number, so two touching labels
-        sharing a slot would share a key and lose the boundary between them
-        -- in the one mode whose whole purpose is showing every boundary.
-        The model field is left untouched, so switching back to
-        ``per_label`` restores the selection exactly.
+        In ``all_boundaries`` and ``depth_threshold`` mode the selection is
+        suppressed on the GPU rather than pushed.  It is not only a colour
+        there: a selected label's outline key *is* its slot number, so two
+        touching labels sharing a slot would share a key and lose the
+        boundary between them -- in the modes whose purpose is showing
+        every boundary.  The model field is left untouched, so switching
+        back to ``per_label`` restores the selection exactly.
         """
         selection = (
             {}
-            if visual.outline_mode == "all_boundaries"
+            if visual.outline_mode in _LABELS_SLOT_COLOUR_MODES
             else dict(visual.outline_selected_labels)
         )
         self._render_manager.set_label_selection(visual.id, selection)

@@ -8,6 +8,11 @@ the old code built them, and must get the same specs back.
 
 The golden is never regenerated: the code that wrote it is gone.  A
 difference is a bug in a spec builder.
+
+A value a control gained after the golden was written is named in
+``ADDED_SINCE_THE_GOLDEN``, with what it holds for the golden's visuals.  It
+is added to the golden's specs before the comparison, so the file stands as
+it was written and the comparison still covers every value.
 """
 
 from __future__ import annotations
@@ -27,6 +32,25 @@ from tests.convenience._spec_parity_cases import (
 )
 
 GOLDEN = json.loads(GOLDEN_PATH.read_text())
+
+#: ``{spec kind: {value name: value}}``: values added to a control's spec
+#: since the golden was written, as they are for the golden's visuals.
+ADDED_SINCE_THE_GOLDEN = {
+    # The depth range of the ``depth_threshold`` outline mode; no golden
+    # visual sets one, so each holds the model's default.
+    "labels_outline": {"outline_depth_range": [0.01, 0.06]},
+}
+
+
+def _expected(case_name: str) -> list[dict]:
+    """The golden's specs for a case, with the values added since."""
+    expected = []
+    for spec in GOLDEN[case_name]:
+        added = ADDED_SINCE_THE_GOLDEN.get(spec["kind"], {})
+        # A name the golden already holds is not an addition.
+        assert not set(added) & set(spec["values"]), (spec["kind"], added)
+        expected.append({**spec, "values": {**spec["values"], **added}})
+    return expected
 
 
 def test_every_golden_case_has_a_list():
@@ -59,4 +83,4 @@ def test_the_list_builds_the_specs_of_the_golden(case_name, tmp_path):
         spec["kind"] for spec in GOLDEN[case_name]
     ]
     # Through JSON, as the golden went: tuples become lists either way.
-    assert json.loads(json.dumps(built)) == GOLDEN[case_name]
+    assert json.loads(json.dumps(built)) == _expected(case_name)

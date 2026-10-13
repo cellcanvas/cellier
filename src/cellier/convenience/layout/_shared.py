@@ -502,6 +502,10 @@ def _outline_specs(
         # ``per_label`` without it -- which misdrew every visual in
         # another mode.
         values["outline_mode"] = visual.outline_mode
+        # What the depth range row shows in ``depth_threshold`` mode.  It
+        # travels in every mode, because the mode can be entered from the
+        # panel.
+        values["outline_depth_range"] = tuple(visual.outline_depth_range)
     return [ControlSpec(kind, _CONTROL_TITLES[kind], values)]
 
 

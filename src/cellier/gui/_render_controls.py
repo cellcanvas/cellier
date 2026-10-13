@@ -101,8 +101,9 @@ class RenderControl(NamedTuple):
         What the panel calls this control.
     kind : str
         ``"bool"``, ``"int"``, ``"float"``, ``"color"``, ``"palette"``, or --
-        for the per-visual controls -- ``"slot"``, ``"choice"`` or
-        ``"label_selection"``.
+        for the per-visual controls -- ``"slot"``, ``"choice"``,
+        ``"label_selection"`` or ``"range"``.  A range is a pair of
+        numbers, the second never below the first, set as one value.
         A palette is a fixed-length row of RGB swatches; its length is a
         config decision rather than something a panel lets a user change.
     minimum, maximum : float or None
@@ -129,6 +130,7 @@ class RenderControl(NamedTuple):
         "slot",
         "choice",
         "label_selection",
+        "range",
     ]
     minimum: float | None = None
     maximum: float | None = None
@@ -369,12 +371,48 @@ OUTLINE_MODE_CHOICES: tuple[tuple[str, object], ...] = (
     ("Per label", "per_label"),
     ("Whole volume", "whole_object"),
     ("All boundaries", "all_boundaries"),
+    ("Depth threshold", "depth_threshold"),
 )
 
 #: Modes in which ``outline.slot`` chooses a colour rather than mere
 #: participation, so the panel shows the swatch row and drops the per-label
 #: rows.  Shared by both toolkits so they cannot drift apart.
-SLOT_IS_COLOUR_MODES: frozenset[str] = frozenset({"whole_object", "all_boundaries"})
+SLOT_IS_COLOUR_MODES: frozenset[str] = frozenset(
+    {"whole_object", "all_boundaries", "depth_threshold"}
+)
+
+#: Modes that draw depth bands, so the panel shows the depth range row.
+DEPTH_RANGE_MODES: frozenset[str] = frozenset({"depth_threshold"})
+
+#: The two boxes of a depth range row, in the order of the pair.
+DEPTH_RANGE_LABELS: tuple[str, str] = ("Start", "Solid")
+
+#: Smallest start a panel offers.  Below this the jump is inside the noise
+#: of the depth buffer at the far end of a wide depth range.
+DEPTH_RANGE_MINIMUM: float = 0.001
+
+#: Largest solid value a panel offers.  A jump is a fraction of the distance
+#: to the nearer surface, so it has no upper bound; past a few times that
+#: distance every line is already solid.
+DEPTH_RANGE_SOLID_MAXIMUM: float = 10.0
+
+#: What a click on a spin arrow changes a depth range value by.
+DEPTH_RANGE_STEP: float = 0.005
+
+
+def coerce_depth_range(start: float, solid: float) -> tuple[float, float]:
+    """Return the pair a depth range row holds for what its boxes say.
+
+    The start is kept inside what the row offers, and the solid value is
+    never below it: raising the start past the solid value carries the solid
+    value up with it, and the solid value cannot be set below the start.  So
+    the row never holds a pair the model would reject.  Shared by both
+    toolkits so they cannot drift apart.
+    """
+    start = min(max(float(start), DEPTH_RANGE_MINIMUM), 1.0)
+    solid = min(float(solid), DEPTH_RANGE_SOLID_MAXIMUM)
+    return start, max(solid, start)
+
 
 _OUTLINE_MODE_TOOLTIP = (
     "Per label gives each label its own band, so touching labels keep a "
@@ -384,7 +422,22 @@ _OUTLINE_MODE_TOOLTIP = (
     "coloured by the slot above.  All boundaries bands every label, "
     "boundaries between touching labels included, all in that same single "
     "colour -- whole volume's colour with per label's boundaries.  The "
-    "selected labels below do not apply in it."
+    "selected labels below do not apply in it.  Depth threshold is all "
+    "boundaries and one thing more: a line where one part of a label passes "
+    "in front of another part of the same label, as where two branches of a "
+    "tree cross.  It adds lines in a 3D view only."
+)
+
+_DEPTH_RANGE_TOOLTIP = (
+    "How large a jump in depth inside one label is outlined, and how "
+    "strongly.  Both values are fractions of the distance from the camera "
+    "to the nearer surface.  A jump of Start is where a line begins, at no "
+    "alpha; from Solid up the line is drawn in full; between the two it "
+    "fades in.  Equal values give a hard edge.  The steps between voxels "
+    "are jumps in depth too: zoomed in until a voxel covers several pixels, "
+    "or while a coarse level is on screen, they are outlined as well, and a "
+    "larger Start removes them.  A Start near 0.001 is inside the noise of "
+    "the depth buffer when the scene's depth range is very wide."
 )
 
 
@@ -451,6 +504,16 @@ VISUAL_RENDER_CONTROLS: dict[str, tuple[RenderControl, ...]] = {
     "labels_outline": (
         RenderControl("outline_mode", "Mode", "choice", tooltip=_OUTLINE_MODE_TOOLTIP),
         RenderControl("outline.slot", "Outline", "slot", tooltip=_SLOT_TOOLTIP),
+        # Drawn only in the modes of ``DEPTH_RANGE_MODES``.
+        RenderControl(
+            "outline_depth_range",
+            "Depth range",
+            "range",
+            minimum=DEPTH_RANGE_MINIMUM,
+            maximum=DEPTH_RANGE_SOLID_MAXIMUM,
+            decimals=3,
+            tooltip=_DEPTH_RANGE_TOOLTIP,
+        ),
         RenderControl(
             "outline.placement", "Placement", "choice", tooltip=_PLACEMENT_TOOLTIP
         ),

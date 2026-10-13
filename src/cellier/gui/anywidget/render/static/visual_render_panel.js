@@ -1,7 +1,7 @@
 // Per-visual render-settings ESM.  One file drives all four panels -- the
-// outline slot picker, the labels variant with its per-label rows, the
-// occlusion menu and the picking checkbox -- from a `controls` description
-// the Python side syncs.
+// outline slot picker, the labels variant with its per-label rows and its
+// depth range, the occlusion menu and the picking checkbox -- from a
+// `controls` description the Python side syncs.
 //
 // State is a single `values` dict keyed by the dotted field name, rather
 // than a trait per field: these panels are small and fixed, and it avoids
@@ -143,6 +143,55 @@ function render({ model, el }) {
     return { row: makeRow(spec, wrap), apply: draw, redrawOnPalette: draw };
   }
 
+  function buildRange(spec) {
+    // Two number boxes for a pair [first, second], written as one value.
+    // The second is never below the first: raising the first carries the
+    // second up with it, and the second cannot be set under the first.
+    const wrap = document.createElement("div");
+    wrap.className = "cellier-render-range";
+    if (spec.tooltip) wrap.title = spec.tooltip;
+
+    const inputs = (spec.labels || ["", ""]).map((text) => {
+      const label = document.createElement("label");
+      label.className = "cellier-render-range-part";
+      label.appendChild(document.createTextNode(text + " "));
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = String(spec.minimum);
+      input.step = String(spec.step);
+      label.appendChild(input);
+      wrap.appendChild(label);
+      return input;
+    });
+    inputs[0].max = String(spec.first_maximum);
+    inputs[1].max = String(spec.maximum);
+
+    function show(pair) {
+      if (!pair) return;
+      inputs[0].value = Number(pair[0]).toFixed(spec.decimals);
+      inputs[1].value = Number(pair[1]).toFixed(spec.decimals);
+    }
+
+    function commit() {
+      const shown = values()[spec.field] || [spec.minimum, spec.minimum];
+      // An emptied box is not a number (Number("") is 0): keep what it had.
+      const read = (input) =>
+        input.value.trim() === "" ? NaN : Number(input.value);
+      let first = read(inputs[0]);
+      let second = read(inputs[1]);
+      if (!Number.isFinite(first)) first = Number(shown[0]);
+      if (!Number.isFinite(second)) second = Number(shown[1]);
+      first = Math.min(Math.max(first, spec.minimum), spec.first_maximum);
+      second = Math.min(Math.max(second, first), spec.maximum);
+      show([first, second]);
+      setValue(spec.field, [first, second]);
+    }
+
+    inputs.forEach((input) => input.addEventListener("change", commit));
+    show(values()[spec.field]);
+    return { row: makeRow(spec, wrap), apply: show };
+  }
+
   function buildLabelSelection(spec) {
     // One row per selected label: its value, the slot swatch it draws in,
     // and a remove button.
@@ -250,6 +299,7 @@ function render({ model, el }) {
       if (spec.kind === "slot") made = buildSlot(spec);
       else if (spec.kind === "choice") made = buildChoice(spec);
       else if (spec.kind === "label_selection") made = buildLabelSelection(spec);
+      else if (spec.kind === "range") made = buildRange(spec);
       else made = buildBool(spec);
       built.push({ spec, ...made });
       body.appendChild(made.row);

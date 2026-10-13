@@ -1,18 +1,19 @@
 """The shared per-visual lookup table.
 
 Maps a pygfx ``global_id`` (what the pick buffer stores, and what
-``wobject.id`` returns on the Python side) to a one-byte entry carrying
-every per-visual flag the effect passes need.
+``wobject.id`` returns on the Python side) to an entry carrying every
+per-visual value the effect passes need.
 
-Two features read it: the screen-space outline pass (bits 0-6) and the
-ambient occlusion pass (bit 7).  **One table, one authoritative map.**
-``apply`` is a whole-state sync -- ids present in the table but absent from
-the supplied mapping are cleared -- so if the two features kept separate
-maps, enabling outlines would silently wipe every occlusion exclusion.
+Two features read it: the screen-space outline pass (bits 0-6 of the entry
+byte, and the depth range) and the ambient occlusion pass (bit 7).  **One
+table, one authoritative map.**  ``apply`` is a whole-state sync -- ids
+present in the table but absent from the supplied mapping are cleared -- so
+if the two features kept separate maps, enabling outlines would silently
+wipe every occlusion exclusion.
 ``RenderManager`` therefore holds a single ``{visual_id: VisualFlags}`` map
 and derives the whole table from it.
 
-The table is a 1024x1024 ``r8uint`` texture -- 1 MB -- indexed as
+The table is a 1024x1024 ``rg16uint`` texture -- 4 MB -- indexed as
 ``(id & 1023, id >> 10)``.  It is deliberately *not* smaller: pygfx does
 not allocate ids with a counter, it draws them randomly over the full
 2^20 range::
@@ -30,21 +31,34 @@ re-upload.
 Ids are not stable across sessions, so the table is always built at
 runtime from cellier's visual-to-world-object mapping and never persisted.
 
-Entry layout, one byte:
+Entry layout.  On the Python side an entry is one integer,
+``byte | ramp << 8 | start << 16``, so that ``apply`` syncs every part of
+it at once; the texel holds its low half in ``r`` and its high half in
+``g``:
 
-===== =========================================================
-bits  field
-===== =========================================================
-0-3   selection slot; 0 = not selected, else palette index v - 1
-4-5   kind; 0 = not outlined, 1 = whole object, 2 = label,
-      3 = label with a uniform colour
-6     placement; 0 = inward, 1 = outward
-7     excluded from ambient occlusion
-===== =========================================================
+======= ===== =====================================================
+channel bits  field
+======= ===== =====================================================
+r       0-3   selection slot; 0 = not selected, else palette index
+              v - 1
+r       4-5   kind; 0 = not outlined, 1 = whole object, 2 = label,
+              3 = label with a uniform colour
+r       6     placement; 0 = inward, 1 = outward
+r       7     excluded from ambient occlusion
+r       8-15  depth ramp code; 0 = a hard edge, else
+              ``solid = start * 2 ** (code / 32)``
+g       0-15  depth start code; 0 = no depth test, else
+              ``start = code / 65535``
+======= ===== =====================================================
 
-The byte is now full: bit 7 was the last free bit and kind 3 the last free
-kind.  If another per-object flag or mode is ever needed the format goes
-``r8uint`` -> ``r16uint`` (2 MB) and the index arithmetic is unchanged.
+The low byte of ``r`` is full: bit 7 was the last free bit and kind 3 the
+last free kind.  Readers of ``r`` must mask the bits they want, because
+its upper byte is not theirs.
+
+The depth range is the pair ``(start, solid)`` of a depth outline: a depth
+jump of ``start``, as a fraction of the distance from the camera, is where
+a line begins, and from ``solid`` up it is drawn in full.  See
+:func:`encode_depth_range`.
 
 Entry 0 is permanently inert: the pick target clears to zero and pygfx's
 ``IdProvider`` seeds ``_ids_in_use = {0}``, so no object is ever given id
@@ -53,6 +67,7 @@ Entry 0 is permanently inert: the pick target clears to zero and pygfx's
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -63,6 +78,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 LUT_WIDTH: int = 1024
 LUT_HEIGHT: int = 1024
+
+#: ``rg16uint``: two 16-bit channels.
+_BYTES_PER_TEXEL: int = 4
 
 #: Highest usable selection slot.  Slot 0 means "not selected".
 MAX_SLOT: int = 15
@@ -85,6 +103,13 @@ PLACEMENT_NAMES: dict[str, int] = {
 
 #: Bit 7: the visual does not receive ambient occlusion.
 AO_EXCLUDED_BIT: int = 0x80
+
+#: Largest depth start code; the code of a start of 1.
+MAX_DEPTH_START_CODE: int = 0xFFFF
+#: Largest depth ramp code.
+MAX_DEPTH_RAMP_CODE: int = 0xFF
+#: Ramp codes per doubling of ``solid / start``.
+DEPTH_RAMP_CODES_PER_OCTAVE: int = 32
 
 
 def lut_index(object_id: int) -> tuple[int, int]:
@@ -109,8 +134,10 @@ def encode_entry(
     kind: int = KIND_WHOLE_OBJECT,
     placement: int = PLACEMENT_INWARD,
     ao_excluded: bool = False,
+    depth_start_code: int = 0,
+    depth_ramp_code: int = 0,
 ) -> int:
-    """Pack a per-visual entry into its single byte.
+    """Pack a per-visual entry into one integer.
 
     Parameters
     ----------
@@ -128,11 +155,18 @@ def encode_entry(
         Independent of every other field: a visual can be excluded from
         occlusion and not outlined at all, which is what a MIP volume in a
         scene with no selection looks like.
+    depth_start_code : int
+        Start of the depth range as a code in ``[0, 65535]``, from
+        :func:`encode_depth_range`.  0 means the visual has no depth test.
+    depth_ramp_code : int
+        Ramp of the depth range as a code in ``[0, 255]``.  0 is a hard
+        edge.
 
     Returns
     -------
     int
-        The packed byte.
+        The packed entry: the byte in bits 0-7, the ramp code in bits 8-15
+        and the start code in bits 16-31.
 
     Raises
     ------
@@ -145,23 +179,103 @@ def encode_entry(
         raise ValueError(f"unknown outline kind: {kind}")
     if placement not in (PLACEMENT_INWARD, PLACEMENT_OUTWARD):
         raise ValueError(f"unknown outline placement: {placement}")
+    if not 0 <= depth_start_code <= MAX_DEPTH_START_CODE:
+        raise ValueError(
+            f"depth_start_code must be in [0, {MAX_DEPTH_START_CODE}], "
+            f"got {depth_start_code}"
+        )
+    if not 0 <= depth_ramp_code <= MAX_DEPTH_RAMP_CODE:
+        raise ValueError(
+            f"depth_ramp_code must be in [0, {MAX_DEPTH_RAMP_CODE}], "
+            f"got {depth_ramp_code}"
+        )
     return (
         (slot & 0xF)
         | ((kind & 0x3) << 4)
         | ((placement & 0x1) << 6)
         | (AO_EXCLUDED_BIT if ao_excluded else 0)
+        | (depth_ramp_code << 8)
+        | (depth_start_code << 16)
     )
 
 
-def decode_entry(value: int) -> tuple[int, int, int, bool]:
-    """Unpack an entry byte into ``(slot, kind, placement, ao_excluded)``."""
+def decode_entry(value: int) -> tuple[int, int, int, bool, int, int]:
+    """Unpack an entry.
+
+    Returns
+    -------
+    tuple[int, int, int, bool, int, int]
+        ``(slot, kind, placement, ao_excluded, depth_start_code,
+        depth_ramp_code)``.
+    """
     value = int(value)
     return (
         value & 0xF,
         (value >> 4) & 0x3,
         (value >> 6) & 0x1,
         bool(value & AO_EXCLUDED_BIT),
+        (value >> 16) & MAX_DEPTH_START_CODE,
+        (value >> 8) & MAX_DEPTH_RAMP_CODE,
     )
+
+
+def encode_depth_range(depth_range: tuple[float, float]) -> tuple[int, int]:
+    """Return the codes of a depth range.
+
+    Parameters
+    ----------
+    depth_range : tuple[float, float]
+        ``(start, solid)``, both fractions of the distance from the
+        camera, with ``0 < start <= 1`` and ``start <= solid``.
+
+    Returns
+    -------
+    tuple[int, int]
+        ``(depth_start_code, depth_ramp_code)`` for :func:`encode_entry`.
+        The start code is never 0, so a range that is given never encodes
+        as "no depth test".  The ramp code is 0 exactly when ``solid ==
+        start``, a hard edge.
+
+    Raises
+    ------
+    ValueError
+        If the pair is out of range or out of order.
+
+    Notes
+    -----
+    The ramp is the ratio of ``solid`` to the start *as coded*, on a
+    logarithmic scale, so the solid value the GPU uses is within 1.1% of
+    the one given whatever the size of the start.  Two cases fall outside
+    that: a ratio under ``2 ** (1 / 64)`` is drawn as the smallest ramp
+    rather than as a hard edge, and a ratio over about 250 is clamped.
+    """
+    start, solid = (float(value) for value in depth_range)
+    if not 0.0 < start <= 1.0:
+        raise ValueError(f"the start of a depth range must be in (0, 1], got {start}")
+    if not solid >= start:
+        raise ValueError(
+            f"the solid value of a depth range must not be below its start, "
+            f"got {(start, solid)}"
+        )
+    start_code = max(1, min(MAX_DEPTH_START_CODE, round(start * MAX_DEPTH_START_CODE)))
+    if solid == start:
+        return start_code, 0
+    coded_start = start_code / MAX_DEPTH_START_CODE
+    ramp = DEPTH_RAMP_CODES_PER_OCTAVE * math.log2(solid / coded_start)
+    return start_code, max(1, min(MAX_DEPTH_RAMP_CODE, round(ramp)))
+
+
+def decode_depth_range(
+    depth_start_code: int, depth_ramp_code: int
+) -> tuple[float, float] | None:
+    """Return the ``(start, solid)`` the GPU uses for a pair of codes.
+
+    ``None`` when the start code is 0: no depth test.
+    """
+    if depth_start_code == 0:
+        return None
+    start = depth_start_code / MAX_DEPTH_START_CODE
+    return start, start * 2.0 ** (depth_ramp_code / DEPTH_RAMP_CODES_PER_OCTAVE)
 
 
 class VisualLut:
@@ -183,13 +297,16 @@ class VisualLut:
 
             device = get_shared().device
         self._device = device
-        self._data = np.zeros((LUT_HEIGHT, LUT_WIDTH), dtype=np.uint8)
+        self._data = np.zeros((LUT_HEIGHT, LUT_WIDTH), dtype=np.uint32)
         self._written: dict[int, int] = {}
 
         self._texture = device.create_texture(
             size=(LUT_WIDTH, LUT_HEIGHT, 1),
-            format=wgpu.TextureFormat.r8uint,
-            usage=wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+            format=wgpu.TextureFormat.rg16uint,
+            # COPY_SRC lets the table be read back, which the tests do.
+            usage=wgpu.TextureUsage.TEXTURE_BINDING
+            | wgpu.TextureUsage.COPY_DST
+            | wgpu.TextureUsage.COPY_SRC,
             dimension="2d",
         )
         self._view = self._texture.create_view()
@@ -197,8 +314,12 @@ class VisualLut:
         # uninitialised.
         device.queue.write_texture(
             {"texture": self._texture, "mip_level": 0, "origin": (0, 0, 0)},
-            self._data,
-            {"offset": 0, "bytes_per_row": LUT_WIDTH, "rows_per_image": LUT_HEIGHT},
+            np.zeros((LUT_HEIGHT, LUT_WIDTH, 2), dtype=np.uint16),
+            {
+                "offset": 0,
+                "bytes_per_row": LUT_WIDTH * _BYTES_PER_TEXEL,
+                "rows_per_image": LUT_HEIGHT,
+            },
             (LUT_WIDTH, LUT_HEIGHT, 1),
         )
 
@@ -214,11 +335,11 @@ class VisualLut:
 
     @property
     def entries(self) -> dict[int, int]:
-        """Copy of the currently written ``{object_id: entry byte}`` map."""
+        """Copy of the currently written ``{object_id: entry}`` map."""
         return dict(self._written)
 
     def get_entry(self, object_id: int) -> int:
-        """Return the entry byte currently stored for *object_id*."""
+        """Return the entry currently stored for *object_id*."""
         x, y = lut_index(object_id)
         return int(self._data[y, x])
 
@@ -230,7 +351,7 @@ class VisualLut:
         object_id : int
             The pygfx ``global_id`` to write.
         value : int
-            Packed entry byte, from :func:`encode_entry`.
+            Packed entry, from :func:`encode_entry`.
 
         Returns
         -------
@@ -241,7 +362,7 @@ class VisualLut:
         if object_id == 0:
             # Entry 0 is background and must stay inert.
             return False
-        value = int(value) & 0xFF
+        value = int(value) & 0xFFFFFFFF
         x, y = lut_index(object_id)
         if int(self._data[y, x]) == value and self._written.get(object_id) == value:
             return False
@@ -267,7 +388,7 @@ class VisualLut:
         Parameters
         ----------
         entries : Mapping[int, int]
-            ``{object_id: entry byte}`` for every flag that should be
+            ``{object_id: entry}`` for every flag that should be
             set right now, across *all* features that share the table.
             Anything absent is cleared, so callers must supply the whole
             state rather than their own feature's slice of it.
@@ -295,8 +416,8 @@ class VisualLut:
                 "mip_level": 0,
                 "origin": (x, y, 0),
             },
-            np.array([[value]], dtype=np.uint8),
-            {"offset": 0, "bytes_per_row": 1, "rows_per_image": 1},
+            np.array([[[value & 0xFFFF, value >> 16]]], dtype=np.uint16),
+            {"offset": 0, "bytes_per_row": _BYTES_PER_TEXEL, "rows_per_image": 1},
             (1, 1, 1),
         )
 
@@ -309,7 +430,7 @@ def get_shared_visual_lut() -> VisualLut:
 
     pygfx allocates ``global_id`` from a single process-wide
     ``IdProvider`` and every canvas shares one wgpu device, so the
-    id-to-entry mapping is global and one 1 MB table serves every canvas.
+    id-to-entry mapping is global and one 4 MB table serves every canvas.
 
     Returns
     -------

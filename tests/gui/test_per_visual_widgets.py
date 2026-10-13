@@ -580,3 +580,236 @@ def test_renaming_onto_an_existing_label_is_refused(qtbot):
     widget._on_label_renamed(3, 1)
 
     assert emitted == []
+
+
+# ---------------------------------------------------------------------------
+# Depth threshold: a fourth mode, and the row for its depth range
+# ---------------------------------------------------------------------------
+
+
+def _range_boxes(widget):
+    return widget._depth_range_boxes
+
+
+def _labels_qt(qtbot, **values):
+    from cellier.gui.qt.render import QtLabelsOutlineControls
+
+    widget = QtLabelsOutlineControls(
+        [uuid4()], {**_LABELS_VALUES, **values}, palette=_PALETTE
+    )
+    qtbot.addWidget(widget.widget)
+    emitted: list[VisualRenderUpdateEvent] = []
+    widget.changed.connect(emitted.append)
+    return widget, emitted
+
+
+def _labels_any(**values):
+    from cellier.gui.anywidget.render import AnywidgetLabelsOutlineControls
+
+    widget = AnywidgetLabelsOutlineControls(
+        [uuid4()], {**_LABELS_VALUES, **values}, palette=_PALETTE
+    )
+    emitted: list[VisualRenderUpdateEvent] = []
+    widget.changed.connect(emitted.append)
+    return widget, emitted
+
+
+def _foreign(field, value):
+    return VisualRenderChangedEvent(
+        source_id=uuid4(), visual_id=uuid4(), field_name=field, new_value=value
+    )
+
+
+def test_depth_threshold_is_the_fourth_mode_of_the_menu():
+    """Appended, not inserted: the tests above drive the menu by index."""
+    from cellier.gui._render_controls import OUTLINE_MODE_CHOICES
+
+    assert [value for _label, value in OUTLINE_MODE_CHOICES] == [
+        "per_label",
+        "whole_object",
+        "all_boundaries",
+        "depth_threshold",
+    ]
+    assert OUTLINE_MODE_CHOICES[3][0] == "Depth threshold"
+
+
+def test_choosing_depth_threshold_reveals_the_swatches_and_the_range(qtbot):
+    """The slot is the colour in this mode, and the range row appears."""
+    widget, emitted = _labels_qt(qtbot)
+    assert "outline_depth_range" not in widget._appliers
+
+    _combo(widget).setCurrentIndex(3)  # Depth threshold
+
+    assert emitted[-1].field == "outline_mode"
+    assert emitted[-1].value == "depth_threshold"
+    assert widget._swatch_group.buttons()
+    assert "outline_selected_labels" not in widget._appliers
+    assert "outline_depth_range" in widget._appliers
+    # No range was given, so the row shows the model's default.
+    start_box, solid_box = _range_boxes(widget)
+    assert (start_box.value(), solid_box.value()) == (0.01, 0.06)
+    assert start_box.decimals() == 3
+    assert start_box.minimum() == 0.001
+
+
+@pytest.mark.parametrize("index", [0, 1, 2])
+def test_leaving_depth_threshold_removes_the_range_row(qtbot, index):
+    widget, _emitted = _labels_qt(qtbot, outline_mode="depth_threshold")
+    assert "outline_depth_range" in widget._appliers
+
+    _combo(widget).setCurrentIndex(index)
+
+    assert "outline_depth_range" not in widget._appliers
+
+
+def test_the_range_row_shows_the_visuals_range(qtbot):
+    widget, _emitted = _labels_qt(
+        qtbot, outline_mode="depth_threshold", outline_depth_range=(0.02, 0.12)
+    )
+    start_box, solid_box = _range_boxes(widget)
+    assert (start_box.value(), solid_box.value()) == (0.02, 0.12)
+
+
+def test_editing_a_box_sends_the_whole_pair(qtbot):
+    """One field, one value: the model never sees half a change."""
+    widget, emitted = _labels_qt(qtbot, outline_mode="depth_threshold")
+    start_box, solid_box = _range_boxes(widget)
+
+    solid_box.setValue(0.2)
+    assert (emitted[-1].field, emitted[-1].value) == (
+        "outline_depth_range",
+        (0.01, 0.2),
+    )
+
+    start_box.setValue(0.05)
+    assert emitted[-1].value == (0.05, 0.2)
+    assert len(emitted) == 2
+
+
+def test_raising_the_start_past_the_solid_value_carries_it_up(qtbot):
+    widget, emitted = _labels_qt(qtbot, outline_mode="depth_threshold")
+    start_box, solid_box = _range_boxes(widget)
+
+    start_box.setValue(0.3)
+
+    assert emitted[-1].value == (0.3, 0.3)
+    assert solid_box.value() == 0.3
+
+
+def test_the_solid_value_cannot_be_set_below_the_start(qtbot):
+    widget, emitted = _labels_qt(qtbot, outline_mode="depth_threshold")
+    start_box, solid_box = _range_boxes(widget)
+
+    solid_box.setValue(0.004)
+
+    assert emitted[-1].value == (0.01, 0.01)
+    assert solid_box.value() == 0.01
+    assert start_box.value() == 0.01
+
+
+def test_an_inbound_range_updates_the_boxes_without_an_echo(qtbot):
+    widget, emitted = _labels_qt(qtbot, outline_mode="depth_threshold")
+
+    widget._on_visual_render_changed(_foreign("outline_depth_range", (0.03, 0.09)))
+
+    start_box, solid_box = _range_boxes(widget)
+    assert (start_box.value(), solid_box.value()) == (0.03, 0.09)
+    assert emitted == []
+
+
+def test_a_range_set_while_the_row_is_hidden_is_shown_on_entering_the_mode(qtbot):
+    """The range is kept in the other modes, so the panel has to keep it too."""
+    widget, _emitted = _labels_qt(qtbot)
+
+    widget._on_visual_render_changed(_foreign("outline_depth_range", (0.03, 0.09)))
+    widget._on_visual_render_changed(_foreign("outline_mode", "depth_threshold"))
+
+    start_box, solid_box = _range_boxes(widget)
+    assert (start_box.value(), solid_box.value()) == (0.03, 0.09)
+
+
+def test_both_front_ends_show_the_same_controls_in_depth_threshold(qtbot):
+    pytest.importorskip("anywidget")
+    qt_widget, _e = _labels_qt(qtbot, outline_mode="depth_threshold")
+    any_widget, _e = _labels_any(outline_mode="depth_threshold")
+
+    fields = {c["field"] for c in any_widget.controls}
+    assert set(qt_widget._appliers) == fields
+    assert "outline_depth_range" in fields
+
+
+def test_the_anywidget_range_row_follows_the_mode():
+    pytest.importorskip("anywidget")
+    widget, emitted = _labels_any()
+    assert "outline_depth_range" not in {c["field"] for c in widget.controls}
+    # The default is there for the script to show when the row appears.
+    assert widget.values["outline_depth_range"] == [0.01, 0.06]
+
+    widget.values = {**widget.values, "outline_mode": "depth_threshold"}
+
+    by_field = {c["field"]: c for c in widget.controls}
+    assert by_field["outline.slot"]["kind"] == "slot"
+    assert "outline_selected_labels" not in by_field
+    entry = by_field["outline_depth_range"]
+    assert entry["kind"] == "range"
+    assert entry["labels"] == ["Start", "Solid"]
+    assert (entry["minimum"], entry["first_maximum"], entry["decimals"]) == (
+        0.001,
+        1.0,
+        3,
+    )
+    assert [(e.field, e.value) for e in emitted] == [
+        ("outline_mode", "depth_threshold")
+    ]
+
+    widget.values = {**widget.values, "outline_mode": "all_boundaries"}
+    assert "outline_depth_range" not in {c["field"] for c in widget.controls}
+
+
+def test_the_anywidget_range_is_sent_as_a_pair():
+    pytest.importorskip("anywidget")
+    widget, emitted = _labels_any(outline_mode="depth_threshold")
+
+    widget.values = {**widget.values, "outline_depth_range": [0.02, 0.12]}
+
+    assert [(e.field, e.value) for e in emitted] == [
+        ("outline_depth_range", (0.02, 0.12))
+    ]
+    assert isinstance(emitted[-1].value, tuple)
+
+
+def test_the_anywidget_never_sends_a_pair_out_of_order():
+    """The script keeps the pair in order; Python does not rely on it."""
+    pytest.importorskip("anywidget")
+    widget, emitted = _labels_any(outline_mode="depth_threshold")
+
+    widget.values = {**widget.values, "outline_depth_range": [0.3, 0.06]}
+
+    assert emitted[-1].value == (0.3, 0.3)
+    assert widget.values["outline_depth_range"] == [0.3, 0.3]
+    assert len(emitted) == 1
+
+    widget.values = {**widget.values, "outline_depth_range": ["x", 0.06]}
+    assert len(emitted) == 1
+
+
+def test_an_inbound_range_reaches_the_anywidget_in_any_mode():
+    pytest.importorskip("anywidget")
+    for mode in ("per_label", "depth_threshold"):
+        widget, emitted = _labels_any(outline_mode=mode)
+
+        widget._on_visual_render_changed(_foreign("outline_depth_range", (0.03, 0.09)))
+
+        assert widget.values["outline_depth_range"] == [0.03, 0.09]
+        assert emitted == []
+
+
+def test_the_range_coercion_is_what_the_model_accepts():
+    """Whatever the boxes say, the pair the row holds is a valid range."""
+    from cellier.gui._render_controls import coerce_depth_range
+    from cellier.visuals._label_memory import validate_outline_depth_range
+
+    for start, solid in [(0.0, 0.0), (-1.0, 5.0), (0.5, 0.1), (3.0, 0.2), (0.01, 99)]:
+        pair = coerce_depth_range(start, solid)
+        assert validate_outline_depth_range(pair) == pair
+    assert coerce_depth_range(0.02, 0.12) == (0.02, 0.12)

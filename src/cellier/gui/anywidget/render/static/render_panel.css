@@ -46,6 +46,23 @@
   flex: 1 1 auto;
 }
 
+.cellier-render-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+}
+
+.cellier-render-range-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cellier-render-range-part input[type="number"] {
+  width: 5.5em;
+}
+
 .cellier-render-value {
   min-width: 3.5em;
   text-align: left;

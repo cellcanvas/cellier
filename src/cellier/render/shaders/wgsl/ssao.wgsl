@@ -135,7 +135,7 @@ fn pick_id(texel: vec2<i32>) -> u32 {
     return pick.r | ((pick.g & 0xFu) << 16u);
 }
 
-// Bit 7 of the shared visual LUT entry is the "excluded from AO" flag.
+// Bit 7 of r of the shared visual LUT entry is the "excluded from AO" flag.
 fn ao_excluded(object_id: u32) -> bool {
     let x = i32(object_id & 1023u);
     let y = i32((object_id >> 10u) & 1023u);

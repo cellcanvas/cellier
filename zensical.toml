@@ -61,6 +61,7 @@ nav = [
         { "Clip a visual with planes" = "How_To/clipping_planes.md" },
         { "Debug events" = "How_To/debug_events.md" },
         { "Draw a volume on planes" = "How_To/render_planes.md" },
+        { "Outline a visual" = "How_To/outlines.md" },
     ] },
     { "API Reference" = [
         { "CellierController" = "api/controller.md" },

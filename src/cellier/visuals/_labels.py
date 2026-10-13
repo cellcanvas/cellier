@@ -89,6 +89,9 @@ class MultiscaleLabelRenderConfig(BaseModel):
         Maximum GPU memory for the 2-D tile cache. Default 64 MiB.
     paint_max_tiles : int
         Tiles the 2-D paint overlay can hold. Default 512.
+        The tiles share one near-square texture, so
+        ``ceil(sqrt(paint_max_tiles)) * block_size`` must not exceed the
+        device's maximum 2-D texture dimension.
     loading : ProgressiveLoadingConfig
         The coarse backstop loaded ahead of the target level.  Changing
         only this reslices; the other fields reallocate GPU resources.

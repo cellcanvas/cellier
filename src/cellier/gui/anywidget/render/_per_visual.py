@@ -28,11 +28,15 @@ from cellier.events import (
 )
 from cellier.gui._render_controls import (
     AMBIENT_OCCLUSION_CHOICES,
+    DEPTH_RANGE_LABELS,
+    DEPTH_RANGE_MODES,
+    DEPTH_RANGE_STEP,
     OUTLINE_MODE_CHOICES,
     PLACEMENT_CHOICES,
     SLOT_IS_COLOUR_MODES,
     VISUAL_RENDER_CONTROLS,
     VISUAL_RENDER_TITLES,
+    coerce_depth_range,
     visual_path,
     with_api_path,
 )
@@ -132,6 +136,15 @@ class AnywidgetVisualRenderPanel(anywidget.AnyWidget):
                 entry["options"] = _choice_options(OUTLINE_MODE_CHOICES)
             elif control.kind == "label_selection":
                 entry["max_rows"] = MAX_LABEL_ROWS
+            elif control.kind == "range":
+                # The first box runs from the minimum to 1, the second from
+                # the first box's value to the maximum.
+                entry["labels"] = list(DEPTH_RANGE_LABELS)
+                entry["minimum"] = control.minimum
+                entry["maximum"] = control.maximum
+                entry["first_maximum"] = 1.0
+                entry["decimals"] = control.decimals
+                entry["step"] = DEPTH_RANGE_STEP
             described.append(self._adjust_for_mode(entry, values))
         return [entry for entry in described if entry is not None]
 
@@ -148,6 +161,9 @@ class AnywidgetVisualRenderPanel(anywidget.AnyWidget):
             out["outline_selected_labels"] = {
                 str(k): int(v) for k, v in selection.items()
             }
+        depth_range = out.get("outline_depth_range")
+        if depth_range is not None:
+            out["outline_depth_range"] = [float(v) for v in depth_range]
         return out
 
     # ------------------------------------------------------------------
@@ -190,6 +206,10 @@ class AnywidgetVisualRenderPanel(anywidget.AnyWidget):
                 value = {int(k): int(v) for k, v in value.items()}
             elif field == "outline.slot":
                 value = int(value)
+            elif field == "outline_depth_range":
+                value = self._depth_range_from_widget(value)
+                if value is None:
+                    continue
             for visual_id in self._visual_ids:
                 self.changed.emit(
                     VisualRenderUpdateEvent(
@@ -199,6 +219,28 @@ class AnywidgetVisualRenderPanel(anywidget.AnyWidget):
                         value=value,
                     )
                 )
+
+    def _depth_range_from_widget(self, value) -> tuple[float, float] | None:
+        """The pair to send for a range the front end wrote, or ``None``.
+
+        The script keeps the pair in order itself; this is the same rule
+        applied again, so that nothing a front end writes reaches the model
+        as a pair it would refuse.  A value that is not a pair of numbers
+        is dropped.
+        """
+        try:
+            start, solid = (float(part) for part in value)
+        except (TypeError, ValueError):
+            return None
+        pair = coerce_depth_range(start, solid)
+        if pair != (start, solid):
+            # Show what was sent.
+            self._applying = True
+            try:
+                self.values = {**self.values, "outline_depth_range": list(pair)}
+            finally:
+                self._applying = False
+        return pair
 
     # ------------------------------------------------------------------
     # model -> widget
@@ -214,6 +256,8 @@ class AnywidgetVisualRenderPanel(anywidget.AnyWidget):
             return  # a field this panel does not display
         if field == "outline_selected_labels":
             value = {str(k): int(v) for k, v in (value or {}).items()}
+        elif field == "outline_depth_range":
+            value = [float(v) for v in value]
         self._applying = True
         try:
             self.values = {**self.values, field: value}
@@ -254,18 +298,29 @@ class AnywidgetLabelsOutlineControls(_PaletteFollowingPanel):
     """Outline mode, slot and per-label selection for a labels visual.
 
     The panel changes shape with its mode, because ``outline.slot`` means
-    two different things.  In whole-volume and all-boundaries mode it
-    chooses the colour, so it gets the swatch row every other visual has; in
-    per-label mode it only decides whether the volume participates, so it
-    gets a checkbox and the per-label rows appear.  Re-describing the
-    controls is enough -- the ESM rebuilds on ``change:controls``.
+    two different things.  In whole-volume, all-boundaries and
+    depth-threshold mode it chooses the colour, so it gets the swatch row
+    every other visual has; in per-label mode it only decides whether the
+    volume participates, so it gets a checkbox and the per-label rows
+    appear.  The depth range row is drawn in depth-threshold mode only.
+    Re-describing the controls is enough -- the ESM rebuilds on
+    ``change:controls``.
     """
 
     section: ClassVar[str] = "labels_outline"
     DEFAULT_TITLE: ClassVar[str] = VISUAL_RENDER_TITLES["labels_outline"]
 
+    def __init__(self, visual_ids, values, **kwargs) -> None:
+        from cellier.visuals._label_memory import DEFAULT_OUTLINE_DEPTH_RANGE
+
+        # A panel built with no range shows the model's default.
+        values = {"outline_depth_range": DEFAULT_OUTLINE_DEPTH_RANGE, **values}
+        super().__init__(visual_ids, values, **kwargs)
+
     def _adjust_for_mode(self, entry: dict, values: dict[str, Any]) -> dict | None:
         mode = values.get("outline_mode") or "per_label"
+        if entry["field"] == "outline_depth_range" and mode not in DEPTH_RANGE_MODES:
+            return None  # no depth bands in this mode
         if mode in SLOT_IS_COLOUR_MODES:
             if entry["field"] == "outline_selected_labels":
                 return None  # no per-label colours in these modes
@@ -277,6 +332,17 @@ class AnywidgetLabelsOutlineControls(_PaletteFollowingPanel):
         return entry
 
     def _apply(self, field: str, value: Any) -> None:
+        if field == "outline_depth_range" and field not in {
+            c["field"] for c in self.controls
+        }:
+            # The row is not drawn in this mode, but the value is what it
+            # shows when the mode is next entered.
+            self._applying = True
+            try:
+                self.values = {**self.values, field: [float(v) for v in value]}
+            finally:
+                self._applying = False
+            return
         super()._apply(field, value)
         if field == "outline_mode":
             self.controls = self._describe_controls(self.values)

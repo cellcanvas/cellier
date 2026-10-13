@@ -21,6 +21,12 @@ every other effect pass.
 Thickness is measured in **internal pixels**.  Effect passes run before the
 output pass's SSAA downsample, so at ``pixel_ratio > 1`` the on-screen band
 is correspondingly thinner than the configured number.
+
+A visual whose table entry carries a depth range also gets **depth edges**:
+a band where one part of it passes in front of another part with the same
+key.  That term reads the frame's depth and needs the camera's inverse
+projection; it is compiled in, and the depth texture bound, only while some
+visual has a range (``OutlinePass.set_depth_edges``).
 """
 
 from __future__ import annotations
@@ -28,10 +34,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+import numpy as np
 import wgpu
 from pygfx.renderers.wgpu.engine.binding import Binding
 from pygfx.renderers.wgpu.engine.effectpasses import (
     EffectPass,
+    FullQuadPass,
     create_full_quad_pipeline,
 )
 from pygfx.renderers.wgpu.engine.shared import get_shared
@@ -44,7 +52,7 @@ from cellier.render._pick_buffer import get_pick_view
 from cellier.render._visual_lut import MAX_SLOT, get_shared_visual_lut
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     import pygfx as gfx
 
@@ -73,6 +81,7 @@ class _OutlineQuadPass:
         "inner_color": "4xf4",
         "boundaries_enabled": "i4",
         "selection_enabled": "i4",
+        "projection_transform_inv": "4x4xf4",
     }
 
     def __init__(self) -> None:
@@ -104,6 +113,7 @@ class _OutlineQuadPass:
             "has_inward": True,
             "has_outward": False,
             "has_outline_id": False,
+            "has_depth_edges": False,
         }
         self._pipeline = None
         self._pipeline_hash: object = None
@@ -146,18 +156,30 @@ class _OutlineQuadPass:
         lut_tex: wgpu.GPUTextureView,
         target_tex: wgpu.GPUTextureView,
         outline_id_tex: wgpu.GPUTextureView | None = None,
+        depth_tex: wgpu.GPUTextureView | None = None,
     ) -> None:
-        """Composite the outline over *color_tex* into *target_tex*."""
-        # Whether the label-key target is bound changes the binding layout,
-        # so it is part of the pipeline identity as well as a template var.
-        self.set_template_vars(has_outline_id=outline_id_tex is not None)
+        """Composite the outline over *color_tex* into *target_tex*.
+
+        Passing *depth_tex* compiles the depth edges in; the caller must
+        then have set the ``projection_transform_inv`` uniform.
+        """
+        # Whether the label-key target and the depth are bound changes the
+        # binding layout, so each is part of the pipeline identity as well
+        # as a template var.
+        self.set_template_vars(
+            has_outline_id=outline_id_tex is not None,
+            has_depth_edges=depth_tex is not None,
+        )
         pipeline_hash = (
             (target_format := target_tex.texture.format),
             (outline_id_tex is not None),
+            (depth_tex is not None),
         )
         if self._pipeline is None or self._pipeline_hash != pipeline_hash:
             self._pipeline = self._create_pipeline(
-                target_format, with_outline_id=outline_id_tex is not None
+                target_format,
+                with_outline_id=outline_id_tex is not None,
+                with_depth=depth_tex is not None,
             )
             self._pipeline_hash = pipeline_hash
 
@@ -185,6 +207,9 @@ class _OutlineQuadPass:
                 [{"binding": 5, "resource": outline_id_tex}]
                 if outline_id_tex is not None
                 else []
+            )
+            + (
+                [{"binding": 6, "resource": depth_tex}] if depth_tex is not None else []
             ),
         )
 
@@ -209,7 +234,9 @@ class _OutlineQuadPass:
     # Internals
     # ------------------------------------------------------------------
 
-    def _create_pipeline(self, target_format: str, *, with_outline_id: bool):
+    def _create_pipeline(
+        self, target_format: str, *, with_outline_id: bool, with_depth: bool = False
+    ):
         binding_layout = [
             wgpu.BindGroupLayoutEntry(
                 binding=0,
@@ -279,6 +306,22 @@ class _OutlineQuadPass:
             @group(0) @binding(5)
             var outlineIdTex: texture_2d<u32>;
         """
+        if with_depth:
+            binding_layout.append(
+                wgpu.BindGroupLayoutEntry(
+                    binding=6,
+                    visibility=wgpu.ShaderStage.FRAGMENT,
+                    texture=wgpu.TextureBindingLayout(
+                        sample_type=wgpu.TextureSampleType.depth,
+                        view_dimension="2d",
+                        multisampled=False,
+                    ),
+                )
+            )
+            definitions += """
+            @group(0) @binding(6)
+            var depthTex: texture_depth_2d;
+        """
         targets = [
             wgpu.ColorTargetState(
                 format=target_format,
@@ -321,10 +364,15 @@ class OutlinePass(EffectPass):
     lut : VisualLut or None
         The shared ``global_id`` -> entry table.  ``None`` (the default)
         resolves it on first draw, so a canvas that never enables outlines
-        never allocates the 1 MB texture.
+        never allocates the 4 MB texture.
+    get_camera : Callable[[], gfx.Camera] or None
+        Returns the camera the frame is drawn with.  The depth edges need
+        its inverse projection; without it they are not drawn.
     """
 
-    USES_DEPTH = False
+    # flush() hands the depth view over only to a pass that asks.  It is
+    # bound, and read, only while a visual has a depth range.
+    USES_DEPTH = True
 
     # Fallback shader, used only if the base machinery ever compiles a
     # pipeline for this object.  The real work happens in _OutlineQuadPass.
@@ -336,11 +384,16 @@ class OutlinePass(EffectPass):
     """
 
     def __init__(
-        self, renderer: gfx.WgpuRenderer, lut: VisualLut | None = None
+        self,
+        renderer: gfx.WgpuRenderer,
+        lut: VisualLut | None = None,
+        get_camera: Callable[[], gfx.Camera] | None = None,
     ) -> None:
         super().__init__()
         self._renderer = renderer
         self._lut = lut
+        self._get_camera = get_camera
+        self._has_depth_edges = False
         self._quad_pass = _OutlineQuadPass()
         self.enabled = False
 
@@ -389,6 +442,14 @@ class OutlinePass(EffectPass):
             has_inward=bool(has_inward), has_outward=bool(has_outward)
         )
 
+    def set_depth_edges(self, enabled: bool) -> None:
+        """Declare whether any outlined visual has a depth range.
+
+        While none has, the depth term is compiled away and the depth
+        texture is not bound, so the frame is what it was without it.
+        """
+        self._has_depth_edges = bool(enabled)
+
     # ------------------------------------------------------------------
     # Render
     # ------------------------------------------------------------------
@@ -404,8 +465,25 @@ class OutlinePass(EffectPass):
         pick_tex = get_pick_view(self._renderer)
         if pick_tex is None:
             # No bindable pick target on this renderer: nothing to outline.
-            super().render(command_encoder, color_tex, depth_tex, target_tex)
+            # The copy shader reads no depth, so it is not handed any.
+            FullQuadPass.render(
+                self, command_encoder, colorTex=color_tex, targetTex=target_tex
+            )
             return
+        if (
+            not self._has_depth_edges
+            or self._get_camera is None
+            or self._get_camera() is None
+        ):
+            depth_tex = None
+        if depth_tex is not None:
+            # pygfx stores 4x4 uniforms transposed, as the SSAO pass notes.
+            self._quad_pass.set_uniform(
+                "projection_transform_inv",
+                np.asarray(
+                    self._get_camera().projection_matrix_inverse, dtype=np.float32
+                ).T,
+            )
         self._quad_pass.render(
             command_encoder,
             color_tex,
@@ -413,4 +491,5 @@ class OutlinePass(EffectPass):
             self.lut.view,
             target_tex,
             get_extra_target_view(self._renderer, OUTLINE_ID_TARGET),
+            depth_tex,
         )

@@ -6,6 +6,7 @@ import pytest
 
 from cellier.render.visuals._paint_tile_slot_manager import (
     PaintTileSlotManager,
+    paint_cache_grid,
 )
 
 
@@ -62,3 +63,20 @@ def test_get_does_not_allocate() -> None:
 def test_invalid_max_slots(bad: int) -> None:
     with pytest.raises(ValueError):
         PaintTileSlotManager(max_slots=bad)
+
+
+@pytest.mark.parametrize(
+    ("n_slots", "expected"),
+    [(1, (1, 1)), (2, (1, 2)), (4, (2, 2)), (5, (2, 3)), (7, (3, 3)), (512, (23, 23))],
+)
+def test_paint_cache_grid(n_slots: int, expected: tuple[int, int]) -> None:
+    rows, cols = paint_cache_grid(n_slots)
+    assert (rows, cols) == expected
+    # Every slot has a cell, and no whole row is spare.
+    assert (rows - 1) * cols < n_slots <= rows * cols
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_paint_cache_grid_rejects_no_slots(bad: int) -> None:
+    with pytest.raises(ValueError, match="n_slots must be positive"):
+        paint_cache_grid(bad)

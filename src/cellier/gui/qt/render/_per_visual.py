@@ -34,11 +34,16 @@ from cellier.events import (
 )
 from cellier.gui._render_controls import (
     AMBIENT_OCCLUSION_CHOICES,
+    DEPTH_RANGE_LABELS,
+    DEPTH_RANGE_MODES,
+    DEPTH_RANGE_SOLID_MAXIMUM,
+    DEPTH_RANGE_STEP,
     OUTLINE_MODE_CHOICES,
     PLACEMENT_CHOICES,
     SLOT_IS_COLOUR_MODES,
     VISUAL_RENDER_CONTROLS,
     VISUAL_RENDER_TITLES,
+    coerce_depth_range,
     visual_path,
     with_api_path,
 )
@@ -437,8 +442,9 @@ class QtLabelsOutlineControls(_QtPaletteFollowingPanel):
     visual_ids :
         The visuals to drive.
     values :
-        ``outline.slot``, ``outline.placement``, ``outline_selected_labels``
-        and ``default_placement``.
+        ``outline.slot``, ``outline.placement``, ``outline_mode``,
+        ``outline_selected_labels``, ``outline_depth_range`` and
+        ``default_placement``.
     palette :
         The current outline palette, for the per-row slot swatches.
     parent :
@@ -488,17 +494,30 @@ class QtLabelsOutlineControls(_QtPaletteFollowingPanel):
             # lives in the outer layout, not the section being replaced.
             self._build_mode_section()
 
+    def _on_visual_render_changed(self, event: VisualRenderChangedEvent) -> None:
+        if (
+            event.field_name == "outline_depth_range"
+            and event.source_id != self._id
+            and "outline_depth_range" not in self._appliers
+        ):
+            # The row is not drawn in this mode, but the value is what it
+            # shows when the mode is next entered.
+            self._values["outline_depth_range"] = tuple(event.new_value)
+            return
+        super()._on_visual_render_changed(event)
+
     def _mode(self) -> str:
         return self._values.get("outline_mode") or "per_label"
 
     def _build_mode_section(self) -> None:
         """Draw the controls whose meaning depends on the mode.
 
-        In whole-volume and all-boundaries mode ``outline.slot`` chooses the
-        colour, so it gets the same swatch row every other visual has.  In
-        per-label mode it only decides whether the volume participates, and
-        the colour comes from the rows below -- so it gets a checkbox, and
-        the rows appear.
+        In whole-volume, all-boundaries and depth-threshold mode
+        ``outline.slot`` chooses the colour, so it gets the same swatch row
+        every other visual has.  In per-label mode it only decides whether
+        the volume participates, and the colour comes from the rows below --
+        so it gets a checkbox, and the rows appear.  Depth-threshold mode
+        also gets the row for its depth range.
         """
         while self._mode_layout.count():
             item = self._mode_layout.takeAt(0)
@@ -506,7 +525,11 @@ class QtLabelsOutlineControls(_QtPaletteFollowingPanel):
             if widget is not None:
                 widget.setParent(None)
                 widget.deleteLater()
-        for field in ("outline.slot", "outline_selected_labels"):
+        for field in (
+            "outline.slot",
+            "outline_selected_labels",
+            "outline_depth_range",
+        ):
             self._appliers.pop(field, None)
 
         # The builders append to ``self._layout``; point them at the host.
@@ -521,8 +544,77 @@ class QtLabelsOutlineControls(_QtPaletteFollowingPanel):
                     from_model=bool,
                 )
                 self._add_label_rows()
+            if self._mode() in DEPTH_RANGE_MODES:
+                self._add_depth_range()
         finally:
             self._layout = outer
+
+    # ------------------------------------------------------------------
+    # The depth range
+    # ------------------------------------------------------------------
+
+    def _add_depth_range(self) -> None:
+        """Two spin boxes for the ``(start, solid)`` pair, sent as one value.
+
+        The pair goes to the model whole, so the model never sees a start
+        above its solid value on the way from one range to another.
+        """
+        from qtpy.QtWidgets import QDoubleSpinBox, QHBoxLayout, QLabel, QWidget
+
+        from cellier.gui.qt.visuals._chrome import labelled_row
+
+        spec = self._spec("outline_depth_range")
+        tooltip = self._tooltip(spec)
+        host = QWidget(self._content)
+        row = QHBoxLayout(host)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+
+        boxes = []
+        for text in DEPTH_RANGE_LABELS:
+            label = QLabel(text, host)
+            label.setToolTip(tooltip)
+            box = QDoubleSpinBox(host)
+            box.setDecimals(spec.decimals)
+            box.setSingleStep(DEPTH_RANGE_STEP)
+            # A value is sent when it is committed, not at every keystroke:
+            # "0.0" on the way to "0.05" is not a range.
+            box.setKeyboardTracking(False)
+            box.setToolTip(tooltip)
+            row.addWidget(label)
+            row.addWidget(box, 1)
+            boxes.append(box)
+        start_box, solid_box = boxes
+        start_box.setRange(spec.minimum, 1.0)
+        solid_box.setRange(spec.minimum, DEPTH_RANGE_SOLID_MAXIMUM)
+
+        def _show(pair) -> None:
+            start, solid = pair
+            for box, value in ((start_box, start), (solid_box, solid)):
+                box.blockSignals(True)
+                box.setValue(float(value))
+                box.blockSignals(False)
+
+        def _changed(_value) -> None:
+            pair = coerce_depth_range(start_box.value(), solid_box.value())
+            _show(pair)
+            self._emit("outline_depth_range", pair)
+
+        _show(self._depth_range())
+        start_box.valueChanged.connect(_changed)
+        solid_box.valueChanged.connect(_changed)
+
+        self._depth_range_boxes = (start_box, solid_box)
+        self._appliers["outline_depth_range"] = _show
+        self._layout.addWidget(labelled_row(spec.label, host, self._content))
+
+    def _depth_range(self) -> tuple[float, float]:
+        from cellier.visuals._label_memory import DEFAULT_OUTLINE_DEPTH_RANGE
+
+        start, solid = (
+            self._values.get("outline_depth_range") or DEFAULT_OUTLINE_DEPTH_RANGE
+        )
+        return float(start), float(solid)
 
     def _on_palette_changed(self) -> None:
         """Whichever half is on screen draws from the palette."""

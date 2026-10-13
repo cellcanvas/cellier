@@ -353,7 +353,7 @@ class LabelBlockMaterial(gfx.ImageBasicMaterial):
     label_colors_texture : gfx.Texture | None
         Direct-mode RGBA per entry.
     paint_cache_texture : gfx.Texture | None
-        2D float32 paint cache (stripes-of-tiles layout).
+        2D float32 paint cache (row-major grid of slot tiles).
     paint_lut_texture : gfx.Texture | None
         2D float32 paint LUT (slot_index, presence) per tile.
     colormap_mode : "random" | "direct"

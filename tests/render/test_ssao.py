@@ -736,7 +736,7 @@ def test_applying_an_outline_state_does_not_clobber_the_ao_bit():
 
     # What a merged sync writes: both features in one byte.
     lut.apply({100: outline | AO_EXCLUDED_BIT, 200: AO_EXCLUDED_BIT})
-    assert decode_entry(lut.get_entry(100)) == (2, KIND_WHOLE_OBJECT, 0, True)
+    assert decode_entry(lut.get_entry(100))[:4] == (2, KIND_WHOLE_OBJECT, 0, True)
     assert decode_entry(lut.get_entry(200))[3] is True
 
     # What a naive outline-only sync would write, and why it is wrong.
@@ -1006,7 +1006,7 @@ def test_outlines_and_exclusions_do_not_clobber_each_other(ssao_controller):
     entries = lut.entries
     assert set(entries) >= excluded_ids
     for object_id in excluded_ids:
-        slot, kind, _placement, ao_excluded = decode_entry(entries[object_id])
+        slot, kind, _placement, ao_excluded = decode_entry(entries[object_id])[:4]
         assert ao_excluded is True, "enabling outlines cleared the exclusion"
         assert slot == 3
         assert kind == KIND_WHOLE_OBJECT

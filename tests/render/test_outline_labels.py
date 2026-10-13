@@ -115,8 +115,19 @@ def label_scene(qtbot, offscreen_renderer):
     return controller, scene, visual
 
 
-def _render(controller, scene, *, with_target: bool = True, size=(160, 160)):
-    """Render the live scene through an outline pass; return (frame, renderer)."""
+def _render(
+    controller,
+    scene,
+    *,
+    with_target: bool = True,
+    size=(160, 160),
+    depth_edges: bool = False,
+):
+    """Render the live scene through an outline pass; return (frame, renderer).
+
+    With *depth_edges* the pass is given the camera and reads the depth, as
+    a canvas's own pass does while a visual has a depth range.
+    """
     from rendercanvas.offscreen import RenderCanvas
 
     canvas = RenderCanvas(size=size, pixel_ratio=1)
@@ -129,17 +140,18 @@ def _render(controller, scene, *, with_target: bool = True, size=(160, 160)):
         install_cellier_blender(renderer, [OUTLINE_ID_TARGET])
     enable_pick_texture_binding(renderer)
 
-    outline = OutlinePass(renderer, get_shared_visual_lut())
+    camera = controller.get_canvas_view(controller.get_canvas_ids(scene.id)[0]).camera
+    outline = OutlinePass(renderer, get_shared_visual_lut(), lambda: camera)
     outline.apply_config(controller.render_config.outline)
     controller._render_manager._sync_visual_lut()
     outline.set_placements(has_inward=True, has_outward=False)
+    outline.set_depth_edges(depth_edges)
     renderer.effect_passes = (
         outline,
         *(p for p in renderer.effect_passes if not isinstance(p, PPAAPass)),
     )
 
     gfx_scene = controller._render_manager.get_scene(scene.id)
-    camera = controller.get_canvas_view(controller.get_canvas_ids(scene.id)[0]).camera
     errors: list[BaseException] = []
 
     def _draw() -> None:
@@ -212,6 +224,7 @@ def test_every_outline_mode_maps_to_its_own_kind(label_scene):
         ("per_label", KIND_LABEL),
         ("whole_object", KIND_WHOLE_OBJECT),
         ("all_boundaries", KIND_LABEL_ALL),
+        ("depth_threshold", KIND_LABEL_ALL),
     ):
         visual.outline_mode = mode
         entry = controller._render_manager.get_visual_outline(visual.id)
@@ -530,3 +543,54 @@ def test_canvas_view_keeps_both_couplings_when_outlines_are_enabled(
     canvas = next(iter(controller._render_manager._canvases.values()))
     assert canvas._outline_id_available is True
     assert canvas._outline_available is True
+
+
+# ---------------------------------------------------------------------------
+# depth_threshold: all_boundaries, and depth bands where there is depth
+# ---------------------------------------------------------------------------
+
+
+def test_depth_threshold_in_2d_is_all_boundaries(label_scene):
+    """A 2D view has no jump in depth, so the mode adds nothing to it.
+
+    Drawn with the depth term compiled in and the range in the table, at a
+    hard edge with a small start: the frame is that of ``all_boundaries``.
+    """
+    controller, scene, visual = label_scene
+    controller.set_visual_outline(visual.id, slot=1)
+    visual.outline_mode = "all_boundaries"
+    expected, _r = _render(controller, scene)
+    assert _count(expected, _SLOT1) > 0
+
+    controller.update_visual_render_field(visual.id, "outline_mode", "depth_threshold")
+    controller.update_visual_render_field(
+        visual.id, "outline_depth_range", (0.001, 0.001)
+    )
+    assert controller._render_manager.get_visual_outline(visual.id)[3] > 0
+    frame, _r = _render(controller, scene, depth_edges=True)
+
+    np.testing.assert_array_equal(frame, expected)
+
+
+def test_depth_threshold_ignores_a_stale_selection(label_scene):
+    """The selection is suppressed as in ``all_boundaries``, keys included."""
+    controller, scene, visual = label_scene
+    controller.set_visual_outline(visual.id, slot=1)
+    visual.outline_mode = "depth_threshold"
+    clean = _count(_render(controller, scene)[0], _SLOT1)
+    assert clean > 0
+
+    visual.outline_mode = "per_label"
+    controller.set_label_selection(visual.id, {1: 2, 2: 2})
+    visual.outline_mode = "depth_threshold"
+
+    frame, renderer = _render(controller, scene)
+    keys = np.unique(_read_outline_id(renderer))
+    non_background = keys[keys != 0]
+    assert len(non_background) == 3
+    assert np.all(non_background >= 16), "a selection key survived the mode"
+    assert _count(frame, _SLOT2) == 0, "the selection colour survived the mode"
+    assert _count(frame, _SLOT1) == clean, "a boundary was lost to the selection"
+
+    visual.outline_mode = "per_label"
+    assert _count(_render(controller, scene)[0], _SLOT2) > 0

@@ -312,8 +312,8 @@ class VisualRenderUpdateEvent(NamedTuple):
     visual_id :
         Target visual.
     field :
-        ``"outline.slot"``, ``"outline.placement"``,
-        ``"ambient_occlusion"`` or ``"outline_selected_labels"``.
+        One of ``VISUAL_RENDER_FIELDS``, such as ``"outline.slot"``,
+        ``"ambient_occlusion"`` or ``"outline_depth_range"``.
     value :
         New value for the field.
     """
