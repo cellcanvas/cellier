@@ -176,6 +176,7 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 opacity=appearance.opacity,
                 pick_write=visual_model.pick_write,
                 render_planes_buffer=self.render_planes_buffer,
+                smooth_level=appearance.smooth_geometry_level,
             )
             self._inner_node_3d = gfx.Volume(gfx.Geometry(grid=tex), mat3d)
             placeholder_pos = _box_wireframe_positions(np.zeros(3), np.ones(3))
@@ -551,6 +552,10 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
         elif fn == "render_mode":
             if self._inner_node_3d is not None:
                 self._inner_node_3d.material.render_mode = val
+
+        elif fn == "smooth_geometry_level":
+            if self._inner_node_3d is not None:
+                self._inner_node_3d.material.smooth_level = val
 
         elif fn == "render_order":
             if self.node_2d is not None:

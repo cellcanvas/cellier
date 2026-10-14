@@ -11,10 +11,13 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from cellier.gui._appearance_fields import field_bounds
 from cellier.gui.qt.visuals._base import (
+    QtBoundedSlider,
     QtChoice,
     QtIntSpin,
 )
+from cellier.visuals._label_memory import BaseLabelsAppearance
 
 
 class QtLabelsRenderModeCombo(QtChoice):
@@ -88,3 +91,32 @@ class QtBackgroundLabelSpin(QtIntSpin):
     _label: ClassVar[str] = "Background label"
     _default_value: ClassVar[int] = 0
     _default_range: ClassVar[tuple[int, int]] = (-(2**31), 2**31 - 1)
+
+
+_SMOOTH_GEOMETRY_LEVEL_RANGE = field_bounds(
+    BaseLabelsAppearance, "smooth_geometry_level"
+) or (0.05, 0.95)
+"""Read off the model, so the slider cannot offer a value pydantic rejects."""
+
+
+class QtSmoothGeometryLevelSlider(QtBoundedSlider):
+    """Where the ``smooth_geometry`` surface sits.
+
+    The share of the blended weight a label must carry.  Lower grows every
+    label, higher shrinks it; 0.5 puts flat sides on the voxel faces.  No
+    effect in the other render modes.
+
+    Parameters
+    ----------
+    visual_id :
+        UUID of the visual, or a sequence of UUIDs to drive as one
+        group.
+    initial_value :
+        Starting value -- typically
+        ``visual.appearance.smooth_geometry_level``.
+    """
+
+    _field: ClassVar[str] = "smooth_geometry_level"
+    _label: ClassVar[str] = "Smooth geometry level"
+    _default_value: ClassVar[float] = 0.5
+    _default_range: ClassVar[tuple[float, float]] = _SMOOTH_GEOMETRY_LEVEL_RANGE

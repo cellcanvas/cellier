@@ -32,6 +32,7 @@ from cellier.gui.anywidget.visuals._labels import (
     AnywidgetBackgroundLabelSpin,
     AnywidgetLabelsRenderModeCombo,
     AnywidgetSaltSpin,
+    AnywidgetSmoothGeometryLevelSlider,
 )
 from cellier.gui.anywidget.visuals._level_of_detail import (
     AnywidgetLevelOfDetailControls,
@@ -95,6 +96,7 @@ __all__ = [
     "AnywidgetSideCombo",
     "AnywidgetSizeSpaceCombo",
     "AnywidgetSizeSpin",
+    "AnywidgetSmoothGeometryLevelSlider",
     "AnywidgetThicknessSpaceCombo",
     "AnywidgetThicknessSpin",
     "AnywidgetToggle",

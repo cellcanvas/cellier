@@ -25,7 +25,10 @@ KINDS = [
     "image_multiscale_smooth_iso",
     "labels_memory",
     "labels_multiscale",
+    "labels_memory_smooth_iso",
     "labels_multiscale_smooth_iso",
+    "labels_memory_smooth_geometry",
+    "labels_multiscale_smooth_geometry",
 ]
 #: One plane, two meeting at an edge, three at a corner.
 CASES = {
@@ -170,10 +173,10 @@ async def test_the_cut_face_is_on_the_plane_with_its_normal(
         nearest = int(np.argmin(np.abs(distances)))
         if abs(distances[nearest]) > 0.75 or sum(abs(d) < 1.5 for d in distances) > 1:
             continue  # the object's own surface, or too near an edge to tell
-        if kind == "labels_multiscale_smooth_iso" and _near_a_label_edge(point):
-            # The soft field rounds a label's edges, so within a voxel or two
-            # of one the hit is the label's own surface, a little inside the
-            # plane, with its own normal.  That is intended (design 4.3).
+        if kind.endswith("smooth_geometry") and _near_a_label_edge(point):
+            # The smooth surface rounds a label's edges, so within a voxel or
+            # two of one the hit is the label's own surface, a little inside
+            # the plane, with its own normal.  That is intended (design 4.3).
             continue
         written = normals[row, col, :3]
         if float(np.linalg.norm(written)) < 0.5:

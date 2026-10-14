@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import pygfx as gfx
 import wgpu
@@ -41,9 +42,10 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
         Frozen after construction.
     salt : int
         Hash seed for random mode.
-    render_mode : "iso_categorical", "flat_categorical" or "plane"
-        Whether to apply Lambertian shading; ``"plane"`` draws the labels
-        on the render planes instead.  A change rebuilds the shader.
+    render_mode : str
+        ``InMemoryLabelsAppearance.render_mode``: ``"iso_categorical"``,
+        ``"flat_categorical"``, ``"smooth_iso"``, ``"smooth_geometry"`` or
+        ``"plane"``.  A change rebuilds the shader.
     label_keys_texture : gfx.Texture or None
         Sorted int32 label-ID texture for direct mode.
     label_colors_texture : gfx.Texture or None
@@ -55,7 +57,15 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
     render_planes_buffer : gfx.Buffer or None
         The visual's ``u_render_planes`` buffer, read in ``"plane"`` mode.
         ``None`` gives the material one of its own with no plane.
+    smooth_level : float
+        ``InMemoryLabelsAppearance.smooth_geometry_level``: where the
+        ``smooth_geometry`` surface sits.  Default ``0.5``.
     """
+
+    uniform_type: ClassVar[dict] = dict(
+        gfx.VolumeBasicMaterial.uniform_type,
+        smooth_level="f4",
+    )
 
     def __init__(
         self,
@@ -69,9 +79,11 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
         label_params_buffer=None,
         outline_selection_texture=None,
         render_planes_buffer=None,
+        smooth_level: float = 0.5,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
+        self.smooth_level = smooth_level
         self.background_label = background_label
         self.colormap_mode = colormap_mode
         self.salt = salt
@@ -103,6 +115,19 @@ class LabelVolumeMaterial(gfx.VolumeBasicMaterial):
     @render_mode.setter
     def render_mode(self, value: str) -> None:
         self._store.render_mode = value
+
+    @property
+    def smooth_level(self) -> float:
+        """The field level of the ``smooth_geometry`` surface.
+
+        A uniform, so a change does not rebuild the shader.
+        """
+        return float(self.uniform_buffer.data["smooth_level"])
+
+    @smooth_level.setter
+    def smooth_level(self, value: float) -> None:
+        self.uniform_buffer.data["smooth_level"] = float(value)
+        self.uniform_buffer.update_full()
 
 
 @register_wgpu_render_function(Volume, LabelVolumeMaterial)

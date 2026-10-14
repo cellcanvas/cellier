@@ -70,6 +70,11 @@ def test_render_mode_mutation_fires_event():
     assert received == ["flat_categorical"]
 
 
+def test_smooth_render_modes_are_accepted():
+    for mode in ("smooth_iso", "smooth_geometry"):
+        assert InMemoryLabelsAppearance(render_mode=mode).render_mode == mode
+
+
 # ── LabelMemoryVisual ────────────────────────────────────────────────────────
 
 

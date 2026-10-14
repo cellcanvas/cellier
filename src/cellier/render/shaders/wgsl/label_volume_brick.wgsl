@@ -4,7 +4,7 @@
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const BORDER: f32          = 2.0;     // ghost border (level-k voxels); must match Python overlap=2
-                                      // smooth_iso normal kernel (±1 voxel) also requires BORDER ≥ 2
+                                      // the smooth modes' 4x4x4 normal block also requires BORDER >= 2
 const MAX_BRICK_ITERS: u32 = 512u;
 
 // NOTE: Do NOT define struct LabelParams, VOL_PARAMS, or BlockScales here.
@@ -269,8 +269,8 @@ fn setup_brick(
 }
 
 // ── Object-space label surface normal (iso_categorical + gradient_debug) ─
-// Also compiled whenever the normal target is written: every mode but
-// smooth_iso then calls it (see needs_normal in the fragment shader).
+// Also compiled whenever the normal target is written: every mode but the
+// smooth ones then calls it (see needs_normal in the fragment shader).
 $$ if render_mode == "iso_categorical" or render_mode == "gradient_debug" or write_normal
 fn label_object_normal(
     voxel_pos:      vec3<f32>,
@@ -344,133 +344,39 @@ fn label_object_normal(
 }
 $$ endif
 
-// ── Smooth iso helpers (only compiled in smooth_iso mode) ─────────────────
-$$ if render_mode == "smooth_iso"
+// ── Smooth modes (cellier.label_smooth.wgsl) ──────────────────────────────
+$$ if render_mode in ["smooth_iso", "smooth_geometry"]
+// Cell space here is one brick's level-k voxels, relative to the brick:
+// c = voxel_pos / lod_scale - brick_corner_k, which puts the centre of the
+// brick's voxel n at n (the same mapping as sample_atlas_label).  Reads go
+// to the brick's padded atlas tile, so up to BORDER voxels past the brick's
+// edge read true neighbour data; the 4x4x4 normal block needs exactly that.
+// The tile is set per brick in smooth_tile_origin before any call.
+var<private> smooth_tile_origin: vec3<i32>;
 
-// soft_density — trilinear soft indicator for a single target label.
-//
-// Samples the 8 corners of the level-k voxel cube centred at voxel_pos
-// (each corner at ±0.5 * lod_scale in dataset space) and returns the
-// fraction of corners that carry target_label.  The 0.5 isosurface of this
-// field sits between the last background and first foreground voxel, giving
-// a sub-voxel surface position for the bisection loop to home in on.
-//
-// All 8 corners share the caller's brick context: ±0.5 level-k voxels is
-// well within BORDER=2, so the padded atlas tile already holds correct data
-// for every corner even when voxel_pos sits at a brick edge.
-//
-// Parameters
-// ----------
-// voxel_pos      : dataset-space centre of the query voxel (level-0 voxels)
-// target_label   : label ID whose isosurface is being traced
-// lut_entry      : atlas tile address (xyz) and LOD level (w) for this brick
-// lod_scale      : scale factor from level-k voxels to level-0 voxels, per axis
-// brick_corner_k : level-k coordinate of the brick's (0,0,0) corner
-// dataset_size   : full dataset extent in level-0 voxels
-fn soft_density(
-    voxel_pos:      vec3<f32>,
-    target_label:   i32,
-    lut_entry:      vec4<u32>,
-    lod_scale:      vec3<f32>,
-    brick_corner_k: vec3<f32>,
-    dataset_size:   vec3<f32>,
-) -> f32 {
-    let h  = lod_scale * 0.5;
-    let lo = vec3<f32>(0.0);
-    let hi = dataset_size - vec3<f32>(0.001);
-    var count = 0.0;
-    for (var dx = -1; dx <= 1; dx += 2) {
-        for (var dy = -1; dy <= 1; dy += 2) {
-            for (var dz = -1; dz <= 1; dz += 2) {
-                let corner = clamp(
-                    voxel_pos + vec3<f32>(f32(dx), f32(dy), f32(dz)) * h,
-                    lo, hi,
-                );
-                count += f32(sample_atlas_label(corner, lut_entry, lod_scale, brick_corner_k) == target_label);
-            }
-        }
-    }
-    return count / 8.0;
+fn label_smooth_load(idx: vec3<i32>) -> i32 {
+    let border     = i32(BORDER);
+    let block_size = vec3<i32>(i32(u_vol_params.block_size_x),
+                               i32(u_vol_params.block_size_y),
+                               i32(u_vol_params.block_size_z));
+    let cache_size = vec3<i32>(i32(u_vol_params.cache_size_x),
+                               i32(u_vol_params.cache_size_y),
+                               i32(u_vol_params.cache_size_z));
+    let in_tile = clamp(idx, vec3<i32>(-border), block_size - vec3<i32>(1 - border));
+    let texel   = clamp(smooth_tile_origin + in_tile + vec3<i32>(border),
+                        vec3<i32>(0), cache_size - vec3<i32>(1));
+    return textureLoad(t_cache, texel, 0).r;
 }
 
-// smooth_label_normal — 3×3×3 Sobel gradient of the binary indicator field.
-//
-// Evaluates f(p) = (label(p) == target_label) at the 26 non-centre positions
-// of a 3×3×3 grid spaced one level-k voxel apart, then computes weighted
-// central differences using a Gaussian Sobel kernel ([1, 2, 1] weights in
-// each transverse axis) to produce a smooth surface normal.
-//
-// Compared to the 6-sample binary gradient in label_object_normal, this
-// normal varies continuously across what was previously a flat voxel face,
-// giving a curved shading appearance without displacing the surface geometry.
-//
-// Each of the 26 neighbours independently re-fetches its brick context via
-// lookup_brick_context (same pattern as label_object_normal) so that samples
-// crossing a brick boundary use the correct atlas tile.  The provided
-// lut_entry/lod_scale/brick_corner_k serve as fallbacks for positions whose
-// brick is not yet resident in the cache.  ±1 level-k voxel is within
-// BORDER=2 so the padded tile holds the correct data regardless.
-//
-// Parameters
-// ----------
-// voxel_pos      : dataset-space position of the surface voxel (level-0 voxels)
-// target_label   : label ID at the surface
-// lut_entry      : fallback atlas tile address for the surface brick
-// lod_scale      : scale factor from level-k voxels to level-0 voxels, per axis
-// brick_corner_k : fallback level-k brick origin
-// dataset_size   : full dataset extent in level-0 voxels
-fn smooth_label_normal(
-    voxel_pos:      vec3<f32>,
-    target_label:   i32,
-    lut_entry:      vec4<u32>,
-    lod_scale:      vec3<f32>,
-    brick_corner_k: vec3<f32>,
-    dataset_size:   vec3<f32>,
-) -> vec3<f32> {
-    let s  = lod_scale;
-    let lo = vec3<f32>(0.0);
-    let hi = dataset_size - vec3<f32>(0.001);
-
-    // Evaluate the binary indicator at the 26 non-centre neighbours and store
-    // in a flat array indexed by (dx+1)*9 + (dy+1)*3 + (dz+1).
-    var f: array<f32, 27>;
-    for (var dx = -1; dx <= 1; dx++) {
-        for (var dy = -1; dy <= 1; dy++) {
-            for (var dz = -1; dz <= 1; dz++) {
-                if (dx == 0 && dy == 0 && dz == 0) { continue; }
-                let pos = clamp(
-                    voxel_pos + vec3<f32>(f32(dx) * s.x, f32(dy) * s.y, f32(dz) * s.z),
-                    lo, hi,
-                );
-                let ctx = lookup_brick_context(pos);
-                let lbl = sample_atlas_label(
-                    pos,
-                    select(lut_entry,      ctx.lut_entry,      ctx.valid),
-                    select(lod_scale,      ctx.lod_scale,      ctx.valid),
-                    select(brick_corner_k, ctx.brick_corner_k, ctx.valid),
-                );
-                f[(dx + 1) * 9 + (dy + 1) * 3 + (dz + 1)] = f32(lbl == target_label);
-            }
-        }
-    }
-
-    // Compute Sobel gradient: weight 2 at offset 0, weight 1 at offset ±1
-    // in each transverse axis.  The two nested loops iterate over the two
-    // transverse axes (da, db) for each primary axis.
-    var gx = 0.0; var gy = 0.0; var gz = 0.0;
-    for (var da = -1; da <= 1; da++) {
-        for (var db = -1; db <= 1; db++) {
-            let w = select(1.0, 2.0, da == 0) * select(1.0, 2.0, db == 0);
-            gx += w * (f[( 1 + 1) * 9 + (da + 1) * 3 + (db + 1)] - f[(-1 + 1) * 9 + (da + 1) * 3 + (db + 1)]);
-            gy += w * (f[(da + 1) * 9 + ( 1 + 1) * 3 + (db + 1)] - f[(da + 1) * 9 + (-1 + 1) * 3 + (db + 1)]);
-            gz += w * (f[(da + 1) * 9 + (db + 1) * 3 + ( 1 + 1)] - f[(da + 1) * 9 + (db + 1) * 3 + (-1 + 1)]);
-        }
-    }
-    // Divide by lod_scale to convert the level-k voxel-space gradient to a
-    // world-space direction (larger voxels shrink that gradient component).
-    return vec3<f32>(gx, gy, gz) / lod_scale;
+// The padded atlas tile of a brick, in texels.
+fn smooth_tile_of(lut_entry: vec4<u32>) -> vec3<i32> {
+    let padded = vec3<i32>(i32(u_vol_params.block_size_x),
+                           i32(u_vol_params.block_size_y),
+                           i32(u_vol_params.block_size_z)) + vec3<i32>(2 * i32(BORDER));
+    return vec3<i32>(lut_entry.xyz) * padded;
 }
 
+{$ include 'cellier.label_smooth.wgsl' $}
 $$ endif
 
 // ── Vertex shader ─────────────────────────────────────────────────────────
@@ -650,6 +556,16 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     var surface_lod_scale: vec3<f32>;
     var surface_brick_corner_k: vec3<f32>;
     var prev_t: f32 = t_start;
+    $$ if render_mode == "smooth_geometry"
+    // The hit in the cell space of the brick it was found in.
+    var smooth_cell_pos = vec3<f32>(0.0);
+    // The ray in level-0 voxel index space: norm_to_voxel is affine, so a
+    // line in norm space is a line here, and in every brick's cell space.
+    let ray_voxel0  = norm_to_voxel(ray_origin, norm_size, dataset_size);
+    let ray_voxel_d = ray_dir / norm_size * dataset_size;
+    let brick_cells = i32(u_vol_params.block_size_x) + i32(u_vol_params.block_size_y)
+                    + i32(u_vol_params.block_size_z) + 4;
+    $$ endif
 
     for (var brick_iter = 0u; brick_iter < MAX_BRICK_ITERS; brick_iter++) {
         if (t >= t_end || surface_found) { break; }
@@ -679,6 +595,34 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         surface_lut_entry      = brick.lut_entry;
         surface_lod_scale      = brick.lod_scale;
         surface_brick_corner_k = brick.brick_corner_k;
+
+        $$ if render_mode == "smooth_geometry"
+        // Smooth geometry: walk this brick's dual cells for the first point
+        // where a label's smooth field crosses its level
+        // (cellier.label_smooth.wgsl).  Exact per cell, so it neither
+        // samples nor depends on ray_steps_per_voxel.  An empty brick is
+        // skipped above, so the sliver of a filled-in concave corner that
+        // reaches past a labelled brick's face into an empty one is not
+        // drawn.
+        smooth_tile_origin = smooth_tile_of(brick.lut_entry);
+        let smooth_c0 = ray_voxel0 / brick.lod_scale - brick.brick_corner_k;
+        let smooth_dc = ray_voxel_d / brick.lod_scale;
+        let smooth_hit = label_smooth_march(
+            smooth_c0, smooth_dc, t, brick.t_end, brick_cells);
+        if (smooth_hit.found) {
+            surface_found   = true;
+            surface_lid     = smooth_hit.label;
+            surface_pos     = ray_origin + ray_dir * smooth_hit.t;
+            surface_hi_p    = surface_pos;
+            smooth_cell_pos = smooth_c0 + smooth_dc * smooth_hit.t;
+            // Already inside a label where the ray starts on a clipping
+            // plane: the hit is that plane's cut face.
+            on_cut_face = smooth_hit.at_start && t <= clip_t0 && clip_start_on_plane();
+            if (on_cut_face) { surface_pos = ray_origin + ray_dir * clip_t0; }
+            break;
+        }
+        t = brick.t_end + 0.0001;
+        $$ else
 
         // prev_t is intentionally carried forward unchanged here.  Fix 1
         // (per-midpoint lookup_brick_context) handles LOD boundaries during
@@ -739,16 +683,6 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
                     let use_lut_entry      = select(hi_ctx.lut_entry,      mid_ctx.lut_entry,      mid_ctx.valid);
                     let use_lod_scale      = select(hi_ctx.lod_scale,      mid_ctx.lod_scale,      mid_ctx.valid);
                     let use_brick_corner_k = select(hi_ctx.brick_corner_k, mid_ctx.brick_corner_k, mid_ctx.valid);
-                    // smooth_iso: test the 0.5 contour of the soft density field
-                    // for the specific label found at the coarse step (lid).
-                    // Other modes: hard nearest-neighbor test for any non-background label.
-                    $$ if render_mode == "smooth_iso"
-                    let is_fg = soft_density(
-                        mid_voxel, lid,
-                        use_lut_entry, use_lod_scale, use_brick_corner_k,
-                        dataset_size,
-                    ) > 0.5;
-                    $$ else
                     let mid_id = sample_atlas_label(
                         mid_voxel,
                         use_lut_entry,
@@ -756,14 +690,9 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
                         use_brick_corner_k,
                     );
                     let is_fg = (mid_id != background_label);
-                    $$ endif
                     if (is_fg) {
                         hi_p_norm             = mid_norm;
-                        $$ if render_mode == "smooth_iso"
-                        // lid_hi stays as lid; the target label is fixed throughout bisection.
-                        $$ else
                         lid_hi                = mid_id;
-                        $$ endif
                         hi_ctx.lut_entry      = use_lut_entry;
                         hi_ctx.lod_scale      = use_lod_scale;
                         hi_ctx.brick_corner_k = use_brick_corner_k;
@@ -791,6 +720,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         if (!surface_found) {
             t = brick.t_end + 0.0001;
         }
+        $$ endif
     }
 
     // Compute world_surface before the discard so the depth write uses
@@ -813,20 +743,31 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // The surface normal is needed for shading in the iso modes, for the
     // debug visualisation, and for the ambient occlusion target in every
     // mode -- a flat_categorical surface is still a real label boundary.
-    $$ set needs_normal = render_mode in ["iso_categorical", "gradient_debug", "smooth_iso"] or write_normal
+    $$ set needs_normal = render_mode in ["iso_categorical", "gradient_debug", "smooth_iso", "smooth_geometry"] or write_normal
     $$ if needs_normal
     let surface_voxel = clamp(
         norm_to_voxel(surface_hi_p, norm_size, dataset_size),
         vec3<f32>(0.0),
         dataset_size - vec3<f32>(0.001),
     );
-    $$ if render_mode == "smooth_iso"
-    // 3x3x3 Sobel normal.
-    let obj_normal_data = smooth_label_normal(
-        surface_voxel, surface_lid,
-        surface_lut_entry, surface_lod_scale, surface_brick_corner_k,
-        dataset_size,
-    );
+    $$ if render_mode == "smooth_geometry"
+    // The smooth normal of the hit's own brick (smooth_tile_origin is still
+    // that brick's tile).  Divide by lod_scale: the gradient is per level-k
+    // voxel, and the rest of this shader works per level-0 voxel.
+    let obj_normal_data = label_smooth_normal(smooth_cell_pos, surface_lid)
+                        / surface_lod_scale;
+    $$ elif render_mode == "smooth_iso"
+    // The voxel-face surface found above, shaded with the smooth normal
+    // (cellier.label_smooth.wgsl), read in the brick that owns the
+    // foreground side of the hit.
+    let smooth_ctx    = lookup_brick_context(surface_voxel);
+    let smooth_lut    = select(surface_lut_entry,      smooth_ctx.lut_entry,      smooth_ctx.valid);
+    let smooth_lod    = select(surface_lod_scale,      smooth_ctx.lod_scale,      smooth_ctx.valid);
+    let smooth_corner = select(surface_brick_corner_k, smooth_ctx.brick_corner_k, smooth_ctx.valid);
+    smooth_tile_origin = smooth_tile_of(smooth_lut);
+    let smooth_p = norm_to_voxel(surface_pos, norm_size, dataset_size) / smooth_lod
+                 - smooth_corner;
+    let obj_normal_data = label_smooth_normal(smooth_p, surface_lid) / smooth_lod;
     $$ else
     let obj_normal_data = label_object_normal(
         surface_voxel,
@@ -842,7 +783,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let obj_normal = select(obj_normal_data,
         clip_start_normal_local() / (dataset_size / norm_size), on_cut_face);
     $$ endif
-    $$ if render_mode == "iso_categorical" or render_mode == "smooth_iso"
+    $$ if render_mode in ["iso_categorical", "smooth_iso", "smooth_geometry"]
     // Shade with ambient + diffuse using the object-space gradient normal.
     let view_dir = normalize(-ray_dir);
     let normal   = select(
@@ -891,8 +832,18 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     out.outline_id = label_outline_key(surface_lid);
     $$ endif
     $$ if write_pick
+    $$ if render_mode == "smooth_geometry"
+    // A smooth surface is not on a voxel face, and where it fills in a
+    // concave corner it is not even in a voxel of its label: report a point
+    // in the middle half of the nearest voxel that carries the label.
+    let pick_cell  = label_smooth_pick_point(smooth_cell_pos, surface_lid);
+    let pick_norm  = voxel_to_norm((pick_cell + surface_brick_corner_k) * surface_lod_scale,
+                                   norm_size, dataset_size);
+    let pick_coord = (pick_norm / norm_size) + vec3<f32>(0.5);
+    $$ else
     // surface_pos is in centred normalised object space; encode as [0, 1].
     let pick_coord = (surface_pos / norm_size) + vec3<f32>(0.5);
+    $$ endif
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
         pick_pack(u32(clamp(pick_coord.x, 0.0, 1.0) * 16383.0), 14) +

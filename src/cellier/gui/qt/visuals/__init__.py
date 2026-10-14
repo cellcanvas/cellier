@@ -33,6 +33,7 @@ from cellier.gui.qt.visuals._labels import (
     QtBackgroundLabelSpin,
     QtLabelsRenderModeCombo,
     QtSaltSpin,
+    QtSmoothGeometryLevelSlider,
 )
 from cellier.gui.qt.visuals._level_of_detail import QtLevelOfDetailControls
 from cellier.gui.qt.visuals._lines import (
@@ -92,6 +93,7 @@ __all__ = [
     "QtSideCombo",
     "QtSizeSpaceCombo",
     "QtSizeSpin",
+    "QtSmoothGeometryLevelSlider",
     "QtThicknessSpaceCombo",
     "QtThicknessSpin",
     "QtToggle",

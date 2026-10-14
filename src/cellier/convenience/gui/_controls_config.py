@@ -344,6 +344,7 @@ _LABELS_FIELDS: dict[str, str] = {
     "visible": "visible",
     "opacity": "opacity",
     "render_mode": "labels_render_mode",
+    "smooth_geometry_level": "smooth_geometry_level",
     "salt": "salt",
     "background_label": "background_label",
 }

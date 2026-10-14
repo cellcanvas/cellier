@@ -330,7 +330,13 @@ def test_the_same_field_name_means_different_controls_per_model():
     # the in-memory and the multiscale render-mode vocabularies.
     assert labels_result.specs[0].values == {
         "initial_value": "iso_categorical",
-        "choices": ("iso_categorical", "flat_categorical", "plane"),
+        "choices": (
+            "iso_categorical",
+            "flat_categorical",
+            "smooth_iso",
+            "smooth_geometry",
+            "plane",
+        ),
     }
 
 

@@ -16,6 +16,7 @@ from cellier.transform import AffineTransform
 from cellier.visuals import (
     ClippingPlane,
     InMemoryImageSingleAppearance,
+    InMemoryLabelsAppearance,
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
     MultiscaleImageSingleAppearance,
@@ -132,19 +133,9 @@ def add_visual(kind, controller, scene_id, data, tmp_path, tag):
     """Add one visual of *kind*; returns ``(visual model, store)``.
 
     Anisotropic and translated: world ``z = 2 * data z``, ``x = data x + 5``.
+    A labels kind takes an optional render-mode suffix, as in
+    ``labels_memory_smooth_geometry``; without one it draws the default mode.
     """
-    if kind == "labels_multiscale_smooth_iso":
-        store = _multiscale(tmp_path, tag, data)
-        visual = controller.add_labels_multiscale(
-            data=store,
-            scene_id=scene_id,
-            appearance=MultiscaleLabelsAppearance(
-                force_level=0, render_mode="smooth_iso"
-            ),
-            render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=16),
-            transform=_transform(controller, scene_id, store),
-        )
-        return visual, store
     if kind.startswith("image_memory"):
         mode = kind.rsplit("_", 1)[1]
         store = ImageMemoryStore(data=data, name=tag)
@@ -175,19 +166,25 @@ def add_visual(kind, controller, scene_id, data, tmp_path, tag):
             ),
             transform=_transform(controller, scene_id, store),
         )
-    elif kind == "labels_memory":
+    elif kind.startswith("labels_memory"):
+        mode = kind.removeprefix("labels_memory").removeprefix("_") or "iso_categorical"
         store = LabelMemoryStore(data=data, name=tag)
         visual = controller.add_labels(
             data=store,
             scene_id=scene_id,
+            appearance=InMemoryLabelsAppearance(render_mode=mode),
             transform=_transform(controller, scene_id, store),
         )
-    elif kind == "labels_multiscale":
+    elif kind.startswith("labels_multiscale"):
+        mode = (
+            kind.removeprefix("labels_multiscale").removeprefix("_")
+            or "iso_categorical"
+        )
         store = _multiscale(tmp_path, tag, data)
         visual = controller.add_labels_multiscale(
             data=store,
             scene_id=scene_id,
-            appearance=MultiscaleLabelsAppearance(force_level=0),
+            appearance=MultiscaleLabelsAppearance(force_level=0, render_mode=mode),
             render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=16),
             transform=_transform(controller, scene_id, store),
         )

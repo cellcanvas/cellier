@@ -79,24 +79,29 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
         Colormap mode (baked into shader; frozen after construction).
     salt : int
         Hash seed for random mode.
-    render_mode : "iso_categorical" | "flat_categorical" | "gradient_debug" \
-        | "smooth_iso"
-        3D render mode.  ``gradient_debug`` renders abs(normalize(gradient))
-        as RGB (R=|X|, G=|Y|, B=|Z|); flat regions with no gradient show as
-        solid blue.  Use to diagnose brick-boundary normal discontinuities.
-        ``smooth_iso`` uses a soft trilinear density field for bisection and
-        a 3x3x3 Sobel normal kernel for smooth curved shading.
+    render_mode : str
+        3D render mode (``MultiscaleLabelsAppearance.render_mode``).
+        ``gradient_debug`` renders abs(normalize(gradient)) as RGB (R=|X|,
+        G=|Y|, B=|Z|); flat regions with no gradient show as solid blue.
+        Use to diagnose brick-boundary normal discontinuities.
+        ``smooth_iso`` shades the voxel-face surface with a smooth normal;
+        ``smooth_geometry`` draws a smooth surface per label (both in
+        ``cellier.label_smooth.wgsl``).
     ray_steps_per_voxel : float
         Ray-march samples per voxel of the drawn level, measured along the
         ray.  Default is ``1.0``.
     render_planes_buffer : Buffer or None
         The visual's ``u_render_planes`` buffer, read in ``"plane"`` render
         mode.  ``None`` gives the material one of its own with no plane.
+    smooth_level : float
+        ``MultiscaleLabelsAppearance.smooth_geometry_level``: where the
+        ``smooth_geometry`` surface sits.  Default ``0.5``.
     """
 
     uniform_type: ClassVar[dict] = dict(
         gfx.VolumeBasicMaterial.uniform_type,
         ray_steps_per_voxel="f4",
+        smooth_level="f4",
     )
 
     def __init__(
@@ -117,10 +122,12 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
         outline_selection_texture: gfx.Texture | None = None,
         ray_steps_per_voxel: float = 1.0,
         render_planes_buffer: Buffer | None = None,
+        smooth_level: float = 0.5,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.uniform_buffer.data["ray_steps_per_voxel"] = float(ray_steps_per_voxel)
+        self.uniform_buffer.data["smooth_level"] = float(smooth_level)
         self.uniform_buffer.update_full()
         self.render_planes_buffer = (
             render_planes_buffer
@@ -167,6 +174,19 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
     @ray_steps_per_voxel.setter
     def ray_steps_per_voxel(self, value: float) -> None:
         self.uniform_buffer.data["ray_steps_per_voxel"] = float(value)
+        self.uniform_buffer.update_full()
+
+    @property
+    def smooth_level(self) -> float:
+        """The field level of the ``smooth_geometry`` surface.
+
+        A uniform, so a change does not rebuild the shader.
+        """
+        return float(self.uniform_buffer.data["smooth_level"])
+
+    @smooth_level.setter
+    def smooth_level(self, value: float) -> None:
+        self.uniform_buffer.data["smooth_level"] = float(value)
         self.uniform_buffer.update_full()
 
 

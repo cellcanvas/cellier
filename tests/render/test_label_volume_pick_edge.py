@@ -10,8 +10,10 @@ It only shows on the axis whose face the ray entered through, and only on that
 axis's *low* face -- a downward bias at an upper boundary stays inside the same
 voxel.  So it is invisible from three of six directions, which is why it
 survived until someone clicked the edge of a small cube.  Reverting the shader
-fix fails exactly the three low-face views here, in both render modes, which is
-what makes that claim checkable rather than asserted.
+fix fails exactly the three low-face views here, in every mode that draws the
+voxel faces, which is what makes that claim checkable rather than asserted.
+``smooth_geometry`` draws no voxel faces; it reports a point in the middle of
+a voxel of the label instead (``label_smooth_pick_point``), checked here too.
 """
 
 from __future__ import annotations
@@ -65,7 +67,10 @@ _VIEWS = [
 ]
 
 
-@pytest.mark.parametrize("render_mode", ["iso_categorical", "flat_categorical"])
+@pytest.mark.parametrize(
+    "render_mode",
+    ["iso_categorical", "flat_categorical", "smooth_iso", "smooth_geometry"],
+)
 @pytest.mark.parametrize(("name", "view_dir", "up"), _VIEWS)
 def test_the_entry_face_floors_into_the_cube(
     offscreen_renderer, render_mode, name, view_dir, up

@@ -1171,8 +1171,11 @@ async def test_in_memory_volume_writes_the_normal_target(
     _assert_surface_normals_are_written(normals, depth, "the in-memory image volume")
 
 
+@pytest.mark.parametrize(
+    "render_mode", ["iso_categorical", "smooth_iso", "smooth_geometry"]
+)
 async def test_in_memory_labels_volume_writes_the_normal_target(
-    controller, reslice, labels_volume
+    controller, reslice, labels_volume, render_mode
 ):
     """``label_volume.wgsl`` -- the in-memory labels volume."""
     from cellier.visuals import InMemoryLabelsAppearance
@@ -1182,7 +1185,7 @@ async def test_in_memory_labels_volume_writes_the_normal_target(
         data=labels_volume,
         scene_id=scene.id,
         appearance=InMemoryLabelsAppearance(
-            colormap_mode="random", render_mode="iso_categorical"
+            colormap_mode="random", render_mode=render_mode
         ),
     )
     controller.add_canvas(scene_id=scene.id)
@@ -1233,8 +1236,11 @@ async def test_multiscale_volume_writes_the_normal_target(
     )
 
 
+@pytest.mark.parametrize(
+    "render_mode", ["iso_categorical", "smooth_iso", "smooth_geometry"]
+)
 async def test_multiscale_labels_volume_writes_the_normal_target(
-    controller, reslice, multiscale_labels_store
+    controller, reslice, multiscale_labels_store, render_mode
 ):
     """``label_volume_brick.wgsl`` -- the multiscale labels volume."""
     from cellier.visuals._labels import (
@@ -1247,7 +1253,7 @@ async def test_multiscale_labels_volume_writes_the_normal_target(
         data=multiscale_labels_store,
         scene_id=scene.id,
         appearance=MultiscaleLabelsAppearance(
-            colormap_mode="random", render_mode="iso_categorical"
+            colormap_mode="random", render_mode=render_mode
         ),
         render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS, block_size=8),
     )

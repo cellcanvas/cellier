@@ -173,8 +173,11 @@ class GFXMultiscaleLabelVisual(
         Hash seed for random mode.
     color_dict : dict[int, tuple[float, float, float, float]]
         Label ID → RGBA for direct mode.
-    render_mode : "iso_categorical" | "flat_categorical"
-        3D render mode.
+    render_mode : str
+        3D render mode (``MultiscaleLabelsAppearance.render_mode``).
+    smooth_geometry_level : float
+        Where the ``smooth_geometry`` surface sits
+        (``MultiscaleLabelsAppearance.smooth_geometry_level``).
     gpu_budget_bytes_3d : int
         Maximum GPU memory for the 3D brick cache.
     gpu_budget_bytes_2d : int
@@ -206,6 +209,7 @@ class GFXMultiscaleLabelVisual(
         color_dict: dict | None = None,
         render_mode: str = "iso_categorical",
         ray_steps_per_voxel: float = 1.0,
+        smooth_geometry_level: float = 0.5,
         gpu_budget_bytes_3d: int = 1 * 1024**3,
         gpu_budget_bytes_2d: int = 64 * 1024**2,
         transform: BaseTransform | None = None,
@@ -286,6 +290,7 @@ class GFXMultiscaleLabelVisual(
         self._salt: int = int(salt)
         self._render_mode: str = render_mode
         self._ray_steps_per_voxel: float = float(ray_steps_per_voxel)
+        self._smooth_geometry_level: float = float(smooth_geometry_level)
         self._paint_max_tiles: int = int(paint_max_tiles)
 
         # 2D paint resources (allocated in _allocate_paint_resources_2d)
@@ -510,6 +515,7 @@ class GFXMultiscaleLabelVisual(
             color_dict=dict(app.color_dict),
             render_mode=app.render_mode,
             ray_steps_per_voxel=app.ray_steps_per_voxel,
+            smooth_geometry_level=app.smooth_geometry_level,
             gpu_budget_bytes_3d=gpu_budget_bytes,
             gpu_budget_bytes_2d=gpu_budget_bytes_2d,
             paint_max_tiles=paint_max_tiles,
@@ -750,6 +756,7 @@ class GFXMultiscaleLabelVisual(
             pick_write = visual_model.pick_write
             self._render_mode = app.render_mode
             self._ray_steps_per_voxel = float(app.ray_steps_per_voxel)
+            self._smooth_geometry_level = float(app.smooth_geometry_level)
             material_fields = {
                 "opacity": app.opacity,
                 "depth_test": app.depth_test,
@@ -1689,6 +1696,10 @@ class GFXMultiscaleLabelVisual(
             self._ray_steps_per_voxel = float(val)
             if self.material_3d is not None:
                 self.material_3d.ray_steps_per_voxel = float(val)
+        elif field == "smooth_geometry_level":
+            self._smooth_geometry_level = float(val)
+            if self.material_3d is not None:
+                self.material_3d.smooth_level = float(val)
         # LOD fields — these affect planning, not GPU state; nothing to push.
 
     def on_visibility_changed(self, event: VisualVisibilityChangedEvent) -> None:
@@ -1992,6 +2003,7 @@ class GFXMultiscaleLabelVisual(
             pick_write=pick_write,
             ray_steps_per_voxel=self._ray_steps_per_voxel,
             render_planes_buffer=self.render_planes_buffer,
+            smooth_level=self._smooth_geometry_level,
         )
 
         geometry = gfx.Geometry(grid=proxy_tex)

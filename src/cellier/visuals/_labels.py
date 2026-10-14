@@ -30,9 +30,11 @@ class MultiscaleLabelsAppearance(BaseLabelsAppearance):
     color_dict : dict
         Inherited from ``BaseLabelsAppearance``.
     render_mode : str
-        Overrides ``BaseLabelsAppearance`` to widen the Literal to include
-        ``"gradient_debug"`` and ``"smooth_iso"`` (and ``"plane"``, as on
-        the base). Not frozen — live-mutable.
+        The modes of ``BaseLabelsAppearance``, plus ``"gradient_debug"``,
+        which draws the surface normal as RGB to diagnose shading across
+        brick boundaries.  Not frozen -- live-mutable.  In
+        ``"smooth_geometry"`` the surface is found exactly rather than by
+        ray steps, so ``ray_steps_per_voxel`` has no effect on it.
     settled_lod_bias : float
         Level-of-detail bias of a settled view, 2D and 3D.  Divisor on the
         screen-space LOD threshold: higher is coarser.  Default 1.0.
@@ -65,7 +67,12 @@ class MultiscaleLabelsAppearance(BaseLabelsAppearance):
         return refuse_removed_fields(data, REMOVED_APPEARANCE_FIELDS, cls.__name__)
 
     render_mode: Literal[
-        "iso_categorical", "flat_categorical", "gradient_debug", "smooth_iso", "plane"
+        "iso_categorical",
+        "flat_categorical",
+        "gradient_debug",
+        "smooth_iso",
+        "smooth_geometry",
+        "plane",
     ] = "iso_categorical"
     settled_lod_bias: float = 1.0
     coarsest_while_moving_3d: bool = True

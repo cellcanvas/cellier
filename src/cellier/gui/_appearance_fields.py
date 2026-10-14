@@ -308,6 +308,7 @@ APPEARANCE_FIELD_WIDGETS: dict[str, tuple[str, str]] = {
     # kind rather than the kind being the field (design section 6.5.2
     # decision 6).
     "labels_render_mode": ("LabelsRenderModeCombo", "Render mode"),
+    "smooth_geometry_level": ("SmoothGeometryLevelSlider", "Smooth geometry level"),
     "salt": ("SaltSpin", "Salt"),
     "background_label": ("BackgroundLabelSpin", "Background label"),
     # Mesh, points and lines all spell the uniform colour ``color``.

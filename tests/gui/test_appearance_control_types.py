@@ -48,6 +48,7 @@ import cellier.gui.qt.visuals as qt_visuals
 CATALOG = [
     ("OpacitySlider", "opacity", "Opacity"),
     ("LabelsRenderModeCombo", "render_mode", "Render mode"),
+    ("SmoothGeometryLevelSlider", "smooth_geometry_level", "Smooth geometry level"),
     ("SaltSpin", "salt", "Salt"),
     ("BackgroundLabelSpin", "background_label", "Background label"),
     ("UniformColorPicker", "color", "Color"),
@@ -386,20 +387,26 @@ def test_a_float_spin_range_is_overridable_at_construction(qtbot):
 
 
 def test_choices_come_from_the_models_literal_not_a_restated_list(qtbot):
-    """In-memory and multiscale labels offer different render modes."""
+    """Each labels model offers its own Literal's render modes.
+
+    The multiscale Literal is wider (``gradient_debug``), but that mode is
+    hidden from the control, so both offer the same choices.
+    """
     from cellier.visuals._label_memory import InMemoryLabelsAppearance
     from cellier.visuals._labels import MultiscaleLabelsAppearance
 
     in_memory = literal_choices(InMemoryLabelsAppearance(), "render_mode")
     multiscale = literal_choices(MultiscaleLabelsAppearance(), "render_mode")
 
-    assert in_memory == ("iso_categorical", "flat_categorical", "plane")
-    assert multiscale == (
+    expected = (
         "iso_categorical",
         "flat_categorical",
         "smooth_iso",
+        "smooth_geometry",
         "plane",
     )
+    assert in_memory == expected
+    assert multiscale == expected
 
     visual_id = uuid4()
     widget = _qt("LabelsRenderModeCombo")(visual_id, choices=multiscale)

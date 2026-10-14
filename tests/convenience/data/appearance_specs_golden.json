@@ -618,6 +618,8 @@
     "choices": [
      "iso_categorical",
      "flat_categorical",
+     "smooth_iso",
+     "smooth_geometry",
      "plane"
     ],
     "initial_value": "iso_categorical"
@@ -1634,6 +1636,7 @@
      "iso_categorical",
      "flat_categorical",
      "smooth_iso",
+     "smooth_geometry",
      "plane"
     ],
     "initial_value": "iso_categorical"

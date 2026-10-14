@@ -171,6 +171,7 @@ EXPECTED_DEFAULT_TITLES = {
         "Visible",
         "Opacity",
         "Render mode",
+        "Smooth geometry level",
         "Salt",
         "Background label",
         "Bounding box",
@@ -376,7 +377,7 @@ def test_a_phong_mesh_gets_its_own_fields(qtbot, mesh_store):
 
 
 def test_the_labels_combo_offers_the_models_own_render_modes(qtbot, labels_store):
-    """In-memory labels: two modes, and no image render modes."""
+    """In-memory labels: the labels modes, and no image render modes."""
     from cellier.gui.qt.visuals import QtLabelsRenderModeCombo
 
     viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
@@ -385,7 +386,13 @@ def test_the_labels_combo_offers_the_models_own_render_modes(qtbot, labels_store
     spec = appearance_specs(visual, viewer._controls_configs[visual.id]).specs[0]
     widget = QtLabelsRenderModeCombo(visual.id, **spec.values)
 
-    assert widget.choices == ("iso_categorical", "flat_categorical", "plane")
+    assert widget.choices == (
+        "iso_categorical",
+        "flat_categorical",
+        "smooth_iso",
+        "smooth_geometry",
+        "plane",
+    )
     assert "mip" not in widget.choices
 
 

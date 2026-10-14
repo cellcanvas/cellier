@@ -198,8 +198,8 @@ def test_label_appearance_render_mode_is_live():
 
 
 def test_label_appearance_wide_render_mode():
-    """MultiscaleLabelsAppearance supports gradient_debug and smooth_iso (wider than base)."""  # noqa: E501
+    """MultiscaleLabelsAppearance adds gradient_debug to the base modes."""
     a = MultiscaleLabelsAppearance(render_mode="gradient_debug")
     assert a.render_mode == "gradient_debug"
-    a2 = MultiscaleLabelsAppearance(render_mode="smooth_iso")
-    assert a2.render_mode == "smooth_iso"
+    for mode in ("smooth_iso", "smooth_geometry"):
+        assert MultiscaleLabelsAppearance(render_mode=mode).render_mode == mode

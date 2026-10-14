@@ -64,9 +64,37 @@ class BaseLabelsAppearance(BaseAppearance):
         Hash seed for random colormap mode. Default 0.
     color_dict : dict
         Explicit label-ID → RGBA mapping for direct mode.
-    render_mode : "iso_categorical", "flat_categorical" or "plane"
-        3D rendering mode.  ``"plane"`` draws the labels on the visual's
-        ``render_planes`` instead of as a volume.
+    render_mode : str
+        3D rendering mode.
+
+        ``"iso_categorical"`` (the default) draws the voxel faces of every
+        label, lit by the face normals.  ``"flat_categorical"`` draws the
+        same faces unlit.
+
+        ``"smooth_iso"`` draws the same voxel faces, lit by a normal that
+        varies smoothly across them, so a label looks rounded while its
+        outline stays on the voxel grid.  It costs about the same as
+        ``"iso_categorical"``.
+
+        ``"smooth_geometry"`` draws a smooth surface per label instead of
+        voxel faces: each label's voxels are blended trilinearly and the
+        surface sits where a label carries more than
+        ``smooth_geometry_level`` of the weight.  At the default level, flat
+        sides stay on the voxel faces, convex corners round off and concave
+        ones fill in, so outlines and depth are smooth too.  Where two
+        labels touch, each is rounded on its own, which leaves a small
+        groove along their shared edge.  A single voxel still draws, as a
+        small blob.  It is several times as expensive as the other modes.
+
+        ``"plane"`` draws the labels on the visual's ``render_planes``
+        instead of as a volume.
+    smooth_geometry_level : float
+        Where the ``"smooth_geometry"`` surface sits: the share of the
+        blended weight a label must carry, in [0.05, 0.95].  The default,
+        0.5, puts flat sides exactly on the voxel faces.  Lower grows every
+        label -- voxels that touch only along an edge or at a corner join up,
+        thin structures look solid, and the grooves between touching labels
+        narrow -- and higher shrinks it.  No effect in the other modes.
     """
 
     colormap_mode: Literal["random", "direct"] = Field(default="random", frozen=True)
@@ -75,9 +103,10 @@ class BaseLabelsAppearance(BaseAppearance):
     color_dict: dict[int, tuple[float, float, float, float]] = Field(
         default_factory=dict
     )
-    render_mode: Literal["iso_categorical", "flat_categorical", "plane"] = (
-        "iso_categorical"
-    )
+    render_mode: Literal[
+        "iso_categorical", "flat_categorical", "smooth_iso", "smooth_geometry", "plane"
+    ] = "iso_categorical"
+    smooth_geometry_level: float = Field(default=0.5, ge=0.05, le=0.95)
 
 
 class InMemoryLabelsAppearance(BaseLabelsAppearance):

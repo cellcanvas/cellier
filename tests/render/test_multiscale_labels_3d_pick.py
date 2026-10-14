@@ -63,7 +63,10 @@ _VIEWS = [
 ]
 
 
-@pytest.mark.parametrize("render_mode", ["iso_categorical", "flat_categorical"])
+@pytest.mark.parametrize(
+    "render_mode",
+    ["iso_categorical", "flat_categorical", "smooth_iso", "smooth_geometry"],
+)
 @pytest.mark.parametrize(("name", "view_dir", "up"), _VIEWS)
 async def test_a_pick_just_inside_the_silhouette_names_the_label(
     controller, render_scene, reslice, tmp_path, render_mode, name, view_dir, up

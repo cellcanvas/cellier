@@ -73,6 +73,21 @@ fn load_label(v: vec3<i32>) -> i32 {
     return textureLoad(t_img, v, 0).r;
 }
 
+// ── Smooth modes (cellier.label_smooth.wgsl) ──────────────────────────────
+$$ if render_mode in ["smooth_iso", "smooth_geometry"]
+// Local space is cell space here: voxel i is centred at local i.  Outside
+// the volume is background, so a label that reaches the edge of the volume
+// is closed by a surface on the box face.
+fn label_smooth_load(idx: vec3<i32>) -> i32 {
+    let dims = vec3<i32>(textureDimensions(t_img));
+    if (any(idx < vec3<i32>(0)) || any(idx >= dims)) {
+        return u_label_params.background_label;
+    }
+    return textureLoad(t_img, idx, 0).r;
+}
+{$ include 'cellier.label_smooth.wgsl' $}
+$$ endif
+
 // ── Unit vector along an axis (0=x, 1=y, 2=z) ─────────────────────────────
 fn unit_axis(a: i32) -> vec3<f32> {
     return vec3<f32>(
@@ -258,6 +273,34 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // A ray that starts on a clipping plane did not enter through one either.
     let entered_box_face = t_hit.t_near >= 0.0 && t_start <= t_box_start;
 
+    $$ if render_mode == "smooth_geometry"
+    // ── Smooth geometry (cellier.label_smooth.wgsl) ─────────────────────
+    // Local space is cell space, so the ray goes in as it is.  The longest
+    // walk through the dual grid crosses every voxel plane of each axis
+    // once, plus the cells beyond the first and last centres.
+    let P_in = near_pos + ray_dir * t_start;
+    let smooth_hit = label_smooth_march(
+        near_pos, ray_dir, t_start, t_end,
+        vol_dims.x + vol_dims.y + vol_dims.z + 4);
+    if (!smooth_hit.found) { discard; }
+    let surface_lid = smooth_hit.label;
+
+    let color = get_label_color(surface_lid);
+    if (color.a < 0.001) { discard; }
+
+    var surface_pos = near_pos + ray_dir * smooth_hit.t;
+    var obj_normal  = label_smooth_normal(surface_pos, surface_lid);
+    if (smooth_hit.at_start) {
+        // The ray starts inside the label: a clipping plane or the near
+        // plane cuts it.  (Outside the volume is background, so a ray that
+        // enters through a box face never starts inside a label.)
+        surface_pos = P_in;
+        let cut_n = clip_start_normal_local();
+        obj_normal = select(normalize(-ray_dir), cut_n,
+            t_start > t_box_start && dot(cut_n, cut_n) > 0.0);
+    }
+    $$ else
+
     // ── Grid-anchored DDA (Amanatides-Woo) ───────────────────────────────
     // Walk the voxel grid cell-by-cell rather than sampling at a fixed cadence
     // along the ray. Voxel i owns [i-0.5, i+0.5); cell faces are at half
@@ -319,10 +362,10 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     if (color.a < 0.001) { discard; }
 
     // Surface position and analytic, view-invariant face normal.
-    // The normal is needed for shading in iso_categorical mode, and for the
+    // The normal is needed for shading in the iso modes, and for the
     // ambient occlusion target in every mode -- a flat_categorical surface
     // is still a real voxel face.
-    $$ set needs_normal = render_mode == "iso_categorical" or write_normal
+    $$ set needs_normal = render_mode in ["iso_categorical", "smooth_iso"] or write_normal
     var surface_pos = vec3<f32>(0.0);
     $$ if needs_normal
     var obj_normal  = vec3<f32>(0.0, 1.0, 0.0);
@@ -350,12 +393,19 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         let face_axis = unit_axis(last_axis);
         let face_sign = dot(vec3<f32>(step), face_axis);
         obj_normal    = -face_sign * face_axis;
+        $$ if render_mode == "smooth_iso"
+        // The voxel face stays where it is; only its shading is smooth
+        // (cellier.label_smooth.wgsl).
+        let smooth_n = label_smooth_normal(surface_pos, surface_lid);
+        if (dot(smooth_n, smooth_n) > 1e-10) { obj_normal = smooth_n; }
+        $$ endif
         $$ endif
     }
+    $$ endif
 
     let world_surface = u_wobject.world_transform * vec4<f32>(surface_pos, 1.0);
 
-    $$ if render_mode == "iso_categorical"
+    $$ if render_mode in ["iso_categorical", "smooth_iso", "smooth_geometry"]
     let view_dir  = normalize(-ray_dir);
     let normal    = select(
         normalize(obj_normal),
@@ -420,7 +470,14 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let pick_quantum = max(
         max(vol_dimsf_pick.x, vol_dimsf_pick.y), vol_dimsf_pick.z
     ) / 16383.0;
+    $$ if render_mode == "smooth_geometry"
+    // A smooth surface is not on a voxel face, and where it fills in a
+    // concave corner it is not even in a voxel of its label: report a point
+    // in the middle half of the nearest voxel that carries the label.
+    let pick_pos = label_smooth_pick_point(surface_pos, surface_lid);
+    $$ else
     let pick_pos = surface_pos + ray_dir * min(4.0 * pick_quantum, 0.25);
+    $$ endif
     let pick_coord = (pick_pos + vec3<f32>(0.5)) / vol_dimsf_pick;
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
