@@ -406,9 +406,12 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let world_surface = u_wobject.world_transform * vec4<f32>(surface_pos, 1.0);
 
     $$ if render_mode in ["iso_categorical", "smooth_iso", "smooth_geometry"]
-    let view_dir  = normalize(-ray_dir);
+    // Shade in world space (cellier.view_normal.wgsl): local space is voxel
+    // space, so lighting there would treat anisotropic voxels as cubes.
+    let shading   = world_shading(obj_normal, ray_dir);
+    let view_dir  = shading.view_dir;
     let normal    = select(
-        normalize(obj_normal),
+        shading.normal,
         vec3<f32>(0.0, 1.0, 0.0),
         dot(obj_normal, obj_normal) < 1e-10,
     );

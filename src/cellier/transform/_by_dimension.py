@@ -570,6 +570,25 @@ class ByDimensionTransform(BaseTransform):
             *(block.transform.broadcast_output_axes() for block in self.blocks)
         )
 
+    def axis_coupling(self) -> np.ndarray:
+        """Assemble the coupling pattern from the blocks, structurally.
+
+        Each block reports its own pattern, placed at the container axes the
+        block declares.  Blocks partition both axis sets, so nothing
+        overlaps, and a non-affine block needs no matrix to answer.
+
+        Returns
+        -------
+        np.ndarray
+            ``(output_ndim, input_ndim)`` booleans.
+        """
+        coupling = np.zeros((self.output_ndim, self.input_ndim), dtype=bool)
+        for block in self.blocks:
+            coupling[np.ix_(block.output_axes, block.input_axes)] = (
+                block.transform.axis_coupling()
+            )
+        return coupling
+
     def axis_correspondence(self) -> dict[int, int]:
         """Read the correspondence off the block declarations, structurally.
 
@@ -590,6 +609,11 @@ class ByDimensionTransform(BaseTransform):
             If two blocks claim the same output axis, or a block is itself a
             shear.  Blocks partition the axes by construction, so the former
             can only happen if the blocks were built by hand.
+
+        See Also
+        --------
+        axis_coupling, cellier.transform.classify_view : never raise, and say
+            how a rotated or sheared block lines up with a view.
         """
         correspondence: dict[int, int] = {}
         claimed: dict[int, int] = {}

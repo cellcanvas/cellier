@@ -784,18 +784,39 @@ def polytope_bounds(
     if values.shape[0] == 0:
         return np.full(ndim, -np.inf), np.full(ndim, np.inf)
 
+    free = [(None, None)] * ndim
     lower = np.empty(ndim)
     upper = np.empty(ndim)
-    free = [(None, None)] * ndim
+    feasible: bool | None = None
     for axis in range(ndim):
         objective = np.zeros(ndim)
         objective[axis] = 1.0
         for destination, sign in ((lower, 1.0), (upper, -1.0)):
-            result = linprog(sign * objective, A_ub=values, b_ub=bounds, bounds=free)
+            # Without presolve: HiGHS's presolve (scipy 1.17) reports some
+            # unbounded problems as infeasible -- a slab tilted through
+            # every axis, as a rotated 2D view pulls back to.
+            result = linprog(
+                sign * objective,
+                A_ub=values,
+                b_ub=bounds,
+                bounds=free,
+                options={"presolve": False},
+            )
             if result.status == 0:
                 destination[axis] = result.fun * sign
             elif result.status == 3:  # unbounded
                 destination[axis] = -np.inf if sign > 0 else np.inf
-            else:  # infeasible (2), or the solver gave up
+            elif result.status == 2:
+                # "Infeasible" is settled once, by a zero-objective solve: a
+                # feasible region read as infeasible is unbounded this way.
+                if feasible is None:
+                    check = linprog(
+                        np.zeros(ndim), A_ub=values, b_ub=bounds, bounds=free
+                    )
+                    feasible = check.status == 0
+                if not feasible:
+                    return None
+                destination[axis] = -np.inf if sign > 0 else np.inf
+            else:  # the solver gave up
                 return None
     return lower, upper

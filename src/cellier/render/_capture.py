@@ -191,6 +191,12 @@ def capture_scene(
     # scene under the window the user is looking at.
     try:
         _seed_camera(canvas_view, seed, render_manager, scene_id)
+        if seed is not None:
+            # The seed's screen-space overlays draw over the capture too.
+            # They are shared, not copied: each re-lays itself out for the
+            # canvas size it is handed every frame.
+            for overlay in seed._overlays:
+                canvas_view.add_overlay(overlay)
         _configure_determinism(canvas_view, frames)
         render_manager.reset_frame_counters(scene_id)
 

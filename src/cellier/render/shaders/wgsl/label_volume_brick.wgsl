@@ -784,10 +784,14 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         clip_start_normal_local() / (dataset_size / norm_size), on_cut_face);
     $$ endif
     $$ if render_mode in ["iso_categorical", "smooth_iso", "smooth_geometry"]
-    // Shade with ambient + diffuse using the object-space gradient normal.
-    let view_dir = normalize(-ray_dir);
+    // Shade with ambient + diffuse in world space (cellier.view_normal.wgsl).
+    // ``obj_normal`` is a voxel-space direction and ``ray_dir`` a direction
+    // in the normalized proxy space, so the normal takes the per-axis
+    // index-per-unit factor first, as the normal target below does.
+    let shading  = world_shading(obj_normal * (dataset_size / norm_size), ray_dir);
+    let view_dir = shading.view_dir;
     let normal   = select(
-        normalize(obj_normal),
+        shading.normal,
         vec3<f32>(0.0, 1.0, 0.0),
         dot(obj_normal, obj_normal) < 1e-10,
     );

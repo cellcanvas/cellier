@@ -527,6 +527,23 @@ def test_lp_bounds_an_oblique_region_d40():
     assert upper[4] == np.inf
 
 
+def test_lp_reads_a_slab_tilted_through_every_axis_as_unbounded():
+    """A world ``z`` slab pulled back through a general affine (design v2 K13).
+
+    The constraints are what a ``(y, x)`` view of the probes' ``general``
+    transform selects.  HiGHS's presolve called three of the six bound
+    problems infeasible, so the region read as empty and the slice failed.
+    """
+    normal = np.array([1.8901682009848177, -0.30997551921944466, -0.10359160429827452])
+    normals = np.stack([normal, -normal])
+    offsets = np.array([17.212277479607657, -15.212277479607657])
+    bounds = polytope_bounds(normals, offsets, 3)
+    assert bounds is not None
+    lower, upper = bounds
+    assert np.all(lower == -np.inf)
+    assert np.all(upper == np.inf)
+
+
 def test_no_constraints_is_all_of_space():
     lower, upper = polytope_bounds(np.zeros((0, 3)), np.zeros(0), 3)
     assert np.all(lower == -np.inf)

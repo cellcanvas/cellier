@@ -287,6 +287,12 @@ class LinesMemoryStore(BaseDataStore):
                 )
             surviving_edges = surviving_edges[kept]
         proj_positions = surviving_positions[:, displayed]
+        # The collapsed columns a coupled view folds in (design v2, D11).
+        fold_positions = (
+            surviving_positions[:, list(request.fold_axes)]
+            if request.fold_axes
+            else None
+        )
 
         return LinesData(
             request_id=request.slice_request_id,
@@ -295,4 +301,5 @@ class LinesMemoryStore(BaseDataStore):
             color_mode=self.color_mode,
             is_empty=False,
             original_edge_indices=surviving_edges,
+            fold_positions=fold_positions,
         )

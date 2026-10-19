@@ -78,7 +78,7 @@ def test_a_half_bounded_axis_raises_and_names_the_shear():
 
 def test_the_error_points_at_the_guard_that_already_says_this():
     box = _box([-np.inf, -np.inf], [4.0, np.inf])
-    with pytest.raises(ValueError, match="_check_transform_no_rotation"):
+    with pytest.raises(ValueError, match="classify_view"):
         axis_selections_from_box(box, (10, 20))
 
 

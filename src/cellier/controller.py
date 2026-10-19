@@ -6,6 +6,7 @@ import asyncio
 import contextvars
 import dataclasses
 import difflib
+import logging
 import warnings
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
@@ -52,6 +53,8 @@ from cellier.events import (
     DimsInteractionEvent,
     DimsInteractionUpdateEvent,
     DimsUpdateEvent,
+    DrawStatus,
+    DrawStatusChangedEvent,
     EventBus,
     FrameRenderedEvent,
     ImageCompositeChangedEvent,
@@ -138,7 +141,10 @@ from cellier.render._visual_lut import (
 )
 from cellier.render.render_manager import RenderManager
 from cellier.render.scheduling import PlanMode
-from cellier.render.visuals._canvas_overlay import GFXCenteredAxes2D
+from cellier.render.visuals._canvas_overlay import (
+    GFXCenteredAxes2D,
+    GFXDrawStatusOverlay,
+)
 from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
 from cellier.render.visuals._image_memory import GFXImageMemoryVisual
@@ -179,8 +185,12 @@ from cellier.transform import (
     NonInvertibleTransformError,
     RegionSelection,
     RenderedCoordinateSystem,
+    SliceAlignment,
+    ViewClassification,
     VisualCoordinateSystem,
+    classify_view,
 )
+from cellier.transform._alignment import _rank_of_rows
 from cellier.viewer_model import DataManager, ViewerModel
 
 if TYPE_CHECKING:
@@ -189,7 +199,11 @@ if TYPE_CHECKING:
     from cellier.transform import AxisRef, Plane
     from cellier.visuals._base_visual import BaseVisual, VisualOutline
     from cellier.visuals._label_memory import OutlineMode
-from cellier.visuals._canvas_overlay import CanvasOverlay, CenteredAxes2D
+from cellier.visuals._canvas_overlay import (
+    CanvasOverlay,
+    CenteredAxes2D,
+    DrawStatusOverlay,
+)
 from cellier.visuals._clipping import ClippingPlane, validate_clipping_planes
 from cellier.visuals._graph_memory import (
     GraphAppearance,
@@ -283,6 +297,105 @@ _PLANE_VISUALS = (BaseImageVisual, BaseLabelsVisual)
 #: Visuals the chunk scheduler loads.  A ``"contents"`` store change needs no
 #: new plan for them: invalidation already requeued what they want.
 _SCHEDULED_VISUALS = (MultiscaleImageVisual, MultiscaleLabelVisual, BaseMeshVisual)
+
+
+_DRAW_STATUS_LOGGER = logging.getLogger("cellier.draw_status")
+
+_NOT_OBLIQUE = frozenset(
+    {SliceAlignment.AXIS_ALIGNED, SliceAlignment.IN_PLANE, SliceAlignment.SLICE_SHIFT}
+)
+
+#: Which view alignments each visual family draws (full affine design v2,
+#: 3.2 and 4.2).  Each phase enabled cells (Phase 4 ``AXIS_ALIGNED`` and
+#: ``IN_PLANE``, Phase 5 ``SLICE_SHIFT``, Phase 6 ``OBLIQUE`` for the
+#: geometry families); a view whose cell is not enabled
+#: draws nothing of the visual and says why (D3), never something wrong.
+_EVERY_ALIGNMENT = frozenset(SliceAlignment)
+
+#: Raster OBLIQUE (a 2D image or labels view on a tilted slice) is out of
+#: scope (D1): those views draw nothing and say why.
+_DRAWABLE: dict[str, frozenset[SliceAlignment]] = {
+    "image": _NOT_OBLIQUE,
+    "image_multiscale": _NOT_OBLIQUE,
+    "labels": _NOT_OBLIQUE,
+    "labels_multiscale": _NOT_OBLIQUE,
+    "mesh": _EVERY_ALIGNMENT,
+    "mesh_multiscale": _EVERY_ALIGNMENT,
+    "points": _EVERY_ALIGNMENT,
+    "lines": _EVERY_ALIGNMENT,
+    "graph": _EVERY_ALIGNMENT,
+}
+
+#: The noun each family's draw-status reason uses.
+_FAMILY_NOUN = {
+    "image": "image",
+    "image_multiscale": "image",
+    "labels": "labels volume",
+    "labels_multiscale": "labels volume",
+    "mesh": "mesh",
+    "mesh_multiscale": "mesh",
+    "points": "point set",
+    "lines": "line set",
+    "graph": "graph",
+}
+
+_RASTER_FAMILIES = frozenset(
+    {"image", "image_multiscale", "labels", "labels_multiscale"}
+)
+_RASTER_VISUALS = (BaseImageVisual, BaseLabelsVisual)
+
+
+def _has_bijection(transform: Any) -> bool:
+    """Whether *transform* has the axis correspondence today's paths read."""
+    try:
+        transform.axis_correspondence()
+    except ValueError:
+        return False
+    return True
+
+
+def _visual_family(visual: BaseVisual) -> str:
+    """The :data:`_DRAWABLE` key of a visual model."""
+    if isinstance(visual, MultiscaleImageVisual):
+        return "image_multiscale"
+    if isinstance(visual, BaseImageVisual):
+        return "image"
+    if isinstance(visual, MultiscaleLabelVisual):
+        return "labels_multiscale"
+    if isinstance(visual, BaseLabelsVisual):
+        return "labels"
+    if isinstance(visual, MultiscaleMeshVisual):
+        return "mesh_multiscale"
+    if isinstance(visual, BaseMeshVisual):
+        return "mesh"
+    if isinstance(visual, PointsVisual):
+        return "points"
+    if isinstance(visual, LinesVisual):
+        return "lines"
+    if isinstance(visual, GraphVisual):
+        return "graph"
+    raise TypeError(f"No draw-status family for {type(visual).__name__}.")
+
+
+def _undrawable_reason(family: str, alignment: SliceAlignment) -> str:
+    """Why a view of *alignment* does not draw a visual of *family* (D8)."""
+    noun = _FAMILY_NOUN[family]
+    if alignment is SliceAlignment.OBLIQUE and family in _RASTER_FAMILIES:
+        return (
+            f"this view's slice cuts the {noun} at an angle (its transform is "
+            f"OBLIQUE here); {noun}s can be shown in 3D, or in a 2D view whose "
+            f"slice is not tilted by the transform"
+        )
+    if alignment is SliceAlignment.OBLIQUE:
+        return (
+            f"this view's slice cuts the {noun} at an angle (its transform is "
+            f"OBLIQUE here), which is not drawn for a {noun} yet"
+        )
+    return (
+        f"moving this view's slice shifts the {noun} across the view (its "
+        f"transform is {alignment.name} here), which is not drawn for a "
+        f"{noun} yet"
+    )
 
 
 #: The pick event for each render-layer pick detail that is complete as
@@ -941,6 +1054,18 @@ class CellierController:
         # between the channels of the batch.
         self._render_mode_sync: set[UUID] = set()
         self._render_plane_axes_warned: set[UUID] = set()
+        # Full affine design v2, D3 / D8: each visual's draw status in its
+        # scene's current view, and the classification it came from, cached
+        # on (transform object, displayed axes).
+        self._draw_status: dict[UUID, DrawStatus] = {}
+        self._classifications: dict[
+            UUID, tuple[Any, tuple[int, ...], ViewClassification]
+        ] = {}
+        # The transform each visual had before its latest assignment, to put
+        # back when an assignment is refused (design v2 4.2).
+        self._accepted_transforms: dict[UUID, Any] = {}
+        # Canvas id -> (model, render overlay, handler) of show_draw_status.
+        self._draw_status_overlays: dict[UUID, tuple[Any, Any, Any]] = {}
         # The plane gizmo of each canvas that has one: at most one per
         # canvas, on a clipping plane or a render plane (gizmo design 7;
         # plane rendering design 8.3).
@@ -1621,6 +1746,9 @@ class CellierController:
             visual_model.transform = default_data_to_world(
                 data_store.data_coordinate_system, world
             )
+        self._check_transform_assignable(
+            scene_id, visual_model, visual_model.transform, data_store
+        )
         if isinstance(visual_model, _PLANE_VISUALS):
             self._check_render_planes(
                 visual_model, visual_model.render_planes, scene_id=scene_id
@@ -2606,7 +2734,8 @@ class CellierController:
             or visual.transform is None
         ):
             return None
-        return visual.transform.axis_correspondence().get(visual.channel_axis)
+        # A channel axis is uncoupled (refused at assignment otherwise, D6).
+        return visual.transform.exclusive_axis_correspondence().get(visual.channel_axis)
 
     def _check_image_axes(self, scene_id: UUID, visual: BaseImageVisual) -> None:
         """Refuse an image whose channel axis is unusable where it is going.
@@ -2621,7 +2750,25 @@ class CellierController:
         """
         if visual.channel_axis is None or visual.transform is None:
             return
-        correspondence = visual.transform.axis_correspondence()
+        coupling = None
+        try:
+            correspondence = visual.transform.axis_correspondence()
+        except ValueError:
+            # Rotated, sheared or drifted somewhere: only the uncoupled pairs
+            # have a correspondence, and the channel axis must be one (D6).
+            correspondence = visual.transform.exclusive_axis_correspondence()
+            coupling = visual.transform.axis_coupling()
+        if (
+            coupling is not None
+            and 0 <= visual.channel_axis < coupling.shape[1]
+            and coupling[:, visual.channel_axis].any()
+        ):
+            raise ValueError(
+                f"channel_axis={visual.channel_axis} is rotated, sheared or "
+                f"drifted into other axes by this visual's transform.  Space "
+                f"and time may be coupled, but a channel axis must map to one "
+                f"world axis alone."
+            )
         if visual.channel_axis not in correspondence:
             raise ValueError(
                 f"channel_axis={visual.channel_axis} maps to no world axis "
@@ -2712,6 +2859,8 @@ class CellierController:
         self._check_slider_axes(scene_id)
         self._refresh_scene_overlays(scene_id)
         self._refresh_plane_outlines(scene_id)
+        self._accepted_transforms[visual_model.id] = visual_model.transform
+        self._refresh_draw_status(scene_id)
 
         # EventBus subscriptions — only subscribe when the GFX visual implements
         # the handler so new visual types get wired automatically.
@@ -3110,6 +3259,11 @@ class CellierController:
                 model=overlay_model,
                 camera=canvas_view.camera,
             )
+        if isinstance(overlay_model, DrawStatusOverlay):
+            scene_id = self._canvas_to_scene[canvas_id]
+            return GFXDrawStatusOverlay(
+                overlay_model, lines=lambda: self._draw_status_lines(scene_id)
+            )
         raise TypeError(
             f"Unrecognised canvas overlay type {type(overlay_model)!r}. "
             "Register a handler in _build_gfx_canvas_overlay."
@@ -3172,6 +3326,45 @@ class CellierController:
         self._register_canvas_overlay(canvas_id, overlay)
         self._request_draw_for_scene(scene_id)
         return overlay
+
+    def show_draw_status(self, canvas_id: UUID, overlay: DrawStatusOverlay) -> None:
+        """Draw the visuals a canvas's view does not draw, as text on it.
+
+        Full affine design v2, D8 variant B.  Unlike :meth:`add_canvas_overlay`
+        the overlay is not put in ``Canvas.overlays``: it is a viewer setting
+        (the convenience viewers attach one to every canvas they make), not
+        part of the scene, so overlay listings and docks are unchanged.  Its
+        fields stay live.  Calling it again for the same canvas replaces the
+        previous one.
+
+        Parameters
+        ----------
+        canvas_id : UUID
+            The canvas.
+        overlay : DrawStatusOverlay
+            Its appearance model.
+
+        Raises
+        ------
+        KeyError
+            If *canvas_id* is not registered.
+        """
+        scene_id = self._canvas_to_scene[canvas_id]
+        previous = self._draw_status_overlays.pop(canvas_id, None)
+        if previous is not None:
+            old_model, old_gfx, old_handler = previous
+            old_model.events.disconnect(old_handler)
+            self._render_manager.remove_canvas_overlay(canvas_id, old_gfx)
+        gfx_overlay = self._build_gfx_canvas_overlay(canvas_id, overlay)
+        self._render_manager.add_canvas_overlay(canvas_id, gfx_overlay)
+
+        def _on_field(info: EmissionInfo) -> None:
+            gfx_overlay.apply(info.signal.name, info.args[0])
+            self._request_draw_for_scene(scene_id)
+
+        overlay.events.connect(_on_field)
+        self._draw_status_overlays[canvas_id] = (overlay, gfx_overlay, _on_field)
+        self._request_draw_for_scene(scene_id)
 
     def add_scene_overlay(
         self,
@@ -4164,6 +4357,9 @@ class CellierController:
         config = _visual_render_config(visual)
         if config.slicing_enabled and self._plane_mode_draws_nothing(scene_id, visual):
             config = dataclasses.replace(config, slicing_enabled=False)
+        if config.slicing_enabled and not self._view_draws(visual.id):
+            # A view that cannot draw the visual loads nothing for it (D3).
+            config = dataclasses.replace(config, slicing_enabled=False)
         if self._dims_driver.is_active(scene_id) and visual.plans_coarse_while_moving(
             self._n_displayed_dims(scene_id)
         ):
@@ -4498,7 +4694,38 @@ class CellierController:
         displayed = getattr(scene.dims.selection, "displayed_axes", ())
         visual = self._model_visual_or_none(visual_id)
         transform = getattr(visual, "transform", None)
+        classification = (
+            self.view_classification(visual_id) if transform is not None else None
+        )
+        if (
+            classification is not None
+            and classification.alignment is SliceAlignment.OBLIQUE
+            and not isinstance(visual, _RASTER_VISUALS)
+        ):
+            # A geometry visual in a view that tilts its slice (design v2
+            # Phase 6): it is drawn in the world frame from every data axis
+            # a displayed world axis reads, so those are the ones it keeps.
+            return list(transform.data_axes_feeding(displayed))
+        if (
+            classification is not None
+            and classification.alignment is not SliceAlignment.AXIS_ALIGNED
+        ) or (
+            classification is not None
+            and not _has_bijection(classification.effective_transform)
+        ):
+            # Rotated, sheared or drifted (design v2 3.1), or two sliced axes
+            # coupled to each other in an otherwise aligned view: the data
+            # axes no sliced world axis reads.  A data axis that reaches no
+            # world axis at all has no extent to keep, as before.
+            coupling = transform.axis_coupling()
+            return [
+                axis
+                for axis in classification.retained_data_axes
+                if coupling[:, axis].any()
+            ]
         if transform is not None:
+            # D7: the snapped matrix, which the classifier called aligned.
+            transform = classification.effective_transform
             data_axis_of_world = {
                 world_axis: data_axis
                 for data_axis, world_axis in axis_correspondence(transform).items()
@@ -4527,13 +4754,19 @@ class CellierController:
         scene_id = self._visual_to_scene.get(visual_id)
         if scene_id is None:
             return
+        key = (visual_id, render_mode)
+        previous = self._visual_spaces.get(key)
+        if not self._view_draws(visual_id):
+            # Nothing places geometry in a view that cannot draw it (D3).
+            if previous is not None:
+                self._forget_coordinate_systems(previous)
+                del self._visual_spaces[key]
+            return
         retained = self._retained_data_axes(
             visual_id, level_zero, self._model.scenes[scene_id]
         )
         if not retained:
             return
-        key = (visual_id, render_mode)
-        previous = self._visual_spaces.get(key)
         if previous is not None:
             self._forget_coordinate_systems(previous)
         space = VisualCoordinateSystem.from_data(
@@ -4568,6 +4801,8 @@ class CellierController:
         if rendered is None:
             return None
         rendered_cs, rendered_to_world = rendered
+        if not self._view_draws(visual_id):
+            return None
         level_zero = store.data_coordinate_systems[0]
         retained = self._retained_data_axes(visual_id, level_zero, scene)
         return build_render_spaces(
@@ -4580,7 +4815,303 @@ class CellierController:
             retained,
             data_levels=store.data_coordinate_systems,
             level_transforms=store_level_transforms(store),
+            classification=self.view_classification(visual_id),
         )
+
+    @staticmethod
+    def _pick_axes_paired(
+        transform: Any, displayed_axes: Sequence[int], data_axis_of_world: dict
+    ) -> bool:
+        """Whether a pick's displayed coordinates pair with data axes one to one.
+
+        True for an axis-aligned view, where the decode keeps the order it
+        always had; false when the displayed block is rotated or sheared.
+        """
+        return all(
+            axis in data_axis_of_world or not transform.axis_coupling()[axis].any()
+            for axis in displayed_axes
+        )
+
+    # ------------------------------------------------------------------
+    # View alignment and draw status (full affine design v2, 4.2, D3, D8)
+    # ------------------------------------------------------------------
+
+    def view_classification(self, visual_id: UUID) -> ViewClassification | None:
+        """How a visual's transform lines up with its scene's current view.
+
+        See :func:`cellier.transform.classify_view`.  Cached on the
+        transform object and the displayed axes.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+
+        Returns
+        -------
+        ViewClassification or None
+            ``None`` when the visual is not in a scene or has no transform.
+        """
+        scene_id = self._visual_to_scene.get(visual_id)
+        visual = self._model_visual_or_none(visual_id)
+        transform = getattr(visual, "transform", None)
+        if scene_id is None or transform is None:
+            return None
+        displayed = tuple(self._model.scenes[scene_id].dims.selection.displayed_axes)
+        cached = self._classifications.get(visual_id)
+        if cached is not None and cached[0] is transform and cached[1] == displayed:
+            return cached[2]
+        classification = classify_view(transform, displayed)
+        self._classifications[visual_id] = (transform, displayed, classification)
+        return classification
+
+    def _compute_draw_status(self, visual: BaseVisual) -> DrawStatus | None:
+        """A visual's draw status in its scene's current view, uncached."""
+        scene_id = self._visual_to_scene.get(visual.id)
+        classification = self.view_classification(visual.id)
+        if scene_id is None or classification is None:
+            return None
+        family = _visual_family(visual)
+        alignment = classification.alignment
+        drawable = alignment in _DRAWABLE[family]
+        return DrawStatus(
+            visual_id=visual.id,
+            scene_id=scene_id,
+            name=visual.name,
+            alignment=alignment.value,
+            drawable=drawable,
+            reason=None if drawable else _undrawable_reason(family, alignment),
+        )
+
+    def draw_status(self, visual_id: UUID) -> DrawStatus | None:
+        """Whether a visual's scene draws it in its current view, and why not.
+
+        A view that cannot draw a visual -- a 2D view whose slice cuts an
+        image at an angle, say -- draws nothing of it rather than something
+        wrong (design v2, D3): the visual is not sliced and its nodes are
+        out of the scene until a view or transform that draws it arrives.
+        Each change is announced by a :class:`DrawStatusChangedEvent`
+        (:meth:`on_draw_status_changed`) and each change into "not drawn" is
+        logged once as a warning on the ``cellier.draw_status`` logger.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+
+        Returns
+        -------
+        DrawStatus or None
+            ``None`` when the visual is not in a scene or has no transform.
+        """
+        visual = self._model_visual_or_none(visual_id)
+        if visual is None:
+            return None
+        return self._compute_draw_status(visual)
+
+    def _view_draws(self, visual_id: UUID) -> bool:
+        """Whether the scene's current view draws *visual_id* (default yes)."""
+        status = self.draw_status(visual_id)
+        return status is None or status.drawable
+
+    def on_draw_status_changed(
+        self,
+        scene_id: UUID,
+        callback: Callable[[DrawStatusChangedEvent], None],
+        *,
+        owner_id: UUID,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired when a visual's draw status changes.
+
+        Parameters
+        ----------
+        scene_id :
+            The scene whose visuals to watch.
+        callback :
+            Called with the :class:`DrawStatusChangedEvent`.
+        owner_id :
+            UUID under which this subscription is registered.
+        weak :
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+        """
+        return self._outgoing_events.subscribe(
+            DrawStatusChangedEvent,
+            callback,
+            entity_id=scene_id,
+            owner_id=owner_id,
+            weak=weak,
+        )
+
+    def _refresh_draw_status(self, scene_id: UUID) -> None:
+        """Recompute every visual's draw status on a scene, and act on changes.
+
+        A visual the view does not draw is taken out of the scene graph (it
+        neither draws nor picks, whatever it last loaded); a change emits a
+        :class:`DrawStatusChangedEvent`; a change into "not drawn" logs one
+        warning.
+        """
+        scene = self._model.scenes.get(scene_id)
+        if scene is None:
+            return
+        scene_manager = self._render_manager._scenes.get(scene_id)
+        for visual in scene.visuals:
+            status = self._compute_draw_status(visual)
+            if status is None:
+                continue
+            if scene_manager is not None:
+                scene_manager.set_visual_suppressed(visual.id, not status.drawable)
+            previous = self._draw_status.get(visual.id)
+            if previous == status:
+                continue
+            self._draw_status[visual.id] = status
+            if not status.drawable and (previous is None or previous.drawable):
+                _DRAW_STATUS_LOGGER.warning(
+                    "%r is not drawn in this view: %s", status.name, status.reason
+                )
+            self._outgoing_events.emit(
+                DrawStatusChangedEvent(
+                    source_id=self._id,
+                    scene_id=scene_id,
+                    visual_id=visual.id,
+                    status=status,
+                )
+            )
+            # The status overlay (and a suppressed node) show on next frame.
+            self._request_draw_for_scene(scene_id)
+
+    def paint_refusal(self, visual_id: UUID) -> str | None:
+        """Why a labels visual cannot be painted in its current view, or ``None``.
+
+        The brush is a ball of data voxels round the pulled-back pick.  Under
+        a rotation times a per-axis scale it lands as today's (anisotropic)
+        brush does; a shear would paint a slanted shape the user did not ask
+        for.  So painting is allowed where the view draws the visual and is
+        ``AXIS_ALIGNED``, or ``IN_PLANE`` with mutually orthogonal columns in
+        the displayed block ``L[D, R]`` (full affine design v2, D5).
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+
+        Returns
+        -------
+        str or None
+            A sentence naming the alignment, or ``None`` when painting is
+            allowed.
+        """
+        status = self.draw_status(visual_id)
+        if status is not None and not status.drawable:
+            return f"this view does not draw it ({status.reason})"
+        classification = self.view_classification(visual_id)
+        if classification is None:
+            return None
+        alignment = classification.alignment
+        if alignment is SliceAlignment.AXIS_ALIGNED:
+            return None
+        if alignment is SliceAlignment.IN_PLANE:
+            from cellier.render.visuals._image import _displayed_linear_block
+
+            scene_id = self._visual_to_scene[visual_id]
+            displayed = tuple(
+                self._model.scenes[scene_id].dims.selection.displayed_axes
+            )
+            transform = self._model_visual_or_none(visual_id).transform
+            block = _displayed_linear_block(transform, displayed)
+            gram = block.T @ block
+            off_diagonal = gram - np.diag(np.diag(gram))
+            scale = float(np.abs(gram).max(initial=0.0))
+            if np.abs(off_diagonal).max(initial=0.0) <= 1e-9 * scale:
+                return None
+            return (
+                "its transform shears the displayed axes in this view "
+                "(IN_PLANE with non-orthogonal axes), so a round brush would "
+                "paint a slanted shape; painting needs an axis-aligned view or "
+                "a rotation with per-axis scale"
+            )
+        return (
+            f"its transform is {alignment.name} in this view; painting needs "
+            f"an axis-aligned view or a rotation with per-axis scale"
+        )
+
+    def _draw_status_lines(self, scene_id: UUID) -> list[str]:
+        """One line per visual on *scene_id* its view does not draw (D8 B)."""
+        scene = self._model.scenes.get(scene_id)
+        if scene is None:
+            return []
+        lines = []
+        for visual in scene.visuals:
+            status = self._draw_status.get(visual.id)
+            if status is not None and not status.drawable:
+                lines.append(f"Not shown: {status.name} ({status.alignment.upper()})")
+        return lines
+
+    def _check_transform_assignable(
+        self, scene_id: UUID, visual: BaseVisual, transform: Any, data_store: Any
+    ) -> None:
+        """Refuse a transform no view of the scene could draw (design v2 4.2).
+
+        Two things are refused at assignment, everything else is decided
+        per view (D3): a channel axis coupled to any other axis (D6), on
+        either side, and a singular block (data axes the transform collapses
+        onto fewer world dimensions).
+
+        Raises
+        ------
+        ValueError
+            On either.
+        """
+        if transform is None:
+            return
+        coupling = transform.axis_coupling()
+        world = self._model.scenes[scene_id].dims.world_coordinate_system
+        systems = getattr(data_store, "data_coordinate_systems", None) or []
+        data_axes = systems[0].axes if systems else ()
+        channel_columns = {
+            index
+            for index, axis in enumerate(data_axes)
+            if axis.axis_type == "channel" and index < coupling.shape[1]
+        }
+        channel_axis = getattr(visual, "channel_axis", None)
+        if channel_axis is not None and 0 <= channel_axis < coupling.shape[1]:
+            channel_columns.add(int(channel_axis))
+        channel_rows = {
+            index
+            for index, axis in enumerate(world.axes)
+            if axis.axis_type == "channel" and index < coupling.shape[0]
+        }
+        for column in sorted(channel_columns):
+            rows = np.flatnonzero(coupling[:, column])
+            if rows.size > 1 or any(coupling[row].sum() > 1 for row in rows):
+                raise ValueError(
+                    f"Data axis {column} of {visual.name!r} is a channel axis, "
+                    f"and its transform couples it with other axes (world axes "
+                    f"{rows.tolist()}).  Space and time may be rotated, sheared "
+                    f"or drifted, but a channel axis must map to one world axis "
+                    f"alone."
+                )
+        for row in sorted(channel_rows):
+            columns = np.flatnonzero(coupling[row])
+            if columns.size > 1 or any(coupling[:, c].sum() > 1 for c in columns):
+                raise ValueError(
+                    f"World axis {row} ({world.axes[row].name!r}) is a channel "
+                    f"axis, and the transform of {visual.name!r} feeds it from "
+                    f"data axes {columns.tolist()}, coupled with others.  A "
+                    f"channel axis must be fed by one data axis alone."
+                )
+        used = [int(c) for c in np.flatnonzero(coupling.any(axis=0))]
+        rank = _rank_of_rows(transform, range(coupling.shape[0]))
+        if rank < len(used):
+            raise ValueError(
+                f"The transform of {visual.name!r} is singular: its {len(used)} "
+                f"data axes that reach the world span only {rank} world "
+                f"dimensions, so no view can draw it."
+            )
 
     def _scene_rendered(
         self, scene_id: UUID
@@ -4873,6 +5404,7 @@ class CellierController:
                 self._rebuild_visuals_geometry(
                     scene_id, new_state.selection.displayed_axes
                 )
+                self._refresh_draw_status(scene_id)
                 self._switch_canvas_cameras(
                     scene_id, new_state.selection.displayed_axes
                 )
@@ -5142,36 +5674,34 @@ class CellierController:
     def _check_render_plane_transform(
         visual: BaseVisual, index: int, axes: list[int], world: Any
     ) -> None:
-        """Refuse a plane on world axes the visual's data does not map to singly.
+        """Refuse a plane on world axes a view of which cannot draw the visual.
 
-        The plane's level rule and culling rows take the visual's transform,
-        on the plane's three axes, to be a scale and a translation per axis:
-        each of the three world axes fed by one data axis that feeds nothing
-        else.
+        A plane is drawn in a 3D view of its own three axes.  The plane
+        planner reads the full linear block off the camera pull-back, so a
+        rotation or shear is fine (full affine design v2, K6): what a plane
+        needs is data behind each of its axes, a linear block to read, and a
+        view of its three axes that the visual's family draws (``_DRAWABLE``).
         """
-        linear = getattr(visual.transform, "linear", None)
-        ok = linear is not None
+        transform = visual.transform
+        ok = getattr(transform, "linear", None) is not None
         if ok:
-            linear = np.asarray(linear)
-            columns = []
-            for row in axes:
-                fed_by = np.flatnonzero(linear[row])
-                if fed_by.size != 1:
-                    ok = False
-                    break
-                columns.append(int(fed_by[0]))
+            coupling = transform.axis_coupling()
+            ok = all(coupling[row].any() for row in axes)
+        if ok:
+            classification = classify_view(transform, axes)
             ok = (
-                ok
-                and len(set(columns)) == 3
-                and all(np.flatnonzero(linear[:, c]).size == 1 for c in columns)
+                len(classification.retained_data_axes) >= 3
+                and classification.alignment in _DRAWABLE[_visual_family(visual)]
             )
         if not ok:
             names = tuple(world.axes[axis].name for axis in axes)
             raise ValueError(
                 f"Render plane {index} of visual {visual.name!r} is on world "
-                f"axes {names}, which the visual's transform does not map by "
-                "a scale and a translation per axis.  A render plane needs "
-                "each of its axes to be one data axis, scaled and shifted."
+                f"axes {names}, which a 3D view of those axes cannot draw this "
+                f"visual in.  A render plane needs the data behind each of its "
+                f"axes through an affine block -- a scale and a translation per "
+                f"axis, or any rotation or shear of them -- in a view the "
+                f"visual draws (see CellierController.draw_status)."
             )
 
     def _draws_planes(self, visual: BaseVisual) -> bool:
@@ -5430,9 +5960,35 @@ class CellierController:
         """
 
         def _on_transform(new_transform: AffineTransform) -> None:
-            # A replaced transform can carry a different axis correspondence,
-            # which the render spaces read back off the matrix -- and which
-            # decides the world axes this visual wants sliders for.
+            visual_model = self._model_visual_or_none(visual_id)
+            store = (
+                self._model.data.stores.get(UUID(visual_model.data_store_id))
+                if visual_model is not None
+                else None
+            )
+            if visual_model is not None:
+                try:
+                    self._check_transform_assignable(
+                        scene_id, visual_model, new_transform, store
+                    )
+                except ValueError:
+                    # Refused (design v2 4.2): put the accepted transform
+                    # back without running this handler again, then raise.
+                    previous = self._accepted_transforms.get(visual_id)
+                    with visual_model.events.transform.blocked():
+                        visual_model.transform = previous
+                    raise
+                self._accepted_transforms[visual_id] = new_transform
+            # A replaced transform can change which data axes the view
+            # retains and whether the view draws the visual at all (design
+            # v2 D3), which the render spaces read back off the matrix -- and
+            # which decides the world axes this visual wants sliders for.
+            if store is not None:
+                displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
+                self._rebuild_visual_space(
+                    visual_id, _render_mode_for(displayed), store
+                )
+            self._refresh_draw_status(scene_id)
             self._push_render_spaces(scene_id)
             self._check_slider_axes(scene_id)
             self._refresh_scene_overlays(scene_id)
@@ -7405,7 +7961,9 @@ class CellierController:
                     f"Visual {visual_id} has no channel_axis, so it cannot composite."
                 )
             scene_id = self._visual_to_scene[visual_id]
-            world_axis = visual.transform.axis_correspondence().get(visual.channel_axis)
+            world_axis = visual.transform.exclusive_axis_correspondence().get(
+                visual.channel_axis
+            )
             displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
             if world_axis in displayed:
                 raise ValueError(
@@ -7454,7 +8012,7 @@ class CellierController:
                         "composite."
                     )
                 scene_id = self._visual_to_scene[visual_id]
-                world_axis = visual.transform.axis_correspondence().get(
+                world_axis = visual.transform.exclusive_axis_correspondence().get(
                     visual.channel_axis
                 )
                 displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
@@ -9542,6 +10100,9 @@ class CellierController:
         ------
         TypeError
             If the visual type has no registered paint controller.
+        ValueError
+            If the view or the transform does not allow painting
+            (:meth:`paint_refusal`).
         """
         from cellier.visuals._label_memory import LabelMemoryVisual
         from cellier.visuals._labels import MultiscaleLabelVisual
@@ -9550,6 +10111,9 @@ class CellierController:
         scene = self._model.scenes[scene_id]
         visual_model = next(v for v in scene.visuals if v.id == visual_id)
         data_store = self._model.data.stores[UUID(visual_model.data_store_id)]
+        refusal = self.paint_refusal(visual_id)
+        if refusal is not None:
+            raise ValueError(f"Cannot paint {visual_model.name!r}: {refusal}.")
 
         if isinstance(visual_model, LabelMemoryVisual):
             from cellier.paint import SyncPaintController
@@ -9709,6 +10273,9 @@ class CellierController:
         self._cancel_move_pick_read(canvas_id)
 
         # 3. Update controller lookup maps, dropping the canvas's overlays.
+        draw_status = self._draw_status_overlays.pop(canvas_id, None)
+        if draw_status is not None:
+            draw_status[0].events.disconnect(draw_status[2])
         for overlay_id in [
             overlay_id
             for overlay_id, entry in self._overlays.items()
@@ -9775,6 +10342,9 @@ class CellierController:
         # 4. Remove from controller lookup maps.
         self._visual_to_scene.pop(visual_id)
         self._forget_visual_spaces(visual_id)
+        self._draw_status.pop(visual_id, None)
+        self._classifications.pop(visual_id, None)
+        self._accepted_transforms.pop(visual_id, None)
 
         # 5. Render-layer teardown.
         self._render_manager.remove_visual(visual_id)
@@ -10079,14 +10649,24 @@ class CellierController:
                 coordinate[world_axis] = float(world_position)
             return tuple(float(value) for value in coordinate)
 
+        # The uncoupled pairs.  Under an axis-aligned transform that is the
+        # whole correspondence, and the displayed coordinates land as before.
+        pairs = transform.exclusive_axis_correspondence()
         data_axis_of_world = {
-            world_axis: data_axis
-            for data_axis, world_axis in axis_correspondence(transform).items()
+            world_axis: data_axis for data_axis, world_axis in pairs.items()
         }
         coordinate = np.zeros(transform.input_ndim, dtype=np.float64)
-        for slot, world_axis in enumerate(displayed_axes):
-            data_axis = data_axis_of_world.get(world_axis)
-            if data_axis is not None:
+        if self._pick_axes_paired(transform, displayed_axes, data_axis_of_world):
+            for slot, world_axis in enumerate(displayed_axes):
+                data_axis = data_axis_of_world.get(world_axis)
+                if data_axis is not None:
+                    coordinate[data_axis] = decoded[slot]
+        else:
+            # Rotated or sheared among the displayed axes (design v2): no
+            # displayed world axis names a data axis, and the decoded
+            # position is in the visual's own retained data axes, ascending.
+            retained = classify_view(transform, displayed_axes).retained_data_axes
+            for slot, data_axis in enumerate(retained[: len(decoded)]):
                 coordinate[data_axis] = decoded[slot]
 
         if collapsed_data_indices is not None:
@@ -10101,10 +10681,8 @@ class CellierController:
         # Pulled back through imap_coordinates rather than by reading
         # .linear / .translation, so a non-affine data -> world transform
         # works here too.  Mapping the whole world point at once is exact
-        # because axis_correspondence above already established that the
-        # transform is axis-aligned -- each data axis is fed by exactly one
-        # world axis, so the axes this loop does not fill cannot perturb the
-        # ones it reads.
+        # for the uncoupled axes this loop reads: each is fed by exactly one
+        # world axis, so the axes this loop does not fill cannot perturb it.
         world_point = np.zeros(transform.output_ndim, dtype=np.float64)
         for world_axis, world_position in slice_indices.items():
             if 0 <= world_axis < world_point.size:

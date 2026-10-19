@@ -99,6 +99,11 @@ class MeshSliceRequest(NamedTuple):
     #: ``normal . p >= offset`` (clipping planes design 5.2).  Part of the
     #: request key.  Empty in cut mode and in 3D, where the shader clips.
     clip_planes: tuple = ()
+    #: Keep each section vertex's coordinate on the section axis in the
+    #: third column instead of zero, so the render layer can place a section
+    #: cut by a tilted plane in the world frame (full affine design v2,
+    #: Phase 6).
+    section_depth: bool = False
 
 
 @dataclass(frozen=True)

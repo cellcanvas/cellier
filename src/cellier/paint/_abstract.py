@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
@@ -72,6 +73,7 @@ class AbstractPaintController(ABC):
         self._brush_radius = float(brush_radius_voxels)
         self._history = CommandHistory(max_depth=history_depth)
         self._active_stroke: ActiveStroke | None = None
+        self._last_refusal: str | None = None
 
         # Concrete subclasses must set ``_data_shape`` and ``_displayed_axes``
         # before calling super().__init__; validate here so failures surface
@@ -151,6 +153,16 @@ class AbstractPaintController(ABC):
             self._active_stroke = None
             self._history.push(command)
             self._on_stroke_completed(command)
+        # The view or the transform may have changed since this controller
+        # was made (full affine design v2, D5): a stroke that cannot be
+        # painted faithfully is not started.
+        refusal = self._controller.paint_refusal(self._visual_id)
+        if refusal is not None:
+            if refusal != self._last_refusal:
+                self._last_refusal = refusal
+                warnings.warn(f"Not painting: {refusal}.", UserWarning, stacklevel=2)
+            return
+        self._last_refusal = None
         # Label visuals discard background fragments so they never write to the
         # pick buffer when all-background.  Use a data-bounds check instead of
         # pick detection so a blank label array is still paintable.

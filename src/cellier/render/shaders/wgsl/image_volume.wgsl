@@ -21,6 +21,11 @@
 //    gradient by the world matrix itself.  For the anisotropic voxel
 //    spacing cellier renders routinely the two differ, and the matrix tilts
 //    every normal away from the surface it belongs to.
+// 4. **A mirroring transform still draws.**  The pipeline culls front
+//    faces, and upstream does not reverse the box's winding when the world
+//    or camera transform mirrors, so a flipped volume drew nothing.  The
+//    vertex index goes through ``box_winding_index`` like the other three
+//    volume shaders.
 //
 // Everything else -- the ray setup, the three raycast bodies, the lighting
 // selection between scene lights and the builtin simple model -- is kept as
@@ -33,6 +38,7 @@ $$ if colormap_dim
 $$ endif
 {$ include 'pygfx.volume_common.wgsl' $}
 {$ include 'cellier.view_normal.wgsl' $}
+{$ include 'cellier.box_winding.wgsl' $}
 
 
 struct VertexInput {
@@ -109,8 +115,9 @@ fn vs_main(in: VertexInput) -> Varyings {
     // Our geometry is implicitly defined by the volume dimensions.
     var geo = get_vol_geometry();
 
-    // Select what face we're at
-    let index = i32(in.vertex_index);
+    // Select what face we're at.  The pipeline culls front faces, so a
+    // mirroring transform must reverse each triangle (cellier.box_winding.wgsl).
+    let index = i32(box_winding_index(in.vertex_index));
     let i0 = geo.indices[index];
 
     // Sample position, and convert to world pos, and then to ndc

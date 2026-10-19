@@ -21,7 +21,7 @@ render visual.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         DataCoordinateSystem,
         RegionSelection,
         RenderedCoordinateSystem,
+        ViewClassification,
         VisualCoordinateSystem,
         WorldCoordinateSystem,
     )
@@ -168,8 +169,16 @@ class RenderSpaces:
         axis ascending and numpy returns an array whose axes are ascending, so
         a display permutation lives in the transform and never in the data.
     data_to_world_axes : Mapping[int, int]
-        ``{data axis: world axis}``, the correspondence the visual's transform
-        encodes.
+        ``{data axis: world axis}`` for the **uncoupled** pairs of the
+        visual's transform (``exclusive_axis_correspondence``).  Under an
+        axis-aligned transform it is the whole correspondence; a data axis
+        rotated, sheared or drifted into another is absent.
+    coupling : np.ndarray or None
+        The transform's coupling pattern (``axis_coupling``), ``(n_world,
+        n_data)`` booleans: every data axis each world axis reads.
+    classification : ViewClassification or None
+        How the transform lines up with the view these spaces serve (full
+        affine design v2, 3.1).
     """
 
     data: DataCoordinateSystem
@@ -182,6 +191,10 @@ class RenderSpaces:
     data_to_world_axes: Mapping[int, int]
     data_levels: tuple[DataCoordinateSystem, ...] = ()
     level_transforms: tuple[AffineTransform, ...] = ()
+    # Not compared: an array has no truth value, and both follow from the
+    # transform the other fields already came from.
+    coupling: np.ndarray | None = field(default=None, compare=False)
+    classification: ViewClassification | None = field(default=None, compare=False)
 
     @property
     def collapsed_axes(self) -> tuple[int, ...]:
@@ -230,6 +243,7 @@ def build_render_spaces(
     retained_axes: Sequence[int],
     data_levels: Sequence[DataCoordinateSystem] = (),
     level_transforms: Sequence[AffineTransform] = (),
+    classification: ViewClassification | None = None,
 ) -> RenderSpaces:
     """Assemble a :class:`RenderSpaces` and invert the canvas embedding once.
 
@@ -255,6 +269,8 @@ def build_render_spaces(
         single-level store, where the level-0 system alone says everything.
     level_transforms : Sequence[AffineTransform]
         Level ``k`` -> level ``0``, one per entry in *data_levels*.
+    classification : ViewClassification or None
+        How *data_to_world* lines up with the view these spaces serve.
 
     Returns
     -------
@@ -264,7 +280,7 @@ def build_render_spaces(
     Raises
     ------
     ValueError
-        If the embedding has no inverse, or the transform is sheared.
+        If the embedding has no inverse.
     """
     world_to_rendered = rendered_to_world.inverse()
     if world_to_rendered is None:
@@ -282,9 +298,11 @@ def build_render_spaces(
         rendered_to_world=rendered_to_world,
         world_to_rendered=world_to_rendered,
         retained_axes=tuple(retained_axes),
-        data_to_world_axes=axis_correspondence(data_to_world),
+        data_to_world_axes=data_to_world.exclusive_axis_correspondence(),
         data_levels=tuple(data_levels),
         level_transforms=tuple(level_transforms),
+        coupling=data_to_world.axis_coupling(),
+        classification=classification,
     )
 
 
@@ -618,6 +636,128 @@ def node_matrix(
     )
 
 
+def node_follows_slice(spaces: RenderSpaces | None) -> bool:
+    """Whether a visual's node matrix must be refreshed when the slice moves.
+
+    True in a view whose sliced data axes reach a displayed world axis
+    (``SLICE_SHIFT``, and ``OBLIQUE`` for the families that draw it): the
+    collapsed constants the node matrix holds then move the drawn slab
+    across the view (full affine design v2, 4.3, K11).  False otherwise, so
+    an ``AXIS_ALIGNED`` or ``IN_PLANE`` view keeps today's call pattern.
+    """
+    if spaces is None or spaces.classification is None:
+        return False
+    from cellier.transform import SliceAlignment
+
+    return spaces.classification.alignment in (
+        SliceAlignment.SLICE_SHIFT,
+        SliceAlignment.OBLIQUE,
+    )
+
+
+@dataclass(frozen=True)
+class ElementFold:
+    """Per-element placement in the node's own frame (design v2 4.3, D11).
+
+    In a view whose collapsed data axes reach a displayed world axis, a slab
+    of geometry holds elements at several collapsed positions, and one node
+    matrix -- built with one collapsed constant ``c0`` -- puts them all at
+    that one.  The fold keeps the node matrix ``M`` and uploads each
+    element's retained coordinates moved by ``K (c - c0)``, with ``K =
+    L[D, R]^+ L[D, C]``, so that ``M`` maps it to its own world position.
+    ``M`` is unchanged, so pygfx's ``"model"`` sizes and thicknesses, which
+    read it, are unchanged too.
+
+    Attributes
+    ----------
+    axes : tuple[int, ...]
+        The collapsed data axes coupled into a displayed world axis, whose
+        columns the store returns beside the retained ones.
+    coefficients : np.ndarray
+        ``K``, ``(len(retained), len(axes))``.
+    """
+
+    axes: tuple[int, ...]
+    coefficients: np.ndarray = field(compare=False)
+
+    def apply(
+        self,
+        retained: np.ndarray,
+        collapsed: np.ndarray,
+        origin: Mapping[int, float],
+    ) -> np.ndarray:
+        """Fold *collapsed* into *retained*, column by column.
+
+        One multiply-add per non-zero entry of ``K`` (design 4.3: not a
+        general matmul, which costs four times as much at a million points).
+
+        Parameters
+        ----------
+        retained : np.ndarray
+            ``(n, len(R))`` positions on the retained axes, ascending.
+        collapsed : np.ndarray
+            ``(n, len(axes))`` positions on :attr:`axes`.
+        origin : Mapping[int, float]
+            ``c0``: the collapsed constants the node matrix holds.
+
+        Returns
+        -------
+        np.ndarray
+            A new array, ``retained``'s dtype.
+        """
+        out = np.array(retained, copy=True)
+        for column, axis in enumerate(self.axes):
+            weights = self.coefficients[:, column]
+            if not np.any(weights):
+                continue
+            delta = np.asarray(collapsed[:, column], dtype=np.float64) - float(
+                origin.get(axis, 0.0)
+            )
+            for row in np.flatnonzero(weights):
+                out[:, row] += weights[row] * delta
+        return out
+
+
+def element_fold(spaces: RenderSpaces | None, data_to_world) -> ElementFold | None:
+    """The per-element fold a geometry visual needs in its current view.
+
+    ``None`` when no collapsed axis reaches a displayed world axis -- every
+    ``AXIS_ALIGNED`` and ``IN_PLANE`` view -- or the transform has no affine
+    form to read ``L`` from (a non-affine block is never coupled).
+
+    Parameters
+    ----------
+    spaces : RenderSpaces or None
+        The systems the visual is placed with, carrying the classification.
+    data_to_world : BaseTransform
+        The visual's (effective) transform.
+
+    Returns
+    -------
+    ElementFold or None
+    """
+    if not node_follows_slice(spaces) or data_to_world is None:
+        return None
+    affine = data_to_world.to_affine()
+    if affine is None:
+        return None
+    linear = np.asarray(affine.linear, dtype=np.float64)
+    sliced = set(spaces.classification.sliced_world_axes)
+    displayed = [axis for axis in range(linear.shape[0]) if axis not in sliced]
+    retained = list(spaces.retained_axes)
+    coupled = [
+        axis
+        for axis in spaces.collapsed_axes
+        if np.any(linear[np.ix_(displayed, [axis])] != 0.0)
+    ]
+    if not coupled:
+        return None
+    block = linear[np.ix_(displayed, retained)]
+    coefficients = np.linalg.pinv(block) @ linear[np.ix_(displayed, coupled)]
+    coefficients[np.abs(coefficients) < 1e-12] = 0.0
+    return ElementFold(axes=tuple(coupled), coefficients=coefficients)
+
+
 def snap_discrete_positions(
     positions: Mapping[int, float],
     data_coordinate_system: DataCoordinateSystem,
@@ -821,7 +961,10 @@ def window_half_extents(
         side rather than a negative extent.
     """
     position = float(positions.get(axis, 0.0))
-    world_axis = axis_correspondence(transform).get(axis)
+    # The world axis whose row reads this data axis alone.  The data axis
+    # may also reach other world axes (a drift ``x += v t`` still has a ``t``
+    # row reading ``t`` only); a window on that row pulls back exactly.
+    world_axis = world_row_reading(transform, axis)
     if world_axis is None:
         # Broadcast: the visual has no extent along this world axis, so
         # there is no conversion to do and the window is already data-unit.
@@ -856,6 +999,35 @@ def window_half_extents(
     if not (np.isfinite(low) and np.isfinite(high)):
         return (float(before), float(after))
     return (max(0.0, position - low), max(0.0, high - position))
+
+
+def world_row_reading(transform: BaseTransform, data_axis: int) -> int | None:
+    """The world axis whose row of the coupling pattern reads *data_axis* alone.
+
+    ``None`` when no world row does (a broadcast, or a data axis only mixed
+    into rows that read others too).  Under an axis-aligned transform it is
+    the axis correspondence.
+
+    Parameters
+    ----------
+    transform : BaseTransform
+        A ``data -> world`` transform.
+    data_axis : int
+        The data axis.
+
+    Returns
+    -------
+    int or None
+    """
+    coupling = transform.axis_coupling()
+    if not 0 <= data_axis < coupling.shape[1]:
+        return None
+    rows = [
+        int(row)
+        for row in np.flatnonzero(coupling[:, data_axis])
+        if coupling[row].sum() == 1
+    ]
+    return rows[0] if len(rows) == 1 else None
 
 
 def world_half_thickness(region: ConvexRegion) -> dict[int, float]:
@@ -913,7 +1085,8 @@ def _anchor_discrete_axes(
     offsets = np.asarray(pulled.offsets, dtype=float)
     nonzero = normals != 0.0
     box = pulled.bounding_box()
-    correspondence = axis_correspondence(data_to_world)
+    # Uncoupled axes only: a coupled discrete axis keeps plain containment.
+    correspondence = data_to_world.exclusive_axis_correspondence()
     thickness = world_half_thickness(selection.region)
     positions: dict[int, float] | None = None
 
@@ -1081,7 +1254,7 @@ def geometry_section_region(
         If the cutting constraints are not one slab (two section axes).
     """
     region = selection.region
-    world_of = axis_correspondence(data_to_world)
+    world_of = data_to_world.exclusive_axis_correspondence()
     data_of = {world_axis: data_axis for data_axis, world_axis in world_of.items()}
 
     def cuts(world_axis: int) -> bool:
@@ -1190,7 +1363,9 @@ def axis_scales(data_to_world: AffineTransform) -> dict[int, float]:
     """World units per data unit, keyed by **data** axis.
 
     Read off the single entry each data axis contributes, which is what an
-    axis-aligned transform has (see :func:`axis_correspondence`).  Used to
+    uncoupled axis has (``exclusive_axis_correspondence``); a data axis
+    rotated, sheared or drifted into others has no single scale and is
+    absent.  Used to
     convert a thickness stated in world units into the data units a store's
     own slab arithmetic works in.
 
@@ -1213,12 +1388,13 @@ def axis_scales(data_to_world: AffineTransform) -> dict[int, float]:
     -------
     dict[int, float]
         Data axis to the magnitude of its scale.  Axes that reach no world
-        axis are absent.
+        axis, or more than one, are absent.
     """
     linear = np.asarray(data_to_world.linear)
+    pairs = data_to_world.exclusive_axis_correspondence()
     return {
         data_axis: abs(float(linear[world_axis, data_axis]))
-        for data_axis, world_axis in axis_correspondence(data_to_world).items()
+        for data_axis, world_axis in pairs.items()
     }
 
 
@@ -1247,28 +1423,24 @@ def data_slice_positions(
     Returns
     -------
     dict[int, float]
-        Data axis to slice position.  Axes the region leaves unbounded are
-        absent.
+        Data axis to slice position.  Axes the region leaves unbounded, or
+        bounds on one side only, are absent.
 
-    Raises
-    ------
-    ValueError
-        If an axis comes back bounded on one side only, which is the shear
-        case D7 rejects.
+    Notes
+    -----
+    A slab tilted through the data -- a 2D view that is ``OBLIQUE`` for the
+    visual (full affine design v2) -- bounds no single data axis: it is
+    unbounded on every axis it tilts across (``polytope_bounds`` reads it
+    correctly since K13), or bounded on one side where other constraints
+    cut it.  Neither is a position, so neither is reported; the geometry
+    families place such a slab's elements one by one instead.
     """
     box = data_to_world.imap_region(region, world).simplify().bounding_box()
     positions: dict[int, float] = {}
     for axis in range(box.ndim):
         low = float(box.min_coordinate[axis])
         high = float(box.max_coordinate[axis])
-        low_unbounded, high_unbounded = np.isneginf(low), np.isposinf(high)
-        if low_unbounded and high_unbounded:
+        if not (np.isfinite(low) and np.isfinite(high)):
             continue
-        if low_unbounded or high_unbounded:
-            raise ValueError(
-                f"Data axis {axis} of this region is bounded on one side only "
-                f"([{low}, {high}]).  That is a cross-term on a collapsed "
-                f"axis; remove the shear."
-            )
         positions[axis] = (low + high) / 2.0
     return positions

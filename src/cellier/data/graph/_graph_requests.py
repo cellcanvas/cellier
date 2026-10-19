@@ -9,6 +9,8 @@ if TYPE_CHECKING:
 
     import numpy as np
 
+    from cellier.transform import ConvexRegion
+
 
 class GraphSliceRequest(NamedTuple):
     """Request for one slab-filtered slice of spatial-graph data.
@@ -73,6 +75,14 @@ class GraphSliceRequest(NamedTuple):
         Set only where the shader cannot clip: geometry flattened along an
         axis a plane has a component on (clipping planes design 5.2).
         Empty otherwise.
+    fold_axes : tuple[int, ...]
+        Collapsed data axes whose columns the store also returns, for the
+        render layer's per-element fold (full affine design v2, D11).
+    region : ConvexRegion or None
+        An exact filter in data coordinates on top of the windows: a node
+        is selected only inside it.  Set for a slab tilted through the data
+        (an ``OBLIQUE`` view, full affine design v2 Phase 6) and for an axis
+        no window can be converted for; ``None`` otherwise.
     """
 
     slice_request_id: UUID
@@ -84,6 +94,8 @@ class GraphSliceRequest(NamedTuple):
     fades: dict[int, tuple[float, float, float]]
     retained_axes: tuple[int, ...]
     clip_planes: tuple = ()
+    fold_axes: tuple[int, ...] = ()
+    region: ConvexRegion | None = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +165,9 @@ class GraphData:
         True when the edge filter produced zero rows.  Independent of
         ``nodes_empty``: isolated nodes give edges-empty-but-nodes-present,
         and both sub-nodes get the placeholder treatment separately.
+    node_fold_positions, edge_fold_positions : np.ndarray | None
+        The nodes' and the edge vertices' positions on the request's
+        ``fold_axes``, row-matched.  None when it asked for none.
     """
 
     request_id: UUID
@@ -177,6 +192,8 @@ class GraphData:
 
     nodes_empty: bool = False
     edges_empty: bool = False
+    node_fold_positions: np.ndarray | None = None
+    edge_fold_positions: np.ndarray | None = None
 
     @property
     def shape(self) -> str:

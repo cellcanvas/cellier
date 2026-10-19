@@ -39,6 +39,7 @@ from cellier.render._level_of_detail_2d import (
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
 )
+from cellier.render._node_transform import set_node_matrix
 from cellier.render._plane_planning import (
     PlanePlanning,
     build_plane_planning,
@@ -49,6 +50,7 @@ from cellier.render._spaces import (
     RenderSpaces,
     axis_correspondence,
     cellier_to_pygfx_order,
+    node_follows_slice,
     node_matrix,
     pygfx_to_cellier_order,
     select_axes,
@@ -106,6 +108,7 @@ from cellier.render.visuals._slicing import (
     axis_selections_from_box,
     image_plane_selection,
 )
+from cellier.transform import SliceAlignment, classify_view, effective_transform
 from cellier.visuals._image_memory import effective_transparency_mode
 from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
@@ -132,7 +135,7 @@ if TYPE_CHECKING:
         ImageResidency2D,
         ImageResidency3D,
     )
-    from cellier.transform import AffineTransform
+    from cellier.transform import AffineTransform, BaseTransform
     from cellier.visuals._image import MultiscaleImageVisual
     from cellier.visuals._loading import ProgressiveLoadingConfig
 
@@ -287,56 +290,6 @@ def _brick_max_image(data: np.ndarray) -> float:
     return float(np.max(data)) if data.size else 0.0
 
 
-def _check_transform_no_rotation(transform: AffineTransform | None) -> None:
-    """Raise ValueError if the transform contains rotation or shear.
-
-    The brick shader only supports scale and translation.  A transform with
-    off-diagonal entries in the linear submatrix (i.e. rotation or shear)
-    would require ``norm_to_voxel`` to be a full affine inverse, which the
-    current WGSL does not implement.
-
-    Parameters
-    ----------
-    transform : AffineTransform or None
-        The ``data -> world`` transform to validate.  ``None`` means the
-        visual has not been placed in a world yet.
-
-    Raises
-    ------
-    ValueError
-        If the linear part of the transform is not diagonal.
-    """
-    if transform is None:
-        # The visual has not been placed in a world yet, so there is no
-        # transform to constrain.  It is checked again when one arrives.
-        return
-    # A ``data -> world`` transform need not be square, so "is the linear
-    # block diagonal" is not a well-formed question (P10 / F0.6).  The
-    # equivalent, and what the shader actually needs, is: each input axis
-    # reaches at most one output axis, each output axis is reached by at most
-    # one input axis, and the correspondence preserves order.  For a square
-    # transform that is exactly "the linear block is diagonal", so this is a
-    # generalisation and not a relaxation.
-    try:
-        correspondence = axis_correspondence(transform)
-    except ValueError as error:
-        raise ValueError(
-            "The brick shader only supports scale and translation transforms. "
-            "The provided transform contains rotation or shear components. "
-            "Support for general affine transforms requires changes to the "
-            "WGSL norm_to_voxel function and is not yet implemented."
-        ) from error
-    outputs = [correspondence[axis] for axis in sorted(correspondence)]
-    if outputs != sorted(outputs):
-        raise ValueError(
-            f"The brick shader only supports scale and translation transforms. "
-            f"This one permutes its axes: data axes {sorted(correspondence)} "
-            f"map to world axes {outputs}.  Support for general affine "
-            f"transforms requires changes to the WGSL norm_to_voxel function "
-            f"and is not yet implemented."
-        )
-
-
 def _norm_to_data_params_for(
     spaces: RenderSpaces, dataset_size: np.ndarray, norm_size: np.ndarray
 ) -> tuple[dict[int, float], dict[int, float]]:
@@ -381,6 +334,32 @@ def _norm_to_data_params_for(
     return scale, translation
 
 
+def _general_displayed_submatrix(
+    affine: AffineTransform, displayed_axes: tuple[int, ...]
+) -> np.ndarray:
+    """``_displayed_submatrix`` off the axis-aligned branch.
+
+    Rows are the displayed world axes in display order; columns are the
+    retained data axes ascending (``_displayed_linear_block``); the last
+    column is the translation with every collapsed data axis at zero, which
+    is all the 2D planners read it for (a view and its LOD, not a slice).
+    Float32, as the axis-aligned branch.
+    """
+    block = _displayed_linear_block(affine, displayed_axes)
+    n = len(displayed_axes)
+    if block.shape != (n, n):
+        raise ValueError(
+            f"World axes {tuple(displayed_axes)} are displayed but this "
+            f"visual retains {block.shape[1]} data axes in that view, so "
+            f"there is no square displayed block to plan with."
+        )
+    translation = np.asarray(affine.translation, dtype=np.float64)
+    matrix = np.eye(n + 1, dtype=np.float64)
+    matrix[:n, :n] = block
+    matrix[:n, n] = translation[list(displayed_axes)]
+    return matrix.astype(np.float32)
+
+
 def _displayed_submatrix(
     transform: AffineTransform, displayed_axes: tuple[int, ...]
 ) -> np.ndarray:
@@ -422,6 +401,8 @@ def _displayed_submatrix(
     ValueError
         If a displayed world axis has no data axis feeding it.
     """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
     # ``.linear`` / ``.translation`` exist only on ``AffineTransform``; a
     # ``ByDimensionTransform`` (any visual sharing the time-axis leaf) has
     # neither.  Restricting to the displayed axes first gives back a plain
@@ -430,6 +411,11 @@ def _displayed_submatrix(
     # for the already-affine transforms every caller here was written
     # against.
     affine = _restricted_affine_for_display(transform, displayed_axes)
+    if not _is_axis_aligned_view(transform, displayed_axes):
+        # No data axis pairs with a displayed world axis: the block is read
+        # whole, columns the retained data axes ascending (fetch order),
+        # which is what every caller indexes its data by.
+        return _general_displayed_submatrix(affine, displayed_axes)
     correspondence = axis_correspondence(affine)
     world_to_data = {world: data for data, world in correspondence.items()}
     linear = np.asarray(affine.linear)
@@ -488,9 +474,8 @@ def _restricted_affine_for_display(
     ``ByDimensionTransform`` -- which is what any visual sharing a
     ``NonUniformAxisTransform`` time axis carries, broadcast or not -- has
     neither, even when every block it actually holds is affine.  Reading
-    ``.linear`` off it directly is the same category of mistake
-    ``_check_transform_no_rotation`` already guards against for a rotated
-    transform, just for a different reason: there is no matrix to read yet.
+    ``.linear`` off it directly fails for the plain reason that there is no
+    matrix to read yet.
 
     The fix mirrors the one the design doc gives for the GPU node-matrix
     boundary ("The GPU still gets a matrix"): every data axis this
@@ -499,10 +484,8 @@ def _restricted_affine_for_display(
     non-affine block to a constant rather than delegating to the block's own
     ``restrict`` -- and what remains is asked for its affine form.  The
     value each axis is pinned to does not matter for the *scale* this is
-    used to compute: a collapsed axis contributes only to translation
-    (``_check_transform_no_rotation`` already forbids any cross-term
-    reaching a displayed axis), so ``0.0`` is as good as the real slice
-    position.
+    used to compute: an axis that feeds no displayed axis contributes only
+    to translation, so ``0.0`` is as good as the real slice position.
 
     A transform that is already affine is returned unchanged -- the only
     case every existing call site was written against, so this is a pure
@@ -530,18 +513,28 @@ def _restricted_affine_for_display(
         matrix that expresses that, which is the honest outcome (design
         doc, "The GPU still gets a matrix").
     """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
     from cellier.transform import AffineTransform as _AffineTransform
     from cellier.transform import NonAffineTransformError
 
     if isinstance(transform, _AffineTransform):
         return transform
-    correspondence = axis_correspondence(transform)
-    displayed_set = set(displayed_axes)
-    fixed = {
-        data_axis: 0.0
-        for data_axis, world_axis in correspondence.items()
-        if world_axis not in displayed_set
-    }
+    if _is_axis_aligned_view(transform, displayed_axes):
+        correspondence = axis_correspondence(transform)
+        displayed_set = set(displayed_axes)
+        fixed = {
+            data_axis: 0.0
+            for data_axis, world_axis in correspondence.items()
+            if world_axis not in displayed_set
+        }
+    else:
+        # Rotated or sheared: pin every data axis that feeds no displayed
+        # world axis.  Renumbering keeps the rest ascending.
+        feeding = set(transform.data_axes_feeding(displayed_axes))
+        fixed = {
+            axis: 0.0 for axis in range(transform.input_ndim) if axis not in feeding
+        }
     affine = transform.restrict(fixed).to_affine()
     if affine is None:
         raise NonAffineTransformError(
@@ -551,6 +544,121 @@ def _restricted_affine_for_display(
             f"collapsed (sliced) axis may be non-affine."
         )
     return affine
+
+
+def _is_axis_aligned_view(
+    transform: BaseTransform | None, displayed_axes: tuple[int, ...]
+) -> bool:
+    """Whether *transform* is ``AXIS_ALIGNED`` in the view of *displayed_axes*.
+
+    The branch every placement helper here takes (design v2, I1): the
+    axis-aligned branch runs the expression it always ran, bit for bit, and
+    only the other alignments take the general one.  An unplaced visual
+    (``None``) counts as axis-aligned.
+    """
+    if transform is None:
+        return True
+    try:
+        classification = classify_view(transform, displayed_axes)
+    except ValueError:
+        # Displayed axes the transform has no rows for: today's branch
+        # raises the explanation callers expect.
+        return True
+    if classification.alignment is not SliceAlignment.AXIS_ALIGNED:
+        return False
+    # Today's branch reads the bijection, which a transform coupling two
+    # *sliced* axes (world ``t`` reading data ``z``, say) has not, though
+    # the view is axis aligned; such a transform was refused before, so it
+    # takes the general branch.
+    try:
+        classification.effective_transform.axis_correspondence()
+    except ValueError:
+        return False
+    return True
+
+
+def _displayed_linear_block(
+    transform: BaseTransform, displayed_axes: tuple[int, ...]
+) -> np.ndarray:
+    """``L[D, R]`` of the effective transform, as one block.
+
+    Rows are the displayed **world** axes in display order; columns are the
+    retained data axes (design v2 3.1) ascending, which is the order a
+    fetched array carries them (``_fetch_order``).  D7's snapped entries are
+    zero.  Defined for every alignment, unlike the bijection
+    ``axis_correspondence`` answers.
+
+    Parameters
+    ----------
+    transform : BaseTransform
+        The visual's ``data -> world`` transform.
+    displayed_axes : tuple[int, ...]
+        The displayed world axes, in display order.
+
+    Returns
+    -------
+    np.ndarray
+        ``(len(displayed_axes), len(R))`` float64.
+
+    Raises
+    ------
+    NonAffineTransformError
+        If a non-affine block reaches a displayed axis.
+    """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
+    from cellier.transform import AffineTransform as _AffineTransform
+    from cellier.transform import NonAffineTransformError
+
+    classification = classify_view(transform, displayed_axes)
+    effective = classification.effective_transform
+    retained = list(classification.retained_data_axes)
+    if isinstance(effective, _AffineTransform):
+        linear = np.asarray(effective.linear, dtype=np.float64)
+        return linear[np.ix_(list(displayed_axes), retained)]
+    # A container: pin every collapsed axis (its value only moves the
+    # translation) and read what remains, whose columns are the retained
+    # axes renumbered in ascending order.
+    fixed = dict.fromkeys(classification.collapsed_data_axes, 0.0)
+    affine = effective.restrict(fixed).to_affine() if fixed else effective.to_affine()
+    if affine is None:
+        raise NonAffineTransformError(
+            f"{type(transform).__name__} has a non-affine block reaching a "
+            f"displayed axis (world axes {displayed_axes}); there is no "
+            f"matrix for the multiscale shaders to use."
+        )
+    linear = np.asarray(affine.linear, dtype=np.float64)
+    return linear[list(displayed_axes), :]
+
+
+def _world_to_voxel_scale_2d(sub_2d: np.ndarray, axis_aligned: bool) -> float:
+    """Level-0 voxels per world unit across a 2D view, for LOD selection.
+
+    The geometric mean over the two displayed axes.  On the axis-aligned
+    branch it is read off the diagonal of ``_displayed_submatrix``, as it
+    always was.  Otherwise the diagonal is meaningless (a rotation by
+    ``theta`` reads ``cos(theta)``), and the orientation-free equivalent is
+    ``|det|^(-1/n)`` -- the geometric mean of the singular values, which
+    equals the diagonal product for a scaled permutation (design v2 K10).
+
+    Parameters
+    ----------
+    sub_2d : np.ndarray
+        The square homogeneous displayed block, ``(n + 1, n + 1)``.
+    axis_aligned : bool
+        Whether the view is ``AXIS_ALIGNED``.
+
+    Returns
+    -------
+    float
+        Voxels per world unit.
+    """
+    nd2 = sub_2d.shape[0] - 1
+    if axis_aligned:
+        world_units_per_voxel_2d = np.abs(np.diag(sub_2d[:nd2, :nd2]))
+        return float(np.prod(1.0 / world_units_per_voxel_2d) ** (1.0 / nd2))
+    block = np.asarray(sub_2d[:nd2, :nd2], dtype=np.float64)
+    return float(abs(np.linalg.det(block)) ** (-1.0 / nd2))
 
 
 def _norm_size_from_transform(
@@ -573,9 +681,8 @@ def _norm_size_from_transform(
     Parameters
     ----------
     transform : AffineTransform or None
-        The full data-to-world transform (any ``ndim >= 3``).  Must be
-        scale + translation only (validated separately by
-        ``_check_transform_no_rotation``).
+        The full data-to-world transform (any ``ndim >= 3``), any affine
+        on the displayed axes.
     displayed_axes : tuple[int, ...]
         The 3 displayed data axes, in display order.
     dataset_size_xyz : ndarray, shape (3,)
@@ -587,6 +694,8 @@ def _norm_size_from_transform(
         Normalised physical size in shader order, with the longest axis
         equal to 1.0.
     """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
     if len(displayed_axes) != 3:
         raise ValueError(
             f"_norm_size_from_transform requires 3 displayed axes, "
@@ -602,6 +711,15 @@ def _norm_size_from_transform(
         # Unplaced: every axis is at unit scale, which is what a placed
         # identity would have given.
         return compute_normalized_size(dataset_size_xyz, np.ones(3))
+    if not _is_axis_aligned_view(transform, displayed_axes):
+        # Off the axis-aligned branch there is no single entry per axis.  A
+        # retained data axis's world length per voxel is its column norm,
+        # which makes every rotation times a scale a similarity of the proxy
+        # box (design v2 K9).  Columns come in fetch order (ascending data
+        # axes), the order ``dataset_size_xyz`` reverses.
+        block = _displayed_linear_block(transform, displayed_axes)
+        column_norms = np.linalg.norm(block, axis=0)
+        return compute_normalized_size(dataset_size_xyz, column_norms[::-1].copy())
     affine = _restricted_affine_for_display(transform, displayed_axes)
     correspondence = axis_correspondence(affine)
     world_to_data = {world: data for data, world in correspondence.items()}
@@ -623,6 +741,41 @@ def _norm_size_from_transform(
     return compute_normalized_size(dataset_size_xyz, per_axis_scale_xyz)
 
 
+def _general_world_axes_to_data_axes(
+    transform: BaseTransform, displayed_axes: tuple[int, ...]
+) -> tuple[int, ...]:
+    """``_world_axes_to_data_axes`` off the axis-aligned branch.
+
+    Under a rotation or shear no data axis pairs with a displayed world axis,
+    only the **set** of retained data axes the view draws on (design v2,
+    3.1), returned ascending -- the fetch order, which is all the callers use
+    it for.  A view that does not draw the visual (an ``OBLIQUE`` raster
+    view, whose retained set is too small) still sizes a placeholder
+    geometry from here, so it gets the displayed rows' heaviest data axes
+    instead; nothing is sliced into it.
+    """
+    coupling = transform.axis_coupling()
+    missing = [axis for axis in displayed_axes if not coupling[axis].any()]
+    if missing:
+        raise ValueError(
+            f"World axis/axes {missing} are displayed but no data axis of "
+            f"this visual maps to them (they are broadcast).  A multiscale "
+            f"visual has no data to render along a broadcast axis."
+        )
+    retained = classify_view(transform, displayed_axes).retained_data_axes
+    retained = tuple(axis for axis in retained if coupling[:, axis].any())
+    if len(retained) == len(displayed_axes):
+        return retained
+    from cellier.transform import AffineTransform as _AffineTransform
+
+    if isinstance(transform, _AffineTransform):
+        weights = np.abs(np.asarray(transform.linear, dtype=np.float64))
+    else:
+        weights = coupling.astype(np.float64)
+    heaviest = np.argsort(-weights[list(displayed_axes), :].max(axis=0), kind="stable")
+    return tuple(sorted(int(axis) for axis in heaviest[: len(displayed_axes)]))
+
+
 def _world_axes_to_data_axes(
     transform: AffineTransform | None, displayed_axes: tuple[int, ...]
 ) -> tuple[int, ...]:
@@ -636,8 +789,8 @@ def _world_axes_to_data_axes(
     than the world -- a ``tzyx`` labels volume broadcast over a world ``c``,
     say -- needs the translation this function performs, via the same
     ``axis_correspondence`` the already-migrated per-reslice helpers
-    (``_norm_size_from_transform``, ``_displayed_submatrix``,
-    ``_check_transform_no_rotation``) already read.  Those three take
+    (``_norm_size_from_transform``, ``_displayed_submatrix``) already
+    read.  Those take
     *world* axes deliberately and translate internally; this one exists
     because ``select_axes``/``_fetch_order`` do not, and cannot be taught
     to without knowing the transform themselves.
@@ -666,8 +819,12 @@ def _world_axes_to_data_axes(
         multiscale visual cannot render along a broadcast axis, since there
         is no data varying along it to draw.
     """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
     if transform is None:
         return displayed_axes
+    if not _is_axis_aligned_view(transform, displayed_axes):
+        return _general_world_axes_to_data_axes(transform, displayed_axes)
     correspondence = axis_correspondence(transform)
     world_to_data = {world: data for data, world in correspondence.items()}
     missing = [axis for axis in displayed_axes if axis not in world_to_data]
@@ -999,6 +1156,41 @@ class MultiscaleRegionPlanner:
         MultiscaleRegionPlanner._begin_region_planning(
             self, selection if planned is None else planned
         )
+        self._follow_slice()
+
+    def _follow_slice(self) -> None:
+        """Move the nodes with the slice in a view where the slice moves them.
+
+        ``SLICE_SHIFT`` (full affine design v2, 4.3): the planes this plan
+        draws, per collapsed axis, become the node matrix's collapsed
+        constants (``_node_collapsed_world``), and the nodes are placed again.
+        ``_collapsed_indices`` stays empty -- it is the pick path's, and
+        ``pick_collapsed_indices`` answers picks from the plan -- so the two
+        cannot drift apart.  Any other view keeps today's call pattern and
+        its constants at zero.
+        """
+        if not node_follows_slice(self._spaces):
+            if self._node_collapsed_world:
+                self._node_collapsed_world = {}
+            return
+        planned = self.pick_collapsed_indices() or {}
+        constants = {axis: float(index) for axis, index in planned.items()}
+        if constants == self._node_collapsed_world:
+            return
+        self._node_collapsed_world = constants
+        if self._last_displayed_axes is not None:
+            self._update_node_matrix(self._last_displayed_axes)
+
+    def _node_constants(self) -> dict[int, float]:
+        """The collapsed constants the node matrix holds (design 3.9, v2 4.3)."""
+        source = (
+            self._node_collapsed_world
+            if node_follows_slice(self._spaces)
+            else self._collapsed_indices
+        )
+        return {
+            axis: float(source.get(axis, 0.0)) for axis in self._spaces.collapsed_axes
+        }
 
     def _level_box(self, level_index: int):
         """The selection pulled back to level *level_index*, as a box.
@@ -1455,13 +1647,16 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
         # The data -> world transform.  There is no coordinate-system-less
         # identity to fall back on (D18); the controller supplies one.
-        self._transform: AffineTransform | None = transform
+        self._transform: AffineTransform | None = effective_transform(transform)
         # The systems this visual's geometry is placed with, pushed by the
         # controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
         # The collapsed voxel index per dropped data axis, refreshed on every
         # planned request (design 3.9).
         self._collapsed_indices: dict[int, float] = {}
+        # The node matrix's collapsed constants in a view the slice moves
+        # the data in (full affine design v2, 4.3); see ``_follow_slice``.
+        self._node_collapsed_world: dict[int, float] = {}
         self.render_modes = render_modes
         self._volume_geometry = volume_geometry
         self._image_geometry_2d = image_geometry_2d
@@ -1613,7 +1808,6 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                 swap_axes(tuple(float(s) for s in ds), (2, 1, 0)),
                 dtype=np.float64,
             )
-            _check_transform_no_rotation(self._transform)
             # 3D rendering requires 3 displayed axes.  ``displayed_axes`` is
             # set when constructed via ``from_cellier_model``; if a caller
             # uses the raw constructor with a 3D-equal-ndim transform, fall
@@ -1851,7 +2045,6 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             swap_axes(tuple(float(s) for s in ds), (2, 1, 0)),
             dtype=np.float64,
         )
-        _check_transform_no_rotation(self._transform)
         self._norm_size = _norm_size_from_transform(
             self._transform, displayed_axes, self._dataset_size
         )
@@ -1987,7 +2180,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         self.node_3d.add(self._aabb_line_3d)
         self._last_displayed_axes = displayed_axes
         if self._spaces is not None and self._transform is not None:
-            self.node_3d.local.matrix = self._node_matrices()[0]
+            set_node_matrix(self.node_3d, self._node_matrices()[0])
         self.node_3d.visible = self._visible
 
     def _lazy_init_2d(self, displayed_axes: tuple[int, ...], visual_model=None) -> None:
@@ -2059,7 +2252,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         self.node_2d.add(self._aabb_line_2d)
         self._last_displayed_axes = displayed_axes
         if self._spaces is not None and self._transform is not None:
-            self.node_2d.local.matrix = self._node_matrices()[1]
+            set_node_matrix(self.node_2d, self._node_matrices()[1])
         self.node_2d.visible = self._visible
 
     def _rebuild_3d_resources(self) -> None:
@@ -2165,10 +2358,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
     def _collapsed_origin(self) -> dict[int, float]:
         """Where the dropped data axes sit, for the node matrix (design 3.9)."""
-        return {
-            axis: float(self._collapsed_indices.get(axis, 0.0))
-            for axis in self._spaces.collapsed_axes
-        }
+        return self._node_constants()
 
     def _node_matrices(self) -> tuple[object, object]:
         """``(matrix for the 3D node, matrix for the 2D node)``.
@@ -2205,9 +2395,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             return
         composed, plain = self._node_matrices()
         if self.node_3d is not None:
-            self.node_3d.local.matrix = composed
+            set_node_matrix(self.node_3d, composed)
         if self.node_2d is not None:
-            self.node_2d.local.matrix = plain
+            set_node_matrix(self.node_2d, plain)
 
     # ── 3D planning helpers ───────────────────────────────────────────
 
@@ -2572,11 +2762,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         """
         displayed = self._last_displayed_axes
         sub_2d = _displayed_submatrix(self._transform, displayed)
-
-        nd2 = sub_2d.shape[0] - 1
-        world_units_per_voxel_2d = np.abs(np.diag(sub_2d[:nd2, :nd2]))
-        world_to_voxel_scale_2d = float(
-            np.prod(1.0 / world_units_per_voxel_2d) ** (1.0 / nd2)
+        world_to_voxel_scale_2d = _world_to_voxel_scale_2d(
+            sub_2d, _is_axis_aligned_view(self._transform, displayed)
         )
         voxel_width = world_width * world_to_voxel_scale_2d
 
@@ -2691,12 +2878,11 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
         """Update stored transform, norm_size uniform, and pygfx node matrix."""
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
 
         # Recompute norm_size and push the updated uniform buffer so the
         # proxy cube shape stays consistent with the new transform.
         if self._dataset_size is not None:
-            _check_transform_no_rotation(self._transform)
             self._norm_size = _norm_size_from_transform(
                 self._transform, self._norm_size_axes, self._dataset_size
             )
@@ -3116,7 +3302,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self._channel_axis: int | None = visual_model.channel_axis
         self._full_level_shapes = [tuple(shape) for shape in level_shapes]
         self._level_transforms = list(visual_model.level_transforms)
-        self._transform = visual_model.transform
+        self._transform = effective_transform(visual_model.transform)
         self._spaces: RenderSpaces | None = None
         self._last_displayed_axes: tuple[int, ...] = tuple(displayed_axes)
         self._pick_write: bool = visual_model.pick_write
@@ -3712,7 +3898,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
         """Hand the new transform to every slot."""
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
         for slot in self._slots:
             slot.on_transform_changed(event)
         self._apply_clipping_planes()

@@ -19,7 +19,7 @@ from cellier.scene.dims import (
     resolve_displayed_axes,
     world_coordinate_system,
 )
-from cellier.visuals._canvas_overlay import CanvasOverlay
+from cellier.visuals._canvas_overlay import CanvasOverlay, DrawStatusOverlay
 from cellier.visuals._scene_overlay import SceneOverlay
 
 if TYPE_CHECKING:
@@ -150,6 +150,11 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Lights in the scene.  ``"default"`` adds an ambient and a
         directional light, which a mesh with ``MeshPhongAppearance`` needs
         (without lights it renders black).  ``"none"`` (default) adds none.
+    draw_status_overlay : bool
+        Whether every canvas names, in its top-left corner, the visuals its
+        view does not draw and why in one word -- a 2D view whose slice cuts
+        a rotated image at an angle, say.  Default ``True``.  See
+        :attr:`draw_status_overlay`.
     """
 
     def __init__(
@@ -161,7 +166,10 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         render_config: RenderManagerConfig | None = None,
         gui: Literal["qt", "anywidget", "offscreen"] = "qt",
         lighting: Literal["none", "default"] = "none",
+        draw_status_overlay: bool = True,
     ) -> None:
+        # Built before the scene so the first canvas finds it.
+        self._draw_status_overlay = DrawStatusOverlay() if draw_status_overlay else None
         resolved_render_modes = (
             render_modes if render_modes is not None else {"2d", "3d"}
         )
@@ -240,6 +248,20 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             entity_id=self._scene.id,
             weak=True,
         )
+
+    @property
+    def draw_status_overlay(self) -> DrawStatusOverlay | None:
+        """The text overlay naming visuals a canvas's view does not draw.
+
+        On by default (``Viewer(..., draw_status_overlay=True)``); every
+        canvas of this viewer shows it.  Its fields are live: set ``visible``
+        to hide it, or change its colour and size.  It lists the visuals
+        whose :meth:`CellierController.draw_status` is not drawable -- a 2D
+        view that cuts a rotated image at an angle, say (full affine design
+        v2, D3 and D8).  ``None`` when the viewer was built without it.  It
+        is not one of :attr:`overlays`.
+        """
+        return self._draw_status_overlay
 
     @property
     def overlays(self) -> tuple[CanvasOverlay | SceneOverlay, ...]:
@@ -359,7 +381,14 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._controls_changed.emit()
 
     def _attach_pending_canvas_overlays(self, event: CanvasAddedEvent) -> None:
-        """Attach the held canvas overlays to the viewer's first canvas."""
+        """Attach the held canvas overlays to the viewer's first canvas.
+
+        Every canvas also gets the draw-status overlay, when it is on.
+        """
+        if self._draw_status_overlay is not None:
+            self._controller.show_draw_status(
+                event.canvas_id, self._draw_status_overlay
+            )
         if not self._pending_canvas_overlays:
             return
         pending, self._pending_canvas_overlays = self._pending_canvas_overlays, []

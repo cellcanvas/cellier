@@ -146,15 +146,21 @@ def _collect_samples(
     A world axis the store reaches through a continuous data axis is marked
     ``None``, which no later store can undo.
     """
-    try:
-        correspondence = transform.axis_correspondence()
-    except ValueError:
-        # A shear or rotation: which world axis each data axis becomes is not
-        # known, so no non-space axis this store might reach can be discrete.
-        for index, axis in enumerate(world.axes):
-            if axis.axis_type != "space":
-                samples[index] = None
-        return
+    # Each non-space world axis reads the data axes its row of the coupling
+    # pattern names (full affine design v2, 4.5).  A row that reads one data
+    # axis keeps that axis's samples -- a drift ``x += v t`` couples ``t``
+    # into ``x``, but the ``t`` row still reads ``t`` alone.  A row reading
+    # several data axes has no one sample spacing and is continuous.
+    coupling = transform.axis_coupling()
+    correspondence: dict[int, int] = {}
+    for world_axis, axis in enumerate(world.axes):
+        if axis.axis_type == "space" or world_axis >= coupling.shape[0]:
+            continue
+        reads = np.flatnonzero(coupling[world_axis])
+        if reads.size == 1:
+            correspondence[int(reads[0])] = world_axis
+        elif reads.size > 1:
+            samples[world_axis] = None
 
     systems = getattr(store, "data_coordinate_systems", None) or []
     data_axes = systems[0].axes if systems else None

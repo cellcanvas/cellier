@@ -17,10 +17,7 @@ from cellier.data._axes import (
     scale_and_translation_transform,
 )
 from cellier.data.image._image_memory_store import ImageMemoryStore
-from cellier.render.visuals._image import (
-    _check_transform_no_rotation,
-    _norm_size_from_transform,
-)
+from cellier.render.visuals._image import _norm_size_from_transform
 from cellier.scene.dims import spatial_axes
 from cellier.transform import AffineTransform
 from cellier.visuals._image_memory import ImageVisual, InMemoryImageAppearance
@@ -146,36 +143,10 @@ def test_a_transform_built_against_the_right_systems_is_kept():
 
 
 # ---------------------------------------------------------------------------
-# The shader guards, redefined for a non-square transform (P10 / F0.6)
+# The shader helpers, redefined for a non-square transform (P10 / F0.6).
+# The rotation guard and its three tests went with full affine design v2,
+# Phase 4: the brick shaders take any affine (K3, K5).
 # ---------------------------------------------------------------------------
-
-
-def test_the_rotation_guard_accepts_a_non_square_transform():
-    """It used to ask whether ``matrix[:nd, :nd]`` was diagonal, which is not
-    a well-formed question when the two ranks differ."""
-    data, _ = systems(3, ("z", "y", "x"))
-    _, world = systems(4, ("t", "z", "y", "x"))
-    _check_transform_no_rotation(default_data_to_world(data, world))
-
-
-def test_the_rotation_guard_still_rejects_a_shear():
-    data, world = systems(3, ("z", "y", "x"))
-    matrix = np.eye(4)
-    matrix[1, 0] = 0.5
-    with pytest.raises(ValueError, match="rotation or shear"):
-        _check_transform_no_rotation(AffineTransform.from_matrix(matrix, data, world))
-
-
-def test_the_rotation_guard_rejects_a_permutation():
-    """A permuted ``data -> world`` reaches the brick shader as a permuted
-    node matrix, which its diagonal ``norm_to_voxel`` cannot express.  A
-    permuted *rendered* system is a different thing and is not rejected --
-    it never touches this transform (design 3.14)."""
-    data, world = systems(3, ("z", "y", "x"))
-    matrix = np.zeros((4, 4))
-    matrix[0, 1] = matrix[1, 0] = matrix[2, 2] = matrix[3, 3] = 1.0
-    with pytest.raises(ValueError, match="permutes its axes"):
-        _check_transform_no_rotation(AffineTransform.from_matrix(matrix, data, world))
 
 
 def test_the_norm_size_matches_what_the_column_norms_gave():

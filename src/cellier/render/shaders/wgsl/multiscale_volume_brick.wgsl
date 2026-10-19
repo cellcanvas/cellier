@@ -987,13 +987,20 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let physical_color = color.rgb;
     $$ endif
 
-    let view_dir   = normalize(-ray_dir);
+    // Shade in world space (cellier.view_normal.wgsl).  ``normal`` is a
+    // voxel-index direction and ``ray_dir`` a direction in the normalized
+    // proxy space, so the normal takes the per-axis index-per-unit factor
+    // first, as the normal target below does.
+    let index_per_norm = dataset_size / norm_size;
+    let shading    = world_shading(normal * index_per_norm, ray_dir);
+    let view_dir   = shading.view_dir;
+    let world_normal = shading.normal;
     // Face the normal toward the viewer before shading.  pygfx's
     // light_phong_simple.wgsl declares lighting_phong(normal, view_dir,
     // albedo); an earlier signature took a leading is_front flag and did
     // this flip internally, and calling it with four arguments is a
     // shader compile error.  label_volume.wgsl already flips by hand.
-    let lit_normal = select(-normal, normal, dot(normal, view_dir) > 0.0);
+    let lit_normal = select(-world_normal, world_normal, dot(world_normal, view_dir) > 0.0);
     let lit_color  = lighting_phong(lit_normal, view_dir, physical_color);
 
     let opacity = color.a * u_material.opacity;
@@ -1015,7 +1022,6 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // per-axis index-per-unit factor.  Without it a z-anisotropic dataset
     // writes normals tilted toward z, which the occlusion pass would then
     // trust over the reconstruction it is there to replace.
-    let index_per_norm = dataset_size / norm_size;
     let local_normal   = select(-gradient * index_per_norm, cut_local_normal,
                                 on_cut_face);
     let view_pos_r     = u_stdinfo.cam_transform * world_pos_r;

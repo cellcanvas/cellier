@@ -5,6 +5,7 @@ from cellier.visuals._canvas_overlay import (
     CanvasOverlay,
     CenteredAxes2D,
     CenteredAxes2DAppearance,
+    DrawStatusOverlay,
 )
 from cellier.visuals._clipping import ClippingPlane
 from cellier.visuals._graph_memory import (
@@ -73,6 +74,7 @@ __all__ = [
     "CenteredAxes2D",
     "CenteredAxes2DAppearance",
     "ClippingPlane",
+    "DrawStatusOverlay",
     "GeometryLodConfig",
     "GraphAppearance",
     "GraphVisual",

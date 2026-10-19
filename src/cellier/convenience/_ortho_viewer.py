@@ -24,6 +24,7 @@ from cellier.convenience._ortho_planes import OrthoPlaneController
 from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
 from cellier.convenience.gui._controls_config import validate_controls
+from cellier.events import CanvasAddedEvent
 from cellier.render._capture import write_png
 from cellier.scene._background import viewer_background
 from cellier.scene.dims import (
@@ -33,6 +34,7 @@ from cellier.scene.dims import (
     world_coordinate_system,
 )
 from cellier.scene.scene import Scene
+from cellier.visuals._canvas_overlay import DrawStatusOverlay
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Mapping, Sequence
@@ -266,6 +268,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         for headless capture via :meth:`screenshot`. Fixed at construction.
         ``"offscreen"`` orthoviewers have no embeddable widgets, so the grid
         builders reject them.
+    draw_status_overlay : bool
+        Whether every panel names, in its top-left corner, the visuals its
+        view does not draw.  Default ``True``.  See
+        :attr:`draw_status_overlay`.
     """
 
     # Clipping planes controls live in the ortho clipping widget, one per
@@ -281,8 +287,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         link_clipping_planes: ClippingLinkMode = "all",
         render_config: RenderManagerConfig | None = None,
         gui: Literal["qt", "anywidget", "offscreen"] = "qt",
+        draw_status_overlay: bool = True,
     ) -> None:
         self._controller = CellierController(render_config=render_config, gui=gui)
+        self._draw_status_overlay = DrawStatusOverlay() if draw_status_overlay else None
         self._clipping_controller = OrthoClippingController(
             self._controller, link_clipping_planes
         )
@@ -303,6 +311,33 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._ready_callbacks: list[Callable[[], None]] = []
         if link_axes:
             self._wire_axis_sync()
+        if self._draw_status_overlay is not None:
+            for scene in self._scenes.values():
+                self._controller._outgoing_events.subscribe(
+                    CanvasAddedEvent,
+                    self._show_draw_status,
+                    entity_id=scene.id,
+                    weak=True,
+                )
+
+    @property
+    def draw_status_overlay(self) -> DrawStatusOverlay | None:
+        """The text overlay naming visuals a panel's view does not draw.
+
+        On by default (``OrthoViewer(..., draw_status_overlay=True)``); every
+        panel canvas shows it.  Under a rotation not about one view axis, a
+        2D panel whose slice cuts an image at an angle draws nothing of it
+        and lists it here (full affine design v2, D1, D3, D8).  Its fields
+        are live.  ``None`` when the viewer was built without it.
+        """
+        return self._draw_status_overlay
+
+    def _show_draw_status(self, event: CanvasAddedEvent) -> None:
+        """Give a new panel canvas the draw-status overlay."""
+        if self._draw_status_overlay is not None:
+            self._controller.show_draw_status(
+                event.canvas_id, self._draw_status_overlay
+            )
 
     # ------------------------------------------------------------------
     # Scene construction

@@ -31,6 +31,7 @@ from cellier.render._level_of_detail_2d import (
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
 )
+from cellier.render._node_transform import set_node_matrix
 from cellier.render._plane_planning import (
     PlanePlanning,
     build_plane_planning,
@@ -89,13 +90,14 @@ from cellier.render.visuals._image import (
     MultiscaleRegionPlanner,
     NormSizedVolume,
     _carry_over_node_state,
-    _check_transform_no_rotation,
     _displayed_submatrix,
     _fetch_order,
+    _is_axis_aligned_view,
     _norm_size_from_transform,
     _norm_to_data_params_for,
     _plan_stats,
     _world_axes_to_data_axes,
+    _world_to_voxel_scale_2d,
 )
 from cellier.render.visuals._image_memory import (
     _box_wireframe_positions,
@@ -110,6 +112,7 @@ from cellier.render.visuals._pick import (
     multiscale_image_data_coordinate,
     multiscale_volume_data_coordinate,
 )
+from cellier.transform import effective_transform
 from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 if TYPE_CHECKING:
@@ -235,13 +238,16 @@ class GFXMultiscaleLabelVisual(
 
         # The data -> world transform.  There is no coordinate-system-less
         # identity to fall back on (D18); the controller supplies one.
-        self._transform: BaseTransform | None = transform
+        self._transform: BaseTransform | None = effective_transform(transform)
         # The systems this visual's geometry is placed with, pushed by the
         # controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
         # The collapsed voxel index per dropped data axis, refreshed on every
         # planned request (design 3.9).
         self._collapsed_indices: dict[int, float] = {}
+        # The node matrix's collapsed constants in a view the slice moves the
+        # data in (full affine design v2, 4.3); see ``_follow_slice``.
+        self._node_collapsed_world: dict[int, float] = {}
         self.render_modes = render_modes
         self._volume_geometry = volume_geometry
         self._image_geometry_2d = image_geometry_2d
@@ -386,7 +392,6 @@ class GFXMultiscaleLabelVisual(
                 swap_axes(tuple(float(s) for s in ds), (2, 1, 0)),
                 dtype=np.float64,
             )
-            _check_transform_no_rotation(self._transform)
             axes_for_norm = (
                 displayed_axes
                 if displayed_axes is not None and len(displayed_axes) == 3
@@ -688,7 +693,6 @@ class GFXMultiscaleLabelVisual(
             swap_axes(tuple(float(s) for s in geo.level_shapes[0]), (2, 1, 0)),
             dtype=np.float64,
         )
-        _check_transform_no_rotation(self._transform)
         self._norm_size = _norm_size_from_transform(
             self._transform, displayed_axes, self._dataset_size
         )
@@ -900,23 +904,23 @@ class GFXMultiscaleLabelVisual(
         self._last_displayed_axes = displayed_axes
         if self._spaces is None or self._transform is None:
             return
-        collapsed = {
-            axis: float(self._collapsed_indices.get(axis, 0.0))
-            for axis in self._spaces.collapsed_axes
-        }
+        collapsed = self._node_constants()
         plain = node_matrix(self._spaces, self._transform, collapsed)
         if self.node_3d is not None:
             if len(self._spaces.retained_axes) == 3 and self._norm_size is not None:
                 scale, translation = _norm_to_data_params_for(
                     self._spaces, self._dataset_size, self._norm_size
                 )
-                self.node_3d.local.matrix = node_matrix(
-                    self._spaces, self._transform, collapsed, scale, translation
+                set_node_matrix(
+                    self.node_3d,
+                    node_matrix(
+                        self._spaces, self._transform, collapsed, scale, translation
+                    ),
                 )
             else:
-                self.node_3d.local.matrix = plain
+                set_node_matrix(self.node_3d, plain)
         if self.node_2d is not None:
-            self.node_2d.local.matrix = plain
+            set_node_matrix(self.node_2d, plain)
         self._apply_clipping_planes()
 
     def _outline_shape(self):
@@ -1539,10 +1543,9 @@ class GFXMultiscaleLabelVisual(
             Visible width in level-0 voxels, for LOD selection.
         """
         sub_2d = _displayed_submatrix(self._transform, self._last_displayed_axes)
-        nd2 = sub_2d.shape[0] - 1
-        world_units_per_voxel_2d = np.abs(np.diag(sub_2d[:nd2, :nd2]))
-        world_to_voxel_scale_2d = float(
-            np.prod(1.0 / world_units_per_voxel_2d) ** (1.0 / nd2)
+        world_to_voxel_scale_2d = _world_to_voxel_scale_2d(
+            sub_2d,
+            _is_axis_aligned_view(self._transform, self._last_displayed_axes),
         )
         voxel_width = world_width * world_to_voxel_scale_2d
 
@@ -1622,10 +1625,9 @@ class GFXMultiscaleLabelVisual(
     # ── EventBus handler methods ──────────────────────────────────────────
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
 
         if self._dataset_size is not None:
-            _check_transform_no_rotation(self._transform)
             self._norm_size = _norm_size_from_transform(
                 self._transform, self._norm_size_axes, self._dataset_size
             )

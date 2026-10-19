@@ -1007,6 +1007,48 @@ class TransformChangedEvent(NamedTuple):
     transform: BaseTransform
 
 
+class DrawStatus(NamedTuple):
+    """Whether a scene's current view draws a visual, and why not.
+
+    Full affine design v2, D3 / D8.  A visual whose transform the view cannot
+    draw -- a 2D view whose slice cuts an image at an angle, say -- draws
+    nothing and reports it here rather than drawing something wrong.
+
+    Attributes
+    ----------
+    visual_id : UUID
+        The visual.
+    scene_id : UUID
+        Its scene.
+    name : str
+        The visual's name, for messages.
+    alignment : str
+        The view's :class:`~cellier.transform.SliceAlignment` value for the
+        visual (``"axis_aligned"``, ``"in_plane"``, ``"slice_shift"`` or
+        ``"oblique"``).
+    drawable : bool
+        Whether the view draws the visual.
+    reason : str or None
+        What the user can do about it, when not drawable.
+    """
+
+    visual_id: UUID
+    scene_id: UUID
+    name: str
+    alignment: str
+    drawable: bool
+    reason: str | None
+
+
+class DrawStatusChangedEvent(NamedTuple):
+    """Fired when a visual's :class:`DrawStatus` in its scene's view changes."""
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    status: DrawStatus
+
+
 class SceneRemovedEvent(NamedTuple):
     source_id: UUID
     scene_id: UUID
@@ -1710,6 +1752,7 @@ CellierEventTypes = (
     | VisualRemovedEvent
     | TrailChangedEvent
     | TransformChangedEvent
+    | DrawStatusChangedEvent
     | SceneAddedEvent
     | CanvasAddedEvent
     | OverlayChangedEvent

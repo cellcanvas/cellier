@@ -9,10 +9,14 @@ import pygfx as gfx
 
 from cellier.data.lines._lines_requests import LinesSliceRequest
 from cellier.render._clipping import GeometryClippingMixin, notify_planes_placed
+from cellier.render._node_transform import set_node_matrix
 from cellier.render._spaces import (
+    ElementFold,
     RenderSpaces,
     data_slice_positions,
+    element_fold,
     geometry_data_region,
+    node_follows_slice,
     node_matrix,
 )
 from cellier.render.shaders._alpha_modulated import AlphaLineSegmentMaterial
@@ -21,6 +25,13 @@ from cellier.render.visuals._aabb import (
     make_aabb_line,
     refresh_aabb_line,
 )
+from cellier.render.visuals._world_frame import (
+    collapsed_columns,
+    translation_matrix,
+    world_frame_active,
+    world_frame_positions,
+)
+from cellier.transform import effective_transform
 
 if TYPE_CHECKING:
     from cellier._state import DimsState
@@ -118,7 +129,7 @@ class GFXLinesMemoryVisual(GeometryClippingMixin):
 
         self.visual_model_id: UUID = visual_model.id
         self.render_modes: set[str] = render_modes
-        self._transform: BaseTransform | None = transform
+        self._transform: BaseTransform | None = effective_transform(transform)
         # The systems this visual's geometry is placed with, pushed by
         # the controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
@@ -126,6 +137,12 @@ class GFXLinesMemoryVisual(GeometryClippingMixin):
         # planned request.  The node matrix reads it (design 3.9).
         self._last_data_positions: dict[int, float] = {}
         self._last_displayed_axes: tuple[int, ...] | None = None
+        # The per-element fold of the current view (design v2, D11), or None.
+        self._fold: ElementFold | None = None
+        # Whether the last request was planned for a world-frame upload, and
+        # the origin of the one on the GPU (None: the usual frame).
+        self._request_world_frame: bool = False
+        self._world_origin: np.ndarray | None = None
 
         self._aabb_enabled: bool = visual_model.aabb.enabled
         self._aabb_color: str = visual_model.aabb.color
@@ -284,9 +301,19 @@ class GFXLinesMemoryVisual(GeometryClippingMixin):
         self._last_displayed_axes = displayed_axes
         if self._spaces is None or self._transform is None:
             return
-        self.node.local.matrix = node_matrix(
-            self._spaces, self._transform, self._collapsed_origin()
-        )
+        if self._world_origin is not None or world_frame_active(self._spaces):
+            # The geometry is placed in the world frame (Phase 6): in such a
+            # view no node matrix maps the data to the screen.
+            origin = self._world_origin
+            set_node_matrix(
+                self.node,
+                translation_matrix(origin if origin is not None else (0, 0, 0)),
+            )
+        else:
+            set_node_matrix(
+                self.node,
+                node_matrix(self._spaces, self._transform, self._collapsed_origin()),
+            )
         self._apply_clipping_planes()
 
     def _clip_targets(self):
@@ -349,6 +376,16 @@ class GFXLinesMemoryVisual(GeometryClippingMixin):
         # cuts the segments instead (design 5.2).
         clip_planes = self._begin_request_clipping()
         shared_id = uuid4()
+        # A view whose collapsed axes reach a displayed one places each
+        # vertex at its own collapsed position (design v2, D11); a view that
+        # tilts the slice draws it in the world frame (Phase 6).
+        self._request_world_frame = world_frame_active(self._spaces)
+        if self._request_world_frame:
+            self._fold = None
+            fold_axes = tuple(self._spaces.collapsed_axes)
+        else:
+            self._fold = element_fold(self._spaces, self._transform)
+            fold_axes = () if self._fold is None else self._fold.axes
         return LinesSliceRequest(
             slice_request_id=shared_id,
             chunk_request_id=shared_id,
@@ -357,6 +394,7 @@ class GFXLinesMemoryVisual(GeometryClippingMixin):
             retained_axes=self._spaces.retained_axes,
             region=region,
             clip_planes=clip_planes,
+            fold_axes=fold_axes,
         )
 
     def build_slice_request(
@@ -416,11 +454,44 @@ class GFXLinesMemoryVisual(GeometryClippingMixin):
           for pygfx.
         - 2D path: zero-pad to 3D; reverse columns [1, 0, 2]
         """
+        self._follow_slice()
         positions = lines_data.positions
+        fold = self._fold
+        if (
+            fold is not None
+            and lines_data.fold_positions is not None
+            and lines_data.fold_positions.shape[1] == len(fold.axes)
+        ):
+            # Each vertex at its own collapsed position (design v2, D11).
+            positions = fold.apply(
+                positions, lines_data.fold_positions, self._collapsed_origin()
+            )
         n_verts = positions.shape[0]
         n_dims = positions.shape[1]
 
-        if n_dims == 2:
+        world_frame = (
+            self._request_world_frame
+            and not lines_data.is_empty
+            and self._spaces is not None
+        )
+        was_world_frame = self._world_origin is not None
+        if world_frame:
+            # An OBLIQUE view (design v2, Phase 6): rendered positions,
+            # placed by a translation-only node matrix.
+            pos3d, self._world_origin = world_frame_positions(
+                self._spaces,
+                self._transform,
+                positions,
+                collapsed_columns(positions, lines_data.fold_positions),
+            )
+        else:
+            self._world_origin = None
+        if (world_frame or was_world_frame) and self._last_displayed_axes is not None:
+            self._update_node_matrix(self._last_displayed_axes)
+
+        if world_frame:
+            pass
+        elif n_dims == 2:
             # 2D path — pad displayed-plane coords with z=0.
             # Node matrix handles axis orientation; no reversal needed.
             zeros = np.zeros((n_verts, 1), dtype=np.float32)
@@ -464,6 +535,11 @@ class GFXLinesMemoryVisual(GeometryClippingMixin):
             None if lines_data.is_empty else lines_data.original_edge_indices
         )
 
+    def _follow_slice(self) -> None:
+        """Place the node again in a view the slice moves the data in."""
+        if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
+            self._update_node_matrix(self._last_displayed_axes)
+
     def on_data_ready(self, batch: list[tuple[LinesSliceRequest, LinesData]]) -> None:
         """3-D callback — called on the main thread by SliceCoordinator."""
         if not batch:
@@ -485,7 +561,7 @@ class GFXLinesMemoryVisual(GeometryClippingMixin):
     # ------------------------------------------------------------------
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
         if self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
 

@@ -13,6 +13,13 @@ integration.
 """
 
 from cellier.transform._affine import AffineTransform
+from cellier.transform._alignment import (
+    COUPLING_TOLERANCE,
+    SliceAlignment,
+    ViewClassification,
+    classify_view,
+    effective_transform,
+)
 from cellier.transform._axis import Axis, AxisRef, AxisSampling, AxisType
 from cellier.transform._base import BaseTransform
 from cellier.transform._by_dimension import ByDimensionTransform, TransformBlock
@@ -39,6 +46,7 @@ from cellier.transform._selection import RegionSelection
 from cellier.transform._types import TransformType
 
 __all__ = [
+    "COUPLING_TOLERANCE",
     "AffineTransform",
     "Axis",
     "AxisAlignedBoundingBox",
@@ -60,8 +68,12 @@ __all__ = [
     "Plane",
     "RegionSelection",
     "RenderedCoordinateSystem",
+    "SliceAlignment",
     "TransformBlock",
     "TransformType",
+    "ViewClassification",
     "VisualCoordinateSystem",
     "WorldCoordinateSystem",
+    "classify_view",
+    "effective_transform",
 ]

@@ -13,6 +13,7 @@ than the slider's.**  While a new position loads, the mesh is not drawn.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -26,15 +27,24 @@ from cellier.data.mesh._mesh_requests import (
 )
 from cellier.render._clipping import GeometryClippingMixin, notify_planes_placed
 from cellier.render._level_residency import LevelResidency
+from cellier.render._node_transform import set_node_matrix
 from cellier.render._spaces import (
     RenderSpaces,
     data_slice_positions,
     geometry_data_region,
     geometry_section_region,
+    node_follows_slice,
     node_matrix,
 )
 from cellier.render.scheduling import PlanMode
 from cellier.render.visuals._aabb import box_wireframe_positions, make_aabb_line
+from cellier.render.visuals._world_frame import (
+    full_data_points,
+    rendered_positions,
+    translation_matrix,
+    world_frame_active,
+)
+from cellier.transform import effective_transform
 
 if TYPE_CHECKING:
     from collections.abc import Hashable, Sequence
@@ -368,7 +378,11 @@ class GFXMeshVisual(GeometryClippingMixin):
 
         self.visual_model_id: UUID = visual_model.id
         self.render_modes: set[str] = render_modes
-        self._transform: BaseTransform | None = transform
+        self._transform: BaseTransform | None = effective_transform(transform)
+        # A tilted section's kernel columns and the origin of its world-frame
+        # upload (full affine design v2, Phase 6); None otherwise.
+        self._section_columns: tuple[int, int, int] | None = None
+        self._world_origin: np.ndarray | None = None
         # The systems this visual's geometry is placed with, pushed by
         # the controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
@@ -564,9 +578,20 @@ class GFXMeshVisual(GeometryClippingMixin):
         node = self.node_2d if len(displayed_axes) == 2 else self.node_3d
         if node is None:
             return
-        node.local.matrix = node_matrix(
-            self._spaces, self._transform, self._collapsed_origin()
-        )
+        if node is self.node_2d and (
+            self._world_origin is not None or world_frame_active(self._spaces)
+        ):
+            # A tilted section is placed in the world frame (Phase 6): in such
+            # a view no node matrix maps the data to the screen.
+            origin = self._world_origin
+            set_node_matrix(
+                node, translation_matrix(origin if origin is not None else (0, 0, 0))
+            )
+        else:
+            set_node_matrix(
+                node,
+                node_matrix(self._spaces, self._transform, self._collapsed_origin()),
+            )
         self._apply_clipping_planes()
 
     def _clip_targets(self):
@@ -627,7 +652,10 @@ class GFXMeshVisual(GeometryClippingMixin):
                 "selection."
             )
         section = None
-        if len(self._spaces.retained_axes) == 2:
+        # A view that tilts the slice (OBLIQUE, design v2 Phase 6) cuts the
+        # mesh with a tilted plane and places the cut in the world frame.
+        oblique = world_frame_active(self._spaces)
+        if len(self._spaces.retained_axes) == 2 or oblique:
             region, planes = geometry_section_region(
                 selection, self._transform, self._spaces.world, self._spaces.data
             )
@@ -652,6 +680,20 @@ class GFXMeshVisual(GeometryClippingMixin):
         clip_planes = self._section_clip_planes(self._begin_request_clipping(), section)
         shared_id = uuid4()
         retained = tuple(self._spaces.retained_axes)
+        output_axes = tuple(reversed(retained))
+        self._section_columns = None
+        if oblique and section is not None:
+            # The kernel cuts in three data columns: two it outputs, and the
+            # section axis the plane crosses most steeply, whose coordinate
+            # it keeps (``section_depth``) so the cut can be placed.  The
+            # three are the axes the view reads and the plane crosses.
+            normal = np.abs(np.asarray(section.normal, dtype=np.float64))
+            support = sorted(set(retained) | {int(a) for a in np.flatnonzero(normal)})
+            if len(support) == 3:
+                across = max(support, key=lambda axis: normal[axis])
+                output_axes = tuple(axis for axis in support if axis != across)
+                retained = output_axes
+                self._section_columns = (*output_axes, across)
         return MeshSliceRequest(
             slice_request_id=shared_id,
             chunk_request_id=shared_id,
@@ -660,9 +702,10 @@ class GFXMeshVisual(GeometryClippingMixin):
             retained_axes=retained,
             region=region,
             # pygfx draws (x, y, z); the data is ascending (z, y, x).
-            output_axes=tuple(reversed(retained)),
+            output_axes=output_axes,
             section=section,
             clip_planes=clip_planes,
+            section_depth=self._section_columns is not None,
         )
 
     @staticmethod
@@ -676,8 +719,15 @@ class GFXMeshVisual(GeometryClippingMixin):
         return held[:-1] == planned[:-1] and held[-1] != planned[-1]
 
     def _wants_cpu_clip(self) -> bool:
-        """Only a slab section is flattened; see ``GeometryClippingMixin``."""
-        return getattr(self, "_slab_section", False) and super()._wants_cpu_clip()
+        """Whether the read clips: see ``GeometryClippingMixin``.
+
+        A slab section is flattened, and a tilted section is placed in the
+        world frame, so either is clipped by its true position.
+        """
+        flattened = getattr(self, "_slab_section", False) or world_frame_active(
+            self._spaces
+        )
+        return flattened and super()._wants_cpu_clip()
 
     def _section_clip_planes(self, planes: tuple, section) -> tuple:
         """The read's planes, reduced to the axes the section kernel sees.
@@ -846,10 +896,72 @@ class GFXMeshVisual(GeometryClippingMixin):
         """
         self._check_colors(data)
         is_2d = len(request_key[0]) == 2
+        was_world_frame = self._world_origin is not None
+        data = self._placed_section(data)
+        if (self._world_origin is not None or was_world_frame) and (
+            self._last_displayed_axes is not None
+        ):
+            self._update_node_matrix(self._last_displayed_axes)
         self._levels[level].upload(data, is_2d, self._placeholder_corner())
+        if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
+            # A view the slice moves the mesh in (``SLICE_SHIFT``): one
+            # collapsed coordinate per draw, so the node follows the slice
+            # (full affine design v2, 4.3; D4 -- no per-vertex placement).
+            self._update_node_matrix(self._last_displayed_axes)
         if is_2d:
             self._section_drawn = isinstance(data, MeshSectionData)
             self._sync_2d_color_modes()
+
+    def _placed_section(self, data: MeshData | MeshSectionData):
+        """A section cut by a tilted plane, in the world frame (Phase 6).
+
+        The read keeps each vertex's section-axis coordinate; with the two
+        output columns and the slice positions of every other collapsed axis
+        that is a full data point, mapped here to the rendered frame.  The
+        node matrix becomes a translation (``_world_origin``).  Any other
+        result passes through and clears the origin.
+        """
+        columns = self._section_columns
+        if (
+            columns is None
+            or not isinstance(data, MeshSectionData)
+            or data.is_empty
+            or self._spaces is None
+        ):
+            self._world_origin = None
+            return data
+        constants = self._collapsed_origin()
+        origin = None
+        placed = {}
+        for name in ("fill_positions", "outline_positions"):
+            positions = getattr(data, name)
+            if len(positions) == 0:
+                placed[name] = positions
+                continue
+            points = full_data_points(
+                self._spaces.data.ndim,
+                {axis: positions[:, k] for k, axis in enumerate(columns)},
+                constants,
+            )
+            placed[name], origin = rendered_positions(
+                self._spaces, self._transform, points, origin
+            )
+        self._world_origin = origin if origin is not None else np.zeros(3)
+
+        def bounds(positions):
+            if len(positions) == 0:
+                return None
+            return np.stack([positions.min(axis=0), positions.max(axis=0)]).astype(
+                np.float64
+            )
+
+        return dataclasses.replace(
+            data,
+            fill_positions=placed["fill_positions"],
+            outline_positions=placed["outline_positions"],
+            fill_bounds=bounds(placed["fill_positions"]),
+            outline_bounds=bounds(placed["outline_positions"]),
+        )
 
     def _sync_2d_color_modes(self) -> None:
         """Set where the 2D materials take their colour from.
@@ -1027,7 +1139,7 @@ class GFXMeshVisual(GeometryClippingMixin):
     # ------------------------------------------------------------------
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
         if self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
 

@@ -974,6 +974,18 @@ class AffineTransform(BaseTransform):
         """
         return self.broadcast_axes
 
+    def axis_coupling(self) -> np.ndarray:
+        """The linear block's non-zero pattern under D7's tolerance.
+
+        Returns
+        -------
+        np.ndarray
+            ``(output_ndim, input_ndim)`` booleans.
+        """
+        from cellier.transform._alignment import coupling_pattern
+
+        return coupling_pattern(np.asarray(self.linear))
+
     def axis_correspondence(self) -> dict[int, int]:
         """Read ``{input axis: output axis}`` off the matrix.
 
@@ -988,9 +1000,10 @@ class AffineTransform(BaseTransform):
         ValueError
             If any input axis feeds more than one output axis, or any output
             axis is fed by more than one input axis -- a shear or a rotation,
-            which the axis-aligned slicing path cannot express.  See
-            ``_check_transform_no_rotation``, which imposes the same
-            restriction on the multiscale brick shader.
+            which no bijection can express.  To ask how such a transform
+            lines up with a view use :func:`cellier.transform.classify_view`,
+            and for its uncoupled pairs :meth:`exclusive_axis_correspondence`;
+            neither raises.
         """
         linear = np.asarray(self.linear)
         correspondence: dict[int, int] = {}

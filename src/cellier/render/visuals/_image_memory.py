@@ -9,14 +9,16 @@ import pygfx as gfx
 
 from cellier.data.image._image_requests import ChunkRequest
 from cellier.render._clipping import ClippingPlanesMixin
+from cellier.render._node_transform import set_node_matrix
 from cellier.render._render_planes import RenderPlanesMixin
-from cellier.render._spaces import RenderSpaces, node_matrix
+from cellier.render._spaces import RenderSpaces, node_follows_slice, node_matrix
 from cellier.render.shaders._image_volume import IMAGE_VOLUME_MATERIALS
 from cellier.render.visuals._pick import memory_image_data_coordinate
 from cellier.render.visuals._slicing import (
     axis_selections_from_box,
     image_plane_selection,
 )
+from cellier.transform import effective_transform
 from cellier.visuals._image_memory import effective_transparency_mode
 from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
@@ -133,6 +135,28 @@ def _pin_bounding_box(node, box_min: list[float], box_max: list[float]) -> None:
     node.get_bounding_box = lambda: box
 
 
+def _pin_footprint(node, sizes, n_axes: int) -> None:
+    """Pin *node*'s local bounding box to a texture of *sizes* voxels.
+
+    *sizes* are in fetch order (the retained data axes, ascending); the
+    texture's ``(x, y, z)`` is that order reversed.  A size that does not fit
+    the node's *n_axes* (a 2-D store's 3D node) leaves the box as it is.
+
+    The texture a 2D node holds follows the view -- a ``(z, x)`` view's slice
+    is ``Z x X``, not the store's last two axes -- so callers pin again from
+    the view's retained axes whenever it changes, and from each uploaded
+    array.
+    """
+    if node is None or len(sizes) != n_axes:
+        return
+    upper = [float(size) - 0.5 for size in reversed(sizes)]
+    lower = [-0.5] * n_axes
+    if n_axes == 2:
+        lower.append(0.0)
+        upper.append(0.0)
+    _pin_bounding_box(node, lower, upper)
+
+
 def _box_wireframe_positions(box_min: np.ndarray, box_max: np.ndarray) -> np.ndarray:
     """Return (24, 3) float32 positions for a 3D box wireframe (12 edges x 2 pts)."""
     x0, y0, z0 = float(box_min[0]), float(box_min[1]), float(box_min[2])
@@ -202,6 +226,28 @@ def _make_aabb_line(
     return line
 
 
+def _fit_aabb_line(line, sizes, n_axes: int) -> None:
+    """Size an outline wireframe to a texture of *sizes* voxels.
+
+    *sizes* are in fetch order, as for :func:`_pin_footprint`.  A hidden line
+    still counts toward its group's bounding box, so the wireframe follows
+    the view like the pinned box does; the geometry is replaced only when
+    the box changes.
+    """
+    if line is None or len(sizes) != n_axes:
+        return
+    upper = np.array([float(size) - 0.5 for size in reversed(sizes)])
+    lower = np.full(n_axes, -0.5)
+    if n_axes == 3:
+        positions = _box_wireframe_positions(lower, upper)
+    else:
+        positions = _rect_wireframe_positions(lower, upper)
+    current = np.asarray(line.geometry.positions.data)
+    if current.shape == positions.shape and np.array_equal(current, positions):
+        return
+    line.geometry = gfx.Geometry(positions=positions)
+
+
 def _plan_from_region(
     selection: RegionSelection,
     transform: AffineTransform,
@@ -268,7 +314,8 @@ class _ImageMemorySlot:
     shape : tuple[int, ...]
         The store's shape.  The trailing two (2D) or three (3D) entries pin
         each node's bounding box to the full data footprint before any data
-        arrives, so ``fit_camera`` frames the data from the start.
+        arrives, so ``fit_camera`` frames the data from the start; the
+        visual pins again from the view's retained axes once it has them.
     pick_write : bool
         Whether the materials write to the pick buffer.
     """
@@ -285,24 +332,20 @@ class _ImageMemorySlot:
         self.node_2d: gfx.Image | None = None
         self.node_3d: gfx.Volume | None = None
         if "2d" in render_modes:
-            h, w = shape[-2], shape[-1]
             placeholder = np.zeros((1, 1, 1), dtype=np.float32)
             self.node_2d = gfx.Image(
                 gfx.Geometry(grid=gfx.Texture(placeholder, dim=2, format="1xf4")),
                 gfx.ImageBasicMaterial(clim=(0.0, 1.0), pick_write=pick_write),
             )
-            _pin_bounding_box(self.node_2d, [-0.5, -0.5, 0.0], [w - 0.5, h - 0.5, 0.0])
+            _pin_footprint(self.node_2d, shape[-2:], 2)
             self.node_2d.visible = False
         if "3d" in render_modes:
-            d, h, w = shape[-3], shape[-2], shape[-1]
             placeholder = np.zeros((2, 2, 2), dtype=np.float32)
             self.node_3d = gfx.Volume(
                 gfx.Geometry(grid=gfx.Texture(placeholder, dim=3, format="1xf4")),
                 _VOLUME_MATERIALS["mip"](clim=(0.0, 1.0), pick_write=pick_write),
             )
-            _pin_bounding_box(
-                self.node_3d, [-0.5, -0.5, -0.5], [w - 0.5, h - 0.5, d - 0.5]
-            )
+            _pin_footprint(self.node_3d, shape[-3:], 3)
             self.node_3d.visible = False
 
     def nodes(self) -> tuple:
@@ -448,7 +491,7 @@ class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
         # The data -> world transform and the systems the geometry is placed
         # with; the controller supplies both.
-        self._transform: BaseTransform | None = transform
+        self._transform: BaseTransform | None = effective_transform(transform)
         self._spaces: RenderSpaces | None = None
         self._last_displayed_axes: tuple[int, ...] | None = None
         # The collapsed voxel index per dropped data axis from the last plan
@@ -685,6 +728,13 @@ class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self._last_displayed_axes = displayed_axes
         if self._spaces is None or self._transform is None:
             return
+        # The view decides which data axes the textures hold.
+        retained = [self._data_store.shape[axis] for axis in self._spaces.retained_axes]
+        for slot in self._slots:
+            _pin_footprint(slot.node_2d, retained, 2)
+            _pin_footprint(slot.node_3d, retained, 3)
+        _fit_aabb_line(self._aabb_line_2d, retained, 2)
+        _fit_aabb_line(self._aabb_line_3d, retained, 3)
         m = node_matrix(
             self._spaces,
             self._transform,
@@ -694,9 +744,9 @@ class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
             },
         )
         if self.node_3d is not None:
-            self.node_3d.local.matrix = m
+            set_node_matrix(self.node_3d, m)
         if self.node_2d is not None:
-            self.node_2d.local.matrix = m
+            set_node_matrix(self.node_2d, m)
         self._apply_clipping_planes()
 
     def _outline_shape(self):
@@ -903,8 +953,20 @@ class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
     # Commit -- receive data from AsyncSlicer and upload to GPU
     # ------------------------------------------------------------------
 
+    def _follow_slice(self) -> None:
+        """Place the node again when a slice lands in a view it moves.
+
+        ``SLICE_SHIFT`` (full affine design v2, 4.3, K11): the collapsed
+        indices the node matrix holds move the drawn slab across the view,
+        so the matrix follows each slice.  Other views keep today's call
+        pattern: the matrix changes only with the displayed axes.
+        """
+        if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
+            self._update_node_matrix(self._last_displayed_axes)
+
     def on_data_ready(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
         """Upload 3D volumes to the slots the pending plan named."""
+        self._follow_slice()
         pending = self._pending["3d"]
         for request, data in batch:
             entry = pending.get(request.chunk_request_id)
@@ -923,20 +985,16 @@ class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
             # (x=W, y=H, z=D).
             texture = gfx.Texture(np.ascontiguousarray(data), dim=3, format="1xf4")
             slot.node_3d.geometry = gfx.Geometry(grid=texture)
+            _pin_footprint(slot.node_3d, data.shape, 3)
             slot.loaded["3d"] = selections
+            _fit_aabb_line(self._aabb_line_3d, data.shape, 3)
             if not self._data_ready_3d and self._aabb_line_3d is not None:
-                d, h, w = data.shape
-                self._aabb_line_3d.geometry = gfx.Geometry(
-                    positions=_box_wireframe_positions(
-                        np.array([-0.5, -0.5, -0.5]),
-                        np.array([w - 0.5, h - 0.5, d - 0.5]),
-                    )
-                )
                 self._data_ready_3d = True
                 self._aabb_line_3d.visible = self._aabb_enabled
 
     def on_data_ready_2d(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
         """Upload 2D slices to the slots the pending plan named."""
+        self._follow_slice()
         pending = self._pending["2d"]
         for request, data in batch:
             entry = pending.get(request.chunk_request_id)
@@ -954,14 +1012,10 @@ class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 np.ascontiguousarray(data[:, :, np.newaxis]), dim=2, format="1xf4"
             )
             slot.node_2d.geometry = gfx.Geometry(grid=texture)
+            _pin_footprint(slot.node_2d, data.shape, 2)
             slot.loaded["2d"] = selections
+            _fit_aabb_line(self._aabb_line_2d, data.shape, 2)
             if not self._data_ready_2d and self._aabb_line_2d is not None:
-                h, w = data.shape
-                self._aabb_line_2d.geometry = gfx.Geometry(
-                    positions=_rect_wireframe_positions(
-                        np.array([-0.5, -0.5]), np.array([w - 0.5, h - 0.5])
-                    )
-                )
                 self._data_ready_2d = True
                 self._aabb_line_2d.visible = self._aabb_enabled
 
@@ -997,7 +1051,7 @@ class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
         """Update the stored transform and the node matrix."""
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
         if self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
 

@@ -11,8 +11,9 @@ import pygfx as gfx
 import cellier.render.shaders._label_volume  # noqa: F401
 from cellier.data.image._image_requests import ChunkRequest
 from cellier.render._clipping import ClippingPlanesMixin
+from cellier.render._node_transform import set_node_matrix
 from cellier.render._render_planes import RenderPlanesMixin
-from cellier.render._spaces import RenderSpaces, node_matrix
+from cellier.render._spaces import RenderSpaces, node_follows_slice, node_matrix
 from cellier.render.shaders._label_colormap import (
     build_direct_lut_textures,
     build_label_params_buffer,
@@ -21,12 +22,15 @@ from cellier.render.shaders._label_image import LabelImageMaterial
 from cellier.render.shaders._label_volume import LabelVolumeMaterial
 from cellier.render.visuals._image_memory import (
     _box_wireframe_positions,
+    _fit_aabb_line,
     _make_aabb_line,
+    _pin_footprint,
     _plan_from_region,
     _rect_wireframe_positions,
 )
 from cellier.render.visuals._pick import memory_image_data_coordinate
 from cellier.render.visuals._slicing import image_plane_selection
+from cellier.transform import effective_transform
 
 if TYPE_CHECKING:
     from cellier._state import DimsState
@@ -88,7 +92,7 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
         # The data -> world transform.  There is no coordinate-system-less
         # identity to fall back on (D18); the controller supplies one.
-        self._transform: BaseTransform | None = transform
+        self._transform: BaseTransform | None = effective_transform(transform)
 
         # The systems this visual's geometry is placed with, pushed by the
         # controller.  ``None`` until the scene has a canvas.
@@ -203,6 +207,13 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
             if node is not None:
                 node.visible = appearance.visible
 
+        # The placeholders above are one or two voxels: pin the boxes to the
+        # data's footprint so a camera fit before the first slice lands (the
+        # first visit to 3D fits at once) frames the data, not a corner.
+        store_shape = tuple(data_store.shape)
+        _pin_footprint(self._inner_node_2d, store_shape[-2:], 2)
+        _pin_footprint(self._inner_node_3d, store_shape[-3:], 3)
+
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -257,6 +268,12 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self._last_displayed_axes = displayed_axes
         if self._spaces is None or self._transform is None:
             return
+        # The view decides which data axes the texture holds.
+        retained = [self._data_store.shape[axis] for axis in self._spaces.retained_axes]
+        _pin_footprint(self._inner_node_2d, retained, 2)
+        _pin_footprint(self._inner_node_3d, retained, 3)
+        _fit_aabb_line(self._aabb_line_2d, retained, 2)
+        _fit_aabb_line(self._aabb_line_3d, retained, 3)
         m = node_matrix(
             self._spaces,
             self._transform,
@@ -266,9 +283,9 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
             },
         )
         if self.node_3d is not None:
-            self.node_3d.local.matrix = m
+            set_node_matrix(self.node_3d, m)
         if self.node_2d is not None:
-            self.node_2d.local.matrix = m
+            set_node_matrix(self.node_2d, m)
         self._apply_clipping_planes()
 
     def _outline_shape(self):
@@ -430,8 +447,20 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
     # Data commit callbacks
     # ------------------------------------------------------------------
 
+    def _follow_slice(self) -> None:
+        """Place the node again when a slice lands in a view it moves.
+
+        ``SLICE_SHIFT`` (full affine design v2, 4.3, K11): the collapsed
+        indices the node matrix holds move the drawn slab across the view,
+        so the matrix follows each slice.  Other views keep today's call
+        pattern: the matrix changes only with the displayed axes.
+        """
+        if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
+            self._update_node_matrix(self._last_displayed_axes)
+
     def on_data_ready(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
         """Upload a 3-D int32 array to the pygfx Volume node."""
+        self._follow_slice()
         if not batch or self._inner_node_3d is None:
             return
         _request, data = batch[0]
@@ -441,19 +470,16 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
         data_wgpu = np.ascontiguousarray(data.astype(np.int32))
         tex = gfx.Texture(data_wgpu, dim=3, format="1xi4")
         self._inner_node_3d.geometry = gfx.Geometry(grid=tex)
+        _pin_footprint(self._inner_node_3d, data.shape, 3)
 
+        _fit_aabb_line(self._aabb_line_3d, data.shape, 3)
         if not self._data_ready_3d and self._aabb_line_3d is not None:
-            d, h, w = data.shape
-            positions = _box_wireframe_positions(
-                np.array([-0.5, -0.5, -0.5]),
-                np.array([w - 0.5, h - 0.5, d - 0.5]),
-            )
-            self._aabb_line_3d.geometry = gfx.Geometry(positions=positions)
             self._data_ready_3d = True
             self._aabb_line_3d.visible = self._aabb_enabled
 
     def on_data_ready_2d(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
         """Upload a 2-D int32 slice to the pygfx Image node."""
+        self._follow_slice()
         if not batch or self._inner_node_2d is None:
             return
         _request, data = batch[0]
@@ -462,14 +488,10 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
         data_wgpu = np.ascontiguousarray(data[:, :, np.newaxis].astype(np.int32))
         tex = gfx.Texture(data_wgpu, dim=2, format="1xi4")
         self._inner_node_2d.geometry = gfx.Geometry(grid=tex)
+        _pin_footprint(self._inner_node_2d, data.shape, 2)
 
+        _fit_aabb_line(self._aabb_line_2d, data.shape, 2)
         if not self._data_ready_2d and self._aabb_line_2d is not None:
-            h, w = data.shape
-            positions = _rect_wireframe_positions(
-                np.array([-0.5, -0.5]),
-                np.array([w - 0.5, h - 0.5]),
-            )
-            self._aabb_line_2d.geometry = gfx.Geometry(positions=positions)
             self._data_ready_2d = True
             self._aabb_line_2d.visible = self._aabb_enabled
 
@@ -564,7 +586,7 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 self.node_3d.render_order = val
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
         if self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
 
