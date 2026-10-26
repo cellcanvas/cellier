@@ -586,11 +586,20 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // The slab's centre plane anchors the window wherever it is: the slab
     // may reach the data where the plane itself does not.  The samples are
     // cut to the box and the clipping planes ([t_start, t_end]).
-    let plane = plane_nearest_hit(plane_ray_o, plane_ray_d, -1.0e30, 1.0e30, true);
+    //
+    // The ray is re-origined where it enters that interval.  From the near
+    // plane, which a 2D orthographic camera puts about 100 view depths away,
+    // t is in the thousands of voxels and an f32 t carries about 1e-3 voxel
+    // of error: as much as the window's face tolerance, so samples on a face
+    // were kept or dropped by the GPU's rounding.  Moving the origin along
+    // the ray costs nothing, and from here t spans only the data.
+    let slab_o = near_pos + ray_dir * t_start;
+    let slab_ray_o = (u_wobject.world_transform * vec4<f32>(slab_o, 1.0)).xyz;
+    let plane = plane_nearest_hit(slab_ray_o, plane_ray_d, -1.0e30, 1.0e30, true);
     if (!plane.hit) { discard; }
     let slab_direction = u_material.slab_direction.xyz;
     let slab = slab_reduce(
-        near_pos, ray_dir, inv_ray_dir, plane.t, t_start, t_end,
+        slab_o, ray_dir, inv_ray_dir, plane.t, 0.0, t_end - t_start,
         u_material.slab_half_extent, dot(plane_ray_d, slab_direction),
         slab_direction, u_material.slab_steps_per_voxel,
         u_material.slab_along_axis > 0.5, u_material.slab_nearest > 0.5,
@@ -598,7 +607,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     if (!slab.found) { discard; }
     // The pick and the normal are the winning sample's (max, min) or the
     // centre plane's (mean): O12.
-    let plane_pos = near_pos + ray_dir * slab.t_pick;
+    let plane_pos = slab_o + ray_dir * slab.t_pick;
     let plane_value = slab.value;
     $$ else
     let plane = plane_nearest_hit(plane_ray_o, plane_ray_d, t_start, t_end, true);

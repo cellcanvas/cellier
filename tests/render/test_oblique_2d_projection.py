@@ -186,6 +186,48 @@ def test_linear_sampling_on_an_along_axis_ray_is_exact_too(tmp_path, family):
         viewer.controller.close()
 
 
+@pytest.mark.parametrize("family", FAMILIES)
+@pytest.mark.parametrize("interpolation", ["linear", "nearest"])
+@pytest.mark.parametrize("depth", [8.0e4, 3.0e5])
+def test_the_window_faces_do_not_depend_on_the_near_plane(
+    tmp_path, family, interpolation, depth
+):
+    """The window ``[7, 13)`` holds the same planes however far the camera's
+    near plane is.  Rays measured from a distant near plane carried f32 error
+    as large as the face tolerance: the face samples came and went with the
+    GPU's rounding (lavapipe dropped plane 7 at the default range; Metal did
+    at these, linear at 8e4 and nearest at 3e5)."""
+    data = _random_volume(32)
+    viewer = new_viewer("2d")
+    try:
+        _add(viewer, family, tmp_path, data, op="mip", interpolation=interpolation)
+        load(viewer, slice_z=10.0, half_thickness=3.0)
+        canvas_view(viewer).camera.depth_range = (-depth, depth)
+        frame, _, camera = render(viewer)
+        if interpolation == "nearest":
+            row, col, valid = _pixels(camera, SHAPE)
+            assert _wrong(frame, data[7:13].max(0), row, col, valid) == 0
+            return
+        xy = _pixel_world(camera)
+        x0 = np.floor(xy[..., 0]).astype(int)
+        y0 = np.floor(xy[..., 1]).astype(int)
+        fx, fy = xy[..., 0] - x0, xy[..., 1] - y0
+        inside = (x0 >= 0) & (x0 < SHAPE[2] - 1) & (y0 >= 0) & (y0 < SHAPE[1] - 1)
+        x0c = np.clip(x0, 0, SHAPE[2] - 2)
+        y0c = np.clip(y0, 0, SHAPE[1] - 2)
+        planes = data[7:13]
+        expected = (
+            planes[:, y0c, x0c] * (1 - fx) * (1 - fy)
+            + planes[:, y0c, x0c + 1] * fx * (1 - fy)
+            + planes[:, y0c + 1, x0c] * (1 - fx) * fy
+            + planes[:, y0c + 1, x0c + 1] * fx * fy
+        ).max(axis=0)
+        got = frame[..., 0].astype(float)
+        assert np.percentile(np.abs(got - expected)[inside], 99) <= 3.0
+    finally:
+        viewer.controller.close()
+
+
 # ---------------------------------------------------------------------------
 # D10: the sign of the slab (boundary), and the winning sample's pick (O12)
 # ---------------------------------------------------------------------------

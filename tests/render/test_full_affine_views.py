@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -619,16 +618,16 @@ def test_axis_correspondence_is_only_called_where_the_design_allows():
     the ``_spaces`` delegation itself.
     """
     root = Path(__file__).resolve().parents[2] / "src" / "cellier"
-    result = subprocess.run(
-        ["grep", "-rn", "--include=*.py", "axis_correspondence(", str(root)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    # Scanned in Python rather than parsed from grep's ``path:line:text``,
+    # which a Windows drive letter (``D:\...``) splits in the wrong place.
+    lines = [
+        (path.relative_to(root).as_posix(), text)
+        for path in sorted(root.rglob("*.py"))
+        for text in path.read_text(encoding="utf-8").splitlines()
+        if "axis_correspondence(" in text
+    ]
     sites = []
-    for line in result.stdout.splitlines():
-        path, _number, text = line.split(":", 2)
-        relative = Path(path).relative_to(root).as_posix()
+    for relative, text in lines:
         code = text.split("#", 1)[0]
         if relative.startswith("transform/") or not re.search(
             r"(?<!exclusive_)axis_correspondence\(", code
