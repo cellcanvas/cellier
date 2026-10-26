@@ -63,16 +63,86 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The Ubuntu packages install from a cache of their .deb files. The Azure
+      # Ubuntu mirror has served the Mesa packages at ~36 kB/s for minutes on
+      # end (8 to 9 minutes a job on PR 130), which apt's timeouts cannot cut
+      # short: they fire only when no bytes arrive. With the files cached, apt
+      # downloads only what changed since the last save. The cache is keyed by
+      # the release and the files it holds, so a new package version is saved
+      # alongside the rest and autoclean drops the superseded one.
+      - name: apt cache key
+        if: matrix.platform == 'ubuntu-latest'
+        id: apt-key
+        run: echo "prefix=apt-debs-$(. /etc/os-release && echo "$VERSION_CODENAME")-${{ runner.arch }}-" >> "$GITHUB_OUTPUT"
+
+      - name: Restore apt packages
+        if: matrix.platform == 'ubuntu-latest'
+        id: apt-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/apt-archives
+          key: ${{ steps.apt-key.outputs.prefix }}latest
+          restore-keys: ${{ steps.apt-key.outputs.prefix }}
+
+      # This also installs the headless display action's Linux packages, so its
+      # own apt-get install below finds nothing to download (only its index
+      # refresh repeats). The list is the action's for v5 with qt: true and no
+      # window manager; if it drifts, the action fetches the difference itself.
+      - name: Install llvmpipe, lavapipe and the headless display's packages
+        if: matrix.platform == 'ubuntu-latest'
+        id: apt-install
+        run: |
+          archives="$RUNNER_TEMP/apt-archives"
+          mkdir -p "$archives/partial"
+          # A hard stall falls back to the next mirror after 20 s, not apt's
+          # default 120 s. Downloads run as root: the _apt user cannot write
+          # to the runner's temp directory.
+          opts=(
+            -o APT::Sandbox::User=root
+            -o Acquire::Retries=3
+            -o Acquire::http::Timeout=20
+            -o Acquire::https::Timeout=20
+            -o DPkg::Lock::Timeout=120
+            -o Dpkg::Options::=--force-unsafe-io
+            -o Dir::Cache::Archives="$archives"
+          )
+          packages=(
+            # llvmpipe and lavapipe for the offscreen canvas
+            libegl1-mesa-dev libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+            # pyvista/setup-headless-display-action@v5, qt: true, wm: false
+            libglx-mesa0 libgl1 xvfb x11-xserver-utils
+            libdbus-1-3 libegl1 libopengl0 libosmesa6 libpulse0
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0
+            libxcb-xinerama0 libxcb-xinput0 libxkbcommon-x11-0 mesa-utils x11-utils
+          )
+          echo "restored $(ls "$archives"/*.deb 2>/dev/null | wc -l) cached .deb files"
+          sudo timeout 5m apt-get update -qq "${opts[@]}"
+          sudo env DEBIAN_FRONTEND=noninteractive timeout 15m \
+            apt-get install -y "${opts[@]}" "${packages[@]}"
+          # Drop superseded versions, and hand the rest to the runner user so
+          # the cache can archive them.
+          sudo apt-get autoclean -qq "${opts[@]}"
+          sudo rm -rf "$archives/partial" "$archives/lock"
+          sudo chown -R "$(id -u):$(id -g)" "$archives"
+          files_hash=$(cd "$archives" && ls *.deb | sha256sum | cut -c1-16)
+          echo "key=${{ steps.apt-key.outputs.prefix }}${files_hash}" >> "$GITHUB_OUTPUT"
+
+      # Saved straight away rather than at the end of the job, so a failing
+      # test run still keeps the downloads.
+      - name: Save apt packages
+        if: >-
+          matrix.platform == 'ubuntu-latest'
+          && steps.apt-install.outputs.key != steps.apt-cache.outputs.cache-matched-key
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/apt-archives
+          key: ${{ steps.apt-install.outputs.key }}
+
       - name: Set up headless GUI
         uses: pyvista/setup-headless-display-action@v5
         with:
           qt: true
-
-      - name: Install llvmpipe and lavapipe for offscreen canvas
-        if: matrix.platform == 'ubuntu-latest'
-        run: |
-          sudo apt-get update -y -qq
-          sudo apt install -y libegl1-mesa-dev libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
 
       # The windows runners ship no Vulkan driver (the loader is there, but finds
       # no ICD). This installs lavapipe and registers its ICD under
