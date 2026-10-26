@@ -415,7 +415,15 @@ fn vs_main(in: VertexInput) -> Varyings {
     );
 
     let norm_pos  = corners[indices[box_winding_index(in.vertex_index)]];
+    $$ if slice_2d
+    // A 2D view's slice node (oblique 2D design v3, 5.3.3): the box is
+    // flattened onto rendered depth 0, as the image brick shader does, so
+    // the 2D camera's depth range never clips it.
+    let box_pos   = u_wobject.world_transform * vec4<f32>(norm_pos, 1.0);
+    let world_pos = vec4<f32>(box_pos.xy, 0.0, box_pos.w);
+    $$ else
     let world_pos = u_wobject.world_transform * vec4<f32>(norm_pos, 1.0);
+    $$ endif
     let ndc_pos   = u_stdinfo.projection_transform
                   * u_stdinfo.cam_transform
                   * world_pos;
@@ -516,7 +524,13 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let plane_ndc = u_stdinfo.projection_transform * u_stdinfo.cam_transform * plane_world;
     // Flat label colour: a plane is not shaded.
     out.color = vec4<f32>(plane_color.rgb, plane_color.a * u_material.opacity);
+    $$ if slice_2d
+    // The flattened proxy's rasterised depth: a 2D tile's depth exactly
+    // (oblique 2D design v3, 5.3.3, K27).
+    out.depth = varyings.position.z;
+    $$ else
     out.depth = plane_ndc.z / plane_ndc.w;
+    $$ endif
     $$ if write_normal
     // The plane's own normal, faced to the viewer by pack_view_normal.
     out.normal = pack_view_normal(

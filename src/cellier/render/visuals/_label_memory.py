@@ -20,6 +20,7 @@ from cellier.render.shaders._label_colormap import (
 )
 from cellier.render.shaders._label_image import LabelImageMaterial
 from cellier.render.shaders._label_volume import LabelVolumeMaterial
+from cellier.render.visuals._brick_route_host import BrickRouteHost
 from cellier.render.visuals._image_memory import (
     _box_wireframe_positions,
     _fit_aabb_line,
@@ -50,7 +51,7 @@ def _make_placeholder_label_params() -> gfx.Buffer:
     return build_label_params_buffer(background_label=0, salt=0, n_entries=0)
 
 
-class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
+class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
     """Render-layer visual for a LabelMemoryVisual backed by LabelMemoryStore.
 
     Owns gfx.Image (2D) and/or gfx.Volume (3D) nodes with custom label shaders.
@@ -89,6 +90,8 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self.visual_model_id: UUID = visual_model.id
         self.render_modes: set[str] = render_modes
         self._data_store = data_store
+        # Read by the brick route's inner visual (oblique 2D design v3, 5.4).
+        self._visual_model = visual_model
 
         # The data -> world transform.  There is no coordinate-system-less
         # identity to fall back on (D18); the controller supplies one.
@@ -649,3 +652,19 @@ class GFXLabelMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
     def tick(self) -> None:
         pass
+
+
+class GFXLabelMemoryVisual(BrickRouteHost, _GFXLabelMemoryToday):
+    """Render-layer visual for an in-memory labels visual.
+
+    Today's whole-slice path (:class:`_GFXLabelMemoryToday`), and the brick
+    route for a tilted 2D view (oblique 2D design v3, 5.4,
+    :class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
+    """
+
+    def _build_inner(self, model, axes):
+        from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
+
+        return GFXMultiscaleLabelVisual.from_cellier_model(
+            model, list(self._brick_source.level_shapes), {"3d"}, tuple(axes)
+        )

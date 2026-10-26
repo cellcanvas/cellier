@@ -96,6 +96,11 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
     smooth_level : float
         ``MultiscaleLabelsAppearance.smooth_geometry_level``: where the
         ``smooth_geometry`` surface sits.  Default ``0.5``.
+    slice_2d : bool
+        Draw as a 2D view's slice node (oblique 2D design v3, 5.3.3): the
+        proxy box is flattened onto rendered depth 0 and the plane branch
+        writes the rasterised depth, as ``MultiscaleVolumeBrickMaterial``
+        does.  Default ``False``.
     """
 
     uniform_type: ClassVar[dict] = dict(
@@ -123,9 +128,11 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
         ray_steps_per_voxel: float = 1.0,
         render_planes_buffer: Buffer | None = None,
         smooth_level: float = 0.5,
+        slice_2d: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
+        self._store.slice_2d = bool(slice_2d)
         self.uniform_buffer.data["ray_steps_per_voxel"] = float(ray_steps_per_voxel)
         self.uniform_buffer.data["smooth_level"] = float(smooth_level)
         self.uniform_buffer.update_full()
@@ -165,6 +172,15 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
     @render_mode.setter
     def render_mode(self, value: str) -> None:
         self._store.render_mode = value
+
+    @property
+    def slice_2d(self) -> bool:
+        """Whether the material draws a 2D view's slice node (see class)."""
+        return self._store.slice_2d
+
+    @slice_2d.setter
+    def slice_2d(self, value: bool) -> None:
+        self._store.slice_2d = bool(value)
 
     @property
     def ray_steps_per_voxel(self) -> float:
@@ -212,6 +228,8 @@ class LabelVolumeBrickShader(BaseVolumeShader):
         self["write_outline_id"] = False
         self["has_outline_selection"] = m.outline_selection_texture is not None
         self["render_mode"] = m.render_mode
+        # A 2D view's slice node: flattened proxy, rasterised depth.
+        self["slice_2d"] = bool(getattr(m, "slice_2d", False))
         # Default for the ``normal`` render target.  ``write_normal`` is
         # overridden by CellierBlender.get_shader_kwargs when the target
         # exists; without it the write compiles away, so the same shader

@@ -13,9 +13,10 @@ from typing import Any, Literal
 
 from cmap import Colormap
 from psygnal import EventedModel
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cellier.visuals._base_visual import BaseDrawAppearance, BaseVisual
+from cellier.visuals._loading import ProgressiveLoadingConfig
 from cellier.visuals._render_plane import PLANE_RENDER_MODE, RenderPlane
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "ImageVisual",
     "InMemoryImageAppearance",
     "InMemoryImageChannelAppearance",
+    "InMemoryImageRenderConfig",
     "InMemoryImageSingleAppearance",
     "check_channels_share_render_mode",
     "effective_transparency_mode",
@@ -54,12 +56,33 @@ class BaseImageAppearance(BaseDrawAppearance):
         wins.
     interpolation : str
         Texture sampler filter.  ``"nearest"`` (default) or ``"linear"``.
+    slab_projection : str
+        In a 2D view, reduce the slab the scene's thickness selects instead
+        of drawing one plane: ``"mip"`` (maximum), ``"minip"`` (minimum) or
+        ``"mean"``, along the one world axis ``projection_axes`` names.
+        ``"none"`` (the default) draws the plane at the slice position.  The
+        slab is ``slice +- thickness`` on that axis (the scene's
+        ``dims.selection.thickness``); a zero thickness draws the plane.
+        Each channel projects on its own, then composites; the contrast
+        limits and colormap apply to the projected value.  Ignored by a 3D
+        view (oblique 2D design v3, 4.2).
+    projection_axes : tuple[str, ...]
+        The world axis to project along, by name, e.g. ``("z",)``.  It must
+        be sliced in the view: a displayed axis, more than one axis or an
+        axis the world does not have draws the plane with a status.  Empty
+        (the default) projects nothing.
+    projection_steps_per_voxel : float
+        Samples per voxel of the drawn level along a projection's ray, in
+        [0.25, 8].  Default 1.0: one sample per voxel.
     """
 
     model_config = ConfigDict(validate_assignment=True)
 
     transparency_mode: TransparencyMode | None = None
     interpolation: Literal["linear", "nearest"] = "nearest"
+    slab_projection: Literal["none", "mip", "minip", "mean"] = "none"
+    projection_axes: tuple[str, ...] = ()
+    projection_steps_per_voxel: float = Field(default=1.0, ge=0.25, le=8.0)
 
 
 class BaseImageSingleAppearance(EventedModel):
@@ -90,7 +113,30 @@ class InMemoryImageAppearance(BaseImageAppearance):
     """Shared appearance of an in-memory image visual.
 
     Every field has a default, so a plain image needs no ``appearance=``.
+
+    The level-of-detail and motion fields apply to a 2D view on the brick
+    route only -- a tilted view, or a projecting image -- which draws the
+    array from 3D bricks with a coarse level (oblique 2D design v3, U1).
+    Aligned 2D views and 3D views load the whole slice and ignore them.
+
+    Parameters
+    ----------
+    settled_lod_bias : float
+        Level-of-detail bias of a settled view on the brick route.  Divisor
+        on the screen-space LOD threshold: higher is coarser.  Default 1.0.
+    coarsest_while_moving_2d : bool
+        On the brick route, each tick of a dims scrub, a transform drag
+        (inside ``transform_interaction``) or a thickness drag loads only
+        the new slice's coarse level; the full level is loaded once the
+        motion ends.  Default ``False``.
+    force_level : int or None
+        1-indexed level the brick route draws (1 is the array, 2 its coarse
+        level), overriding the automatic choice.  Default None.
     """
+
+    settled_lod_bias: float = 1.0
+    coarsest_while_moving_2d: bool = False
+    force_level: int | None = None
 
 
 class InMemoryImageSingleAppearance(BaseImageSingleAppearance):
@@ -306,6 +352,33 @@ def effective_transparency_mode(visual: Any) -> str:
     return "add" if visual.composite else "blend"
 
 
+class InMemoryImageRenderConfig(BaseModel):
+    """Render-layer configuration of an in-memory image's brick route.
+
+    Used only while a 2D view draws the image from 3D bricks (a tilted view,
+    or a projecting image; oblique 2D design v3, U1).  Nothing is allocated
+    for a visual that never takes that route.
+
+    Parameters
+    ----------
+    block_size : int
+        Brick side length in voxels.  Default 32.
+    gpu_budget_bytes : int
+        Maximum GPU memory for the brick atlas, split between the channels
+        the visual can draw.  Default 1 GiB.
+    loading : ProgressiveLoadingConfig
+        The coarse backstop loaded ahead of the full level.  Changing only
+        this reslices; the other fields take effect when the route is first
+        taken.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    block_size: int = 32
+    gpu_budget_bytes: int = 1 * 1024**3
+    loading: ProgressiveLoadingConfig = Field(default_factory=ProgressiveLoadingConfig)
+
+
 class ImageVisual(BaseImageVisual):
     """Model-layer visual for a single-resolution in-memory image.
 
@@ -324,7 +397,10 @@ class ImageVisual(BaseImageVisual):
     channels : dict[int, InMemoryImageChannelAppearance]
         Composite mode's per-channel appearances.
     requires_camera_reslice : bool
-        Always ``False``; frozen.
+        Always ``False``; frozen.  A view on the brick route reslices on
+        camera moves anyway (the controller decides per view, design v3 D6).
+    render_config : InMemoryImageRenderConfig
+        The brick route's GPU configuration.
     """
 
     visual_type: Literal["image_memory"] = "image_memory"
@@ -334,3 +410,16 @@ class ImageVisual(BaseImageVisual):
     )
     channels: dict[int, InMemoryImageChannelAppearance] = Field(default_factory=dict)
     requires_camera_reslice: bool = Field(default=False, frozen=True)
+    render_config: InMemoryImageRenderConfig = Field(
+        default_factory=InMemoryImageRenderConfig
+    )
+
+    def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:
+        """The 2D moving setting in a 2D view; ``False`` in 3D (design v3, U1).
+
+        Only a view on the brick route plans by level, so only it is
+        affected.
+        """
+        if n_displayed_dims == 3:
+            return False
+        return self.appearance.coarsest_while_moving_2d

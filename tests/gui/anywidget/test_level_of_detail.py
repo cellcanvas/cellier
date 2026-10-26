@@ -143,3 +143,17 @@ def test_the_front_end_binds_the_checkbox_to_the_view_s_setting():
         assert name in source
     # The bias is sent when the slider settles, not while it is dragged.
     assert 'inp.addEventListener("change"' in source
+
+
+def test_an_in_memory_appearance_has_no_3d_setting():
+    """Oblique 2D design v3, U1: the 3D field is never emitted for it."""
+    from cellier.visuals import InMemoryImageAppearance
+
+    widget, _ = _make(level_of_detail_values(InMemoryImageAppearance()))
+    assert widget.has_moving_3d is False
+    emitted = []
+    widget.changed.connect(emitted.append)
+    widget.coarsest_while_moving_3d = not widget.coarsest_while_moving_3d
+    assert emitted == []
+    widget.coarsest_while_moving_2d = True
+    assert [event.field for event in emitted] == ["coarsest_while_moving_2d"]

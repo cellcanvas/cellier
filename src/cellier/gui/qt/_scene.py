@@ -143,6 +143,27 @@ _ARROW_KEY_DIRECTIONS = {
 _PAGE_KEY_DIRECTIONS = {Qt.Key.Key_PageUp: 1, Qt.Key.Key_PageDown: -1}
 
 
+class _ThicknessSpinBox(QDoubleSpinBox):
+    """A half-thickness box whose stepped changes are ticks of a drag.
+
+    ``stepBy`` serves the arrows, the arrow keys, the wheel and Page
+    Up/Down; while it runs, :attr:`stepping` is true, and the change it
+    makes is sent ``interactive=True`` (oblique 2D design v3, D13).  A typed
+    value goes through ``valueChanged`` alone and is a jump.  A spin box has
+    no press or release to close a scope on, so the drag ends on stillness
+    (``dims_settle_s``).
+    """
+
+    stepping: bool = False
+
+    def stepBy(self, steps: int) -> None:
+        self.stepping = True
+        try:
+            super().stepBy(steps)
+        finally:
+            self.stepping = False
+
+
 class _ContinuousSliderKeys(QObject):
     """Keyboard stepping for a continuous axis's ``QLabeledDoubleSlider``.
 
@@ -572,7 +593,7 @@ class QtDimsControl:
         in the slicing path, so this box is how much depth every visual
         shows along the axis.
         """
-        box = QDoubleSpinBox()
+        box = _ThicknessSpinBox()
         box.setDecimals(decimals)
         box.setRange(0.0, 1e9)
         box.setSingleStep(step)
@@ -590,12 +611,16 @@ class QtDimsControl:
         self._thickness_boxes[axis] = box
 
     def _on_thickness_changed(self, axis: int, value: float) -> None:
+        box = self._thickness_boxes.get(axis)
         self.changed.emit(
             DimsUpdateEvent(
                 source_id=self._id,
                 scene_id=self._scene_id,
                 slice_indices=None,
                 displayed_axes=None,
+                # A step (arrow, wheel, spinner) is a tick of a drag; a typed
+                # value is a jump (oblique 2D design v3, D13).
+                interactive=bool(getattr(box, "stepping", False)),
                 thickness={axis: float(value)},
             )
         )

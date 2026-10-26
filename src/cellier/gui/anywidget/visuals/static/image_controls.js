@@ -19,6 +19,8 @@ const LABELS = {
   opacity: "Opacity",
   render_mode: "Render mode",
   iso_threshold: "Threshold",
+  slab_projection: "Projection",
+  projection_axes: "Project along",
 };
 
 const MODE_FIELDS = ["color_map", "clim", "opacity", "render_mode", "iso_threshold"];
@@ -36,7 +38,12 @@ const MIN_TRACK_WIDTH_PX = 120;
 // cellier.gui._image_controls.THREE_D_FIELDS.
 const THREE_D_FIELDS = ["render_mode", "iso_threshold", "attenuation"];
 
+// Fields whose rows show only in 2D (the slab projection); mirrors
+// cellier.gui._image_controls.TWO_D_FIELDS.
+const TWO_D_FIELDS = ["slab_projection", "projection_axes"];
+
 function rowVisible(field, modes, nDisplayed, thresholdModes, attenuationModes) {
+  if (TWO_D_FIELDS.includes(field)) return nDisplayed === 2;
   if (!THREE_D_FIELDS.includes(field)) return true;
   if (nDisplayed !== 3) return false;
   if (field === "iso_threshold") return modes.some((m) => thresholdModes.includes(m));
@@ -238,7 +245,9 @@ function render({ model, el }) {
 
   function hideableRow(parent, page, channel, field, control) {
     const r = row(parent, field, control);
-    if (THREE_D_FIELDS.includes(field)) hideable.push({ el: r, page, channel, field });
+    if (THREE_D_FIELDS.includes(field) || TWO_D_FIELDS.includes(field)) {
+      hideable.push({ el: r, page, channel, field });
+    }
     return r;
   }
 
@@ -334,6 +343,18 @@ function render({ model, el }) {
       const c = makeSelect(options, shared[field], (v) => write("shared", null, field, v));
       controls["shared||" + field] = c;
       row(sharedBox, field, c);
+    }
+    // The slab projection of a 2D view (oblique 2D design v3, 4.2), when
+    // the field list asks for it; hidden in 3D.
+    const projection = model.get("projection") || {};
+    for (const [field, options] of [
+      ["slab_projection", projection.ops || []],
+      ["projection_axes", projection.axes || []],
+    ]) {
+      if (!fieldsOn.includes(field) || !(field in shared)) continue;
+      const c = makeSelect(options, shared[field], (v) => write("shared", null, field, v));
+      controls["shared||" + field] = c;
+      hideableRow(sharedBox, "shared", null, field, c);
     }
     el.appendChild(sharedBox);
 

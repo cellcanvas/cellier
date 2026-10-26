@@ -355,6 +355,9 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         nothing.  A ``begin`` that arrives after the first ticks is harmless:
         slider ticks are interactive with or without a scope.
         """
+        if isinstance(content, dict) and content.get("type") == "thickness":
+            self._on_thickness_step(content)
+            return
         if not isinstance(content, dict) or content.get("type") != "interaction":
             return
         phase = content.get("phase")
@@ -370,6 +373,34 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
                 # interactive tick and the browser's model agrees.
                 self.slice_indices = {**self.slice_indices, **final}
             self._end_scope()
+
+    def _on_thickness_step(self, content: dict) -> None:
+        """A thickness box was stepped: an interactive tick (design v3, D13).
+
+        ``{"type": "thickness", "axis": a, "value": v}`` from the spinner,
+        an arrow key or the wheel.  Applied to the trait without submitting
+        it again, and sent as a tick of a drag, which ends on stillness.
+        """
+        try:
+            axis = int(content["axis"])
+            value = max(0.0, float(content["value"]))
+        except (KeyError, TypeError, ValueError):
+            return
+        self._applying = True
+        try:
+            self.thickness = {**self.thickness, str(axis): value}
+        finally:
+            self._applying = False
+        self.changed.emit(
+            DimsUpdateEvent(
+                source_id=self._id,
+                scene_id=self._scene_id,
+                slice_indices=None,
+                displayed_axes=None,
+                interactive=True,
+                thickness={axis: value},
+            )
+        )
 
     def _begin_scope(self) -> None:
         if self._scope_open:

@@ -642,6 +642,42 @@ class PlaneInteractionEvent(NamedTuple):
     reason: Literal["release", "settle", "jump", "cancel"] | None = None
 
 
+class TransformInteractionEvent(NamedTuple):
+    """A drag of a visual's transform started or ended.
+
+    One tracker per visual.  A drag is a run of ``transform`` changes made
+    inside ``CellierController.transform_interaction`` (a rotation slider
+    opens one for the length of a drag).  The start is emitted with the
+    first change, ahead of its ``TransformChangedEvent``.  No event is
+    emitted per change.
+
+    In a 2D view, a visual with ``appearance.coarsest_while_moving_2d`` on
+    plans only its backstop between the start and the end.  In a 3D view,
+    a multiscale image or labels visual with
+    ``appearance.coarsest_while_moving_3d`` on keeps its last plan, whose
+    bricks move with the transform.  The target is planned at the end
+    (oblique 2D design v3, D7).
+
+    Attributes
+    ----------
+    source_id : UUID
+        The source of the change or scope that caused the transition.
+    visual_id : UUID
+        The visual whose transform is dragged.  The routing key.
+    phase : {"start", "end"}
+        Which transition this is.
+    reason : {"release", "settle", "jump", "cancel"} or None
+        Why the drag ended: the last scope closed, the transform was still
+        for ``SchedulerConfig.dims_settle_s``, or a change arrived after
+        the scopes had closed.  ``None`` for a start.
+    """
+
+    source_id: UUID
+    visual_id: UUID
+    phase: Literal["start", "end"]
+    reason: Literal["release", "settle", "jump", "cancel"] | None = None
+
+
 class PlaneGizmoChangedEvent(NamedTuple):
     """The plane a canvas's plane gizmo edits changed.
 
@@ -1744,6 +1780,7 @@ CellierEventTypes = (
     | ClippingPlanesChangedEvent
     | RenderPlanesChangedEvent
     | PlaneInteractionEvent
+    | TransformInteractionEvent
     | PlaneGizmoChangedEvent
     | PlaneGizmoMovedEvent
     | ResliceCancelledEvent

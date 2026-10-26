@@ -168,12 +168,22 @@ def test_an_image_control_with_no_field_the_model_carries_builds_nothing():
 
 
 def test_the_level_of_detail_control_needs_a_model_with_levels():
-    """An in-memory image has no settled bias: no spec, and no report."""
+    """An in-memory image has the settled bias of its brick route (oblique 2D
+    design v3, U1), but not the 3D moving setting; a visual with no levels
+    at all gets no spec and no report."""
     result = appearance_specs(
         _in_memory(), [_image("clim"), LevelOfDetailControl(), BoundingBoxControl()]
     )
-    assert kinds(result) == ["image", "aabb"]
+    assert kinds(result) == ["image", "level_of_detail", "aabb"]
+    assert result.specs[1].values["has_moving_3d"] is False
     assert result.skipped == []
+
+    class _NoLevels:
+        id = "v0"
+        aabb = AABBParams()
+        appearance = object()
+
+    assert kinds(appearance_specs(_NoLevels(), [LevelOfDetailControl()])) == []
 
 
 @pytest.mark.parametrize("controls", [None, []])
@@ -594,9 +604,10 @@ def test_the_loading_indicator_is_for_a_visual_that_loads():
     assert on.specs[-1].title == "Data fetch status"
     # It is not on by default any more: only when listed.
     assert "loading" not in kinds(appearance_specs(_multiscale(), [_image("clim")]))
-    # An in-memory image has nothing to load.
+    # An in-memory image loads progressively on its brick route (oblique 2D
+    # design v3, U1): it has a render config with ``loading`` now.
     in_memory = ImageVisual(name="image", data_store_id="store")
-    assert "loading" not in kinds(
+    assert "loading" in kinds(
         appearance_specs(in_memory, [_image("color_map"), LoadingIndicator()])
     )
 

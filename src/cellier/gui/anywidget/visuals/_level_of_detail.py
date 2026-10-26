@@ -76,6 +76,9 @@ class AnywidgetLevelOfDetailControls(VisualIdGroup, anywidget.AnyWidget):
     settled_lod_bias = traitlets.Float(1.0).tag(sync=True)
     coarsest_while_moving_3d = traitlets.Bool(True).tag(sync=True)
     coarsest_while_moving_2d = traitlets.Bool(False).tag(sync=True)
+    #: Whether the appearance has the 3D setting; the checkbox hides in 3D
+    #: when it does not (an in-memory visual, oblique 2D design v3 U1).
+    has_moving_3d = traitlets.Bool(True).tag(sync=True)
     n_displayed_dimensions = traitlets.Int(3).tag(sync=True)
 
     @traitlets.validate("n_displayed_dimensions")
@@ -98,6 +101,7 @@ class AnywidgetLevelOfDetailControls(VisualIdGroup, anywidget.AnyWidget):
             coarsest_while_moving_2d=bool(
                 values.get("coarsest_while_moving_2d", False)
             ),
+            has_moving_3d=bool(values.get("has_moving_3d", True)),
             n_displayed_dimensions=n_displayed_dimensions,
             labels={"bias": SETTLED_BIAS_LABEL, "moving": COARSEST_LABEL},
             bias_range=list(SETTLED_BIAS_RANGE),
@@ -170,6 +174,8 @@ class AnywidgetLevelOfDetailControls(VisualIdGroup, anywidget.AnyWidget):
 
     def _on_trait_change(self, change) -> None:
         if self._applying:
+            return
+        if change["name"] == "coarsest_while_moving_3d" and not self.has_moving_3d:
             return
         self._emit_group(
             AppearanceUpdateEvent,

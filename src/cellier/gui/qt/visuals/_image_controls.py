@@ -244,6 +244,26 @@ class QtImageControls(VisualIdGroup):
             self._controls[("shared", None, field)] = combo
             layout.addRow(FIELD_LABELS[field], combo)
 
+        # The slab projection of a 2D view (oblique 2D design v3, 4.2),
+        # when the field list asks for it; hidden in 3D.
+        projection = values.get("projection") or {}
+        for field, choices in (
+            ("slab_projection", projection.get("ops", ())),
+            ("projection_axes", projection.get("axes", ())),
+        ):
+            if field not in self._fields or field not in shared:
+                continue
+            combo = QComboBox()
+            combo.addItems(list(choices))
+            combo.setCurrentText(shared[field])
+            combo.currentTextChanged.connect(
+                lambda text, f=field: self._emit("shared", f, text)
+            )
+            self._appliers[("shared", None, field)] = _combo_applier(combo)
+            self._controls[("shared", None, field)] = combo
+            self._rows[("shared", None, field)] = (layout, combo)
+            layout.addRow(FIELD_LABELS[field], combo)
+
     def _has_attenuation(self, values) -> bool:
         """A multiscale image's attenuation row, when the config asks for it."""
         return "attenuation" in values["shared"] and "attenuation" in self._fields

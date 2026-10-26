@@ -31,16 +31,23 @@ class MultiscaleImageAppearance(BaseImageAppearance):
         screen-space LOD threshold: higher is coarser.  Default 1.0.
     coarsest_while_moving_3d : bool
         In a 3D view, plan no target while the visual moves.  A visual moves
-        while its scene's dims are scrubbed, or while its clipping planes
-        are dragged (``CellierController.plane_interaction``).  A dims tick
-        then loads the new slice's coarse backstop only; a plane drag plans
-        nothing and keeps the last plan.  The target is planned once every
+        while its scene's dims are scrubbed, while its clipping planes are
+        dragged (``CellierController.plane_interaction``), or while its
+        transform is dragged (``CellierController.transform_interaction``).
+        A dims tick then loads the new slice's coarse backstop only; a plane
+        or transform drag plans nothing and keeps the last plan, whose
+        bricks move with the transform.  The target is planned once every
         motion has ended.  ``False`` plans in full on every tick and nothing
         more at the end.  Default ``True``.
     coarsest_while_moving_2d : bool
-        The same, for a 2D view, whose only motion is a dims scrub.
-        ``True`` saves most of a scrub's reads and is the setting for a slow
-        store.  Default ``False``.
+        The same, for a 2D view: each tick of a dims scrub, of a transform
+        drag (inside ``transform_interaction``) or of a thickness drag
+        (inside ``dims_interaction``, or sent with ``update_thickness(...,
+        interactive=True)``) loads only the new slice's coarse backstop.
+        This includes a tilted 2D view drawn from 3D bricks (the brick
+        route).  ``True`` saves most of a drag's reads, is the setting for a
+        slow store, and is what keeps a tilted view at 30 fps at native
+        zoom.  Default ``False``.
     force_level : int or None
         Overrides automatic LOD selection when set.  Default None.
     frustum_cull : bool

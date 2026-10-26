@@ -84,6 +84,11 @@ function render({ model, el }) {
     guard = true;
     try {
       check.checked = !!model.get(movingField(model));
+      // An in-memory visual has no 3D setting: no checkbox in 3D.
+      const hidden =
+        model.get("n_displayed_dimensions") === 3 &&
+        model.get("has_moving_3d") === false;
+      movingRow.style.display = hidden ? "none" : "";
     } finally {
       guard = false;
     }
@@ -98,6 +103,7 @@ function render({ model, el }) {
   model.on("change:coarsest_while_moving_3d", showMoving);
   model.on("change:coarsest_while_moving_2d", showMoving);
   model.on("change:n_displayed_dimensions", showMoving);
+  model.on("change:has_moving_3d", showMoving);
 }
 
 export default { render };

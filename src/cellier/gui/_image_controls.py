@@ -26,13 +26,25 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from uuid import UUID
 
-#: Shared-section fields, in display order.
+#: Shared-section fields, in display order.  The projection rows are shown
+#: only when the field list names them (oblique 2D design v3, 4.2).
 SHARED_FIELDS: tuple[str, ...] = (
     "visible",
     "transparency_mode",
     "interpolation",
     "attenuation",
+    "slab_projection",
+    "projection_axes",
 )
+
+#: The projection fields: rows of the shared section, beside the render mode.
+PROJECTION_FIELDS: tuple[str, ...] = ("slab_projection", "projection_axes")
+
+#: What the projection-axis row shows for "no axis".
+NO_PROJECTION_AXIS: str = "(none)"
+
+#: The projection operators, in display order.
+PROJECTION_OPS: tuple[str, ...] = ("none", "mip", "minip", "mean")
 
 #: Fields each mode page shows, in display order.  A channel row adds
 #: ``visible`` in front.
@@ -78,6 +90,9 @@ ATTENUATION_MODES: tuple[str, ...] = ("attenuated_mip",)
 #: a 2D slice ignores them.
 THREE_D_FIELDS: tuple[str, ...] = ("render_mode", "iso_threshold", "attenuation")
 
+#: Fields whose rows are shown only in 2D: a 3D view does not project.
+TWO_D_FIELDS: tuple[str, ...] = PROJECTION_FIELDS
+
 #: The display dimensionalities a scene can have.
 DISPLAY_DIMENSIONS: tuple[int, ...] = (2, 3)
 
@@ -100,6 +115,8 @@ FIELD_LABELS: dict[str, str] = {
     "opacity": "Opacity",
     "render_mode": "Render mode",
     "iso_threshold": "Threshold",
+    "slab_projection": "Projection",
+    "projection_axes": "Project along",
 }
 
 DEFAULT_COLORMAP_NAMES: list[str] = [
@@ -161,6 +178,8 @@ def row_visible(
         a mode in :data:`THRESHOLD_MODES`; ``attenuation`` rows in 3D for a
         mode in :data:`ATTENUATION_MODES`.  Every other row is always shown.
     """
+    if field in TWO_D_FIELDS:
+        return n_displayed_dimensions == 2
     if field not in THREE_D_FIELDS:
         return True
     if n_displayed_dimensions != 3:
@@ -232,6 +251,9 @@ def to_widget_value(field: str, value: Any) -> Any:
         return "auto" if value is None else str(value)
     if field in ("opacity", "iso_threshold", "attenuation"):
         return float(value)
+    if field == "projection_axes":
+        names = tuple(value or ())
+        return names[0] if names else NO_PROJECTION_AXIS
     return value
 
 
@@ -241,6 +263,8 @@ def to_model_value(field: str, value: Any) -> Any:
         return (float(value[0]), float(value[1]))
     if field == "transparency_mode":
         return None if value in (None, "auto") else str(value)
+    if field == "projection_axes":
+        return () if value in (None, "", NO_PROJECTION_AXIS) else (str(value),)
     return value
 
 
@@ -304,6 +328,7 @@ def image_control_values(
     clim_range: tuple[float, float] | None = None,
     channel_labels: dict[int, str] | None = None,
     decimals: int = 2,
+    axis_names: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Everything either front end needs to build the image control.
 
@@ -324,6 +349,9 @@ def image_control_values(
     decimals : int
         Decimal places for values in data units (the contrast limits and the
         iso threshold).  Fractions such as opacity always show 2.
+    axis_names : iterable of str or None
+        The axis names the projection-axis row offers (the store's, which
+        name the world's), when *fields* asks for it.
 
     Returns
     -------
@@ -338,7 +366,9 @@ def image_control_values(
     from cellier.gui._appearance_fields import literal_choices
 
     appearance = visual.appearance
-    multiscale = hasattr(appearance, "settled_lod_bias")
+    # In-memory appearances carry the brick route's LOD fields too (oblique
+    # 2D design v3, U1); only the multiscale family has ``attenuation``.
+    multiscale = hasattr(appearance, "attenuation")
     shared = {
         "visible": bool(appearance.visible),
         "transparency_mode": to_widget_value(
@@ -348,6 +378,15 @@ def image_control_values(
     }
     if multiscale:
         shared["attenuation"] = float(appearance.attenuation)
+    projection = None
+    if any(field in fields for field in PROJECTION_FIELDS):
+        # Only when asked for, so a control without the rows is unchanged.
+        for field in PROJECTION_FIELDS:
+            shared[field] = to_widget_value(field, getattr(appearance, field))
+        projection = {
+            "ops": list(PROJECTION_OPS),
+            "axes": [NO_PROJECTION_AXIS, *(axis_names or ())],
+        }
 
     channels = {int(k): mode_values(v) for k, v in visual.channels.items()}
     if clim_range is None:
@@ -383,6 +422,7 @@ def image_control_values(
         "decimals": int(decimals),
         "threshold_modes": list(THRESHOLD_MODES),
         "attenuation_modes": list(ATTENUATION_MODES),
+        **({} if projection is None else {"projection": projection}),
     }
 
 

@@ -22,6 +22,8 @@ import inspect
 import weakref
 from typing import TYPE_CHECKING, Any, Callable
 
+import wgpu
+from pygfx.renderers.wgpu.engine.update import ensure_wgpu_object
 from pygfx.resources._base import resource_update_registry
 
 if TYPE_CHECKING:
@@ -69,3 +71,27 @@ def destroy_textures(*textures: gfx.Texture | None) -> None:
             continue
         resource_update_registry._syncable.discard(texture)
         wgpu_texture.destroy()
+
+
+def allocate_zeroed_texture(texture: gfx.Texture) -> None:
+    """Create *texture* on the GPU now, without uploading its data.
+
+    For a texture whose CPU data is still all zeros (a brick atlas nothing
+    has been written into): WebGPU zero-initialises a new texture, so the
+    upload pygfx would make on the first draw -- the whole atlas, up to
+    ``gpu_budget_bytes`` -- is skipped.  A 1 GiB atlas took about 0.45 s to
+    upload on its first draw (oblique 2D design v3, U12).  Bricks written
+    afterwards upload as usual.  A texture already on the GPU is left alone.
+
+    The one pygfx internal used here is ``ensure_wgpu_object``, with the
+    usage and chunk bookkeeping it is paired with; a canary test pins them.
+    """
+    if getattr(texture, "_wgpu_object", None) is not None:
+        return
+    # pygfx adds a texture's usage flags when it binds it, which has not
+    # happened yet: the atlas is sampled by the brick shaders.
+    texture._wgpu_usage |= wgpu.TextureUsage.TEXTURE_BINDING
+    ensure_wgpu_object(texture)
+    # Drop the pending full upload: the GPU copy already holds the zeros.
+    texture._gfx_get_chunk_descriptions()
+    resource_update_registry._syncable.discard(texture)

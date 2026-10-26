@@ -71,10 +71,12 @@ if TYPE_CHECKING:
         ImageVisual,
         InMemoryImageAppearance,
         InMemoryImageChannelAppearance,
+        InMemoryImageRenderConfig,
         InMemoryImageSingleAppearance,
     )
     from cellier.visuals._label_memory import (
         BaseLabelsAppearance,
+        InMemoryLabelRenderConfig,
         LabelMemoryVisual,
         OutlineMode,
     )
@@ -1182,6 +1184,28 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         with self._controller.dims_interaction(self._scene.id):
             yield
 
+    @contextmanager
+    def transform_interaction(
+        self, visual: UUID | object
+    ) -> Generator[None, None, None]:
+        """Drag a visual's transform for the length of a ``with`` block.
+
+        Every assignment of the visual's ``transform`` inside the block is a
+        tick of one drag (``CellierController.transform_interaction``)::
+
+            with viewer.transform_interaction(visual):
+                for angle in angles:
+                    visual.transform = rotated(angle)
+
+        Parameters
+        ----------
+        visual : UUID or visual
+            The visual, or its id.
+        """
+        visual_id = visual if isinstance(visual, UUID) else visual.id
+        with self._controller.transform_interaction(visual_id):
+            yield
+
     # ------------------------------------------------------------------
     # Camera control
     # ------------------------------------------------------------------
@@ -1333,6 +1357,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         pick_write: bool = True,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        render_config: InMemoryImageRenderConfig | None = None,
     ) -> ImageVisual:
         """Add an in-memory image visual.
 
@@ -1386,6 +1411,10 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             world_coordinate_system, ...)``).  Ignored in every other
             render mode.  They can be changed later with
             ``controller.set_render_planes``.  Default none.
+        render_config : InMemoryImageRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the image (oblique 2D design v3).  ``None`` uses the
+            defaults.
 
         Returns
         -------
@@ -1409,6 +1438,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             pick_write=pick_write,
             clipping_planes=clipping_planes,
             render_planes=render_planes,
+            render_config=render_config,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1428,6 +1458,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline_depth_range: tuple[float, float] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        render_config: InMemoryLabelRenderConfig | None = None,
     ) -> LabelMemoryVisual:
         """Add an in-memory label visual.
 
@@ -1499,6 +1530,11 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             render mode.  They can be changed later with
             ``controller.set_render_planes``.  Default none.
 
+        render_config : InMemoryLabelRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the labels (oblique 2D design v3).  ``None`` uses the
+            defaults.
+
         Returns
         -------
         LabelMemoryVisual
@@ -1519,6 +1555,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline_depth_range=outline_depth_range,
             clipping_planes=clipping_planes,
             render_planes=render_planes,
+            render_config=render_config,
         )
         self._store_controls([visual.id], controls)
         return visual

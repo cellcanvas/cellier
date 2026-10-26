@@ -83,9 +83,14 @@ if TYPE_CHECKING:
         ImageVisual,
         InMemoryImageAppearance,
         InMemoryImageChannelAppearance,
+        InMemoryImageRenderConfig,
         InMemoryImageSingleAppearance,
     )
-    from cellier.visuals._label_memory import BaseLabelsAppearance, LabelMemoryVisual
+    from cellier.visuals._label_memory import (
+        BaseLabelsAppearance,
+        InMemoryLabelRenderConfig,
+        LabelMemoryVisual,
+    )
     from cellier.visuals._labels import (
         MultiscaleLabelRenderConfig,
         MultiscaleLabelsAppearance,
@@ -294,6 +299,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._clipping_controller = OrthoClippingController(
             self._controller, link_clipping_planes
         )
+        # Each panel's visual id -> every panel's copy of the same visual,
+        # from one fanned-out add (``transform_interaction``).
+        self._panel_copies: dict[UUID, tuple[UUID, ...]] = {}
         world = world_coordinate_system(axes)
         self._spatial_axes = _resolve_spatial_axes(world.axis_names(), spatial_axes)
         self._ndim = world.ndim
@@ -1019,6 +1027,39 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 stack.enter_context(self._controller.dims_interaction(scene.id))
             yield
 
+    @contextmanager
+    def transform_interaction(
+        self, visual: UUID | object | dict[str, object]
+    ) -> Generator[None, None, None]:
+        """Drag one visual's transform in every panel for a ``with`` block.
+
+        Opens ``CellierController.transform_interaction`` on every panel's
+        copy of the visual, so each panel plans coarse while the transform
+        changes (when its view's moving setting is on) and in full when the
+        block exits, and a tilted 2D panel switches onto the brick route with
+        about a one-frame gap (oblique 2D design v3, 5.2.4)::
+
+            with viewer.transform_interaction(visuals):
+                for angle in angles:
+                    for copy in visuals.values():
+                        copy.transform = rotated(copy, angle)
+
+        Parameters
+        ----------
+        visual : UUID, visual or dict[str, visual]
+            Any panel's copy (or its id), or the dict a fanned-out ``add_*``
+            returned.
+        """
+        if isinstance(visual, dict):
+            visual = next(iter(visual.values()))
+        visual_id = visual if isinstance(visual, UUID) else visual.id
+        copies = self._panel_copies.get(visual_id, (visual_id,))
+        with ExitStack() as stack:
+            for copy_id in copies:
+                if copy_id in self._controller._visual_to_scene:
+                    stack.enter_context(self._controller.transform_interaction(copy_id))
+            yield
+
     # ------------------------------------------------------------------
     # Camera control
     # ------------------------------------------------------------------
@@ -1137,6 +1178,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         :attr:`clipping_controller`, which links them as its mode says.
         """
         visuals = {key: add_one(key, scene) for key, scene in self._scenes.items()}
+        copies = tuple(visual.id for visual in visuals.values())
+        for visual_id in copies:
+            self._panel_copies[visual_id] = copies
         self._clipping_controller.add_group(visuals)
         self._plane_controller.add_visual(visuals["vol"])
         return visuals
@@ -1161,6 +1205,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         ambient_occlusion: bool | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        transform: BaseTransform | None = None,
+        render_config: InMemoryImageRenderConfig | None = None,
     ) -> dict[str, ImageVisual]:
         """Add an in-memory image to every panel from a single data store.
 
@@ -1222,6 +1268,13 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Given to the 3D panel's visual only: the 2D panels show
             their slices.  Replaced by the slice planes while
             ``plane_controller.mode`` is ``"slices"``.
+        transform : BaseTransform or None
+            The ``data -> world`` transform, shared by every panel's visual.
+            ``None`` (default) is the identity.
+        render_config : InMemoryImageRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the image (oblique 2D design v3).  ``None`` uses the
+            defaults.
 
         Returns
         -------
@@ -1246,6 +1299,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
                 clipping_planes=clipping_planes,
                 render_planes=render_planes if key == "vol" else (),
+                transform=transform,
+                render_config=render_config,
             )
         )
         self._record_controls(visuals, controls, name)
@@ -1263,6 +1318,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline_selected_labels: dict[int, int] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        render_config: InMemoryLabelRenderConfig | None = None,
     ) -> dict[str, LabelMemoryVisual]:
         """Add an in-memory label image to every panel from one data store.
 
@@ -1316,6 +1372,11 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             their slices.  Replaced by the slice planes while
             ``plane_controller.mode`` is ``"slices"``.
 
+        render_config : InMemoryLabelRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the labels (oblique 2D design v3).  ``None`` uses the
+            defaults.
+
         Returns
         -------
         dict[str, LabelMemoryVisual]
@@ -1335,6 +1396,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 outline_selected_labels=outline_selected_labels,
                 clipping_planes=clipping_planes,
                 render_planes=render_planes if key == "vol" else (),
+                render_config=render_config,
             )
         )
         self._record_controls(visuals, controls, name)

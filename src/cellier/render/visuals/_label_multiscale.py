@@ -83,6 +83,7 @@ from cellier.render.visuals._chunked import (
     make_residency_3d,
     target_room,
     viewport_2d,
+    viewport_prism,
 )
 from cellier.render.visuals._image import (
     ImageGeometry3D,
@@ -91,12 +92,13 @@ from cellier.render.visuals._image import (
     NormSizedVolume,
     _carry_over_node_state,
     _displayed_submatrix,
-    _fetch_order,
+    _footprint_points,
+    _geometry_fetch_axes,
     _is_axis_aligned_view,
     _norm_size_from_transform,
     _norm_to_data_params_for,
     _plan_stats,
-    _world_axes_to_data_axes,
+    _SliceBoundsGroup,
     _world_to_voxel_scale_2d,
 )
 from cellier.render.visuals._image_memory import (
@@ -271,6 +273,16 @@ class GFXMultiscaleLabelVisual(
             self._full_level_shapes = []
 
         self._last_displayed_axes: tuple[int, ...] | None = displayed_axes
+        # The brick route (oblique 2D design v3, 5.3): the three world axes
+        # a 2D view's slice node draws, the slice normal first, or ``None``
+        # on today's path.  Set by the controller (``set_slice_route``).
+        self._slice_axes: tuple[int, int, int] | None = None
+        # On the route the scene draws ``_slice_group``: an unplaced group
+        # holding the placed 3D node and the slice footprint's outline, and
+        # bounded by the footprint (5.5).  The 3D node keeps its own matrix,
+        # so the footprint cannot live on it.
+        self._slice_group: _SliceBoundsGroup | None = None
+        self._footprint_line: gfx.Line | None = None
         self._gpu_budget_bytes = gpu_budget_bytes_3d
         self._frame_number = 0
         # The chunk scheduler's view of the 3D atlas (see residency_3d).
@@ -430,7 +442,7 @@ class GFXMultiscaleLabelVisual(
                 pick_write=pick_write,
             )
             self._inner_node_3d = inner
-            self.node_3d = gfx.Group()
+            self.node_3d = self._new_node_3d()
             self.node_3d.add(inner)
             self._aabb_line_3d = self._build_aabb_line_3d()
             self.node_3d.add(self._aabb_line_3d)
@@ -486,7 +498,9 @@ class GFXMultiscaleLabelVisual(
 
         volume_geometry: MultiscaleBrickLayout3D | None = None
         if "3d" in render_modes and axes_3d is not None:
-            fetch_3d = _fetch_order(_world_axes_to_data_axes(model.transform, axes_3d))
+            fetch_3d = _geometry_fetch_axes(
+                model.transform, axes_3d, len(level_shapes[0])
+            )
             shapes_3d = [select_axes(s, fetch_3d) for s in level_shapes]
             volume_geometry = MultiscaleBrickLayout3D(
                 level_shapes=shapes_3d,
@@ -497,7 +511,9 @@ class GFXMultiscaleLabelVisual(
 
         image_geometry_2d: ImageGeometry3D | None = None
         if "2d" in render_modes:
-            fetch_2d = _fetch_order(_world_axes_to_data_axes(model.transform, axes_2d))
+            fetch_2d = _geometry_fetch_axes(
+                model.transform, axes_2d, len(level_shapes[0])
+            )
             shapes_2d = [select_axes(s, fetch_2d) for s in level_shapes]
             image_geometry_2d = ImageGeometry3D(
                 level_shapes=shapes_2d,
@@ -559,9 +575,161 @@ class GFXMultiscaleLabelVisual(
 
     def get_node_for_dims(self, displayed_axes: tuple[int, ...]) -> gfx.Group | None:
         _old_node, new_node = self.rebuild_geometry(
-            self._full_level_shapes, displayed_axes
+            self._full_level_shapes, self._node_axes(displayed_axes)
         )
         return new_node
+
+    def _node_axes(self, displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
+        """The world axes the node for *displayed_axes* draws.
+
+        A 2D view on the brick route draws the slice node: the 3D node over
+        the slice's three world axes (oblique 2D design v3, 5.3.2).
+        """
+        if self._slice_axes is not None and len(displayed_axes) == 2:
+            return self._slice_axes
+        return tuple(displayed_axes)
+
+    def _drawn_render_mode(self) -> str:
+        """The 3D material's render mode: a slice node always draws its plane."""
+        return PLANE_RENDER_MODE if self._slice_axes is not None else self._render_mode
+
+    def _new_node_3d(self) -> gfx.Group:
+        """A new 3D group, parented where the route needs it."""
+        group = gfx.Group()
+        if self._slice_axes is not None and self._slice_group is not None:
+            self._slice_group.add(group)
+        return group
+
+    def _routed_node_3d(self) -> gfx.Group | None:
+        """The node the scene draws for the 3D node: the slice group on the route.
+
+        Off the route the 3D node is drawn by itself, and leaves the slice
+        group so the scene can hold it.
+        """
+        if self.node_3d is None:
+            return None
+        if self._slice_axes is None:
+            if (
+                self._slice_group is not None
+                and self.node_3d.parent is self._slice_group
+            ):
+                self._slice_group.remove(self.node_3d)
+            return self.node_3d
+        if self._slice_group is None:
+            self._slice_group = _SliceBoundsGroup()
+            self._slice_group.slice_mode = True
+        group = self._slice_group
+        group.render_order = self.node_3d.render_order
+        for child in list(group.children):
+            if child is not self._footprint_line and child is not self.node_3d:
+                group.remove(child)
+        if self.node_3d.parent is not group:
+            group.add(self.node_3d)
+        if (
+            self._footprint_line is not None
+            and self._footprint_line.parent is not group
+        ):
+            group.add(self._footprint_line)
+        return group
+
+    def set_slice_route(self, axes: tuple[int, int, int] | None) -> bool:
+        """Put the 2D views of this visual on the brick route, or take them off.
+
+        Called by the controller before it pushes the render spaces (design
+        v3, 5.2.2, C3).  The 3D node is the slice node (D4: one atlas), so a
+        scene built for 2D only gains the 3D mode here.
+
+        Parameters
+        ----------
+        axes : tuple[int, int, int] or None
+            The slice normal's world axis, then the two displayed world
+            axes; ``None`` for today's path.
+
+        Returns
+        -------
+        bool
+            Whether the route changed (the caller then swaps the node in).
+        """
+        axes = None if axes is None else tuple(int(axis) for axis in axes)
+        if axes == self._slice_axes:
+            return False
+        self._slice_axes = axes
+        if axes is not None and "3d" not in self.render_modes:
+            self.render_modes = self.render_modes | {"3d"}
+        self._draws_slice_plane = axes is not None
+        if self.material_3d is not None:
+            self.material_3d.render_mode = self._drawn_render_mode()
+            self.material_3d.slice_2d = axes is not None
+        if self._aabb_line_3d is not None:
+            self._aabb_line_3d.visible = (
+                self._aabb_enabled and self._data_ready_3d and axes is None
+            )
+        self._apply_outline_visibility()
+        self._apply_render_planes()
+        return True
+
+    @property
+    def slice_axes(self) -> tuple[int, int, int] | None:
+        """The slice node's world axes on the brick route, else ``None``."""
+        return self._slice_axes
+
+    @property
+    def slice_node(self) -> gfx.Group | None:
+        """The node the scene draws on the brick route (the slice group)."""
+        return self._slice_group
+
+    def prepare_slice_route(self, axes: tuple[int, int, int]) -> None:
+        """Build the slice node's resources and put its atlas on the GPU now.
+
+        See :meth:`GFXMultiscaleImageVisual.prepare_slice_route`.
+        """
+        axes = tuple(int(axis) for axis in axes)
+        if "3d" not in self.render_modes:
+            self.render_modes = self.render_modes | {"3d"}
+        if self._volume_geometry is None:
+            last = self._last_displayed_axes
+            self._lazy_init_3d(axes)
+            if last is not None:
+                self._update_node_matrix(last)
+        if self._block_cache_3d is not None:
+            self._block_cache_3d.allocate_on_gpu()
+
+    def set_slice_footprint(self, polygon: np.ndarray) -> None:
+        """Adopt the slice's footprint: the node's bounds and its outline.
+
+        See :meth:`GFXMultiscaleImageVisual.set_slice_footprint`.
+        """
+        points = _footprint_points(polygon)
+        bounds = None
+        if points is None:
+            segments = np.zeros((2, 3), dtype=np.float32)
+        else:
+            bounds = np.stack([points.min(axis=0), points.max(axis=0)])
+            segments = np.empty((2 * len(points), 3), dtype=np.float32)
+            segments[0::2] = points
+            segments[1::2] = np.roll(points, -1, axis=0)
+        if self._footprint_line is None:
+            self._footprint_line = _make_aabb_line(
+                segments, self._aabb_color, self._aabb_line_width
+            )
+        else:
+            self._footprint_line.geometry = gfx.Geometry(positions=segments)
+        group = self._routed_node_3d() if self._slice_axes is not None else None
+        if group is not None:
+            group.slice_bounds = bounds
+        self._apply_outline_visibility()
+
+    def _apply_outline_visibility(self) -> None:
+        """Show the footprint outline where the box wireframe would show."""
+        if self._footprint_line is None:
+            return
+        self._footprint_line.visible = bool(
+            self._slice_axes is not None
+            and self._slice_group is not None
+            and self._slice_group.slice_bounds is not None
+            and self._aabb_enabled
+            and self._data_ready_3d
+        )
 
     # ── GFXVisual protocol ──────────────────────────────────────────────
 
@@ -583,10 +751,13 @@ class GFXMultiscaleLabelVisual(
         # the visual starts in 3D -- so a first entry into 3D builds it here.
         if level_shapes:
             self._full_level_shapes = list(level_shapes)
-        if mode == "3d":
+        axes = self._node_axes(displayed_axes)
+        if len(axes) == 3:
             if self._volume_geometry is None and "3d" in self.render_modes:
-                self._lazy_init_3d(displayed_axes, visual_model)
-            return self.node_3d
+                self._lazy_init_3d(axes, visual_model)
+                return self._routed_node_3d()
+            _old, new_node = self.rebuild_geometry(self._full_level_shapes, axes)
+            return new_node
         return self.node_2d
 
     def rebuild_node_geometry(
@@ -596,7 +767,9 @@ class GFXMultiscaleLabelVisual(
         level_shapes: list[tuple[int, ...]],
         level_transforms: list,
     ) -> gfx.Group | None:
-        _old, new_node = self.rebuild_geometry(level_shapes, displayed_axes)
+        _old, new_node = self.rebuild_geometry(
+            level_shapes, self._node_axes(displayed_axes)
+        )
         return new_node
 
     # ── Geometry rebuild ─────────────────────────────────────────────────
@@ -618,7 +791,7 @@ class GFXMultiscaleLabelVisual(
                 self._lazy_init_3d(displayed_axes)
             else:
                 self._sync_geometry_3d(displayed_axes, level_shapes)
-            new_node = self.node_3d
+            new_node = self._routed_node_3d()
 
         if "2d" in self.render_modes and len(displayed_axes) == 2:
             old_node = self.node_2d
@@ -640,8 +813,8 @@ class GFXMultiscaleLabelVisual(
         constructed.  A change of the shapes alone (a mutated store) keeps
         the geometry and updates its grids.
         """
-        fetch_3d = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_3d = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_3d = [tuple(s[ax] for ax in fetch_3d) for s in level_shapes]
         geo = self._volume_geometry
@@ -667,8 +840,8 @@ class GFXMultiscaleLabelVisual(
 
         See :meth:`_sync_geometry_3d`.
         """
-        fetch_2d = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_2d = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_2d_full = [tuple(s[ax] for ax in fetch_2d) for s in level_shapes]
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
@@ -731,7 +904,7 @@ class GFXMultiscaleLabelVisual(
             )
             self._inner_node_3d = inner
             self._aabb_line_3d = self._build_aabb_line_3d()
-            self.node_3d = gfx.Group()
+            self.node_3d = self._new_node_3d()
             self.node_3d.add(inner)
             self.node_3d.add(self._aabb_line_3d)
             _carry_over_node_state(
@@ -788,8 +961,8 @@ class GFXMultiscaleLabelVisual(
             else:
                 pick_write, material_fields, visible, render_order = True, {}, True, 0
 
-        fetch_3d = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_3d = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_3d = [select_axes(s, fetch_3d) for s in self._full_level_shapes]
         geo = MultiscaleBrickLayout3D(
@@ -832,7 +1005,7 @@ class GFXMultiscaleLabelVisual(
         )
         self._inner_node_3d = inner
         self._aabb_line_3d = self._build_aabb_line_3d()
-        self.node_3d = gfx.Group()
+        self.node_3d = self._new_node_3d()
         self.node_3d.add(inner)
         self.node_3d.add(self._aabb_line_3d)
         for name, value in material_fields.items():
@@ -932,7 +1105,10 @@ class GFXMultiscaleLabelVisual(
     def _clip_targets(self):
         """Both materials, at the planes last planned (design 4.1, 4.6)."""
         collapsed = () if self._spaces is None else self._spaces.collapsed_axes
-        planned = self.pick_collapsed_indices() or {}
+        # Without collapsed axes (a 3D node, or a slice node) the planned
+        # positions are not read, and the level-0 box they come from costs
+        # linear programs when the view is tilted.
+        planned = (self.pick_collapsed_indices() or {}) if collapsed else {}
         constants = {axis: float(planned.get(axis, 0.0)) for axis in collapsed}
         yield drawn_materials(self.node_3d, self.node_2d), constants
 
@@ -977,7 +1153,7 @@ class GFXMultiscaleLabelVisual(
         self._current_slice_coord_3d = self._block_key_slice_coord()
 
         if dims_state is not None:
-            displayed = dims_state.selection.displayed_axes
+            displayed = self._node_axes(tuple(dims_state.selection.displayed_axes))
             if displayed != self._last_displayed_axes:
                 self._update_node_matrix(displayed)
 
@@ -1191,7 +1367,8 @@ class GFXMultiscaleLabelVisual(
         """Reveal the bounding box once the first brick is on the GPU."""
         if not self._data_ready_3d and self._aabb_line_3d is not None:
             self._data_ready_3d = True
-            self._aabb_line_3d.visible = self._aabb_enabled
+            self._aabb_line_3d.visible = self._aabb_enabled and self._slice_axes is None
+            self._apply_outline_visibility()
 
     def plan(
         self,
@@ -1207,7 +1384,13 @@ class GFXMultiscaleLabelVisual(
             The atlas's desired set (``store`` unset), or empty without
             resources for the request's mode.
         """
-        displayed = tuple(request.dims_state.selection.displayed_axes)
+        displayed = self._node_axes(tuple(request.dims_state.selection.displayed_axes))
+        slice_node = self._slice_axes is not None and displayed == self._slice_axes
+        if len(displayed) != len(request.dims_state.selection.displayed_axes):
+            # A 2D request for the slice node: planned by the 3D brick
+            # planner, culled by the viewport as a prism unbounded in depth
+            # (oblique 2D design v3, 5.3.4).
+            request = request._replace(frustum_corners=viewport_prism(request))
         # One plane within a slab, as images draw; a slice that misses the
         # data draws nothing.
         self._begin_region_planning(request.selection)
@@ -1218,8 +1401,10 @@ class GFXMultiscaleLabelVisual(
         if self._volume_geometry is None or self._block_cache_3d is None:
             return []
         brick_arr = None
+        planes = self._plane_planning()
+        # A slice node's backstop is the bricks its plane reaches (D3).
+        backstop_planes = planes if slice_node else None
         if mode == PlanMode.FULL:
-            planes = self._plane_planning()
             max_bricks = None
             if planes is not None:
                 # The room an orthographic plane plan must fit: what the
@@ -1229,7 +1414,10 @@ class GFXMultiscaleLabelVisual(
                 max_bricks = target_room(
                     self.residency_3d(),
                     self._plan_backstop_3d(
-                        request.camera_pos, request.frustum_corners, config.loading
+                        request.camera_pos,
+                        request.frustum_corners,
+                        config.loading,
+                        render_planes=backstop_planes,
                     ),
                     config.loading,
                 )
@@ -1249,7 +1437,10 @@ class GFXMultiscaleLabelVisual(
         else:
             self._adopt_request_3d(request)
         backstop = self._plan_backstop_3d(
-            request.camera_pos, request.frustum_corners, config.loading
+            request.camera_pos,
+            request.frustum_corners,
+            config.loading,
+            render_planes=backstop_planes,
         )
         residency = self.residency_3d()
         if residency is None:
@@ -1259,9 +1450,10 @@ class GFXMultiscaleLabelVisual(
     def _plane_planning(self) -> PlanePlanning | None:
         """The render planes as the brick planner takes them, in plane mode.
 
-        ``None`` in a volume mode.
+        ``None`` in a volume mode.  A 2D view's slice node always plans its
+        slice plane (oblique 2D design v3, D2), whatever the render mode.
         """
-        if self._render_mode != PLANE_RENDER_MODE:
+        if self._drawn_render_mode() != PLANE_RENDER_MODE:
             return None
         return build_plane_planning(
             self.drawn_render_planes,
@@ -1300,7 +1492,7 @@ class GFXMultiscaleLabelVisual(
         """Adopt a request's region and axes without planning the target."""
         self._begin_region_planning(request.selection)
         self._current_slice_coord_3d = self._block_key_slice_coord()
-        displayed = request.dims_state.selection.displayed_axes
+        displayed = self._node_axes(tuple(request.dims_state.selection.displayed_axes))
         if displayed != self._last_displayed_axes:
             self._update_node_matrix(displayed)
 
@@ -1609,9 +1801,10 @@ class GFXMultiscaleLabelVisual(
             textures.append(self._lut_manager_2d.lut_tex)
         destroy_textures(*textures)
         self._residency_3d = self._residency_2d = None
-        for group in (self.node_3d, self.node_2d):
+        for group in (self._slice_group, self.node_3d, self.node_2d):
             if group is not None:
                 group.clear()
+        self._slice_group = self._footprint_line = None
         self.node_3d = self._inner_node_3d = self._aabb_line_3d = None
         self.node_2d = self._inner_node_2d = self._aabb_line_2d = None
         self.material_3d = self.material_2d = None
@@ -1661,10 +1854,9 @@ class GFXMultiscaleLabelVisual(
                 if mat is not None:
                     mat.alpha_mode = val
         elif field == "render_order":
-            if self.node_3d is not None:
-                self.node_3d.render_order = val
-            if self.node_2d is not None:
-                self.node_2d.render_order = val
+            for node in (self.node_3d, self.node_2d, self._slice_group):
+                if node is not None:
+                    node.render_order = val
         elif field == "background_label":
             self._background_label = int(val)
             self._label_params_buffer.data["background_label"] = np.int32(val)
@@ -1693,7 +1885,7 @@ class GFXMultiscaleLabelVisual(
             # Recorded as well, so a 3D material built later starts in it.
             self._render_mode = val
             if self.material_3d is not None:
-                self.material_3d.render_mode = val
+                self.material_3d.render_mode = self._drawn_render_mode()
         elif field == "ray_steps_per_voxel":
             self._ray_steps_per_voxel = float(val)
             if self.material_3d is not None:
@@ -1745,19 +1937,22 @@ class GFXMultiscaleLabelVisual(
         if event.field_name == "enabled":
             self._aabb_enabled = event.new_value
             if self._aabb_line_3d is not None:
-                self._aabb_line_3d.visible = event.new_value and self._data_ready_3d
+                self._aabb_line_3d.visible = (
+                    event.new_value and self._data_ready_3d and self._slice_axes is None
+                )
             if self._aabb_line_2d is not None:
                 self._aabb_line_2d.visible = event.new_value and self._data_ready_2d
         elif event.field_name == "color":
             self._aabb_color = event.new_value
-            for line in (self._aabb_line_3d, self._aabb_line_2d):
+            for line in (self._aabb_line_3d, self._aabb_line_2d, self._footprint_line):
                 if line is not None:
                     line.material.color = event.new_value
         elif event.field_name == "line_width":
             self._aabb_line_width = event.new_value
-            for line in (self._aabb_line_3d, self._aabb_line_2d):
+            for line in (self._aabb_line_3d, self._aabb_line_2d, self._footprint_line):
                 if line is not None:
                     line.material.thickness = event.new_value
+        self._apply_outline_visibility()
 
     def on_data_store_contents_changed(
         self, event: DataStoreContentsChangedEvent
@@ -2000,12 +2195,13 @@ class GFXMultiscaleLabelVisual(
             background_label=self._background_label,
             colormap_mode=self._colormap_mode,
             salt=self._salt,
-            render_mode=self._render_mode,
+            render_mode=self._drawn_render_mode(),
             n_entries=self._n_entries,
             pick_write=pick_write,
             ray_steps_per_voxel=self._ray_steps_per_voxel,
             render_planes_buffer=self.render_planes_buffer,
             smooth_level=self._smooth_geometry_level,
+            slice_2d=self._slice_axes is not None,
         )
 
         geometry = gfx.Geometry(grid=proxy_tex)

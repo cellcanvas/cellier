@@ -57,6 +57,21 @@ class BlockCache3D:
         self.cache_data, self.cache_tex = build_cache_texture_3d(
             cache_parameters, dtype=dtype
         )
+        # Whether any brick has been written: until then the atlas is zeros.
+        self._written = False
+
+    def allocate_on_gpu(self) -> None:
+        """Put the atlas texture on the GPU now, ahead of its first draw.
+
+        Oblique 2D design v3, U12: a 2D view's slice node prepares its atlas
+        before its first switch.  An atlas nothing was written into is
+        created zero-filled with no upload; otherwise its data uploads with
+        the next draw, as it would have.
+        """
+        if not self._written:
+            from cellier.render._gpu_lifetime import allocate_zeroed_texture
+
+            allocate_zeroed_texture(self.cache_tex)
 
     def write_brick(
         self,
@@ -93,6 +108,7 @@ class BlockCache3D:
         """
         import numpy as np
 
+        self._written = True
         commit_block_3d(
             cache_data=self.cache_data,
             cache_tex=self.cache_tex,

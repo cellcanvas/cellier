@@ -149,6 +149,7 @@ def backstop_bricks_3d(
     scale_arr_shader: np.ndarray,
     translation_arr_shader: np.ndarray,
     frustum_planes: np.ndarray | None = None,
+    keep: np.ndarray | None = None,
 ) -> np.ndarray:
     """The backstop level's bricks, nearest the camera first.
 
@@ -168,6 +169,10 @@ def backstop_bricks_3d(
     frustum_planes : np.ndarray or None
         Cull to these planes (``backstop_extent="view"``), or ``None`` for
         the whole volume (``"full"``).
+    keep : np.ndarray or None
+        A boolean mask over the level's grid rows: only those are the
+        backstop (a 2D slice node keeps the rows its plane reaches, oblique
+        2D design v3 D3).  ``None`` keeps every row.
 
     Returns
     -------
@@ -175,6 +180,8 @@ def backstop_bricks_3d(
         ``(N, 4)`` rows ``[level, g0, g1, g2]``.
     """
     arr = level_grids[level - 1]["arr"]
+    if keep is not None:
+        arr = arr[keep]
     arr = sort_arr_by_distance(
         arr,
         camera_pos_data,

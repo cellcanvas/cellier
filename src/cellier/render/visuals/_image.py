@@ -44,8 +44,9 @@ from cellier.render._plane_planning import (
     PlanePlanning,
     build_plane_planning,
     plan_plane_bricks,
+    plane_cull_masks,
 )
-from cellier.render._render_planes import RenderPlanesMixin
+from cellier.render._render_planes import RenderPlanesMixin, SlabSettings
 from cellier.render._spaces import (
     RenderSpaces,
     axis_correspondence,
@@ -93,6 +94,7 @@ from cellier.render.visuals._chunked import (
     make_residency_3d,
     target_room,
     viewport_2d,
+    viewport_prism,
 )
 from cellier.render.visuals._image_memory import (
     _box_wireframe_positions,
@@ -1050,6 +1052,28 @@ def _carry_over_node_state(old_node, old_material, new_node, new_material) -> No
     new_node.render_order = old_node.render_order
 
 
+def _geometry_fetch_axes(
+    transform: BaseTransform | None, displayed_axes: tuple[int, ...], n_data: int
+) -> tuple[int, ...]:
+    """The data axes a geometry for *displayed_axes* is built over, ascending.
+
+    Those the displayed world axes map to (:func:`_world_axes_to_data_axes`)
+    -- or, when one of them is a world axis the data does not reach, a
+    placeholder: a 2D store seen edge-on is such a view, and draws nothing
+    (oblique 2D design v3, U13), but its geometry is still built.  The
+    placeholder is the data axes the displayed rows read, then the lowest
+    others, as many as there are displayed axes.
+    """
+    try:
+        return _fetch_order(_world_axes_to_data_axes(transform, displayed_axes))
+    except ValueError:
+        coupling = effective_transform(transform).axis_coupling()
+        rows = list(displayed_axes)
+        fed = [axis for axis in range(n_data) if coupling[rows, axis].any()]
+        rest = [axis for axis in range(n_data) if axis not in fed]
+        return tuple(sorted((fed + rest)[: len(displayed_axes)]))
+
+
 def _fetch_order(displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
     """The displayed axes in the order the fetched array carries them.
 
@@ -1483,15 +1507,23 @@ class MultiscaleRegionPlanner:
         camera_pos_world: np.ndarray,
         frustum_corners_world: np.ndarray | None,
         loading: ProgressiveLoadingConfig,
+        render_planes: PlanePlanning | None = None,
     ) -> np.ndarray | None:
         """The backstop bricks for this view, nearest first (design 5.9).
 
         ``None`` before the 3D geometry exists.  Extent ``"view"`` culls to the
-        request's frustum whether or not the target is frustum-culled.
+        request's frustum whether or not the target is frustum-culled.  With
+        *render_planes* -- a 2D slice node's plane (oblique 2D design v3,
+        D3) -- only the bricks the plane reaches are the backstop; 3D plane
+        mode passes none and keeps the whole level.
         """
         geo = self._volume_geometry
         if geo is None:
             return None
+        level = backstop_level(loading, geo.n_levels)
+        keep = None
+        if render_planes is not None:
+            keep = plane_cull_masks(geo, render_planes, self._clip_rows())[level - 1]
         camera_pos_data = self._to_level0_displayed(
             np.asarray(camera_pos_world).reshape(1, -1)
         ).flatten()
@@ -1502,12 +1534,13 @@ class MultiscaleRegionPlanner:
             )
         return backstop_bricks_3d(
             geo._level_grids,
-            backstop_level(loading, geo.n_levels),
+            level,
             camera_pos_data,
             geo.block_size,
             geo._scale_arr_shader,
             geo._translation_arr_shader,
             frustum_planes=planes,
+            keep=keep,
         )
 
     def _plan_backstop_2d(
@@ -1706,6 +1739,10 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         # brick/tile batch arrives.
         self._data_ready_3d: bool = False
         self._data_ready_2d: bool = False
+        # On the brick route the 3D node is a 2D view's slice node: its box
+        # wireframe would draw the whole volume's box projected, so the
+        # visual outlines the slice's footprint instead (design v3, 5.5).
+        self._slice_mode: bool = False
 
         # Cache AABB params so on_aabb_changed can update them.
         self._aabb_enabled: bool = aabb_enabled
@@ -1992,8 +2029,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         constructed.  A change of the shapes alone (a mutated store) keeps
         the geometry and updates its grids.
         """
-        fetch_3d = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_3d = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_3d = [tuple(s[ax] for ax in fetch_3d) for s in level_shapes]
         geo = self._volume_geometry
@@ -2019,8 +2056,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
         See :meth:`_sync_geometry_3d`.
         """
-        fetch_2d = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_2d = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_2d_full = [tuple(s[ax] for ax in fetch_2d) for s in level_shapes]
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
@@ -2127,8 +2164,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         render_mode = "mip"
         pick_write = self._pick_write
 
-        fetch_axes = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_axes = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_3d = [select_axes(s, fetch_axes) for s in self._full_level_shapes]
         self._volume_geometry = MultiscaleBrickLayout3D(
@@ -2197,8 +2234,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         interpolation = "linear"
         pick_write = self._pick_write
 
-        fetch_axes = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_axes = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_2d_full = [select_axes(s, fetch_axes) for s in self._full_level_shapes]
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
@@ -2613,7 +2650,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             return
         self._data_ready_3d = True
         if self._aabb_line_3d is not None:
-            self._aabb_line_3d.visible = self._aabb_enabled
+            self._aabb_line_3d.visible = self._aabb_enabled and not self._slice_mode
         if self._data_ready_listener is not None:
             self._data_ready_listener()
 
@@ -3018,7 +3055,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         if event.field_name == "enabled":
             self._aabb_enabled = event.new_value
             if self._aabb_line_3d is not None:
-                self._aabb_line_3d.visible = event.new_value and self._data_ready_3d
+                self._aabb_line_3d.visible = (
+                    event.new_value and self._data_ready_3d and not self._slice_mode
+                )
             if self._aabb_line_2d is not None:
                 self._aabb_line_2d.visible = event.new_value and self._data_ready_2d
         elif event.field_name == "color":
@@ -3225,7 +3264,7 @@ def _slot_geometries(
     """
     volume_geometry = None
     image_geometry_2d = None
-    fetch = _fetch_order(_world_axes_to_data_axes(transform, displayed_axes))
+    fetch = _geometry_fetch_axes(transform, displayed_axes, len(level_shapes[0]))
     if len(displayed_axes) == 3 and "3d" in render_modes:
         volume_geometry = MultiscaleBrickLayout3D(
             level_shapes=[select_axes(s, fetch) for s in level_shapes],
@@ -3242,6 +3281,46 @@ def _slot_geometries(
             fetch_axes=fetch,
         )
     return volume_geometry, image_geometry_2d
+
+
+def _footprint_points(polygon: np.ndarray) -> np.ndarray | None:
+    """A slice footprint's vertices in the slice node's pygfx order.
+
+    *polygon* is ``(M, 2)`` in displayed world coordinates, in the view's
+    displayed-axes order (``slice_footprint``).  The slice node's rendered
+    system puts the displayed axes at their world positions and the slice
+    at depth 0, so pygfx ``(x, y)`` is the reverse and ``z`` is 0.  ``None``
+    when the slice misses the data (fewer than three vertices).
+    """
+    polygon = np.asarray(polygon, dtype=np.float64).reshape(-1, 2)
+    if len(polygon) < 3:
+        return None
+    points = np.zeros((len(polygon), 3), dtype=np.float64)
+    points[:, 0] = polygon[:, 1]
+    points[:, 1] = polygon[:, 0]
+    return points
+
+
+class _SliceBoundsGroup(gfx.Group):
+    """A visual's 3D group, bounded by the slice footprint on the brick route.
+
+    In a 2D view on the brick route the 3D node draws one slice of the
+    volume (oblique 2D design v3, 5.5): its bounds are that slice's
+    footprint, not the volume's box, so camera fit and ``look_at_visual``
+    frame what is drawn.  A hidden child still counts toward a group's
+    bounding box, which is why the box is replaced here rather than its
+    children hidden.
+    """
+
+    slice_mode: bool = False
+    #: ``(2, 3)`` pygfx-order bounds of the footprint, or ``None`` when the
+    #: slice misses the data.
+    slice_bounds: np.ndarray | None = None
+
+    def get_bounding_box(self) -> np.ndarray | None:
+        if self.slice_mode:
+            return None if self.slice_bounds is None else self.slice_bounds.copy()
+        return super().get_bounding_box()
 
 
 class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
@@ -3364,9 +3443,21 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self._slot_for_key: dict[int, int] = {}
         self._drawn: dict[int, int] = {}
         self._clock = 0
+        # The brick route (oblique 2D design v3, 5.3): the three world axes
+        # a 2D view's slice node draws, the slice normal first, or ``None``
+        # on today's path.  Set by the controller (``set_slice_route``).
+        self._slice_axes: tuple[int, int, int] | None = None
+        # The slab projection the slice node draws (design v3, 4.2), or
+        # ``None`` for the plane.  Set by the controller (``set_slab``).
+        self._slab: SlabSettings | None = None
 
-        self.node_3d: gfx.Group | None = gfx.Group() if "3d" in render_modes else None
+        self.node_3d: gfx.Group | None = (
+            _SliceBoundsGroup() if "3d" in render_modes else None
+        )
         self.node_2d: gfx.Group | None = gfx.Group() if "2d" in render_modes else None
+        # The slice footprint's outline, drawn in place of the box wireframe
+        # on the brick route (design v3, 5.5); built on first use.
+        self._footprint_line: gfx.Line | None = None
         for slot in self._slots:
             if self.node_3d is not None and slot.node_3d is not None:
                 self.node_3d.add(slot.node_3d)
@@ -3545,7 +3636,23 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 material.threshold = float(mode_appearance.iso_threshold)
                 material.attenuation = float(shared.attenuation)
                 material.ray_steps_per_voxel = float(shared.ray_steps_per_voxel)
-                material.render_mode = mode_appearance.render_mode
+                # A 2D view's slice node draws its plane whatever the
+                # appearance's 3D render mode (oblique 2D design v3, D5).
+                material.render_mode = (
+                    PLANE_RENDER_MODE
+                    if self._slice_axes is not None
+                    else mode_appearance.render_mode
+                )
+                material.slice_2d = self._slice_axes is not None
+                slab = self._slab if self._slice_axes is not None else None
+                material.slab_op = "none" if slab is None else slab.op
+                if slab is not None:
+                    material.set_slab(
+                        slab.half_extent,
+                        steps_per_voxel=slab.steps_per_voxel,
+                        along_axis=slab.along_axis,
+                        nearest=shared.interpolation == "nearest",
+                    )
                 material.opacity = mode_appearance.opacity
                 material.interpolation = shared.interpolation
                 material.alpha_mode = alpha_mode
@@ -3645,7 +3752,10 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         collapsed = () if self._spaces is None else self._spaces.collapsed_axes
         channel_of = {index: key for key, index in self._drawn.items()}
         for index, slot in enumerate(self._slots):
-            planned = slot.pick_collapsed_indices() or {}
+            # Without collapsed axes (a 3D node, or a slice node) the planned
+            # positions are not read, and the level-0 box they come from
+            # costs linear programs when the view is tilted.
+            planned = (slot.pick_collapsed_indices() or {}) if collapsed else {}
             constants = {axis: float(planned.get(axis, 0.0)) for axis in collapsed}
             # The slot plans with the same planes (fetch culling, 5.1).
             slot._clipping_planes = self._clipping_planes
@@ -3675,8 +3785,193 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         # A node built here has a new material (clipping planes design 4.6).
         self._apply_clipping_planes()
 
+    def _node_axes(self, displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
+        """The world axes the node for *displayed_axes* draws.
+
+        A 2D view on the brick route draws the slice node: the 3D node over
+        the slice's three world axes (oblique 2D design v3, 5.3.2).
+        """
+        if self._slice_axes is not None and len(displayed_axes) == 2:
+            return self._slice_axes
+        return tuple(displayed_axes)
+
+    def set_slice_route(self, axes: tuple[int, int, int] | None) -> bool:
+        """Put the 2D views of this visual on the brick route, or take them off.
+
+        Called by the controller before it pushes the render spaces (design
+        v3, 5.2.2, C3).  The 3D node is the slice node (D4: one atlas per
+        slot), so a scene built for 2D only gains the 3D mode here.
+
+        Parameters
+        ----------
+        axes : tuple[int, int, int] or None
+            The slice normal's world axis, then the two displayed world
+            axes; ``None`` for today's path.
+
+        Returns
+        -------
+        bool
+            Whether the route changed (the active node is then a different
+            one, and the caller swaps it in).
+        """
+        axes = None if axes is None else tuple(int(axis) for axis in axes)
+        if axes == self._slice_axes:
+            return False
+        self._slice_axes = axes
+        if axes is not None:
+            self._ensure_3d_mode()
+        self._draws_slice_plane = axes is not None
+        if self.node_3d is not None:
+            self.node_3d.slice_mode = axes is not None
+        for slot in self._slots:
+            slot._slice_mode = axes is not None
+        self._place_footprint_line()
+        self._apply_outline_visibility()
+        self._apply_materials()
+        self._apply_render_planes()
+        return True
+
+    def _ensure_3d_mode(self) -> None:
+        """Give a scene built for 2D only the 3D mode the slice node needs."""
+        if "3d" in self.render_modes:
+            return
+        self.render_modes = self.render_modes | {"3d"}
+        for slot in self._slots:
+            slot.render_modes = slot.render_modes | {"3d"}
+        self.node_3d = _SliceBoundsGroup()
+        self.node_3d.render_order = self._visual_model.appearance.render_order
+        self.node_3d.visible = self._visible
+
+    def prepare_slice_route(self, axes: tuple[int, int, int]) -> None:
+        """Build the slice node's resources and put its atlas on the GPU now.
+
+        Oblique 2D design v3, 5.1 and U12: called when a transform drag
+        opens on the visual, and at every switch onto the brick route, so
+        the first frame on the route does not wait for the atlas.  Building
+        leaves the 2D node and its placement alone; a later switch whose
+        layout axes differ from *axes* rebuilds the layout but keeps the
+        atlas texture.
+
+        Parameters
+        ----------
+        axes : tuple[int, int, int]
+            The slice node's expected world axes: the normal, then the two
+            displayed axes.
+        """
+        axes = tuple(int(axis) for axis in axes)
+        self._ensure_3d_mode()
+        built = False
+        for slot in self._slots:
+            if slot._volume_geometry is None:
+                last = slot._last_displayed_axes
+                slot._lazy_init_3d(axes)
+                slot._last_displayed_axes = last
+                built = True
+                if slot.node_3d is not None and slot.node_3d.parent is None:
+                    self.node_3d.add(slot.node_3d)
+            if slot._block_cache_3d is not None:
+                slot._block_cache_3d.allocate_on_gpu()
+        if built:
+            self._apply_materials()
+            self._apply_slot_visibility()
+            self._apply_clipping_planes()
+
+    def set_slice_footprint(self, polygon: np.ndarray) -> None:
+        """Adopt the slice's footprint: the node's bounds and its outline.
+
+        Parameters
+        ----------
+        polygon : np.ndarray
+            ``(M, 2)`` vertices in displayed world coordinates, in the
+            view's displayed-axes order (``slice_footprint``); ``(0, 2)``
+            when the slice misses the data.  The slice node's rendered
+            system puts the displayed axes at their world positions and the
+            slice at depth 0, so pygfx ``(x, y)`` is the reverse.
+        """
+        if self.node_3d is None:
+            return
+        points = _footprint_points(polygon)
+        if points is None:
+            self.node_3d.slice_bounds = None
+            if self._footprint_line is not None:
+                self._footprint_line.geometry = gfx.Geometry(
+                    positions=np.zeros((2, 3), dtype=np.float32)
+                )
+            return
+        self.node_3d.slice_bounds = np.stack([points.min(axis=0), points.max(axis=0)])
+        segments = np.empty((2 * len(points), 3), dtype=np.float32)
+        segments[0::2] = points
+        segments[1::2] = np.roll(points, -1, axis=0)
+        if self._footprint_line is None:
+            aabb = self._visual_model.aabb
+            self._footprint_line = _make_aabb_line(
+                segments, aabb.color, aabb.line_width
+            )
+        else:
+            self._footprint_line.geometry = gfx.Geometry(positions=segments)
+        self._place_footprint_line()
+        self._apply_outline_visibility()
+
+    def _place_footprint_line(self) -> None:
+        """Keep the footprint outline in the 3D group only while on the route.
+
+        Off the route the group is bounded by its children, and pygfx counts
+        hidden children too: a footprint left there (at rendered depth 0)
+        would stretch a 3D view's box, and so its fit, to depth 0.
+        """
+        line = self._footprint_line
+        if line is None or self.node_3d is None:
+            return
+        if self._slice_axes is None:
+            if line.parent is not None:
+                line.parent.remove(line)
+        elif line.parent is not self.node_3d:
+            if line.parent is not None:
+                line.parent.remove(line)
+            self.node_3d.add(line)
+
+    def _apply_outline_visibility(self) -> None:
+        """Show the footprint outline where the box wireframe would show."""
+        if self._footprint_line is None:
+            return
+        owner = self._slots[0] if self._slots else None
+        self._footprint_line.visible = bool(
+            self._slice_axes is not None
+            and owner is not None
+            and owner._aabb_enabled
+            and owner._data_ready_3d
+        )
+
+    @property
+    def slice_axes(self) -> tuple[int, int, int] | None:
+        """The slice node's world axes on the brick route, else ``None``."""
+        return self._slice_axes
+
+    @property
+    def slice_node(self) -> gfx.Group | None:
+        """The node the scene draws on the brick route: the 3D group."""
+        return self.node_3d
+
+    def set_slab(self, slab: SlabSettings | None) -> None:
+        """Project a slab on the slice node instead of drawing its plane.
+
+        Set by the controller with the route (oblique 2D design v3, 4.2,
+        5.3.8); ``None`` draws the plane.  A change of operator rebuilds the
+        shader; a change of thickness writes uniforms only.
+        """
+        if slab == self._slab:
+            return
+        self._slab = slab
+        self._apply_materials()
+
+    @property
+    def slab(self) -> SlabSettings | None:
+        """The slab the slice node projects, or ``None``."""
+        return self._slab
+
     def get_node_for_dims(self, displayed_axes: tuple[int, ...]) -> gfx.Group | None:
         """Rebuild the slots' geometry if needed and return the group."""
+        displayed_axes = self._node_axes(displayed_axes)
         mode_attr = "node_3d" if len(displayed_axes) == 3 else "node_2d"
         if tuple(displayed_axes) != self._last_displayed_axes or any(
             getattr(slot, mode_attr) is None for slot in self._slots
@@ -3747,7 +4042,13 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
             misses the data, so the caller retires the atlases.
         """
         dims_state = request.dims_state
-        displayed = tuple(dims_state.selection.displayed_axes)
+        displayed = self._node_axes(tuple(dims_state.selection.displayed_axes))
+        if len(displayed) != len(dims_state.selection.displayed_axes):
+            # A 2D request for the slice node: planned by the 3D brick
+            # planner, culled by the viewport as a prism unbounded in depth
+            # (oblique 2D design v3, 5.3.4).
+            request = request._replace(frustum_corners=viewport_prism(request))
+        slice_node = self._slice_axes is not None and displayed == self._slice_axes
         if displayed != self._last_displayed_axes:
             self._rebuild_slot_geometries(displayed)
         keys, slots = self._begin_plan(request.selection)
@@ -3794,11 +4095,14 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 loading,
             )
         else:
+            planes = self._plane_planning(planner, keys[0])
             backstop = planner._plan_backstop_3d(
-                request.camera_pos, request.frustum_corners, loading
+                request.camera_pos,
+                request.frustum_corners,
+                loading,
+                render_planes=planes if slice_node else None,
             )
             if plan_target:
-                planes = self._plane_planning(planner, keys[0])
                 arr = planner._plan_bricks(
                     request.camera_pos,
                     request.frustum_corners if config.frustum_cull else None,
@@ -3844,15 +4148,21 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
         Every channel of an image has the same render mode, so one drawn
         channel answers for the visual and the planes are planned once.
-        ``None`` in a volume mode.
+        ``None`` in a volume mode.  A 2D view's slice node always plans its
+        slice plane (oblique 2D design v3, D2), whatever the render mode.
         """
         mode_appearance = self._mode_appearance(key)
-        if mode_appearance is None or mode_appearance.render_mode != PLANE_RENDER_MODE:
+        if self._slice_axes is None and (
+            mode_appearance is None or mode_appearance.render_mode != PLANE_RENDER_MODE
+        ):
             return None
+        slab = self._slab if self._slice_axes is not None else None
         return build_plane_planning(
             self.drawn_render_planes,
             planner._to_level0_displayed,
             planner._volume_geometry._scale_arr_shader,
+            # A slab reaches its half-thickness either side (5.3.4).
+            reach_world=0.0 if slab is None else slab.half_extent,
         )
 
     def residencies(self) -> dict[int, ImageResidency3D | ImageResidency2D]:
@@ -3869,7 +4179,8 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         owner = self._slots[0] if self._slots else None
         if owner is not None and owner._aabb_line_3d is not None:
             owner._data_ready_3d = True
-            owner._aabb_line_3d.visible = owner._aabb_enabled
+            owner._aabb_line_3d.visible = owner._aabb_enabled and not owner._slice_mode
+        self._apply_outline_visibility()
 
     def _reveal_aabb_2d(self) -> None:
         """A slot's first tile landed: show the visual's one wireframe."""
@@ -4006,6 +4317,13 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         """Apply an AABB change to the visual's one wireframe (the first slot's)."""
         if self._slots:
             self._slots[0].on_aabb_changed(event)
+        line = self._footprint_line
+        if line is not None:
+            if event.field_name == "color":
+                line.material.color = event.new_value
+            elif event.field_name == "line_width":
+                line.material.thickness = event.new_value
+        self._apply_outline_visibility()
 
     def on_data_store_contents_changed(
         self, event: DataStoreContentsChangedEvent

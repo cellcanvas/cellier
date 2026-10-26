@@ -27,6 +27,13 @@ by the ``R`` axes exactly when ``|R| = n_data - rank(L[S, :])``.  Then:
                    placement of the fetched slab changes.
 =================  =========================================================
 
+The slice pulls back to a flat set of dimension
+``pullback_dim = n_data - rank(L[S, :])``; the data axes it moves along --
+those with a non-zero component in the null space of ``L[S, :]`` -- are the
+**varying** data axes ``V`` (oblique 2D design v3, 4.1).  ``V`` is ``R``
+unless the view is ``OBLIQUE``, where it has more axes than the pullback has
+dimensions.
+
 **"Non-zero" follows decision D7**: an entry counts as zero when
 ``|L_ij| <= tau * min(max|L[i, :]|, max|L[:, j]|)`` with
 ``tau = COUPLING_TOLERANCE``.  Floating-point noise -- a 90 degree rotation
@@ -62,6 +69,7 @@ __all__ = [
     "classify_view",
     "coupling_pattern",
     "effective_transform",
+    "null_space_support",
 ]
 
 #: D7: the relative size below which a matrix entry counts as zero.  Float32
@@ -97,6 +105,11 @@ class ViewClassification:
         The transform with D7's snapped entries set to exactly zero -- the
         one consumers place and slice with.  The very same object as the
         input when nothing snaps.
+    pullback_dim : int
+        ``n_data - rank(L[S, :])``: the dimension of the set of data points
+        the slice selects.  Raster draws only when it is 2.
+    varying_data_axes : tuple[int, ...]
+        ``V``, ascending: the data axes the slice moves along.
     """
 
     alignment: SliceAlignment
@@ -104,6 +117,8 @@ class ViewClassification:
     collapsed_data_axes: tuple[int, ...]
     sliced_world_axes: tuple[int, ...]
     effective_transform: BaseTransform
+    pullback_dim: int
+    varying_data_axes: tuple[int, ...]
 
 
 def coupling_pattern(
@@ -162,6 +177,77 @@ def _rank_of_rows(transform: BaseTransform, rows: Sequence[int]) -> int:
         return total
     # A 1-D non-affine leaf.
     return int(transform.axis_coupling()[rows].any())
+
+
+#: The size, relative to 1, below which a component of an orthonormal
+#: null-space basis counts as zero.  Far above SVD noise (``1e-15``) on the
+#: column-normalised block, far below any coupling D7 keeps.
+_NULL_SPACE_TOLERANCE = 1e-9
+
+
+def null_space_support(linear: np.ndarray) -> tuple[int, ...]:
+    """The columns with a non-zero component in the null space of *linear*.
+
+    Columns are scaled to unit maximum first, which leaves the support
+    unchanged (``L x = 0`` exactly when ``(L D)(D^-1 x) = 0``) and keeps the
+    tolerance independent of each data axis's units; rows are scaled
+    likewise.  A zero column is in the null space on its own.
+
+    Parameters
+    ----------
+    linear : np.ndarray
+        ``(n_rows, n_columns)``, already snapped.
+
+    Returns
+    -------
+    tuple[int, ...]
+        Column indices, ascending.
+    """
+    matrix = np.asarray(linear, dtype=np.float64)
+    n_columns = matrix.shape[1]
+    if matrix.shape[0] == 0:
+        return tuple(range(n_columns))
+    column = np.abs(matrix).max(axis=0)
+    matrix = matrix / np.where(column > 0.0, column, 1.0)
+    row = np.abs(matrix).max(axis=1, keepdims=True)
+    matrix = matrix / np.where(row > 0.0, row, 1.0)
+    rank = int(np.linalg.matrix_rank(matrix))
+    if rank == n_columns:
+        return ()
+    _, _, vh = np.linalg.svd(matrix)
+    basis = vh[rank:].T
+    weight = np.linalg.norm(basis, axis=1)
+    return tuple(int(axis) for axis in np.flatnonzero(weight > _NULL_SPACE_TOLERANCE))
+
+
+def _varying_axes(transform: BaseTransform, rows: Sequence[int]) -> tuple[int, ...]:
+    """``V``: the input axes the slice of output *rows* moves along.
+
+    Numeric for an affine; assembled from the blocks for a container (the
+    null space of a block-diagonal matrix is the product of the blocks'); a
+    non-affine leaf is 1-D and varies when its row is not pinned.
+    """
+    from cellier.transform._affine import AffineTransform
+    from cellier.transform._by_dimension import ByDimensionTransform
+
+    pinned = {int(row) for row in rows}
+    if isinstance(transform, AffineTransform):
+        linear = np.asarray(transform.linear, dtype=np.float64)
+        snapped = np.where(coupling_pattern(linear), linear, 0.0)
+        return null_space_support(snapped[sorted(pinned), :])
+    if isinstance(transform, ByDimensionTransform):
+        varying: list[int] = []
+        for block in transform.blocks:
+            local = [
+                index for index, axis in enumerate(block.output_axes) if axis in pinned
+            ]
+            varying.extend(
+                block.input_axes[index]
+                for index in _varying_axes(block.transform, local)
+            )
+        return tuple(sorted(varying))
+    # A 1-D non-affine leaf.
+    return () if transform.axis_coupling()[sorted(pinned)].any() else (0,)
 
 
 def _effective(transform: BaseTransform) -> BaseTransform:
@@ -247,7 +333,8 @@ def classify_view(
     Returns
     -------
     ViewClassification
-        The case, ``R``, ``C``, ``S`` and the effective transform.
+        The case, ``R``, ``C``, ``S``, the effective transform, the
+        pullback's dimension and ``V``.
 
     Raises
     ------
@@ -284,8 +371,9 @@ def classify_view(
     sliced = [axis for axis in range(n_world) if axis not in shown]
     collapsed = [axis for axis in range(n_data) if pattern[sliced, axis].any()]
     retained = [axis for axis in range(n_data) if axis not in collapsed]
+    pullback_dim = n_data - _rank_of_rows(transform, sliced)
 
-    if len(retained) < n_data - _rank_of_rows(transform, sliced):
+    if len(retained) < pullback_dim:
         alignment = SliceAlignment.OBLIQUE
     elif collapsed and pattern[np.ix_(shown, collapsed)].any():
         alignment = SliceAlignment.SLICE_SHIFT
@@ -303,4 +391,6 @@ def classify_view(
         collapsed_data_axes=tuple(collapsed),
         sliced_world_axes=tuple(sliced),
         effective_transform=_effective(transform),
+        pullback_dim=pullback_dim,
+        varying_data_axes=_varying_axes(transform, sliced),
     )

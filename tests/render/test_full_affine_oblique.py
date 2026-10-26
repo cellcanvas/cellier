@@ -64,10 +64,14 @@ def _status(tmp_path, family, name):
         viewer.controller.close()
 
 
-@pytest.mark.parametrize("family", ["image", "image_multiscale", "labels"])
-def test_raster_oblique_still_draws_nothing(tmp_path, family):
-    """D1: raster ``OBLIQUE`` is out of scope; the status says why."""
-    assert _status(tmp_path, family, "rot_zx") == ("oblique", False)
+@pytest.mark.parametrize(
+    "family", ["image", "labels", "image_multiscale", "labels_multiscale"]
+)
+def test_raster_oblique_draws_on_the_brick_route(tmp_path, family):
+    """D1 put raster ``OBLIQUE`` out of scope; oblique 2D design v3 draws it
+    on the brick route (pre-approved flips: multiscale images in Phase 2,
+    multiscale labels in Phase 3, in-memory images and labels in Phase 4)."""
+    assert _status(tmp_path, family, "rot_zx") == ("oblique", True)
 
 
 # ---------------------------------------------------------------------------

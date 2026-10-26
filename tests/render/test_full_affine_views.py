@@ -303,7 +303,9 @@ def _status_events(viewer) -> list:
 
 
 def test_rot_zx_image_status_follows_the_view(tmp_path, caplog):
-    """3D draws, a ``(y, x)`` view cuts it at an angle, 3D draws again."""
+    """3D draws, a ``(y, x)`` view cuts it at an angle and draws it on the
+    brick route (oblique 2D design v3, Phase 4: a pre-approved flip of
+    "draws nothing"), 3D draws again."""
     matrix = world_matrix(LINEARS["rot_zx"])
     viewer = new_viewer("3d")
     try:
@@ -318,25 +320,22 @@ def test_rot_zx_image_status_follows_the_view(tmp_path, caplog):
         with caplog.at_level(logging.WARNING, logger="cellier.draw_status"):
             viewer.set_displayed_dimensions(("y", "x"))
         second = controller.draw_status(visual.id)
-        assert not second.drawable and second.alignment == "oblique"
-        assert "at an angle" in second.reason and "3D" in second.reason
-        assert scene_manager.is_visual_suppressed(visual.id)
-        assert not controller._render_config_for(
-            viewer.scene.id, visual
-        ).slicing_enabled
-        assert [r.getMessage() for r in caplog.records].count(
-            f"{visual.name!r} is not drawn in this view: {second.reason}"
-        ) == 1
-        assert [event.status.drawable for event in events] == [False]
-        assert controller._draw_status_lines(viewer.scene.id) == [
-            f"Not shown: {visual.name} (OBLIQUE)"
+        assert second.drawable and second.alignment == "oblique"
+        assert second.reason is None
+        assert not scene_manager.is_visual_suppressed(visual.id)
+        assert controller._render_config_for(viewer.scene.id, visual).slicing_enabled
+        assert not [
+            r for r in caplog.records if "is not drawn in this view" in r.getMessage()
         ]
+        # The alignment changed, so the status is announced; it draws.
+        assert [event.status.drawable for event in events] == [True]
+        assert controller._draw_status_lines(viewer.scene.id) == []
 
         viewer.set_displayed_dimensions(("z", "y", "x"))
         load(viewer)
         assert controller.draw_status(visual.id).drawable
         assert not scene_manager.is_visual_suppressed(visual.id)
-        assert [event.status.drawable for event in events] == [False, True]
+        assert all(event.status.drawable for event in events)
         frame, _, _ = render(viewer)
         assert centroid(frame) is not None  # resliced and drawn on return
     finally:
@@ -358,7 +357,9 @@ def test_a_slice_shift_view_draws(tmp_path, family):
 
 
 def test_the_orthoviewer_under_rot_zx_reports_its_panels():
-    """Design 6.2: the ``xz`` and 3D panels draw the image, ``xy``/``yz`` don't."""
+    """Design 6.2: every panel draws the image -- ``xy`` and ``yz`` on the
+    brick route (oblique 2D design v3, Phase 4: a pre-approved flip of
+    "``xy``/``yz`` don't")."""
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui="offscreen")
     try:
         store = ImageMemoryStore(data=block_volume(np.float32), name="F image")
@@ -377,7 +378,7 @@ def test_the_orthoviewer_under_rot_zx_reports_its_panels():
             panel: ortho.controller.draw_status(visual.id).drawable
             for panel, visual in visuals.items()
         }
-        assert drawn_by_panel == {"xy": False, "xz": True, "yz": False, "vol": True}
+        assert drawn_by_panel == {"xy": True, "xz": True, "yz": True, "vol": True}
         assert ortho.draw_status_overlay is not None
     finally:
         ortho.controller.close()
@@ -387,7 +388,13 @@ def test_the_status_overlay_draws_in_a_capture(tmp_path):
     """D8 B: the canvas text shows in a screenshot (captures carry overlays)."""
     viewer = new_viewer("2d")
     try:
-        add_landmark(viewer, "image", world_matrix(LINEARS["rot_zx"]), tmp_path)
+        # A view that still draws nothing: a flat yx store cut along a line
+        # (oblique 2D design v3, U13).  A tilted volume draws since Phase 4.
+        store = ImageMemoryStore(data=np.ones((32, 40), np.float32), name="flat")
+        matrix = np.zeros((4, 3))
+        matrix[0, 1] = 0.5
+        matrix[1, 0] = matrix[2, 1] = matrix[3, 2] = 1.0
+        viewer.add_image(store, transform=bind(viewer, store, matrix))
         load(viewer, slice_z=P0[0])
         frame = viewer.screenshot(size=(320, 320))
         assert drawn(frame).sum() > 50  # the text; the image draws nothing

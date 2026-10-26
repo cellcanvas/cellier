@@ -27,11 +27,13 @@ from cellier.visuals._image_memory import (
     ImageVisual,
     InMemoryImageAppearance,
     InMemoryImageChannelAppearance,
+    InMemoryImageRenderConfig,
     InMemoryImageSingleAppearance,
     effective_transparency_mode,
 )
 from cellier.visuals._label_memory import (
     BaseLabelsAppearance,
+    InMemoryLabelRenderConfig,
     InMemoryLabelsAppearance,
     LabelMemoryVisual,
     OutlineMode,
@@ -81,7 +83,9 @@ __all__ = [
     "ImageVisual",
     "InMemoryImageAppearance",
     "InMemoryImageChannelAppearance",
+    "InMemoryImageRenderConfig",
     "InMemoryImageSingleAppearance",
+    "InMemoryLabelRenderConfig",
     "InMemoryLabelsAppearance",
     "LabelMemoryVisual",
     "LinesMemoryAppearance",

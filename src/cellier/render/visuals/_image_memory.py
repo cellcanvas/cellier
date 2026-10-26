@@ -13,6 +13,7 @@ from cellier.render._node_transform import set_node_matrix
 from cellier.render._render_planes import RenderPlanesMixin
 from cellier.render._spaces import RenderSpaces, node_follows_slice, node_matrix
 from cellier.render.shaders._image_volume import IMAGE_VOLUME_MATERIALS
+from cellier.render.visuals._brick_route_host import BrickRouteHost
 from cellier.render.visuals._pick import memory_image_data_coordinate
 from cellier.render.visuals._slicing import (
     axis_selections_from_box,
@@ -436,8 +437,10 @@ class _ImageMemorySlot:
                 material.threshold = mode_appearance.iso_threshold
 
 
-class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
-    """Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
+class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
+    """Today's path of :class:`GFXImageMemoryVisual`: whole-slice textures.
+
+    Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
     Draws the image single-channel or composited from a pool of
     :class:`_ImageMemorySlot` (unified image design 3.8).  The pool holds one
@@ -1162,3 +1165,31 @@ class GFXImageMemoryVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
     def tick(self) -> None:
         """No per-frame state to advance."""
+
+
+class GFXImageMemoryVisual(BrickRouteHost, _GFXImageMemoryToday):
+    """Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
+
+    Today's whole-slice path (:class:`_GFXImageMemoryToday`), and the brick
+    route for a tilted 2D view (oblique 2D design v3, 5.4,
+    :class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
+    """
+
+    def _build_inner(self, model, axes):
+        from cellier.render.visuals._image import GFXMultiscaleImageVisual
+
+        return GFXMultiscaleImageVisual(
+            model, list(self._brick_source.level_shapes), {"3d"}, tuple(axes)
+        )
+
+    def on_single_appearance_changed(self, event) -> None:
+        super().on_single_appearance_changed(event)
+        self._forward("on_single_appearance_changed", event)
+
+    def on_channel_appearance_changed(self, event) -> None:
+        super().on_channel_appearance_changed(event)
+        self._forward("on_channel_appearance_changed", event)
+
+    def on_image_composite_changed(self, event) -> None:
+        super().on_image_composite_changed(event)
+        self._forward("on_image_composite_changed", event)

@@ -493,7 +493,17 @@ fn vs_main(in: VertexInput) -> Varyings {
     );
 
     let norm_pos  = corners[indices[box_winding_index(in.vertex_index)]];
+    $$ if slice_2d
+    // A 2D view's slice node (oblique 2D design v3, 5.3.3): the box is
+    // flattened onto rendered depth 0.  Under the orthographic 2D camera,
+    // which looks down rendered z, that keeps its screen footprint and its
+    // winding, and no part of it is beyond the camera's depth range; the
+    // ray below still runs from the near plane to the far plane.
+    let box_pos   = u_wobject.world_transform * vec4<f32>(norm_pos, 1.0);
+    let world_pos = vec4<f32>(box_pos.xy, 0.0, box_pos.w);
+    $$ else
     let world_pos = u_wobject.world_transform * vec4<f32>(norm_pos, 1.0);
+    $$ endif
     let ndc_pos   = u_stdinfo.projection_transform
                   * u_stdinfo.cam_transform
                   * world_pos;
@@ -521,6 +531,9 @@ fn vs_main(in: VertexInput) -> Varyings {
 
 $$ if render_mode == 'plane'
 {$ include 'cellier.render_planes.wgsl' $}
+$$ if slab_op != 'none'
+{$ include 'cellier.slab_projection.wgsl' $}
+$$ endif
 $$ endif
 @fragment
 fn fs_main(varyings: Varyings) -> FragmentOutput {
@@ -568,6 +581,26 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // planned for that place, or the backstop where it is not loaded yet.
     let plane_ray_o = (u_wobject.world_transform * vec4<f32>(near_pos, 1.0)).xyz;
     let plane_ray_d = (u_wobject.world_transform * vec4<f32>(ray_dir, 0.0)).xyz;
+    $$ if slab_op != 'none'
+    // ── Slab projection (oblique 2D design v3, 4.2, 5.3.8) ──────────────
+    // The slab's centre plane anchors the window wherever it is: the slab
+    // may reach the data where the plane itself does not.  The samples are
+    // cut to the box and the clipping planes ([t_start, t_end]).
+    let plane = plane_nearest_hit(plane_ray_o, plane_ray_d, -1.0e30, 1.0e30, true);
+    if (!plane.hit) { discard; }
+    let slab_direction = u_material.slab_direction.xyz;
+    let slab = slab_reduce(
+        near_pos, ray_dir, inv_ray_dir, plane.t, t_start, t_end,
+        u_material.slab_half_extent, dot(plane_ray_d, slab_direction),
+        slab_direction, u_material.slab_steps_per_voxel,
+        u_material.slab_along_axis > 0.5, u_material.slab_nearest > 0.5,
+        norm_size, dataset_size);
+    if (!slab.found) { discard; }
+    // The pick and the normal are the winning sample's (max, min) or the
+    // centre plane's (mean): O12.
+    let plane_pos = near_pos + ray_dir * slab.t_pick;
+    let plane_value = slab.value;
+    $$ else
     let plane = plane_nearest_hit(plane_ray_o, plane_ray_d, t_start, t_end, true);
     if (!plane.hit) { discard; }
     let plane_brick = setup_brick(
@@ -577,6 +610,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let plane_value = sample_atlas(
         norm_to_voxel(plane_pos, norm_size, dataset_size),
         plane_brick.lut_entry, plane_brick.lod_scale, plane_brick.brick_corner_k);
+    $$ endif
     // A value below the contrast limits is drawn, not skipped.
     let plane_color = sampled_value_to_color(vec4<f32>(plane_value, 0.0, 0.0, 1.0));
     $$ if colorspace == 'srgb'
@@ -589,7 +623,14 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let plane_world = u_wobject.world_transform * vec4<f32>(plane_pos, 1.0);
     let plane_ndc = u_stdinfo.projection_transform * u_stdinfo.cam_transform * plane_world;
     out.color = vec4<f32>(plane_physical, plane_opacity);
+    $$ if slice_2d
+    // The flattened proxy's rasterised depth: bit-identical to a 2D tile's
+    // at rendered depth 0, where the hit's recomputed depth z-fights
+    // (oblique 2D design v3, 5.3.3, K27).
+    out.depth = varyings.position.z;
+    $$ else
     out.depth = plane_ndc.z / plane_ndc.w;
+    $$ endif
     $$ if write_normal
     // The plane's own normal, faced to the viewer by pack_view_normal.
     out.normal = pack_view_normal(
