@@ -139,10 +139,18 @@ jobs:
           path: ${{ runner.temp }}/apt-archives
           key: ${{ steps.apt-install.outputs.key }}
 
+      # install-mesa3d-offscreen is VTK's Windows setup, and it exports
+      # LP_NUM_THREADS=0: lavapipe then rasterises on the calling thread, one
+      # core of four. The render tests ran about twice Ubuntu's time for it,
+      # and the profiling runs' one-thread variant matched their baseline on
+      # Windows (scripts/ci_profiling/ci_profiling_investigation.md). Its
+      # reason, a teardown hang at exit, did not show for threaded lavapipe in
+      # those runs; the test step's timeout-minutes bounds one if it does.
       - name: Set up headless GUI
         uses: pyvista/setup-headless-display-action@v5
         with:
           qt: true
+          install-mesa3d-offscreen: false
 
       # The windows runners ship no Vulkan driver (the loader is there, but finds
       # no ICD). This installs lavapipe and registers its ICD under
@@ -211,7 +219,9 @@ jobs:
         shell: bash
         run: python scripts/ci_profiling/machine_info.py
 
+      # A process that hangs on exit fails here, not at the 6 hour job limit.
       - name: 🧪 Run Tests
+        timeout-minutes: 45
         run: pytest --color=yes --durations=25 --cov --cov-report=xml --cov-report=term-missing
 
       - name: Coverage
