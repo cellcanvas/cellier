@@ -18,10 +18,10 @@ With ``--thread-sweep`` the probe runs itself once per ``LP_NUM_THREADS``
 value, which sets how many threads llvmpipe rasterises with.  The variable
 is read when the driver loads, hence the subprocesses.  If the frame time
 does not change with the thread count, the driver is not using its threads.
-``default`` removes the variable, so it is not what a job ran with when
-something upstream exported it: ``0`` is what
-``pyvista/setup-headless-display-action`` exported on Windows until
-``install-mesa3d-offscreen: false``, and rasterises on the calling thread.
+``default`` removes the variable, so it is not what a job runs with when
+something upstream exports it: ``0`` is what
+``pyvista/setup-headless-display-action`` exports on Windows, and rasterises
+on the calling thread.
 
 Usage
 -----
