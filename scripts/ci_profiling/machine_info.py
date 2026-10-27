@@ -5,7 +5,10 @@ Actions.  This prints the three things that could explain it, so a slow job
 can be told from a fast one in its log:
 
 ``cpu``
-    The CPU model, core count and memory of the runner.
+    The CPU model, core count and memory of the runner, and whether it has
+    AVX-512, which llvmpipe compiles shaders for unless
+    ``GALLIUM_OVERRIDE_CPU_CAPS`` takes it away (the Windows hang in
+    ``ci_profiling_investigation.md``).
 ``speed``
     A fixed piece of work, timed: a pure-Python loop and a numpy product.
     Run without coverage, so it is the machine's speed alone.
@@ -53,6 +56,38 @@ def cpu_model() -> str:
     except Exception as error:
         return f"unknown ({error!r})"
     return platform.processor() or "unknown"
+
+
+def has_avx512() -> bool | None:
+    """Whether the CPU (and OS) offer AVX-512F, or None where it is not known."""
+    try:
+        if sys.platform == "linux":
+            with open("/proc/cpuinfo") as handle:
+                for line in handle:
+                    if line.startswith("flags"):
+                        return "avx512f" in line.split(":", 1)[1].split()
+        elif sys.platform == "darwin":
+            if platform.machine() == "arm64":
+                return False
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.optional.avx512f"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return result.stdout.strip() == "1"
+        elif sys.platform == "win32":
+            import ctypes
+
+            pf_avx512f_instructions_available = 41
+            return bool(
+                ctypes.windll.kernel32.IsProcessorFeaturePresent(
+                    pf_avx512f_instructions_available
+                )
+            )
+    except Exception:
+        return None
+    return None
 
 
 def memory_gb() -> float | None:
@@ -136,6 +171,12 @@ def main() -> None:
     print(f"python:         {platform.python_version()}")
     print(f"cpu:            {cpu_model()}")
     print(f"cpu count:      {os.cpu_count()}")
+    avx512 = has_avx512()
+    override = os.environ.get("GALLIUM_OVERRIDE_CPU_CAPS") or "unset"
+    print(
+        f"avx-512:        {'unknown' if avx512 is None else 'yes' if avx512 else 'no'}"
+        f" (GALLIUM_OVERRIDE_CPU_CAPS={override})"
+    )
     print(f"memory:         {'unknown' if memory is None else f'{memory:.1f} GB'}")
     print(f"speed, python:  {python_loop_ms():.0f} ms")
     print(f"speed, numpy:   {numpy_ms():.0f} ms")

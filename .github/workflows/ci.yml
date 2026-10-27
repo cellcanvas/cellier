@@ -60,6 +60,15 @@ jobs:
       # but I was getting incompatible CPython errors.
       SPATIAL_GRAPH_NO_PREBUILT: "1"
 
+      # An experiment on the Windows hang: llvmpipe (lavapipe) compiles shaders
+      # for the host CPU, and the hung jobs were on AVX-512 runners (5 of 6;
+      # the AVX2-only EPYC 7763 passed 2 of 2). "avx" keeps AVX and AVX2 and
+      # takes AVX-512 away from the JIT. "Machine and coverage core" logs
+      # whether the runner has AVX-512 (scripts/ci_profiling/
+      # ci_profiling_investigation.md, "The Windows hang in create_texture").
+      # Empty elsewhere, which Mesa treats as no override.
+      GALLIUM_OVERRIDE_CPU_CAPS: ${{ matrix.platform == 'windows-latest' && 'avx' || '' }}
+
     steps:
       - uses: actions/checkout@v7
 
@@ -248,6 +257,9 @@ jobs:
           else
             echo "::warning::no wgpu-native symbols from $url"
           fi
+          # cdb's own default (srv*) does not look next to the DLL, so name the
+          # folder; Microsoft's server still serves the system DLLs.
+          echo "CELLIER_CDB_SYMBOLS=srv*$RUNNER_TEMP\\symbols*https://msdl.microsoft.com/download/symbols;$resources" >> "$GITHUB_ENV"
 
       # A run that hangs (in the driver, or on exit) fails here, not at the
       # 6 hour job limit.

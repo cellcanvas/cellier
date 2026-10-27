@@ -9,7 +9,9 @@ each of those times gets its process dumped by whichever tools are present:
 - ``py-spy dump --native``: every Python thread, native frames included.
 - ``cdb`` (``CELLIER_CDB``, Windows only): every thread of the process,
   lavapipe's own too, attached without stopping the process for good
-  (``-pv``), plus a minidump to open in WinDbg later.
+  (``-pv``), plus a minidump to open in WinDbg later.  Its symbol path is
+  ``CELLIER_CDB_SYMBOLS`` when set: cdb's default does not look in the folder
+  of a DLL for its ``.pdb``.
 
 Two dumps of the same hang tell a wait (the same stacks) from slow work
 (stacks that moved).  The files go to ``CELLIER_NATIVE_DUMP_DIR`` (default
@@ -81,10 +83,13 @@ def _dump(nodeid: str, delay: float) -> None:
     cdb = os.environ.get("CELLIER_CDB")
     if cdb and Path(cdb).is_file():
         dmp = (DUMP_DIR / f"{stem}.dmp").resolve()
+        symbols = os.environ.get("CELLIER_CDB_SYMBOLS")
         _run(
             DUMP_DIR / f"{stem}-cdb.txt",
             header,
-            [cdb, "-pv", "-p", str(pid), "-c", _CDB_COMMANDS.format(dmp=dmp)],
+            [cdb, "-pv", "-p", str(pid)]
+            + (["-y", symbols] if symbols else [])
+            + ["-c", _CDB_COMMANDS.format(dmp=dmp)],
         )
 
 
