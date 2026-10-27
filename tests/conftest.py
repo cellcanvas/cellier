@@ -8,6 +8,9 @@ import numpy as np
 import pytest
 import tensorstore as ts
 
+from tests._native_dump import DUMP_AFTER
+from tests._native_dump import watch as watch_for_native_dump
+
 
 def _track_instances(monkeypatch, cls) -> list[weakref.ref]:
     """Return a list that collects a weakref to every *cls* built from now on.
@@ -41,6 +44,18 @@ def pytest_report_header(config):
     if cov is None:
         return None
     return f"coverage core: {dict(cov.sys_info()).get('core')}"
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    """Dump native stacks of a test still running at ``CELLIER_NATIVE_DUMP_AFTER``.
+
+    Set on the Windows CI job only; see `tests._native_dump`.
+    """
+    if not DUMP_AFTER:
+        return (yield)
+    with watch_for_native_dump(item.nodeid):
+        return (yield)
 
 
 @pytest.hookimpl(wrapper=True)

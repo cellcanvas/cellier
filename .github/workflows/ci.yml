@@ -140,10 +140,11 @@ jobs:
           key: ${{ steps.apt-install.outputs.key }}
 
       # On Windows this exports LP_NUM_THREADS=0 (install-mesa3d-offscreen,
-      # on by default), so lavapipe rasterises on the calling thread. Keep it:
-      # turning it off gained about 1% of render-test time and one job hung in
-      # the driver (CI run 40406715828; scripts/ci_profiling/
+      # on by default), so lavapipe rasterises on the calling thread. Turning
+      # it off gained about 1% of render-test time (scripts/ci_profiling/
       # ci_profiling_investigation.md, "Threaded lavapipe on Windows, tried").
+      # The hang in create_texture seen then is not the thread count: it came
+      # back with it on ("The Windows hang in create_texture", same file).
       - name: Set up headless GUI
         uses: pyvista/setup-headless-display-action@v5
         with:
@@ -216,11 +217,67 @@ jobs:
         shell: bash
         run: python scripts/ci_profiling/machine_info.py
 
+      # Native stacks of a test that hangs ("The Windows hang in
+      # create_texture", scripts/ci_profiling/ci_profiling_investigation.md).
+      # tests/_native_dump.py dumps a test still running at 200 s and 400 s,
+      # before faulthandler's dump at 300 s and pytest-timeout's exit at 600 s,
+      # with py-spy (the Python threads, native frames too) and cdb (every
+      # thread, lavapipe's included; the Windows Server 2025 image has it).
+      # wgpu-native's symbols come from its release, whose DLL the wgpu wheel
+      # ships unchanged; the debuggers find a .pdb next to its DLL. Lavapipe
+      # comes without symbols, so its frames read as export + offset.
+      - name: Native stack dump tools
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          python -m pip install py-spy
+          echo "CELLIER_NATIVE_DUMP_AFTER=200,400" >> "$GITHUB_ENV"
+          cdb="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
+          if [ -f "$cdb" ]; then
+            echo "CELLIER_CDB=$(cygpath -w "$cdb")" >> "$GITHUB_ENV"
+          else
+            echo "::warning::cdb.exe not found: native dumps will be py-spy's only"
+          fi
+          tag=v$(python -c "import wgpu.backends.wgpu_native as w; print(w.__version__)")
+          resources=$(python -c "import os, wgpu; print(os.path.join(os.path.dirname(wgpu.__file__), 'resources'))")
+          url="https://github.com/gfx-rs/wgpu-native/releases/download/$tag/wgpu-windows-x86_64-msvc-release.zip"
+          zip="$(cygpath -u "$RUNNER_TEMP")/wgpu-native.zip"
+          if curl -sSfL --retry 3 -o "$zip" "$url" \
+            && 7z e -y "$(cygpath -w "$zip")" lib/wgpu_native.pdb -o"$resources" > /dev/null; then
+            ls -l "$(cygpath -u "$resources")"
+          else
+            echo "::warning::no wgpu-native symbols from $url"
+          fi
+
       # A run that hangs (in the driver, or on exit) fails here, not at the
       # 6 hour job limit.
       - name: 🧪 Run Tests
         timeout-minutes: 45
         run: pytest --color=yes --durations=25 --cov --cov-report=xml --cov-report=term-missing
+
+      # What "Native stack dump tools" caught, in the log and as an artifact
+      # (the .dmp minidumps open in WinDbg).
+      - name: Native stack dumps
+        if: failure() && matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(native_dumps/*.txt)
+          [ ${#files[@]} -gt 0 ] || { echo "no native dumps"; exit 0; }
+          for f in "${files[@]}"; do
+            echo "::group::$f"
+            cat "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Upload native stack dumps
+        if: failure() && matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-dumps-py${{ matrix.python-version }}
+          path: native_dumps/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Coverage
         uses: codecov/codecov-action@v7
