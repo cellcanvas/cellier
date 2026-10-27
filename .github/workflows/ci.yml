@@ -60,13 +60,15 @@ jobs:
       # but I was getting incompatible CPython errors.
       SPATIAL_GRAPH_NO_PREBUILT: "1"
 
-      # An experiment on the Windows hang: llvmpipe (lavapipe) compiles shaders
-      # for the host CPU, and the hung jobs were on AVX-512 runners (5 of 6;
-      # the AVX2-only EPYC 7763 passed 2 of 2). "avx" keeps AVX and AVX2 and
-      # takes AVX-512 away from the JIT. "Machine and coverage core" logs
-      # whether the runner has AVX-512 (scripts/ci_profiling/
-      # ci_profiling_investigation.md, "The Windows hang in create_texture").
-      # Empty elsewhere, which Mesa treats as no override.
+      # A workaround for a Windows hang: lavapipe shaded a slab projection frame
+      # for minutes on AVX-512 runners (5 jobs in 6; the AVX2-only EPYC 7763
+      # passed every time). llvmpipe compiles shaders for the host CPU; "avx"
+      # keeps AVX and AVX2 and takes AVX-512 away from that JIT, and AVX-512
+      # runners have passed with it since, at no cost in time. Not proven the
+      # cause: a fresh process did not hang without it either. "Machine and
+      # coverage core" logs whether the runner has AVX-512; the story is in
+      # scripts/ci_profiling/ci_profiling_investigation.md, "The Windows hang
+      # in create_texture". Empty elsewhere, which Mesa treats as no override.
       GALLIUM_OVERRIDE_CPU_CAPS: ${{ matrix.platform == 'windows-latest' && 'avx' || '' }}
 
     steps:
@@ -260,26 +262,6 @@ jobs:
           # cdb's own default (srv*) does not look next to the DLL, so name the
           # folder; Microsoft's server still serves the system DLLs.
           echo "CELLIER_CDB_SYMBOLS=srv*$RUNNER_TEMP\\symbols*https://msdl.microsoft.com/download/symbols;$resources" >> "$GITHUB_ENV"
-
-      # The AVX-512 experiment on one machine: the slab cases the jobs hung in,
-      # in fresh processes, with GALLIUM_OVERRIDE_CPU_CAPS=avx and without it,
-      # alternating, each killed at 90 s (a pass takes seconds). The outcomes go
-      # to the log, the job summary and an artifact. It never fails the job;
-      # the main run below keeps the override either way.
-      - name: AVX-512 A/B
-        if: matrix.platform == 'windows-latest'
-        continue-on-error: true
-        timeout-minutes: 25
-        run: python scripts/ci_profiling/avx512_ab.py --rounds 5 --timeout 90 --out avx512_ab/ab.json
-
-      - name: Upload AVX-512 A/B
-        if: always() && matrix.platform == 'windows-latest'
-        uses: actions/upload-artifact@v7
-        with:
-          name: avx512-ab-py${{ matrix.python-version }}
-          path: avx512_ab/
-          if-no-files-found: ignore
-          retention-days: 14
 
       # A run that hangs (in the driver, or on exit) fails here, not at the
       # 6 hour job limit.
