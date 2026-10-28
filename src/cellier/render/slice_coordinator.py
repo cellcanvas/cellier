@@ -368,7 +368,12 @@ class SliceCoordinator:
         visual = self._scenes[request.scene_id].get_visual(visual_id)
         current = self._sync_caches(request.scene_id, visual_id, visual)
         store = self._data_stores[visual_id]
-        sets = [dataclasses.replace(ds, store=store) for ds in desired_sets]
+        # A visual that reads through a source of its own (an in-memory
+        # visual's brick pyramid, oblique 2D design v3 5.4) names it.
+        sets = [
+            ds if ds.store is not None else dataclasses.replace(ds, store=store)
+            for ds in desired_sets
+        ]
         passed = {ds.cache_id for ds in sets}
         self._retired -= passed
         # Announce before passing: completion may fire during the pass.

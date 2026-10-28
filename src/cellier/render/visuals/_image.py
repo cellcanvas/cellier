@@ -39,16 +39,19 @@ from cellier.render._level_of_detail_2d import (
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
 )
+from cellier.render._node_transform import set_node_matrix
 from cellier.render._plane_planning import (
     PlanePlanning,
     build_plane_planning,
     plan_plane_bricks,
+    plane_cull_masks,
 )
-from cellier.render._render_planes import RenderPlanesMixin
+from cellier.render._render_planes import RenderPlanesMixin, SlabSettings
 from cellier.render._spaces import (
     RenderSpaces,
     axis_correspondence,
     cellier_to_pygfx_order,
+    node_follows_slice,
     node_matrix,
     pygfx_to_cellier_order,
     select_axes,
@@ -91,6 +94,7 @@ from cellier.render.visuals._chunked import (
     make_residency_3d,
     target_room,
     viewport_2d,
+    viewport_prism,
 )
 from cellier.render.visuals._image_memory import (
     _box_wireframe_positions,
@@ -106,6 +110,7 @@ from cellier.render.visuals._slicing import (
     axis_selections_from_box,
     image_plane_selection,
 )
+from cellier.transform import SliceAlignment, classify_view, effective_transform
 from cellier.visuals._image_memory import effective_transparency_mode
 from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
@@ -132,7 +137,7 @@ if TYPE_CHECKING:
         ImageResidency2D,
         ImageResidency3D,
     )
-    from cellier.transform import AffineTransform
+    from cellier.transform import AffineTransform, BaseTransform
     from cellier.visuals._image import MultiscaleImageVisual
     from cellier.visuals._loading import ProgressiveLoadingConfig
 
@@ -287,56 +292,6 @@ def _brick_max_image(data: np.ndarray) -> float:
     return float(np.max(data)) if data.size else 0.0
 
 
-def _check_transform_no_rotation(transform: AffineTransform | None) -> None:
-    """Raise ValueError if the transform contains rotation or shear.
-
-    The brick shader only supports scale and translation.  A transform with
-    off-diagonal entries in the linear submatrix (i.e. rotation or shear)
-    would require ``norm_to_voxel`` to be a full affine inverse, which the
-    current WGSL does not implement.
-
-    Parameters
-    ----------
-    transform : AffineTransform or None
-        The ``data -> world`` transform to validate.  ``None`` means the
-        visual has not been placed in a world yet.
-
-    Raises
-    ------
-    ValueError
-        If the linear part of the transform is not diagonal.
-    """
-    if transform is None:
-        # The visual has not been placed in a world yet, so there is no
-        # transform to constrain.  It is checked again when one arrives.
-        return
-    # A ``data -> world`` transform need not be square, so "is the linear
-    # block diagonal" is not a well-formed question (P10 / F0.6).  The
-    # equivalent, and what the shader actually needs, is: each input axis
-    # reaches at most one output axis, each output axis is reached by at most
-    # one input axis, and the correspondence preserves order.  For a square
-    # transform that is exactly "the linear block is diagonal", so this is a
-    # generalisation and not a relaxation.
-    try:
-        correspondence = axis_correspondence(transform)
-    except ValueError as error:
-        raise ValueError(
-            "The brick shader only supports scale and translation transforms. "
-            "The provided transform contains rotation or shear components. "
-            "Support for general affine transforms requires changes to the "
-            "WGSL norm_to_voxel function and is not yet implemented."
-        ) from error
-    outputs = [correspondence[axis] for axis in sorted(correspondence)]
-    if outputs != sorted(outputs):
-        raise ValueError(
-            f"The brick shader only supports scale and translation transforms. "
-            f"This one permutes its axes: data axes {sorted(correspondence)} "
-            f"map to world axes {outputs}.  Support for general affine "
-            f"transforms requires changes to the WGSL norm_to_voxel function "
-            f"and is not yet implemented."
-        )
-
-
 def _norm_to_data_params_for(
     spaces: RenderSpaces, dataset_size: np.ndarray, norm_size: np.ndarray
 ) -> tuple[dict[int, float], dict[int, float]]:
@@ -381,6 +336,32 @@ def _norm_to_data_params_for(
     return scale, translation
 
 
+def _general_displayed_submatrix(
+    affine: AffineTransform, displayed_axes: tuple[int, ...]
+) -> np.ndarray:
+    """``_displayed_submatrix`` off the axis-aligned branch.
+
+    Rows are the displayed world axes in display order; columns are the
+    retained data axes ascending (``_displayed_linear_block``); the last
+    column is the translation with every collapsed data axis at zero, which
+    is all the 2D planners read it for (a view and its LOD, not a slice).
+    Float32, as the axis-aligned branch.
+    """
+    block = _displayed_linear_block(affine, displayed_axes)
+    n = len(displayed_axes)
+    if block.shape != (n, n):
+        raise ValueError(
+            f"World axes {tuple(displayed_axes)} are displayed but this "
+            f"visual retains {block.shape[1]} data axes in that view, so "
+            f"there is no square displayed block to plan with."
+        )
+    translation = np.asarray(affine.translation, dtype=np.float64)
+    matrix = np.eye(n + 1, dtype=np.float64)
+    matrix[:n, :n] = block
+    matrix[:n, n] = translation[list(displayed_axes)]
+    return matrix.astype(np.float32)
+
+
 def _displayed_submatrix(
     transform: AffineTransform, displayed_axes: tuple[int, ...]
 ) -> np.ndarray:
@@ -422,6 +403,8 @@ def _displayed_submatrix(
     ValueError
         If a displayed world axis has no data axis feeding it.
     """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
     # ``.linear`` / ``.translation`` exist only on ``AffineTransform``; a
     # ``ByDimensionTransform`` (any visual sharing the time-axis leaf) has
     # neither.  Restricting to the displayed axes first gives back a plain
@@ -430,6 +413,11 @@ def _displayed_submatrix(
     # for the already-affine transforms every caller here was written
     # against.
     affine = _restricted_affine_for_display(transform, displayed_axes)
+    if not _is_axis_aligned_view(transform, displayed_axes):
+        # No data axis pairs with a displayed world axis: the block is read
+        # whole, columns the retained data axes ascending (fetch order),
+        # which is what every caller indexes its data by.
+        return _general_displayed_submatrix(affine, displayed_axes)
     correspondence = axis_correspondence(affine)
     world_to_data = {world: data for data, world in correspondence.items()}
     linear = np.asarray(affine.linear)
@@ -488,9 +476,8 @@ def _restricted_affine_for_display(
     ``ByDimensionTransform`` -- which is what any visual sharing a
     ``NonUniformAxisTransform`` time axis carries, broadcast or not -- has
     neither, even when every block it actually holds is affine.  Reading
-    ``.linear`` off it directly is the same category of mistake
-    ``_check_transform_no_rotation`` already guards against for a rotated
-    transform, just for a different reason: there is no matrix to read yet.
+    ``.linear`` off it directly fails for the plain reason that there is no
+    matrix to read yet.
 
     The fix mirrors the one the design doc gives for the GPU node-matrix
     boundary ("The GPU still gets a matrix"): every data axis this
@@ -499,10 +486,8 @@ def _restricted_affine_for_display(
     non-affine block to a constant rather than delegating to the block's own
     ``restrict`` -- and what remains is asked for its affine form.  The
     value each axis is pinned to does not matter for the *scale* this is
-    used to compute: a collapsed axis contributes only to translation
-    (``_check_transform_no_rotation`` already forbids any cross-term
-    reaching a displayed axis), so ``0.0`` is as good as the real slice
-    position.
+    used to compute: an axis that feeds no displayed axis contributes only
+    to translation, so ``0.0`` is as good as the real slice position.
 
     A transform that is already affine is returned unchanged -- the only
     case every existing call site was written against, so this is a pure
@@ -530,18 +515,28 @@ def _restricted_affine_for_display(
         matrix that expresses that, which is the honest outcome (design
         doc, "The GPU still gets a matrix").
     """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
     from cellier.transform import AffineTransform as _AffineTransform
     from cellier.transform import NonAffineTransformError
 
     if isinstance(transform, _AffineTransform):
         return transform
-    correspondence = axis_correspondence(transform)
-    displayed_set = set(displayed_axes)
-    fixed = {
-        data_axis: 0.0
-        for data_axis, world_axis in correspondence.items()
-        if world_axis not in displayed_set
-    }
+    if _is_axis_aligned_view(transform, displayed_axes):
+        correspondence = axis_correspondence(transform)
+        displayed_set = set(displayed_axes)
+        fixed = {
+            data_axis: 0.0
+            for data_axis, world_axis in correspondence.items()
+            if world_axis not in displayed_set
+        }
+    else:
+        # Rotated or sheared: pin every data axis that feeds no displayed
+        # world axis.  Renumbering keeps the rest ascending.
+        feeding = set(transform.data_axes_feeding(displayed_axes))
+        fixed = {
+            axis: 0.0 for axis in range(transform.input_ndim) if axis not in feeding
+        }
     affine = transform.restrict(fixed).to_affine()
     if affine is None:
         raise NonAffineTransformError(
@@ -551,6 +546,121 @@ def _restricted_affine_for_display(
             f"collapsed (sliced) axis may be non-affine."
         )
     return affine
+
+
+def _is_axis_aligned_view(
+    transform: BaseTransform | None, displayed_axes: tuple[int, ...]
+) -> bool:
+    """Whether *transform* is ``AXIS_ALIGNED`` in the view of *displayed_axes*.
+
+    The branch every placement helper here takes (design v2, I1): the
+    axis-aligned branch runs the expression it always ran, bit for bit, and
+    only the other alignments take the general one.  An unplaced visual
+    (``None``) counts as axis-aligned.
+    """
+    if transform is None:
+        return True
+    try:
+        classification = classify_view(transform, displayed_axes)
+    except ValueError:
+        # Displayed axes the transform has no rows for: today's branch
+        # raises the explanation callers expect.
+        return True
+    if classification.alignment is not SliceAlignment.AXIS_ALIGNED:
+        return False
+    # Today's branch reads the bijection, which a transform coupling two
+    # *sliced* axes (world ``t`` reading data ``z``, say) has not, though
+    # the view is axis aligned; such a transform was refused before, so it
+    # takes the general branch.
+    try:
+        classification.effective_transform.axis_correspondence()
+    except ValueError:
+        return False
+    return True
+
+
+def _displayed_linear_block(
+    transform: BaseTransform, displayed_axes: tuple[int, ...]
+) -> np.ndarray:
+    """``L[D, R]`` of the effective transform, as one block.
+
+    Rows are the displayed **world** axes in display order; columns are the
+    retained data axes (design v2 3.1) ascending, which is the order a
+    fetched array carries them (``_fetch_order``).  D7's snapped entries are
+    zero.  Defined for every alignment, unlike the bijection
+    ``axis_correspondence`` answers.
+
+    Parameters
+    ----------
+    transform : BaseTransform
+        The visual's ``data -> world`` transform.
+    displayed_axes : tuple[int, ...]
+        The displayed world axes, in display order.
+
+    Returns
+    -------
+    np.ndarray
+        ``(len(displayed_axes), len(R))`` float64.
+
+    Raises
+    ------
+    NonAffineTransformError
+        If a non-affine block reaches a displayed axis.
+    """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
+    from cellier.transform import AffineTransform as _AffineTransform
+    from cellier.transform import NonAffineTransformError
+
+    classification = classify_view(transform, displayed_axes)
+    effective = classification.effective_transform
+    retained = list(classification.retained_data_axes)
+    if isinstance(effective, _AffineTransform):
+        linear = np.asarray(effective.linear, dtype=np.float64)
+        return linear[np.ix_(list(displayed_axes), retained)]
+    # A container: pin every collapsed axis (its value only moves the
+    # translation) and read what remains, whose columns are the retained
+    # axes renumbered in ascending order.
+    fixed = dict.fromkeys(classification.collapsed_data_axes, 0.0)
+    affine = effective.restrict(fixed).to_affine() if fixed else effective.to_affine()
+    if affine is None:
+        raise NonAffineTransformError(
+            f"{type(transform).__name__} has a non-affine block reaching a "
+            f"displayed axis (world axes {displayed_axes}); there is no "
+            f"matrix for the multiscale shaders to use."
+        )
+    linear = np.asarray(affine.linear, dtype=np.float64)
+    return linear[list(displayed_axes), :]
+
+
+def _world_to_voxel_scale_2d(sub_2d: np.ndarray, axis_aligned: bool) -> float:
+    """Level-0 voxels per world unit across a 2D view, for LOD selection.
+
+    The geometric mean over the two displayed axes.  On the axis-aligned
+    branch it is read off the diagonal of ``_displayed_submatrix``, as it
+    always was.  Otherwise the diagonal is meaningless (a rotation by
+    ``theta`` reads ``cos(theta)``), and the orientation-free equivalent is
+    ``|det|^(-1/n)`` -- the geometric mean of the singular values, which
+    equals the diagonal product for a scaled permutation (design v2 K10).
+
+    Parameters
+    ----------
+    sub_2d : np.ndarray
+        The square homogeneous displayed block, ``(n + 1, n + 1)``.
+    axis_aligned : bool
+        Whether the view is ``AXIS_ALIGNED``.
+
+    Returns
+    -------
+    float
+        Voxels per world unit.
+    """
+    nd2 = sub_2d.shape[0] - 1
+    if axis_aligned:
+        world_units_per_voxel_2d = np.abs(np.diag(sub_2d[:nd2, :nd2]))
+        return float(np.prod(1.0 / world_units_per_voxel_2d) ** (1.0 / nd2))
+    block = np.asarray(sub_2d[:nd2, :nd2], dtype=np.float64)
+    return float(abs(np.linalg.det(block)) ** (-1.0 / nd2))
 
 
 def _norm_size_from_transform(
@@ -573,9 +683,8 @@ def _norm_size_from_transform(
     Parameters
     ----------
     transform : AffineTransform or None
-        The full data-to-world transform (any ``ndim >= 3``).  Must be
-        scale + translation only (validated separately by
-        ``_check_transform_no_rotation``).
+        The full data-to-world transform (any ``ndim >= 3``), any affine
+        on the displayed axes.
     displayed_axes : tuple[int, ...]
         The 3 displayed data axes, in display order.
     dataset_size_xyz : ndarray, shape (3,)
@@ -587,6 +696,8 @@ def _norm_size_from_transform(
         Normalised physical size in shader order, with the longest axis
         equal to 1.0.
     """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
     if len(displayed_axes) != 3:
         raise ValueError(
             f"_norm_size_from_transform requires 3 displayed axes, "
@@ -602,6 +713,15 @@ def _norm_size_from_transform(
         # Unplaced: every axis is at unit scale, which is what a placed
         # identity would have given.
         return compute_normalized_size(dataset_size_xyz, np.ones(3))
+    if not _is_axis_aligned_view(transform, displayed_axes):
+        # Off the axis-aligned branch there is no single entry per axis.  A
+        # retained data axis's world length per voxel is its column norm,
+        # which makes every rotation times a scale a similarity of the proxy
+        # box (design v2 K9).  Columns come in fetch order (ascending data
+        # axes), the order ``dataset_size_xyz`` reverses.
+        block = _displayed_linear_block(transform, displayed_axes)
+        column_norms = np.linalg.norm(block, axis=0)
+        return compute_normalized_size(dataset_size_xyz, column_norms[::-1].copy())
     affine = _restricted_affine_for_display(transform, displayed_axes)
     correspondence = axis_correspondence(affine)
     world_to_data = {world: data for data, world in correspondence.items()}
@@ -623,6 +743,41 @@ def _norm_size_from_transform(
     return compute_normalized_size(dataset_size_xyz, per_axis_scale_xyz)
 
 
+def _general_world_axes_to_data_axes(
+    transform: BaseTransform, displayed_axes: tuple[int, ...]
+) -> tuple[int, ...]:
+    """``_world_axes_to_data_axes`` off the axis-aligned branch.
+
+    Under a rotation or shear no data axis pairs with a displayed world axis,
+    only the **set** of retained data axes the view draws on (design v2,
+    3.1), returned ascending -- the fetch order, which is all the callers use
+    it for.  A view that does not draw the visual (an ``OBLIQUE`` raster
+    view, whose retained set is too small) still sizes a placeholder
+    geometry from here, so it gets the displayed rows' heaviest data axes
+    instead; nothing is sliced into it.
+    """
+    coupling = transform.axis_coupling()
+    missing = [axis for axis in displayed_axes if not coupling[axis].any()]
+    if missing:
+        raise ValueError(
+            f"World axis/axes {missing} are displayed but no data axis of "
+            f"this visual maps to them (they are broadcast).  A multiscale "
+            f"visual has no data to render along a broadcast axis."
+        )
+    retained = classify_view(transform, displayed_axes).retained_data_axes
+    retained = tuple(axis for axis in retained if coupling[:, axis].any())
+    if len(retained) == len(displayed_axes):
+        return retained
+    from cellier.transform import AffineTransform as _AffineTransform
+
+    if isinstance(transform, _AffineTransform):
+        weights = np.abs(np.asarray(transform.linear, dtype=np.float64))
+    else:
+        weights = coupling.astype(np.float64)
+    heaviest = np.argsort(-weights[list(displayed_axes), :].max(axis=0), kind="stable")
+    return tuple(sorted(int(axis) for axis in heaviest[: len(displayed_axes)]))
+
+
 def _world_axes_to_data_axes(
     transform: AffineTransform | None, displayed_axes: tuple[int, ...]
 ) -> tuple[int, ...]:
@@ -636,8 +791,8 @@ def _world_axes_to_data_axes(
     than the world -- a ``tzyx`` labels volume broadcast over a world ``c``,
     say -- needs the translation this function performs, via the same
     ``axis_correspondence`` the already-migrated per-reslice helpers
-    (``_norm_size_from_transform``, ``_displayed_submatrix``,
-    ``_check_transform_no_rotation``) already read.  Those three take
+    (``_norm_size_from_transform``, ``_displayed_submatrix``) already
+    read.  Those take
     *world* axes deliberately and translate internally; this one exists
     because ``select_axes``/``_fetch_order`` do not, and cannot be taught
     to without knowing the transform themselves.
@@ -666,8 +821,12 @@ def _world_axes_to_data_axes(
         multiscale visual cannot render along a broadcast axis, since there
         is no data varying along it to draw.
     """
+    # D7: read the snapped matrix, as the classifier does.
+    transform = effective_transform(transform)
     if transform is None:
         return displayed_axes
+    if not _is_axis_aligned_view(transform, displayed_axes):
+        return _general_world_axes_to_data_axes(transform, displayed_axes)
     correspondence = axis_correspondence(transform)
     world_to_data = {world: data for data, world in correspondence.items()}
     missing = [axis for axis in displayed_axes if axis not in world_to_data]
@@ -893,6 +1052,28 @@ def _carry_over_node_state(old_node, old_material, new_node, new_material) -> No
     new_node.render_order = old_node.render_order
 
 
+def _geometry_fetch_axes(
+    transform: BaseTransform | None, displayed_axes: tuple[int, ...], n_data: int
+) -> tuple[int, ...]:
+    """The data axes a geometry for *displayed_axes* is built over, ascending.
+
+    Those the displayed world axes map to (:func:`_world_axes_to_data_axes`)
+    -- or, when one of them is a world axis the data does not reach, a
+    placeholder: a 2D store seen edge-on is such a view, and draws nothing
+    (oblique 2D design v3, U13), but its geometry is still built.  The
+    placeholder is the data axes the displayed rows read, then the lowest
+    others, as many as there are displayed axes.
+    """
+    try:
+        return _fetch_order(_world_axes_to_data_axes(transform, displayed_axes))
+    except ValueError:
+        coupling = effective_transform(transform).axis_coupling()
+        rows = list(displayed_axes)
+        fed = [axis for axis in range(n_data) if coupling[rows, axis].any()]
+        rest = [axis for axis in range(n_data) if axis not in fed]
+        return tuple(sorted((fed + rest)[: len(displayed_axes)]))
+
+
 def _fetch_order(displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
     """The displayed axes in the order the fetched array carries them.
 
@@ -999,6 +1180,41 @@ class MultiscaleRegionPlanner:
         MultiscaleRegionPlanner._begin_region_planning(
             self, selection if planned is None else planned
         )
+        self._follow_slice()
+
+    def _follow_slice(self) -> None:
+        """Move the nodes with the slice in a view where the slice moves them.
+
+        ``SLICE_SHIFT`` (full affine design v2, 4.3): the planes this plan
+        draws, per collapsed axis, become the node matrix's collapsed
+        constants (``_node_collapsed_world``), and the nodes are placed again.
+        ``_collapsed_indices`` stays empty -- it is the pick path's, and
+        ``pick_collapsed_indices`` answers picks from the plan -- so the two
+        cannot drift apart.  Any other view keeps today's call pattern and
+        its constants at zero.
+        """
+        if not node_follows_slice(self._spaces):
+            if self._node_collapsed_world:
+                self._node_collapsed_world = {}
+            return
+        planned = self.pick_collapsed_indices() or {}
+        constants = {axis: float(index) for axis, index in planned.items()}
+        if constants == self._node_collapsed_world:
+            return
+        self._node_collapsed_world = constants
+        if self._last_displayed_axes is not None:
+            self._update_node_matrix(self._last_displayed_axes)
+
+    def _node_constants(self) -> dict[int, float]:
+        """The collapsed constants the node matrix holds (design 3.9, v2 4.3)."""
+        source = (
+            self._node_collapsed_world
+            if node_follows_slice(self._spaces)
+            else self._collapsed_indices
+        )
+        return {
+            axis: float(source.get(axis, 0.0)) for axis in self._spaces.collapsed_axes
+        }
 
     def _level_box(self, level_index: int):
         """The selection pulled back to level *level_index*, as a box.
@@ -1291,15 +1507,23 @@ class MultiscaleRegionPlanner:
         camera_pos_world: np.ndarray,
         frustum_corners_world: np.ndarray | None,
         loading: ProgressiveLoadingConfig,
+        render_planes: PlanePlanning | None = None,
     ) -> np.ndarray | None:
         """The backstop bricks for this view, nearest first (design 5.9).
 
         ``None`` before the 3D geometry exists.  Extent ``"view"`` culls to the
-        request's frustum whether or not the target is frustum-culled.
+        request's frustum whether or not the target is frustum-culled.  With
+        *render_planes* -- a 2D slice node's plane (oblique 2D design v3,
+        D3) -- only the bricks the plane reaches are the backstop; 3D plane
+        mode passes none and keeps the whole level.
         """
         geo = self._volume_geometry
         if geo is None:
             return None
+        level = backstop_level(loading, geo.n_levels)
+        keep = None
+        if render_planes is not None:
+            keep = plane_cull_masks(geo, render_planes, self._clip_rows())[level - 1]
         camera_pos_data = self._to_level0_displayed(
             np.asarray(camera_pos_world).reshape(1, -1)
         ).flatten()
@@ -1310,12 +1534,13 @@ class MultiscaleRegionPlanner:
             )
         return backstop_bricks_3d(
             geo._level_grids,
-            backstop_level(loading, geo.n_levels),
+            level,
             camera_pos_data,
             geo.block_size,
             geo._scale_arr_shader,
             geo._translation_arr_shader,
             frustum_planes=planes,
+            keep=keep,
         )
 
     def _plan_backstop_2d(
@@ -1455,13 +1680,16 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
         # The data -> world transform.  There is no coordinate-system-less
         # identity to fall back on (D18); the controller supplies one.
-        self._transform: AffineTransform | None = transform
+        self._transform: AffineTransform | None = effective_transform(transform)
         # The systems this visual's geometry is placed with, pushed by the
         # controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
         # The collapsed voxel index per dropped data axis, refreshed on every
         # planned request (design 3.9).
         self._collapsed_indices: dict[int, float] = {}
+        # The node matrix's collapsed constants in a view the slice moves
+        # the data in (full affine design v2, 4.3); see ``_follow_slice``.
+        self._node_collapsed_world: dict[int, float] = {}
         self.render_modes = render_modes
         self._volume_geometry = volume_geometry
         self._image_geometry_2d = image_geometry_2d
@@ -1511,6 +1739,10 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         # brick/tile batch arrives.
         self._data_ready_3d: bool = False
         self._data_ready_2d: bool = False
+        # On the brick route the 3D node is a 2D view's slice node: its box
+        # wireframe would draw the whole volume's box projected, so the
+        # visual outlines the slice's footprint instead (design v3, 5.5).
+        self._slice_mode: bool = False
 
         # Cache AABB params so on_aabb_changed can update them.
         self._aabb_enabled: bool = aabb_enabled
@@ -1613,7 +1845,6 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                 swap_axes(tuple(float(s) for s in ds), (2, 1, 0)),
                 dtype=np.float64,
             )
-            _check_transform_no_rotation(self._transform)
             # 3D rendering requires 3 displayed axes.  ``displayed_axes`` is
             # set when constructed via ``from_cellier_model``; if a caller
             # uses the raw constructor with a 3D-equal-ndim transform, fall
@@ -1798,8 +2029,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         constructed.  A change of the shapes alone (a mutated store) keeps
         the geometry and updates its grids.
         """
-        fetch_3d = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_3d = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_3d = [tuple(s[ax] for ax in fetch_3d) for s in level_shapes]
         geo = self._volume_geometry
@@ -1825,8 +2056,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
         See :meth:`_sync_geometry_3d`.
         """
-        fetch_2d = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_2d = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_2d_full = [tuple(s[ax] for ax in fetch_2d) for s in level_shapes]
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
@@ -1851,7 +2082,6 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             swap_axes(tuple(float(s) for s in ds), (2, 1, 0)),
             dtype=np.float64,
         )
-        _check_transform_no_rotation(self._transform)
         self._norm_size = _norm_size_from_transform(
             self._transform, displayed_axes, self._dataset_size
         )
@@ -1934,8 +2164,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         render_mode = "mip"
         pick_write = self._pick_write
 
-        fetch_axes = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_axes = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_3d = [select_axes(s, fetch_axes) for s in self._full_level_shapes]
         self._volume_geometry = MultiscaleBrickLayout3D(
@@ -1987,7 +2217,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         self.node_3d.add(self._aabb_line_3d)
         self._last_displayed_axes = displayed_axes
         if self._spaces is not None and self._transform is not None:
-            self.node_3d.local.matrix = self._node_matrices()[0]
+            set_node_matrix(self.node_3d, self._node_matrices()[0])
         self.node_3d.visible = self._visible
 
     def _lazy_init_2d(self, displayed_axes: tuple[int, ...], visual_model=None) -> None:
@@ -2004,8 +2234,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         interpolation = "linear"
         pick_write = self._pick_write
 
-        fetch_axes = _fetch_order(
-            _world_axes_to_data_axes(self._transform, displayed_axes)
+        fetch_axes = _geometry_fetch_axes(
+            self._transform, displayed_axes, len(self._full_level_shapes[0])
         )
         shapes_2d_full = [select_axes(s, fetch_axes) for s in self._full_level_shapes]
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
@@ -2059,7 +2289,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         self.node_2d.add(self._aabb_line_2d)
         self._last_displayed_axes = displayed_axes
         if self._spaces is not None and self._transform is not None:
-            self.node_2d.local.matrix = self._node_matrices()[1]
+            set_node_matrix(self.node_2d, self._node_matrices()[1])
         self.node_2d.visible = self._visible
 
     def _rebuild_3d_resources(self) -> None:
@@ -2165,10 +2395,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
     def _collapsed_origin(self) -> dict[int, float]:
         """Where the dropped data axes sit, for the node matrix (design 3.9)."""
-        return {
-            axis: float(self._collapsed_indices.get(axis, 0.0))
-            for axis in self._spaces.collapsed_axes
-        }
+        return self._node_constants()
 
     def _node_matrices(self) -> tuple[object, object]:
         """``(matrix for the 3D node, matrix for the 2D node)``.
@@ -2205,9 +2432,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             return
         composed, plain = self._node_matrices()
         if self.node_3d is not None:
-            self.node_3d.local.matrix = composed
+            set_node_matrix(self.node_3d, composed)
         if self.node_2d is not None:
-            self.node_2d.local.matrix = plain
+            set_node_matrix(self.node_2d, plain)
 
     # ── 3D planning helpers ───────────────────────────────────────────
 
@@ -2423,7 +2650,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             return
         self._data_ready_3d = True
         if self._aabb_line_3d is not None:
-            self._aabb_line_3d.visible = self._aabb_enabled
+            self._aabb_line_3d.visible = self._aabb_enabled and not self._slice_mode
         if self._data_ready_listener is not None:
             self._data_ready_listener()
 
@@ -2572,11 +2799,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         """
         displayed = self._last_displayed_axes
         sub_2d = _displayed_submatrix(self._transform, displayed)
-
-        nd2 = sub_2d.shape[0] - 1
-        world_units_per_voxel_2d = np.abs(np.diag(sub_2d[:nd2, :nd2]))
-        world_to_voxel_scale_2d = float(
-            np.prod(1.0 / world_units_per_voxel_2d) ** (1.0 / nd2)
+        world_to_voxel_scale_2d = _world_to_voxel_scale_2d(
+            sub_2d, _is_axis_aligned_view(self._transform, displayed)
         )
         voxel_width = world_width * world_to_voxel_scale_2d
 
@@ -2691,12 +2915,11 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
         """Update stored transform, norm_size uniform, and pygfx node matrix."""
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
 
         # Recompute norm_size and push the updated uniform buffer so the
         # proxy cube shape stays consistent with the new transform.
         if self._dataset_size is not None:
-            _check_transform_no_rotation(self._transform)
             self._norm_size = _norm_size_from_transform(
                 self._transform, self._norm_size_axes, self._dataset_size
             )
@@ -2832,7 +3055,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         if event.field_name == "enabled":
             self._aabb_enabled = event.new_value
             if self._aabb_line_3d is not None:
-                self._aabb_line_3d.visible = event.new_value and self._data_ready_3d
+                self._aabb_line_3d.visible = (
+                    event.new_value and self._data_ready_3d and not self._slice_mode
+                )
             if self._aabb_line_2d is not None:
                 self._aabb_line_2d.visible = event.new_value and self._data_ready_2d
         elif event.field_name == "color":
@@ -3039,7 +3264,7 @@ def _slot_geometries(
     """
     volume_geometry = None
     image_geometry_2d = None
-    fetch = _fetch_order(_world_axes_to_data_axes(transform, displayed_axes))
+    fetch = _geometry_fetch_axes(transform, displayed_axes, len(level_shapes[0]))
     if len(displayed_axes) == 3 and "3d" in render_modes:
         volume_geometry = MultiscaleBrickLayout3D(
             level_shapes=[select_axes(s, fetch) for s in level_shapes],
@@ -3056,6 +3281,46 @@ def _slot_geometries(
             fetch_axes=fetch,
         )
     return volume_geometry, image_geometry_2d
+
+
+def _footprint_points(polygon: np.ndarray) -> np.ndarray | None:
+    """A slice footprint's vertices in the slice node's pygfx order.
+
+    *polygon* is ``(M, 2)`` in displayed world coordinates, in the view's
+    displayed-axes order (``slice_footprint``).  The slice node's rendered
+    system puts the displayed axes at their world positions and the slice
+    at depth 0, so pygfx ``(x, y)`` is the reverse and ``z`` is 0.  ``None``
+    when the slice misses the data (fewer than three vertices).
+    """
+    polygon = np.asarray(polygon, dtype=np.float64).reshape(-1, 2)
+    if len(polygon) < 3:
+        return None
+    points = np.zeros((len(polygon), 3), dtype=np.float64)
+    points[:, 0] = polygon[:, 1]
+    points[:, 1] = polygon[:, 0]
+    return points
+
+
+class _SliceBoundsGroup(gfx.Group):
+    """A visual's 3D group, bounded by the slice footprint on the brick route.
+
+    In a 2D view on the brick route the 3D node draws one slice of the
+    volume (oblique 2D design v3, 5.5): its bounds are that slice's
+    footprint, not the volume's box, so camera fit and ``look_at_visual``
+    frame what is drawn.  A hidden child still counts toward a group's
+    bounding box, which is why the box is replaced here rather than its
+    children hidden.
+    """
+
+    slice_mode: bool = False
+    #: ``(2, 3)`` pygfx-order bounds of the footprint, or ``None`` when the
+    #: slice misses the data.
+    slice_bounds: np.ndarray | None = None
+
+    def get_bounding_box(self) -> np.ndarray | None:
+        if self.slice_mode:
+            return None if self.slice_bounds is None else self.slice_bounds.copy()
+        return super().get_bounding_box()
 
 
 class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
@@ -3116,7 +3381,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self._channel_axis: int | None = visual_model.channel_axis
         self._full_level_shapes = [tuple(shape) for shape in level_shapes]
         self._level_transforms = list(visual_model.level_transforms)
-        self._transform = visual_model.transform
+        self._transform = effective_transform(visual_model.transform)
         self._spaces: RenderSpaces | None = None
         self._last_displayed_axes: tuple[int, ...] = tuple(displayed_axes)
         self._pick_write: bool = visual_model.pick_write
@@ -3178,9 +3443,21 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self._slot_for_key: dict[int, int] = {}
         self._drawn: dict[int, int] = {}
         self._clock = 0
+        # The brick route (oblique 2D design v3, 5.3): the three world axes
+        # a 2D view's slice node draws, the slice normal first, or ``None``
+        # on today's path.  Set by the controller (``set_slice_route``).
+        self._slice_axes: tuple[int, int, int] | None = None
+        # The slab projection the slice node draws (design v3, 4.2), or
+        # ``None`` for the plane.  Set by the controller (``set_slab``).
+        self._slab: SlabSettings | None = None
 
-        self.node_3d: gfx.Group | None = gfx.Group() if "3d" in render_modes else None
+        self.node_3d: gfx.Group | None = (
+            _SliceBoundsGroup() if "3d" in render_modes else None
+        )
         self.node_2d: gfx.Group | None = gfx.Group() if "2d" in render_modes else None
+        # The slice footprint's outline, drawn in place of the box wireframe
+        # on the brick route (design v3, 5.5); built on first use.
+        self._footprint_line: gfx.Line | None = None
         for slot in self._slots:
             if self.node_3d is not None and slot.node_3d is not None:
                 self.node_3d.add(slot.node_3d)
@@ -3359,7 +3636,23 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 material.threshold = float(mode_appearance.iso_threshold)
                 material.attenuation = float(shared.attenuation)
                 material.ray_steps_per_voxel = float(shared.ray_steps_per_voxel)
-                material.render_mode = mode_appearance.render_mode
+                # A 2D view's slice node draws its plane whatever the
+                # appearance's 3D render mode (oblique 2D design v3, D5).
+                material.render_mode = (
+                    PLANE_RENDER_MODE
+                    if self._slice_axes is not None
+                    else mode_appearance.render_mode
+                )
+                material.slice_2d = self._slice_axes is not None
+                slab = self._slab if self._slice_axes is not None else None
+                material.slab_op = "none" if slab is None else slab.op
+                if slab is not None:
+                    material.set_slab(
+                        slab.half_extent,
+                        steps_per_voxel=slab.steps_per_voxel,
+                        along_axis=slab.along_axis,
+                        nearest=shared.interpolation == "nearest",
+                    )
                 material.opacity = mode_appearance.opacity
                 material.interpolation = shared.interpolation
                 material.alpha_mode = alpha_mode
@@ -3459,7 +3752,10 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         collapsed = () if self._spaces is None else self._spaces.collapsed_axes
         channel_of = {index: key for key, index in self._drawn.items()}
         for index, slot in enumerate(self._slots):
-            planned = slot.pick_collapsed_indices() or {}
+            # Without collapsed axes (a 3D node, or a slice node) the planned
+            # positions are not read, and the level-0 box they come from
+            # costs linear programs when the view is tilted.
+            planned = (slot.pick_collapsed_indices() or {}) if collapsed else {}
             constants = {axis: float(planned.get(axis, 0.0)) for axis in collapsed}
             # The slot plans with the same planes (fetch culling, 5.1).
             slot._clipping_planes = self._clipping_planes
@@ -3489,8 +3785,193 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         # A node built here has a new material (clipping planes design 4.6).
         self._apply_clipping_planes()
 
+    def _node_axes(self, displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
+        """The world axes the node for *displayed_axes* draws.
+
+        A 2D view on the brick route draws the slice node: the 3D node over
+        the slice's three world axes (oblique 2D design v3, 5.3.2).
+        """
+        if self._slice_axes is not None and len(displayed_axes) == 2:
+            return self._slice_axes
+        return tuple(displayed_axes)
+
+    def set_slice_route(self, axes: tuple[int, int, int] | None) -> bool:
+        """Put the 2D views of this visual on the brick route, or take them off.
+
+        Called by the controller before it pushes the render spaces (design
+        v3, 5.2.2, C3).  The 3D node is the slice node (D4: one atlas per
+        slot), so a scene built for 2D only gains the 3D mode here.
+
+        Parameters
+        ----------
+        axes : tuple[int, int, int] or None
+            The slice normal's world axis, then the two displayed world
+            axes; ``None`` for today's path.
+
+        Returns
+        -------
+        bool
+            Whether the route changed (the active node is then a different
+            one, and the caller swaps it in).
+        """
+        axes = None if axes is None else tuple(int(axis) for axis in axes)
+        if axes == self._slice_axes:
+            return False
+        self._slice_axes = axes
+        if axes is not None:
+            self._ensure_3d_mode()
+        self._draws_slice_plane = axes is not None
+        if self.node_3d is not None:
+            self.node_3d.slice_mode = axes is not None
+        for slot in self._slots:
+            slot._slice_mode = axes is not None
+        self._place_footprint_line()
+        self._apply_outline_visibility()
+        self._apply_materials()
+        self._apply_render_planes()
+        return True
+
+    def _ensure_3d_mode(self) -> None:
+        """Give a scene built for 2D only the 3D mode the slice node needs."""
+        if "3d" in self.render_modes:
+            return
+        self.render_modes = self.render_modes | {"3d"}
+        for slot in self._slots:
+            slot.render_modes = slot.render_modes | {"3d"}
+        self.node_3d = _SliceBoundsGroup()
+        self.node_3d.render_order = self._visual_model.appearance.render_order
+        self.node_3d.visible = self._visible
+
+    def prepare_slice_route(self, axes: tuple[int, int, int]) -> None:
+        """Build the slice node's resources and put its atlas on the GPU now.
+
+        Oblique 2D design v3, 5.1 and U12: called when a transform drag
+        opens on the visual, and at every switch onto the brick route, so
+        the first frame on the route does not wait for the atlas.  Building
+        leaves the 2D node and its placement alone; a later switch whose
+        layout axes differ from *axes* rebuilds the layout but keeps the
+        atlas texture.
+
+        Parameters
+        ----------
+        axes : tuple[int, int, int]
+            The slice node's expected world axes: the normal, then the two
+            displayed axes.
+        """
+        axes = tuple(int(axis) for axis in axes)
+        self._ensure_3d_mode()
+        built = False
+        for slot in self._slots:
+            if slot._volume_geometry is None:
+                last = slot._last_displayed_axes
+                slot._lazy_init_3d(axes)
+                slot._last_displayed_axes = last
+                built = True
+                if slot.node_3d is not None and slot.node_3d.parent is None:
+                    self.node_3d.add(slot.node_3d)
+            if slot._block_cache_3d is not None:
+                slot._block_cache_3d.allocate_on_gpu()
+        if built:
+            self._apply_materials()
+            self._apply_slot_visibility()
+            self._apply_clipping_planes()
+
+    def set_slice_footprint(self, polygon: np.ndarray) -> None:
+        """Adopt the slice's footprint: the node's bounds and its outline.
+
+        Parameters
+        ----------
+        polygon : np.ndarray
+            ``(M, 2)`` vertices in displayed world coordinates, in the
+            view's displayed-axes order (``slice_footprint``); ``(0, 2)``
+            when the slice misses the data.  The slice node's rendered
+            system puts the displayed axes at their world positions and the
+            slice at depth 0, so pygfx ``(x, y)`` is the reverse.
+        """
+        if self.node_3d is None:
+            return
+        points = _footprint_points(polygon)
+        if points is None:
+            self.node_3d.slice_bounds = None
+            if self._footprint_line is not None:
+                self._footprint_line.geometry = gfx.Geometry(
+                    positions=np.zeros((2, 3), dtype=np.float32)
+                )
+            return
+        self.node_3d.slice_bounds = np.stack([points.min(axis=0), points.max(axis=0)])
+        segments = np.empty((2 * len(points), 3), dtype=np.float32)
+        segments[0::2] = points
+        segments[1::2] = np.roll(points, -1, axis=0)
+        if self._footprint_line is None:
+            aabb = self._visual_model.aabb
+            self._footprint_line = _make_aabb_line(
+                segments, aabb.color, aabb.line_width
+            )
+        else:
+            self._footprint_line.geometry = gfx.Geometry(positions=segments)
+        self._place_footprint_line()
+        self._apply_outline_visibility()
+
+    def _place_footprint_line(self) -> None:
+        """Keep the footprint outline in the 3D group only while on the route.
+
+        Off the route the group is bounded by its children, and pygfx counts
+        hidden children too: a footprint left there (at rendered depth 0)
+        would stretch a 3D view's box, and so its fit, to depth 0.
+        """
+        line = self._footprint_line
+        if line is None or self.node_3d is None:
+            return
+        if self._slice_axes is None:
+            if line.parent is not None:
+                line.parent.remove(line)
+        elif line.parent is not self.node_3d:
+            if line.parent is not None:
+                line.parent.remove(line)
+            self.node_3d.add(line)
+
+    def _apply_outline_visibility(self) -> None:
+        """Show the footprint outline where the box wireframe would show."""
+        if self._footprint_line is None:
+            return
+        owner = self._slots[0] if self._slots else None
+        self._footprint_line.visible = bool(
+            self._slice_axes is not None
+            and owner is not None
+            and owner._aabb_enabled
+            and owner._data_ready_3d
+        )
+
+    @property
+    def slice_axes(self) -> tuple[int, int, int] | None:
+        """The slice node's world axes on the brick route, else ``None``."""
+        return self._slice_axes
+
+    @property
+    def slice_node(self) -> gfx.Group | None:
+        """The node the scene draws on the brick route: the 3D group."""
+        return self.node_3d
+
+    def set_slab(self, slab: SlabSettings | None) -> None:
+        """Project a slab on the slice node instead of drawing its plane.
+
+        Set by the controller with the route (oblique 2D design v3, 4.2,
+        5.3.8); ``None`` draws the plane.  A change of operator rebuilds the
+        shader; a change of thickness writes uniforms only.
+        """
+        if slab == self._slab:
+            return
+        self._slab = slab
+        self._apply_materials()
+
+    @property
+    def slab(self) -> SlabSettings | None:
+        """The slab the slice node projects, or ``None``."""
+        return self._slab
+
     def get_node_for_dims(self, displayed_axes: tuple[int, ...]) -> gfx.Group | None:
         """Rebuild the slots' geometry if needed and return the group."""
+        displayed_axes = self._node_axes(displayed_axes)
         mode_attr = "node_3d" if len(displayed_axes) == 3 else "node_2d"
         if tuple(displayed_axes) != self._last_displayed_axes or any(
             getattr(slot, mode_attr) is None for slot in self._slots
@@ -3561,7 +4042,13 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
             misses the data, so the caller retires the atlases.
         """
         dims_state = request.dims_state
-        displayed = tuple(dims_state.selection.displayed_axes)
+        displayed = self._node_axes(tuple(dims_state.selection.displayed_axes))
+        if len(displayed) != len(dims_state.selection.displayed_axes):
+            # A 2D request for the slice node: planned by the 3D brick
+            # planner, culled by the viewport as a prism unbounded in depth
+            # (oblique 2D design v3, 5.3.4).
+            request = request._replace(frustum_corners=viewport_prism(request))
+        slice_node = self._slice_axes is not None and displayed == self._slice_axes
         if displayed != self._last_displayed_axes:
             self._rebuild_slot_geometries(displayed)
         keys, slots = self._begin_plan(request.selection)
@@ -3608,11 +4095,14 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 loading,
             )
         else:
+            planes = self._plane_planning(planner, keys[0])
             backstop = planner._plan_backstop_3d(
-                request.camera_pos, request.frustum_corners, loading
+                request.camera_pos,
+                request.frustum_corners,
+                loading,
+                render_planes=planes if slice_node else None,
             )
             if plan_target:
-                planes = self._plane_planning(planner, keys[0])
                 arr = planner._plan_bricks(
                     request.camera_pos,
                     request.frustum_corners if config.frustum_cull else None,
@@ -3658,15 +4148,21 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
         Every channel of an image has the same render mode, so one drawn
         channel answers for the visual and the planes are planned once.
-        ``None`` in a volume mode.
+        ``None`` in a volume mode.  A 2D view's slice node always plans its
+        slice plane (oblique 2D design v3, D2), whatever the render mode.
         """
         mode_appearance = self._mode_appearance(key)
-        if mode_appearance is None or mode_appearance.render_mode != PLANE_RENDER_MODE:
+        if self._slice_axes is None and (
+            mode_appearance is None or mode_appearance.render_mode != PLANE_RENDER_MODE
+        ):
             return None
+        slab = self._slab if self._slice_axes is not None else None
         return build_plane_planning(
             self.drawn_render_planes,
             planner._to_level0_displayed,
             planner._volume_geometry._scale_arr_shader,
+            # A slab reaches its half-thickness either side (5.3.4).
+            reach_world=0.0 if slab is None else slab.half_extent,
         )
 
     def residencies(self) -> dict[int, ImageResidency3D | ImageResidency2D]:
@@ -3683,7 +4179,8 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         owner = self._slots[0] if self._slots else None
         if owner is not None and owner._aabb_line_3d is not None:
             owner._data_ready_3d = True
-            owner._aabb_line_3d.visible = owner._aabb_enabled
+            owner._aabb_line_3d.visible = owner._aabb_enabled and not owner._slice_mode
+        self._apply_outline_visibility()
 
     def _reveal_aabb_2d(self) -> None:
         """A slot's first tile landed: show the visual's one wireframe."""
@@ -3712,7 +4209,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
         """Hand the new transform to every slot."""
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
         for slot in self._slots:
             slot.on_transform_changed(event)
         self._apply_clipping_planes()
@@ -3820,6 +4317,13 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         """Apply an AABB change to the visual's one wireframe (the first slot's)."""
         if self._slots:
             self._slots[0].on_aabb_changed(event)
+        line = self._footprint_line
+        if line is not None:
+            if event.field_name == "color":
+                line.material.color = event.new_value
+            elif event.field_name == "line_width":
+                line.material.thickness = event.new_value
+        self._apply_outline_visibility()
 
     def on_data_store_contents_changed(
         self, event: DataStoreContentsChangedEvent

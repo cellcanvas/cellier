@@ -116,3 +116,38 @@ class CenteredAxes2D(CanvasOverlay):
     appearance: CenteredAxes2DAppearance = Field(
         default_factory=CenteredAxes2DAppearance
     )
+
+
+class DrawStatusOverlay(CanvasOverlay):
+    """Lists, in a canvas corner, the visuals its view does not draw.
+
+    Full affine design v2, decision D8 (variant B).  A 2D view whose slice
+    cuts a rotated image at an angle draws nothing of it rather than
+    something wrong (D3); this overlay says so where the user is looking,
+    one line per visual: ``Not shown: <name> (OBLIQUE)``.  It draws nothing
+    while every visual draws.  The full reason is on
+    :meth:`~cellier.CellierController.draw_status`.
+
+    The convenience viewers add one to every canvas by default
+    (``draw_status_overlay=True``).
+
+    Parameters
+    ----------
+    overlay_type : str
+        Discriminator literal ``"draw_status"``.  Do not set manually.
+    name : str
+        Human-readable label.  Default ``"draw status"``.
+    font_size_px : float
+        Text size in screen pixels.  Default ``13.0``.
+    color : tuple[float, float, float, float]
+        RGBA text colour.  Default amber ``(1.0, 0.85, 0.35, 1.0)``.
+    corner_offset_px : tuple[float, float]
+        ``(x, y)`` offset of the text's top-left corner from the canvas's
+        top-left corner, in pixels.  Default ``(8.0, 8.0)``.
+    """
+
+    overlay_type: Literal["draw_status"] = "draw_status"
+    name: str = "draw status"
+    font_size_px: float = 13.0
+    color: tuple[float, float, float, float] = (1.0, 0.85, 0.35, 1.0)
+    corner_offset_px: tuple[float, float] = (8.0, 8.0)

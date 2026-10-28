@@ -88,6 +88,52 @@ def _no_planes() -> ReducedPlanes:
     )
 
 
+@dataclass(frozen=True)
+class SlabSettings:
+    """A 2D view's slab projection, as the slice node draws it (design v3, 4.2).
+
+    Attributes
+    ----------
+    op : str
+        ``"max"``, ``"min"`` or ``"mean"`` (``slab_projection`` ``"mip"``,
+        ``"minip"``, ``"mean"``).
+    half_extent : float
+        ``h``, the scene's half-thickness on the projection axis, in world
+        units: the slab is ``[s - h, s + h)``.
+    along_axis : bool
+        The ray runs along one data axis (``DepthAlignment.ALONG_AXIS``): the
+        samples sit on voxel centres and the reduction is exact.
+    steps_per_voxel : float
+        ``projection_steps_per_voxel``.
+    """
+
+    op: str
+    half_extent: float
+    along_axis: bool = False
+    steps_per_voxel: float = 1.0
+
+
+#: ``slab_projection`` -> the slab shader's operator.
+SLAB_OPS: dict[str, str] = {"mip": "max", "minip": "min", "mean": "mean"}
+
+
+def slice_render_plane() -> ReducedPlanes:
+    """The one plane a 2D slice node draws (oblique 2D design v3, D2).
+
+    The slice node's matrix puts the slice at rendered depth 0, so its plane
+    is the same at every slice position and under every transform: origin
+    0, spanned by pygfx ``x`` and ``y``, unbounded.  A scrub or a transform
+    drag changes the node matrix and the plan, never this plane.
+    """
+    return ReducedPlanes(
+        origin=np.zeros((1, 3)),
+        axis_0=np.array([[1.0, 0.0, 0.0]]),
+        axis_1=np.array([[0.0, 1.0, 0.0]]),
+        extent=np.array([[-UNBOUNDED, UNBOUNDED, -UNBOUNDED, UNBOUNDED]]),
+        bounded=np.zeros((1, 4), dtype=bool),
+    )
+
+
 def reduce_render_planes(
     spaces: RenderSpaces | None, planes: Sequence[Any]
 ) -> ReducedPlanes:
@@ -295,12 +341,16 @@ class RenderPlanesMixin:
     - calls :meth:`_apply_render_planes` wherever it is given its render
       spaces (the displayed axes may have changed).
 
-    It reads ``self._spaces``.
+    It reads ``self._spaces``.  A host on the brick route of a 2D view
+    (oblique 2D design v3, D2) sets ``_draws_slice_plane``: the drawn
+    planes are then the slice's own, and the model's planes -- which do not
+    apply to a 2D view -- never reach the buffer, whatever event arrives.
     """
 
     _render_planes: tuple = ()
     _render_planes_buffer: gfx.Buffer | None = None
     _reduced_render_planes: ReducedPlanes | None = None
+    _draws_slice_plane: bool = False
 
     @property
     def render_planes(self) -> tuple:
@@ -318,8 +368,12 @@ class RenderPlanesMixin:
     def drawn_render_planes(self) -> ReducedPlanes:
         """The planes the current view draws, in pygfx order."""
         if self._reduced_render_planes is None:
-            self._reduced_render_planes = reduce_render_planes(
-                getattr(self, "_spaces", None), self._render_planes
+            self._reduced_render_planes = (
+                slice_render_plane()
+                if self._draws_slice_plane
+                else reduce_render_planes(
+                    getattr(self, "_spaces", None), self._render_planes
+                )
             )
         return self._reduced_render_planes
 
@@ -350,13 +404,15 @@ class RenderPlanesMixin:
         tuple[np.ndarray, np.ndarray] or None
             ``(low, high)`` as :func:`~cellier.render._plane_outline.box_frame`
             takes them; ``None`` when the visual is not placed in a 3D view
-            or its store's shape is not known.
+            (a 2D slice node included) or its store's shape is not known.
         """
         from cellier.render._plane_outline import voxel_edge_box
 
         spaces = getattr(self, "_spaces", None)
         shape = self._outline_shape()
-        if spaces is None or shape is None:
+        if spaces is None or shape is None or self._draws_slice_plane:
+            # A 2D slice node's spaces are 3D, but its view is 2D: the
+            # model's planes are not drawn there, so nothing outlines them.
             return None
         retained = tuple(spaces.retained_axes)
         if len(retained) != 3 or max(retained) >= len(shape):

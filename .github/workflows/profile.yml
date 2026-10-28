@@ -104,7 +104,7 @@ jobs:
 
       - name: Probe - frame time
         if: always()
-        run: python scripts/ci_profiling/probe_render.py --thread-sweep default,1,2,4 --out "$OUT/probe_render.json"
+        run: python scripts/ci_profiling/probe_render.py --thread-sweep default,0,1,2,4 --out "$OUT/probe_render.json"
 
       - name: Probe - single wgpu calls
         if: always()

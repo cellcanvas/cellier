@@ -465,6 +465,16 @@ class NonUniformAxisTransform(BaseTransform):
         """
         return {0: self.coordinates.index_domain}
 
+    def axis_coupling(self) -> np.ndarray:
+        """The leaf is 1-D: its one input axis reaches its one output axis.
+
+        Returns
+        -------
+        np.ndarray
+            ``[[True]]``.
+        """
+        return np.ones((1, 1), dtype=bool)
+
     def axis_correspondence(self) -> dict[int, int]:
         """The leaf is 1-D, so its one input axis reaches its one output axis.
 

@@ -105,6 +105,8 @@ class QtLevelOfDetailControls(VisualIdGroup):
             n_displayed_dimensions
         )
         values = dict(values or {})
+        # An in-memory appearance has no 3D setting: no checkbox in 3D.
+        self._has_moving_3d = bool(values.get("has_moving_3d", True))
         self._moving = {
             "coarsest_while_moving_3d": bool(
                 values.get("coarsest_while_moving_3d", True)
@@ -130,6 +132,7 @@ class QtLevelOfDetailControls(VisualIdGroup):
         self._moving_check.setChecked(self._moving[self.moving_field])
         self._moving_check.toggled.connect(self._on_moving_toggled)
         layout.addWidget(self._moving_check)
+        self._show_moving_check()
 
         self._group = titled_group(
             self.DEFAULT_TITLE if title is None else title, self._container, parent
@@ -156,6 +159,7 @@ class QtLevelOfDetailControls(VisualIdGroup):
     def n_displayed_dimensions(self, value: int) -> None:
         self._n_displayed_dimensions = validate_n_displayed_dimensions(value)
         self._set_checked(self._moving[self.moving_field])
+        self._show_moving_check()
 
     @property
     def moving_field(self) -> str:
@@ -203,6 +207,11 @@ class QtLevelOfDetailControls(VisualIdGroup):
         if n is not None and n != self._n_displayed_dimensions:
             self.n_displayed_dimensions = n
 
+    def _show_moving_check(self) -> None:
+        self._moving_check.setVisible(
+            self._has_moving_3d or self._n_displayed_dimensions != 3
+        )
+
     def _set_checked(self, checked: bool) -> None:
         self._moving_check.blockSignals(True)
         self._moving_check.setChecked(checked)
@@ -219,5 +228,7 @@ class QtLevelOfDetailControls(VisualIdGroup):
 
     def _on_moving_toggled(self, checked: bool) -> None:
         field = self.moving_field
+        if field == "coarsest_while_moving_3d" and not self._has_moving_3d:
+            return
         self._moving[field] = bool(checked)
         self._emit_group(AppearanceUpdateEvent, field, bool(checked))

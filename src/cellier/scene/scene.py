@@ -6,6 +6,7 @@ import uuid
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
+import numpy as np
 from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, Field, PrivateAttr, field_serializer
 
@@ -19,11 +20,13 @@ from cellier.visuals._types import VisualType
 def _sliced_world_axes(visual: Any) -> set[int]:
     """The world axes *visual* slices, and so wants a slider for.
 
-    The world axes its data axes map to, read off
-    ``visual.transform.axis_correspondence()``.  An image in composite mode
-    does not slice its channel axis, so that world axis is left out.  A world
-    axis the visual broadcasts over has no data axis and contributes nothing;
-    a visual with no transform yet contributes nothing at all.
+    Every world axis whose row of the transform's coupling pattern
+    (``visual.transform.axis_coupling()``) is non-zero: the world axes some
+    data axis reaches, under any rotation, shear or drift (full affine
+    design v2, Phase 4).  An image in composite mode does not slice its
+    channel axis, so that world axis is left out.  A world axis the visual
+    broadcasts over has no data axis and contributes nothing; a visual with
+    no transform yet contributes nothing at all.
 
     Parameters
     ----------
@@ -34,21 +37,16 @@ def _sliced_world_axes(visual: Any) -> set[int]:
     -------
     set[int]
         World axis indices.
-
-    Raises
-    ------
-    ValueError
-        If the transform has no axis correspondence (a shear or rotation).
-        Deliberately not caught: that case is not designed yet (D37).
     """
     transform = getattr(visual, "transform", None)
     if transform is None:
         return set()
-    correspondence = transform.axis_correspondence()
-    axes = set(correspondence.values())
+    coupling = transform.axis_coupling()
+    axes = {int(axis) for axis in np.flatnonzero(coupling.any(axis=1))}
     channel_axis = getattr(visual, "channel_axis", None)
     if channel_axis is not None and getattr(visual, "composite", False):
-        world_axis = correspondence.get(channel_axis)
+        # A channel axis is coupled to nothing (refused at assignment, D6).
+        world_axis = transform.exclusive_axis_correspondence().get(channel_axis)
         if world_axis is not None:
             axes.discard(world_axis)
     return axes

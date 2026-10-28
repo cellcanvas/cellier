@@ -181,3 +181,24 @@ def test_n_displayed_dimensions_is_validated(qtbot):
     qtbot.addWidget(control.widget)
     with pytest.raises(ValueError, match="2 or 3"):
         control.n_displayed_dimensions = 4
+
+
+def test_an_in_memory_appearance_hides_the_checkbox_in_3d(qtbot):
+    """Oblique 2D design v3, U1: an in-memory visual has levels on its brick
+    route only, in 2D; there is no 3D setting to edit."""
+    from cellier.visuals import InMemoryImageAppearance
+
+    values = level_of_detail_values(InMemoryImageAppearance())
+    assert values["has_moving_3d"] is False
+    emitted = []
+    control = QtLevelOfDetailControls(object(), values, n_displayed_dimensions=3)
+    qtbot.addWidget(control.widget)
+    control.changed.connect(emitted.append)
+    control.widget.show()
+    assert not control._moving_check.isVisible()
+    control._on_moving_toggled(True)
+    assert emitted == []
+    control.n_displayed_dimensions = 2
+    assert control._moving_check.isVisible()
+    control._on_moving_toggled(True)
+    assert [event.field for event in emitted] == ["coarsest_while_moving_2d"]

@@ -106,8 +106,38 @@ function render({ model, el }) {
       "Half-thickness of the slice along this axis, in world units. 0 is a plane.";
     const current = (model.get("thickness") || {})[axis];
     box.value = current !== undefined ? current : 0;
+    // A step -- the spinner, an arrow key, the wheel -- is a tick of a drag;
+    // a typed value, committed on "change", is a jump (oblique 2D design v3,
+    // D13).  A step fires "input" at once, so it is sent from there, as a
+    // message carrying the value; the "change" a spinner click also fires
+    // then finds the value already sent.
+    let stepping = false;
+    let sentStep = null;
+    const stepKeys = ["ArrowUp", "ArrowDown", "PageUp", "PageDown"];
+    box.addEventListener("keydown", (event) => {
+      stepping = stepKeys.includes(event.key);
+    });
+    box.addEventListener("wheel", () => {
+      stepping = true;
+    });
+    box.addEventListener("pointerdown", () => {
+      stepping = true;
+    });
+    box.addEventListener("input", () => {
+      if (!stepping || guard) return;
+      const number = Math.max(0, Number(box.value));
+      if (!Number.isFinite(number)) return;
+      sentStep = number;
+      model.send({ type: "thickness", axis: Number(axis), value: number });
+    });
     box.addEventListener("change", () => {
       if (!(Number(box.value) >= 0)) box.value = 0;
+      if (sentStep !== null && Number(box.value) === sentStep) {
+        sentStep = null;
+        return;
+      }
+      sentStep = null;
+      stepping = false;
       submitThickness(axis, box.value);
     });
     row.appendChild(sign);

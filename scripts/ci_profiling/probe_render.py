@@ -18,11 +18,15 @@ With ``--thread-sweep`` the probe runs itself once per ``LP_NUM_THREADS``
 value, which sets how many threads llvmpipe rasterises with.  The variable
 is read when the driver loads, hence the subprocesses.  If the frame time
 does not change with the thread count, the driver is not using its threads.
+``default`` removes the variable, so it is not what a job runs with when
+something upstream exports it: ``0`` is what
+``pyvista/setup-headless-display-action`` exports on Windows, and rasterises
+on the calling thread.
 
 Usage
 -----
     python scripts/ci_profiling/probe_render.py --out probe_render.json
-    python scripts/ci_profiling/probe_render.py --thread-sweep default,1,2,4
+    python scripts/ci_profiling/probe_render.py --thread-sweep default,0,1,2,4
 """
 
 from __future__ import annotations

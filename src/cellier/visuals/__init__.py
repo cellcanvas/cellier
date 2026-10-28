@@ -5,6 +5,7 @@ from cellier.visuals._canvas_overlay import (
     CanvasOverlay,
     CenteredAxes2D,
     CenteredAxes2DAppearance,
+    DrawStatusOverlay,
 )
 from cellier.visuals._clipping import ClippingPlane
 from cellier.visuals._graph_memory import (
@@ -26,11 +27,13 @@ from cellier.visuals._image_memory import (
     ImageVisual,
     InMemoryImageAppearance,
     InMemoryImageChannelAppearance,
+    InMemoryImageRenderConfig,
     InMemoryImageSingleAppearance,
     effective_transparency_mode,
 )
 from cellier.visuals._label_memory import (
     BaseLabelsAppearance,
+    InMemoryLabelRenderConfig,
     InMemoryLabelsAppearance,
     LabelMemoryVisual,
     OutlineMode,
@@ -73,13 +76,16 @@ __all__ = [
     "CenteredAxes2D",
     "CenteredAxes2DAppearance",
     "ClippingPlane",
+    "DrawStatusOverlay",
     "GeometryLodConfig",
     "GraphAppearance",
     "GraphVisual",
     "ImageVisual",
     "InMemoryImageAppearance",
     "InMemoryImageChannelAppearance",
+    "InMemoryImageRenderConfig",
     "InMemoryImageSingleAppearance",
+    "InMemoryLabelRenderConfig",
     "InMemoryLabelsAppearance",
     "LabelMemoryVisual",
     "LinesMemoryAppearance",

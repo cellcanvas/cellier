@@ -6,7 +6,9 @@ import asyncio
 import contextvars
 import dataclasses
 import difflib
+import logging
 import warnings
+import weakref
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple
@@ -28,6 +30,7 @@ from cellier.data._axes import (
     scale_and_translation_transform,
     store_level_transforms,
 )
+from cellier.data._in_memory_bricks import InMemoryBrickSource, downsampled_axes
 from cellier.data._level_contract import validate_store_levels
 from cellier.events import (
     AABBChangedEvent,
@@ -52,6 +55,8 @@ from cellier.events import (
     DimsInteractionEvent,
     DimsInteractionUpdateEvent,
     DimsUpdateEvent,
+    DrawStatus,
+    DrawStatusChangedEvent,
     EventBus,
     FrameRenderedEvent,
     ImageCompositeChangedEvent,
@@ -87,6 +92,7 @@ from cellier.events import (
     TrailChangedEvent,
     TrailUpdateEvent,
     TransformChangedEvent,
+    TransformInteractionEvent,
     VisualAddedEvent,
     VisualRemovedEvent,
     VisualRenderChangedEvent,
@@ -125,6 +131,7 @@ from cellier.logging import (
 )
 from cellier.render._capture import capture_scene
 from cellier.render._config import RenderManagerConfig
+from cellier.render._render_planes import SLAB_OPS, SlabSettings
 from cellier.render._scene_config import VisualRenderConfig
 from cellier.render._spaces import (
     RenderSpaces,
@@ -138,7 +145,11 @@ from cellier.render._visual_lut import (
 )
 from cellier.render.render_manager import RenderManager
 from cellier.render.scheduling import PlanMode
-from cellier.render.visuals._canvas_overlay import GFXCenteredAxes2D
+from cellier.render.visuals._brick_route_host import BrickRouteHost
+from cellier.render.visuals._canvas_overlay import (
+    GFXCenteredAxes2D,
+    GFXDrawStatusOverlay,
+)
 from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
 from cellier.render.visuals._image_memory import GFXImageMemoryVisual
@@ -176,11 +187,27 @@ from cellier.scene.scene import Scene
 from cellier.transform import (
     AffineTransform,
     CoordinateSystemType,
+    DepthAlignment,
+    NonAffineTransformError,
     NonInvertibleTransformError,
+    ProjectionRefusal,
+    ProjectionRefusalReason,
     RegionSelection,
     RenderedCoordinateSystem,
+    RouteDecision,
+    RouteRefusalReason,
+    SliceAlignment,
+    SliceRoute,
+    ViewClassification,
     VisualCoordinateSystem,
+    choose_slice_route,
+    classify_projection,
+    classify_view,
+    effective_transform,
+    projection_axis,
+    slice_footprint,
 )
+from cellier.transform._alignment import _rank_of_rows
 from cellier.viewer_model import DataManager, ViewerModel
 
 if TYPE_CHECKING:
@@ -189,7 +216,11 @@ if TYPE_CHECKING:
     from cellier.transform import AxisRef, Plane
     from cellier.visuals._base_visual import BaseVisual, VisualOutline
     from cellier.visuals._label_memory import OutlineMode
-from cellier.visuals._canvas_overlay import CanvasOverlay, CenteredAxes2D
+from cellier.visuals._canvas_overlay import (
+    CanvasOverlay,
+    CenteredAxes2D,
+    DrawStatusOverlay,
+)
 from cellier.visuals._clipping import ClippingPlane, validate_clipping_planes
 from cellier.visuals._graph_memory import (
     GraphAppearance,
@@ -208,12 +239,14 @@ from cellier.visuals._image_memory import (
     ImageVisual,
     InMemoryImageAppearance,
     InMemoryImageChannelAppearance,
+    InMemoryImageRenderConfig,
     InMemoryImageSingleAppearance,
     check_channels_share_render_mode,
 )
 from cellier.visuals._label_memory import (
     BaseLabelsAppearance,
     BaseLabelsVisual,
+    InMemoryLabelRenderConfig,
     LabelMemoryVisual,
 )
 from cellier.visuals._labels import (
@@ -273,6 +306,32 @@ _RESLICE_FIELDS: frozenset[str] = frozenset(
     {"settled_lod_bias", "force_level", "frustum_cull"}
 )
 
+#: An image appearance's projection fields (oblique 2D design v3, 4.2): a
+#: change can move the image onto the brick route or off it.
+_PROJECTION_FIELDS: frozenset[str] = frozenset(
+    {"slab_projection", "projection_axes", "projection_steps_per_voxel"}
+)
+
+
+def _projection_key(visual: Any, scene: Any) -> Any:
+    """What a cached route depends on beyond the transform and the axes.
+
+    An image's projection fields, and which world axes have a thickness
+    (a thickness crossing zero changes the route); ``None`` for labels.
+    """
+    appearance = getattr(visual, "appearance", None)
+    if appearance is None or not hasattr(appearance, "slab_projection"):
+        return None
+    if appearance.slab_projection == "none" or not appearance.projection_axes:
+        return (appearance.slab_projection, tuple(appearance.projection_axes))
+    thick = frozenset(
+        axis
+        for axis, value in scene.dims.selection.thickness.items()
+        if float(value) != 0.0
+    )
+    return (appearance.slab_projection, tuple(appearance.projection_axes), thick)
+
+
 #: Visuals that load nothing while they draw nothing; showing one reslices it.
 #: The scheduled ones are retired while hidden: their reads stop.
 _SKIP_WHEN_HIDDEN = (BaseImageVisual, BaseMeshVisual)
@@ -283,6 +342,190 @@ _PLANE_VISUALS = (BaseImageVisual, BaseLabelsVisual)
 #: Visuals the chunk scheduler loads.  A ``"contents"`` store change needs no
 #: new plan for them: invalidation already requeued what they want.
 _SCHEDULED_VISUALS = (MultiscaleImageVisual, MultiscaleLabelVisual, BaseMeshVisual)
+
+
+_DRAW_STATUS_LOGGER = logging.getLogger("cellier.draw_status")
+
+_NOT_OBLIQUE = frozenset(
+    {SliceAlignment.AXIS_ALIGNED, SliceAlignment.IN_PLANE, SliceAlignment.SLICE_SHIFT}
+)
+
+#: Which view alignments each visual family draws (full affine design v2,
+#: 3.2 and 4.2).  Each phase enabled cells (Phase 4 ``AXIS_ALIGNED`` and
+#: ``IN_PLANE``, Phase 5 ``SLICE_SHIFT``, Phase 6 ``OBLIQUE`` for the
+#: geometry families); a view whose cell is not enabled
+#: draws nothing of the visual and says why (D3), never something wrong.
+_EVERY_ALIGNMENT = frozenset(SliceAlignment)
+
+#: Raster OBLIQUE (a 2D image or labels view on a tilted slice) is out of
+#: scope for today's paths (D1): those views draw nothing and say why --
+#: except a 2D view the brick route draws (``_BRICK_ROUTE_FAMILIES``).
+_DRAWABLE: dict[str, frozenset[SliceAlignment]] = {
+    "image": _NOT_OBLIQUE,
+    "image_multiscale": _NOT_OBLIQUE,
+    "labels": _NOT_OBLIQUE,
+    "labels_multiscale": _NOT_OBLIQUE,
+    "mesh": _EVERY_ALIGNMENT,
+    "mesh_multiscale": _EVERY_ALIGNMENT,
+    "points": _EVERY_ALIGNMENT,
+    "lines": _EVERY_ALIGNMENT,
+    "graph": _EVERY_ALIGNMENT,
+}
+
+#: The families whose tilted 2D views the brick route draws (oblique 2D
+#: design v3, 5.2.1): multiscale images from Phase 2, multiscale labels from
+#: Phase 3, in-memory images and labels from Phase 4.  A raster view the
+#: route table refuses (a slice along a line, or through too many data axes)
+#: draws nothing whatever its family and alignment.
+_BRICK_ROUTE_FAMILIES = frozenset(
+    {"image_multiscale", "labels_multiscale", "image", "labels"}
+)
+
+#: The noun each family's draw-status reason uses.
+_FAMILY_NOUN = {
+    "image": "image",
+    "image_multiscale": "image",
+    "labels": "labels volume",
+    "labels_multiscale": "labels volume",
+    "mesh": "mesh",
+    "mesh_multiscale": "mesh",
+    "points": "point set",
+    "lines": "line set",
+    "graph": "graph",
+}
+
+_RASTER_FAMILIES = frozenset(
+    {"image", "image_multiscale", "labels", "labels_multiscale"}
+)
+_RASTER_VISUALS = (BaseImageVisual, BaseLabelsVisual)
+
+
+def _has_bijection(transform: Any) -> bool:
+    """Whether *transform* has the axis correspondence today's paths read."""
+    try:
+        transform.axis_correspondence()
+    except ValueError:
+        return False
+    return True
+
+
+def _visual_family(visual: BaseVisual) -> str:
+    """The :data:`_DRAWABLE` key of a visual model."""
+    if isinstance(visual, MultiscaleImageVisual):
+        return "image_multiscale"
+    if isinstance(visual, BaseImageVisual):
+        return "image"
+    if isinstance(visual, MultiscaleLabelVisual):
+        return "labels_multiscale"
+    if isinstance(visual, BaseLabelsVisual):
+        return "labels"
+    if isinstance(visual, MultiscaleMeshVisual):
+        return "mesh_multiscale"
+    if isinstance(visual, BaseMeshVisual):
+        return "mesh"
+    if isinstance(visual, PointsVisual):
+        return "points"
+    if isinstance(visual, LinesVisual):
+        return "lines"
+    if isinstance(visual, GraphVisual):
+        return "graph"
+    raise TypeError(f"No draw-status family for {type(visual).__name__}.")
+
+
+class _RouteEntry(NamedTuple):
+    """One raster visual's route in its 2D view (design v3, D17).
+
+    Cached on the transform object, the displayed axes and the projection
+    key (the appearance's projection fields and which axes have a
+    thickness).
+    """
+
+    transform: Any
+    displayed: tuple[int, ...]
+    projection_key: Any
+    decision: RouteDecision
+    axes: tuple[int, int, int] | None
+    retained: tuple[int, ...]
+    projection: Any = None
+    refusal: Any = None
+
+
+def _slice_layout(effective: Any, axes: tuple[int, int, int]) -> tuple[int, ...]:
+    """The data axes a slice node over world *axes* lays out, ascending.
+
+    Those the three world axes retain and some world axis reads (design v3,
+    5.3.1).
+    """
+    coupling = effective.axis_coupling()
+    return tuple(
+        axis
+        for axis in classify_view(effective, axes).retained_data_axes
+        if coupling[:, axis].any()
+    )
+
+
+def _coupled_to_others(coupling: np.ndarray, data_axis: int) -> bool:
+    """Whether *data_axis* shares a world row with another data axis.
+
+    Its own world row is not coupling: a channel axis under a transform that
+    rotates the spatial axes still maps to one world axis alone.
+    """
+    rows = np.flatnonzero(coupling[:, data_axis])
+    return len(rows) > 1 or any(coupling[row].sum() > 1 for row in rows)
+
+
+def _route_refusal_reason(
+    family: str, decision: RouteDecision, projecting: bool = False
+) -> str:
+    """Why the route table refuses a raster view (oblique 2D design v3, 5.2.5)."""
+    noun = _FAMILY_NOUN[family]
+    if decision.reason is RouteRefusalReason.PULLBACK_NOT_2D:
+        # A slab over a 2D store meets it along a line too (G0-4).
+        if (decision.dimension or 0) < (3 if projecting else 2):
+            return f"this view cuts the {noun} along a line; nothing to draw"
+        return (
+            f"this view's slice runs through {decision.dimension} data "
+            f"dimensions of the {noun}; {noun}s can draw slices through a plane"
+        )
+    if decision.reason is RouteRefusalReason.TOO_MANY_VARYING_AXES:
+        return (
+            f"this view's slice runs through {decision.dimension} data axes of "
+            f"the {noun}; {noun}s can draw slices through at most 3"
+        )
+    return (
+        f"this view's slice through the {noun} is tilted along "
+        f"{decision.dimension} sliced axes at once, which is not drawn"
+    )
+
+
+def _projection_refusal_reason(refusal: ProjectionRefusal) -> str:
+    """Why a projecting image draws its plane instead (design v3, 5.2.5)."""
+    if refusal.reason is ProjectionRefusalReason.MULTIPLE_AXES:
+        return "projects over one axis only; drawing the slice"
+    if refusal.reason is ProjectionRefusalReason.DISPLAYED_AXIS:
+        return "cannot project along a displayed axis"
+    return f"no world axis named {', '.join(refusal.axes)}"
+
+
+def _undrawable_reason(family: str, alignment: SliceAlignment) -> str:
+    """Why a view of *alignment* does not draw a visual of *family* (D8)."""
+    noun = _FAMILY_NOUN[family]
+    if alignment is SliceAlignment.OBLIQUE and family in _RASTER_FAMILIES:
+        return (
+            f"this view's slice cuts the {noun} at an angle (its transform is "
+            f"OBLIQUE here); {noun}s can be shown in 3D, or in a 2D view whose "
+            f"slice is not tilted by the transform"
+        )
+    if alignment is SliceAlignment.OBLIQUE:
+        return (
+            f"this view's slice cuts the {noun} at an angle (its transform is "
+            f"OBLIQUE here), which is not drawn for a {noun} yet"
+        )
+    return (
+        f"moving this view's slice shifts the {noun} across the view (its "
+        f"transform is {alignment.name} here), which is not drawn for a "
+        f"{noun} yet"
+    )
 
 
 #: The pick event for each render-layer pick detail that is complete as
@@ -390,6 +633,15 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
             settled_lod_bias=visual.appearance.settled_lod_bias,
             force_level=visual.appearance.force_level,
             frustum_cull=visual.appearance.frustum_cull,
+            slicing_enabled=slicing_enabled,
+            loading=visual.render_config.loading,
+        )
+    if isinstance(visual, (ImageVisual, LabelMemoryVisual)):
+        # Read by the brick route only (oblique 2D design v3, U1); today's
+        # whole-slice path ignores them.
+        return VisualRenderConfig(
+            settled_lod_bias=visual.appearance.settled_lod_bias,
+            force_level=visual.appearance.force_level,
             slicing_enabled=slicing_enabled,
             loading=visual.render_config.loading,
         )
@@ -930,6 +1182,14 @@ class CellierController:
             self._on_plane_transition,
         )
         self._plane_plan_owed: set[UUID] = set()
+        # Transform drags, one tracker per visual (oblique 2D design v3, D7).
+        # ``_transform_plan_owed`` holds the visuals a drag planned coarse or
+        # held: the drag's end plans them.
+        self._transform_interaction_driver = _InteractionDriver(
+            lambda: self._render_manager.config.scheduler.dims_settle_s,
+            self._on_transform_transition,
+        )
+        self._transform_plan_owed: set[UUID] = set()
         # Render planes (plane rendering design 4).  Per visual: whether a
         # 3D view shows it in plane mode, the render mode its channels share
         # (to put a refused one back), and whether it has been warned that a
@@ -941,6 +1201,28 @@ class CellierController:
         # between the channels of the batch.
         self._render_mode_sync: set[UUID] = set()
         self._render_plane_axes_warned: set[UUID] = set()
+        # Full affine design v2, D3 / D8: each visual's draw status in its
+        # scene's current view, and the classification it came from, cached
+        # on (transform object, displayed axes).
+        self._draw_status: dict[UUID, DrawStatus] = {}
+        self._classifications: dict[
+            UUID, tuple[Any, tuple[int, ...], ViewClassification]
+        ] = {}
+        # Oblique 2D design v3, 5.2.2: each raster visual's route in its 2D
+        # view, cached like the classification, with the slice node's world
+        # axes (normal first), the data axes they keep and the projection.
+        self._slice_routes: dict[UUID, _RouteEntry] = {}
+        # Visual id -> (axes, canvas id, rendered system) of a slice node's
+        # own rendered system, kept while its axes and canvas are, so its
+        # ids are stable across a scrub.
+        self._slice_rendered: dict[
+            UUID, tuple[tuple[int, int, int], UUID, RenderedCoordinateSystem]
+        ] = {}
+        # The transform each visual had before its latest assignment, to put
+        # back when an assignment is refused (design v2 4.2).
+        self._accepted_transforms: dict[UUID, Any] = {}
+        # Canvas id -> (model, render overlay, handler) of show_draw_status.
+        self._draw_status_overlays: dict[UUID, tuple[Any, Any, Any]] = {}
         # The plane gizmo of each canvas that has one: at most one per
         # canvas, on a clipping plane or a render plane (gizmo design 7;
         # plane rendering design 8.3).
@@ -1456,8 +1738,9 @@ class CellierController:
             (scene_id, visual.id) for scene_id, visual in self._store_readers(store_id)
         ]
         if change.kind == "extent":
-            for _scene_id, visual_id in readers:
+            for scene_id, visual_id in readers:
                 self._render_manager.refresh_visual_axis_extents(visual_id)
+                self._refresh_brick_source(scene_id, visual_id)
             for scene_id in dict.fromkeys(scene_id for scene_id, _ in readers):
                 self._refresh_scene_overlays(scene_id)
             event: Any = DataStoreMetadataChangedEvent(
@@ -1542,14 +1825,16 @@ class CellierController:
     def _deferred_reslice_tasks(self) -> list[asyncio.Task]:
         """Reslices still to come: interaction ends, queued and store-change ones.
 
-        The stillness timers of dims scrubs and camera motions, camera
-        reslices queued from a draw, and rate-capped store-change reslices.
+        The stillness timers of dims scrubs, transform drags and camera
+        motions, camera reslices queued from a draw, and rate-capped
+        store-change reslices.
         Quiescence helpers (``convenience.capture``, the test drains) await
         these before waiting on the loaders, or they would see an idle
         scheduler while a reslice is still to come.
         """
         return [
             *self._dims_driver.tasks(),
+            *self._transform_interaction_driver.tasks(),
             *self._camera_driver.tasks(),
             *(
                 task
@@ -1621,6 +1906,9 @@ class CellierController:
             visual_model.transform = default_data_to_world(
                 data_store.data_coordinate_system, world
             )
+        self._check_transform_assignable(
+            scene_id, visual_model, visual_model.transform, data_store
+        )
         if isinstance(visual_model, _PLANE_VISUALS):
             self._check_render_planes(
                 visual_model, visual_model.render_planes, scene_id=scene_id
@@ -1666,6 +1954,7 @@ class CellierController:
         pick_write: bool = True,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        render_config: InMemoryImageRenderConfig | None = None,
     ) -> ImageVisual:
         """Add an in-memory image visual to a scene.
 
@@ -1719,6 +2008,10 @@ class CellierController:
             four.  Build them from the scene's world coordinate system
             (``RenderPlane.from_point_normal``).  They can be changed later
             with :meth:`set_render_planes`.  Default none.
+        render_config : InMemoryImageRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the image (oblique 2D design v3).  ``None`` uses the
+            defaults.
 
         Returns
         -------
@@ -1745,6 +2038,9 @@ class CellierController:
             channels=dict(channels or {}),
             max_channels=max_channels,
             transform=self._prepare_transform(scene_id, data, transform),
+            render_config=render_config
+            if render_config is not None
+            else InMemoryImageRenderConfig(),
         )
         self._check_image_axes(scene_id, visual_model)
         _apply_render_settings(
@@ -1770,6 +2066,7 @@ class CellierController:
         outline_depth_range: tuple[float, float] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        render_config: InMemoryLabelRenderConfig | None = None,
     ) -> LabelMemoryVisual:
         """Add an in-memory label visual to a scene.
 
@@ -1835,6 +2132,10 @@ class CellierController:
             four.  Build them from the scene's world coordinate system
             (``RenderPlane.from_point_normal``).  They can be changed later
             with :meth:`set_render_planes`.  Default none.
+        render_config : InMemoryLabelRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the labels (oblique 2D design v3).  ``None`` uses the
+            defaults.
 
         Returns
         -------
@@ -1853,6 +2154,9 @@ class CellierController:
             data_store_id=str(data.id),
             appearance=appearance,
             transform=resolved_transform,
+            render_config=render_config
+            if render_config is not None
+            else InMemoryLabelRenderConfig(),
         )
         _apply_render_settings(
             visual_model,
@@ -2606,7 +2910,8 @@ class CellierController:
             or visual.transform is None
         ):
             return None
-        return visual.transform.axis_correspondence().get(visual.channel_axis)
+        # A channel axis is uncoupled (refused at assignment otherwise, D6).
+        return visual.transform.exclusive_axis_correspondence().get(visual.channel_axis)
 
     def _check_image_axes(self, scene_id: UUID, visual: BaseImageVisual) -> None:
         """Refuse an image whose channel axis is unusable where it is going.
@@ -2621,7 +2926,25 @@ class CellierController:
         """
         if visual.channel_axis is None or visual.transform is None:
             return
-        correspondence = visual.transform.axis_correspondence()
+        coupling = None
+        try:
+            correspondence = visual.transform.axis_correspondence()
+        except ValueError:
+            # Rotated, sheared or drifted somewhere: only the uncoupled pairs
+            # have a correspondence, and the channel axis must be one (D6).
+            correspondence = visual.transform.exclusive_axis_correspondence()
+            coupling = visual.transform.axis_coupling()
+        if (
+            coupling is not None
+            and 0 <= visual.channel_axis < coupling.shape[1]
+            and _coupled_to_others(coupling, visual.channel_axis)
+        ):
+            raise ValueError(
+                f"channel_axis={visual.channel_axis} is rotated, sheared or "
+                f"drifted into other axes by this visual's transform.  Space "
+                f"and time may be coupled, but a channel axis must map to one "
+                f"world axis alone."
+            )
         if visual.channel_axis not in correspondence:
             raise ValueError(
                 f"channel_axis={visual.channel_axis} maps to no world axis "
@@ -2666,12 +2989,21 @@ class CellierController:
             scene_id, gfx_visual, data_store, displayed_axes
         )
         self._visual_to_scene[visual_model.id] = scene_id
+        if isinstance(gfx_visual, BrickRouteHost):
+            self._give_brick_source(scene_id, visual_model, gfx_visual, data_store)
         self._rebuild_visual_space(
-            visual_model.id, _render_mode_for(displayed_axes), data_store
+            visual_model.id,
+            self._space_mode(visual_model.id, displayed_axes),
+            data_store,
         )
+        scene_manager = self._render_manager._scenes.get(scene_id)
+        if scene_manager is not None:
+            self._apply_slice_route(scene_manager, visual_model.id)
         setter = getattr(gfx_visual, "set_render_spaces", None)
         if setter is not None:
             setter(self.render_spaces(visual_model.id))
+        if scene_manager is not None:
+            self._push_slice_footprint(scene_manager, visual_model.id)
         if visual_model.clipping_planes:
             # A visual constructed with planes is clipped on its first frame.
             self._render_manager.set_visual_clipping_planes(
@@ -2712,6 +3044,8 @@ class CellierController:
         self._check_slider_axes(scene_id)
         self._refresh_scene_overlays(scene_id)
         self._refresh_plane_outlines(scene_id)
+        self._accepted_transforms[visual_model.id] = visual_model.transform
+        self._refresh_draw_status(scene_id)
 
         # EventBus subscriptions — only subscribe when the GFX visual implements
         # the handler so new visual types get wired automatically.
@@ -3110,6 +3444,11 @@ class CellierController:
                 model=overlay_model,
                 camera=canvas_view.camera,
             )
+        if isinstance(overlay_model, DrawStatusOverlay):
+            scene_id = self._canvas_to_scene[canvas_id]
+            return GFXDrawStatusOverlay(
+                overlay_model, lines=lambda: self._draw_status_lines(scene_id)
+            )
         raise TypeError(
             f"Unrecognised canvas overlay type {type(overlay_model)!r}. "
             "Register a handler in _build_gfx_canvas_overlay."
@@ -3172,6 +3511,45 @@ class CellierController:
         self._register_canvas_overlay(canvas_id, overlay)
         self._request_draw_for_scene(scene_id)
         return overlay
+
+    def show_draw_status(self, canvas_id: UUID, overlay: DrawStatusOverlay) -> None:
+        """Draw the visuals a canvas's view does not draw, as text on it.
+
+        Full affine design v2, D8 variant B.  Unlike :meth:`add_canvas_overlay`
+        the overlay is not put in ``Canvas.overlays``: it is a viewer setting
+        (the convenience viewers attach one to every canvas they make), not
+        part of the scene, so overlay listings and docks are unchanged.  Its
+        fields stay live.  Calling it again for the same canvas replaces the
+        previous one.
+
+        Parameters
+        ----------
+        canvas_id : UUID
+            The canvas.
+        overlay : DrawStatusOverlay
+            Its appearance model.
+
+        Raises
+        ------
+        KeyError
+            If *canvas_id* is not registered.
+        """
+        scene_id = self._canvas_to_scene[canvas_id]
+        previous = self._draw_status_overlays.pop(canvas_id, None)
+        if previous is not None:
+            old_model, old_gfx, old_handler = previous
+            old_model.events.disconnect(old_handler)
+            self._render_manager.remove_canvas_overlay(canvas_id, old_gfx)
+        gfx_overlay = self._build_gfx_canvas_overlay(canvas_id, overlay)
+        self._render_manager.add_canvas_overlay(canvas_id, gfx_overlay)
+
+        def _on_field(info: EmissionInfo) -> None:
+            gfx_overlay.apply(info.signal.name, info.args[0])
+            self._request_draw_for_scene(scene_id)
+
+        overlay.events.connect(_on_field)
+        self._draw_status_overlays[canvas_id] = (overlay, gfx_overlay, _on_field)
+        self._request_draw_for_scene(scene_id)
 
     def add_scene_overlay(
         self,
@@ -4157,6 +4535,9 @@ class CellierController:
         A drag of the visual's planes has no plan mode: while it holds the
         plan nothing is planned at all (:meth:`_plane_drag_holds_plan`), and
         a reslice that does reach here during one is a jump, planned in full.
+        A drag of the visual's transform plans ``BACKSTOP_ONLY`` in a 2D view
+        with ``plans_coarse_while_moving`` (oblique 2D design v3, D7), and
+        holds the plan in a 3D view as a plane drag does.
 
         A visual in plane mode with no plane to draw in this view draws
         nothing, so it is not sliced (design 4.2).
@@ -4164,10 +4545,18 @@ class CellierController:
         config = _visual_render_config(visual)
         if config.slicing_enabled and self._plane_mode_draws_nothing(scene_id, visual):
             config = dataclasses.replace(config, slicing_enabled=False)
+        if config.slicing_enabled and not self._view_draws(visual.id):
+            # A view that cannot draw the visual loads nothing for it (D3).
+            config = dataclasses.replace(config, slicing_enabled=False)
         if self._dims_driver.is_active(scene_id) and visual.plans_coarse_while_moving(
             self._n_displayed_dims(scene_id)
         ):
             self._dims_scrub_pending.setdefault(scene_id, set()).add(visual.id)
+            return dataclasses.replace(config, plan_mode=PlanMode.BACKSTOP_ONLY)
+        if self._transform_drag_plans_coarse(visual):
+            # A tick of a transform drag in a 2D view (design v3, D7): the
+            # drag's end plans the target.
+            self._transform_plan_owed.add(visual.id)
             return dataclasses.replace(config, plan_mode=PlanMode.BACKSTOP_ONLY)
         if visual.id in self._camera_handoff.get(scene_id, ()):
             # Left to a camera end by the scrub that just ended (4.6).
@@ -4498,7 +4887,42 @@ class CellierController:
         displayed = getattr(scene.dims.selection, "displayed_axes", ())
         visual = self._model_visual_or_none(visual_id)
         transform = getattr(visual, "transform", None)
+        if self._brick_route_axes(visual_id) is not None:
+            # A 2D slice node (oblique 2D design v3, 5.3.1): the data axes
+            # its three world axes read.
+            return list(self._slice_route_entry(visual_id)[2])
+        classification = (
+            self.view_classification(visual_id) if transform is not None else None
+        )
+        if (
+            classification is not None
+            and classification.alignment is SliceAlignment.OBLIQUE
+            and not isinstance(visual, _RASTER_VISUALS)
+        ):
+            # A geometry visual in a view that tilts its slice (design v2
+            # Phase 6): it is drawn in the world frame from every data axis
+            # a displayed world axis reads, so those are the ones it keeps.
+            return list(transform.data_axes_feeding(displayed))
+        if (
+            classification is not None
+            and classification.alignment is not SliceAlignment.AXIS_ALIGNED
+        ) or (
+            classification is not None
+            and not _has_bijection(classification.effective_transform)
+        ):
+            # Rotated, sheared or drifted (design v2 3.1), or two sliced axes
+            # coupled to each other in an otherwise aligned view: the data
+            # axes no sliced world axis reads.  A data axis that reaches no
+            # world axis at all has no extent to keep, as before.
+            coupling = transform.axis_coupling()
+            return [
+                axis
+                for axis in classification.retained_data_axes
+                if coupling[:, axis].any()
+            ]
         if transform is not None:
+            # D7: the snapped matrix, which the classifier called aligned.
+            transform = classification.effective_transform
             data_axis_of_world = {
                 world_axis: data_axis
                 for data_axis, world_axis in axis_correspondence(transform).items()
@@ -4527,13 +4951,19 @@ class CellierController:
         scene_id = self._visual_to_scene.get(visual_id)
         if scene_id is None:
             return
+        key = (visual_id, render_mode)
+        previous = self._visual_spaces.get(key)
+        if not self._view_draws(visual_id):
+            # Nothing places geometry in a view that cannot draw it (D3).
+            if previous is not None:
+                self._forget_coordinate_systems(previous)
+                del self._visual_spaces[key]
+            return
         retained = self._retained_data_axes(
             visual_id, level_zero, self._model.scenes[scene_id]
         )
         if not retained:
             return
-        key = (visual_id, render_mode)
-        previous = self._visual_spaces.get(key)
         if previous is not None:
             self._forget_coordinate_systems(previous)
         space = VisualCoordinateSystem.from_data(
@@ -4550,7 +4980,8 @@ class CellierController:
 
         ``None`` when the visual is not placeable yet -- its store has no
         coordinate systems, or the scene has no canvas and so no rendered
-        system.
+        system -- or the view does not draw it.  On the brick route (oblique
+        2D design v3, 5.3.2) they are the 2D slice node's own systems.
         """
         scene_id = self._visual_to_scene.get(visual_id)
         if scene_id is None:
@@ -4561,9 +4992,16 @@ class CellierController:
             return None
         scene = self._model.scenes[scene_id]
         displayed_axes = scene.dims.selection.displayed_axes
-        space = self._visual_spaces.get((visual_id, _render_mode_for(displayed_axes)))
+        space = self._visual_spaces.get(
+            (visual_id, self._space_mode(visual_id, displayed_axes))
+        )
         if space is None:
             return None
+        if not self._view_draws(visual_id):
+            return None
+        slice_axes = self._brick_route_axes(visual_id)
+        if slice_axes is not None:
+            return self._slice_render_spaces(visual_id, slice_axes, space, store)
         rendered = self._scene_rendered(scene_id)
         if rendered is None:
             return None
@@ -4580,7 +5018,911 @@ class CellierController:
             retained,
             data_levels=store.data_coordinate_systems,
             level_transforms=store_level_transforms(store),
+            classification=self.view_classification(visual_id),
         )
+
+    @staticmethod
+    def _pick_axes_paired(
+        transform: Any, displayed_axes: Sequence[int], data_axis_of_world: dict
+    ) -> bool:
+        """Whether a pick's displayed coordinates pair with data axes one to one.
+
+        True for an axis-aligned view, where the decode keeps the order it
+        always had; false when the displayed block is rotated or sheared.
+        """
+        return all(
+            axis in data_axis_of_world or not transform.axis_coupling()[axis].any()
+            for axis in displayed_axes
+        )
+
+    # ------------------------------------------------------------------
+    # View alignment and draw status (full affine design v2, 4.2, D3, D8)
+    # ------------------------------------------------------------------
+
+    def view_classification(self, visual_id: UUID) -> ViewClassification | None:
+        """How a visual's transform lines up with its scene's current view.
+
+        See :func:`cellier.transform.classify_view`.  Cached on the
+        transform object and the displayed axes.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+
+        Returns
+        -------
+        ViewClassification or None
+            ``None`` when the visual is not in a scene or has no transform.
+        """
+        scene_id = self._visual_to_scene.get(visual_id)
+        visual = self._model_visual_or_none(visual_id)
+        transform = getattr(visual, "transform", None)
+        if scene_id is None or transform is None:
+            return None
+        displayed = tuple(self._model.scenes[scene_id].dims.selection.displayed_axes)
+        cached = self._classifications.get(visual_id)
+        if cached is not None and cached[0] is transform and cached[1] == displayed:
+            return cached[2]
+        classification = classify_view(transform, displayed)
+        self._classifications[visual_id] = (transform, displayed, classification)
+        return classification
+
+    def _compute_draw_status(self, visual: BaseVisual) -> DrawStatus | None:
+        """A visual's draw status in its scene's current view, uncached."""
+        scene_id = self._visual_to_scene.get(visual.id)
+        classification = self.view_classification(visual.id)
+        if scene_id is None or classification is None:
+            return None
+        family = _visual_family(visual)
+        alignment = classification.alignment
+        decision = self.slice_route(visual.id)
+        route = self._slice_routes.get(visual.id)
+        if decision is not None and decision.route is SliceRoute.NONE:
+            # The route table refuses it (design v3, 5.2.2, U13).
+            return DrawStatus(
+                visual_id=visual.id,
+                scene_id=scene_id,
+                name=visual.name,
+                alignment=alignment.value,
+                drawable=False,
+                reason=_route_refusal_reason(
+                    family, decision, route is not None and route.projection is not None
+                ),
+            )
+        drawable = alignment in _DRAWABLE[family] or (
+            decision is not None
+            and decision.route is SliceRoute.BRICK
+            and family in _BRICK_ROUTE_FAMILIES
+        )
+        reason = None if drawable else _undrawable_reason(family, alignment)
+        if drawable and route is not None and route.refusal is not None:
+            # The plane is drawn, with why it does not project (5.2.5).
+            reason = _projection_refusal_reason(route.refusal)
+        return DrawStatus(
+            visual_id=visual.id,
+            scene_id=scene_id,
+            name=visual.name,
+            alignment=alignment.value,
+            drawable=drawable,
+            reason=reason,
+        )
+
+    # ------------------------------------------------------------------
+    # The brick route (oblique 2D design v3, 5.2)
+    # ------------------------------------------------------------------
+
+    def _slice_route_entry(
+        self, visual_id: UUID
+    ) -> tuple[RouteDecision, tuple[int, int, int] | None, tuple[int, ...]] | None:
+        """``(decision, slice axes, retained data axes)`` for a raster visual.
+
+        ``None`` for a visual that is not raster, not in a scene, has no
+        transform, or is in a 3D view.  Cached on the transform object and
+        the displayed axes, as the classification is.
+
+        **Sticky** (design v3, 5.2.3, D17): while a scope that moves the
+        visual is open, a visual on the brick route stays on it when the
+        table would now pick today's path, with the same layout axes, as
+        long as its three world axes still read those data axes.  A tilt
+        through a different three axes re-lays it out.  The scope's end
+        drops the entry (:meth:`_release_sticky_route`).
+        """
+        visual = self._model_visual_or_none(visual_id)
+        if not isinstance(visual, _RASTER_VISUALS):
+            return None
+        classification = self.view_classification(visual_id)
+        if classification is None:
+            return None
+        scene_id = self._visual_to_scene[visual_id]
+        displayed = tuple(self._model.scenes[scene_id].dims.selection.displayed_axes)
+        if len(displayed) != 2:
+            return None
+        transform = visual.transform
+        scene = self._model.scenes[scene_id]
+        key = _projection_key(visual, scene)
+        cached = self._slice_routes.get(visual_id)
+        if (
+            cached is not None
+            and cached.transform is transform
+            and cached.displayed == displayed
+            and cached.projection_key == key
+        ):
+            return cached.decision, cached.axes, cached.retained
+        effective = classification.effective_transform
+        projection, refusal = self._projection_of(
+            visual, scene, displayed, classification
+        )
+        decision = choose_slice_route(classification, projection)
+        axes: tuple[int, int, int] | None = None
+        retained: tuple[int, ...] = ()
+        if (
+            decision.route is SliceRoute.TODAY
+            and cached is not None
+            and cached.displayed == displayed
+            and cached.axes is not None
+            and self._route_held(visual_id)
+            and _slice_layout(effective, cached.axes) == cached.retained
+        ):
+            # Held on the route by an open scope (5.2.3): the aligned
+            # transient -- or a thickness drag through zero -- keeps the
+            # slice node and its layout.
+            decision = RouteDecision(SliceRoute.BRICK, normal_world_axis=cached.axes[0])
+        if decision.route is SliceRoute.BRICK:
+            axes = (decision.normal_world_axis, displayed[0], displayed[1])
+            retained = _slice_layout(effective, axes)
+            if len(retained) != 3:
+                # The slice node's three world axes read a different number
+                # of data axes than it can lay out (a displayed axis that
+                # also reads a pinned one): nothing it can draw.
+                decision = RouteDecision(
+                    SliceRoute.NONE,
+                    RouteRefusalReason.TOO_MANY_VARYING_AXES,
+                    len(retained),
+                )
+                axes = None
+                retained = ()
+        self._slice_routes[visual_id] = _RouteEntry(
+            transform,
+            displayed,
+            key,
+            decision,
+            axes,
+            retained,
+            projection,
+            refusal,
+        )
+        return decision, axes, retained
+
+    def _projection_of(
+        self,
+        visual: BaseVisual,
+        scene: Any,
+        displayed: tuple[int, ...],
+        classification: ViewClassification,
+    ) -> tuple[Any, Any]:
+        """``(ProjectionGeometry or None, ProjectionRefusal or None)`` (4.2).
+
+        Images only (labels never project).  A projection along a world
+        axis the data does not vary along (``DepthAlignment.CONSTANT``: a
+        flat store, or a broadcast axis) reads one value per ray, so it
+        draws the plane, silently.
+        """
+        appearance = getattr(visual, "appearance", None)
+        if not isinstance(visual, BaseImageVisual) or appearance is None:
+            return None, None
+        world = scene.dims.world_coordinate_system
+        axis = projection_axis(
+            appearance.slab_projection,
+            appearance.projection_axes,
+            world.axis_names(),
+            displayed,
+            scene.dims.selection.thickness,
+        )
+        if isinstance(axis, ProjectionRefusal):
+            return None, axis
+        if axis is None:
+            return None, None
+        try:
+            geometry = classify_projection(
+                classification.effective_transform, displayed, axis
+            )
+        except (ValueError, NonAffineTransformError):
+            return None, None
+        if geometry.depth_alignment is DepthAlignment.CONSTANT:
+            return None, None
+        return geometry, None
+
+    def slice_route(self, visual_id: UUID) -> RouteDecision | None:
+        """Which path draws a raster visual in its 2D view (design v3, 5.2.2).
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+
+        Returns
+        -------
+        RouteDecision or None
+            ``None`` for a visual that is not an image or labels visual, or
+            is not in a 2D view; otherwise today's path, the brick route, or
+            nothing with a reason.
+        """
+        entry = self._slice_route_entry(visual_id)
+        return None if entry is None else entry[0]
+
+    def _brick_route_axes(self, visual_id: UUID) -> tuple[int, int, int] | None:
+        """The slice node's world axes when the visual is drawn on the route.
+
+        The slice normal's world axis, then the two displayed axes in the
+        view's order; ``None`` on today's path, when the route refuses the
+        view, or when the family does not draw the route yet (5.2.1).
+        """
+        entry = self._slice_route_entry(visual_id)
+        if entry is None or entry[1] is None:
+            return None
+        visual = self._model_visual_or_none(visual_id)
+        if _visual_family(visual) not in _BRICK_ROUTE_FAMILIES:
+            return None
+        return entry[1]
+
+    def _space_mode(self, visual_id: UUID, displayed_axes: Sequence[int]) -> str:
+        """The key of a visual's space: ``"slice"`` on the brick route."""
+        if self._brick_route_axes(visual_id) is not None:
+            return "slice"
+        return _render_mode_for(displayed_axes)
+
+    def _slice_render_spaces(
+        self,
+        visual_id: UUID,
+        axes: tuple[int, int, int],
+        space: VisualCoordinateSystem,
+        store: Any,
+    ) -> RenderSpaces | None:
+        """The systems a 2D slice node is placed with (design v3, 5.3.2).
+
+        Its rendered system is 3D: the slice normal's world axis, then the
+        two displayed axes, so pygfx ``z`` is the normal.  The embedding
+        carries the slice position on the normal (``rendered depth = world
+        a - s``), so the slice is at depth 0 and a scrub changes only this
+        embedding; every other world axis is constant at its slice position.
+        """
+        scene_id = self._visual_to_scene[visual_id]
+        canvases = self._scene_to_canvases.get(scene_id, [])
+        if not canvases:
+            return None
+        canvas_id = canvases[0]
+        scene = self._model.scenes[scene_id]
+        world = scene.dims.world_coordinate_system
+        cached = self._slice_rendered.get(visual_id)
+        if cached is None or cached[0] != axes or cached[1] != canvas_id:
+            if cached is not None:
+                self._forget_coordinate_systems(cached[2])
+            rendered = RenderedCoordinateSystem.from_world(
+                world, [world.axes[axis].id for axis in axes], canvas_id
+            )
+            self._register_coordinate_systems(rendered)
+            self._slice_rendered[visual_id] = (axes, canvas_id, rendered)
+        else:
+            rendered = cached[2]
+        positions = getattr(scene.dims.selection, "slice_indices", {})
+        normal = axes[0]
+        embedding = AffineTransform.from_axis_map(
+            rendered,
+            world,
+            axis_map={
+                rendered.axes[index].id: world.axes[axis].id
+                for index, axis in enumerate(axes)
+            },
+            translation={rendered.axes[0].id: float(positions.get(normal, 0.0))},
+            constant_output_axes={
+                world.axes[axis].id: float(positions.get(axis, 0.0))
+                for axis in range(world.ndim)
+                if axis not in axes
+            },
+            name="rendered_to_world",
+        )
+        visual_model = self._get_visual_model(visual_id)
+        # An in-memory visual's slice node reads its two-level brick pyramid
+        # (design v3, 5.4.1); a multiscale one its store's levels.
+        scene_manager = self._render_manager._scenes.get(scene_id)
+        gfx_visual = (
+            None if scene_manager is None else scene_manager.get_visual(visual_id)
+        )
+        levels = getattr(gfx_visual, "brick_source", None)
+        data_levels = (
+            store.data_coordinate_systems
+            if levels is None
+            else levels.data_coordinate_systems
+        )
+        level_transforms = (
+            store_level_transforms(store)
+            if levels is None
+            else list(levels.level_transforms)
+        )
+        _, _, retained = self._slice_route_entry(visual_id)
+        return build_render_spaces(
+            data_levels[0],
+            space,
+            world,
+            rendered,
+            embedding,
+            visual_model.transform,
+            list(retained),
+            data_levels=data_levels,
+            level_transforms=level_transforms,
+            classification=classify_view(visual_model.transform, axes),
+        )
+
+    def _forget_slice_route(self, visual_id: UUID) -> None:
+        """Drop a visual's route cache and its slice node's rendered system."""
+        self._slice_routes.pop(visual_id, None)
+        cached = self._slice_rendered.pop(visual_id, None)
+        if cached is not None:
+            self._forget_coordinate_systems(cached[2])
+
+    def _give_brick_source(
+        self, scene_id: UUID, visual_model: Any, gfx_visual: Any, data_store: Any
+    ) -> None:
+        """Give an in-memory visual its brick pyramid and start its build (5.4).
+
+        The coarse level is built on a worker when the visual is added (U8);
+        a visual on the brick route is resliced when it lands, which plans
+        its backstop.
+        """
+        world = self._model.scenes[scene_id].dims.world_coordinate_system
+        transform = getattr(visual_model, "transform", None)
+        systems = getattr(data_store, "data_coordinate_systems", None)
+        if (
+            transform is None
+            or not systems
+            or getattr(data_store, "data", None) is None
+        ):
+            return
+        source = InMemoryBrickSource(
+            data_store,
+            labels=isinstance(visual_model, LabelMemoryVisual),
+            downsample=downsampled_axes(
+                effective_transform(transform), world, systems[0]
+            ),
+        )
+        gfx_visual.set_brick_source(source)
+        visual_id = visual_model.id
+        # Weakly: the build's callback must not keep a closed controller.
+        controller = weakref.ref(self)
+
+        def _built() -> None:
+            alive = controller()
+            if alive is not None:
+                alive._on_brick_source_built(visual_id, source)
+
+        source.start_build(on_built=_built)
+
+    def _refresh_brick_source(self, scene_id: UUID, visual_id: UUID) -> None:
+        """Rebuild an in-memory visual's brick pyramid after its shape changed.
+
+        An ``"extent"`` change can change the array's shape, so the coarse
+        level and the layout are built again (5.4.4).  A visual on the route
+        leaves it and takes it again with the new source.
+        """
+        scene_manager = self._render_manager._scenes.get(scene_id)
+        if scene_manager is None:
+            return
+        gfx_visual = scene_manager.get_visual(visual_id)
+        if not isinstance(gfx_visual, BrickRouteHost):
+            return
+        was_routed = gfx_visual.slice_axes is not None
+        if was_routed:
+            gfx_visual.set_slice_route(None)
+            self._render_manager._slice_coordinator.forget_visual(visual_id)
+        visual_model = self._get_visual_model(visual_id)
+        store = self._model.data.stores[UUID(visual_model.data_store_id)]
+        self._give_brick_source(scene_id, visual_model, gfx_visual, store)
+        if was_routed:
+            self._apply_slice_route(scene_manager, visual_id)
+            gfx_visual.set_render_spaces(self.render_spaces(visual_id))
+            self._push_slice_footprint(scene_manager, visual_id)
+
+    def _on_brick_source_built(self, visual_id: UUID, source: Any) -> None:
+        """A coarse level landed: a visual on the route now plans its backstop."""
+        if visual_id not in self._visual_to_scene:
+            return
+        scene_manager = self._render_manager._scenes.get(
+            self._visual_to_scene[visual_id]
+        )
+        if scene_manager is None or (
+            getattr(scene_manager.get_visual(visual_id), "brick_source", None)
+            is not source
+        ):
+            return
+        if self._brick_route_axes(visual_id) is None:
+            return
+        self.reslice_visual(visual_id)
+        self._request_draw_for_visual(visual_id)
+
+    def _camera_sensitive(self, visual: BaseVisual) -> bool:
+        """Whether a camera move reslices *visual* in its view (design v3, D6).
+
+        A visual that says so (``requires_camera_reslice``), or one a 2D view
+        draws on the brick route -- an in-memory visual too, whose model
+        says ``False`` because today's path loads whole slices.
+        """
+        if visual.requires_camera_reslice:
+            return True
+        return self._brick_route_axes(visual.id) is not None
+
+    def _on_projection_changed(self, visual_id: UUID) -> None:
+        """A projection field changed: re-route the image and reslice it."""
+        scene_id = self._visual_to_scene.get(visual_id)
+        if scene_id is None:
+            return
+        if self._reroute_visual(scene_id, visual_id):
+            self._refresh_draw_status(scene_id)
+        else:
+            self._refresh_draw_status(scene_id)
+        self.reslice_visual(visual_id)
+        self._request_draw_for_visual(visual_id)
+
+    def _route_held(self, visual_id: UUID) -> bool:
+        """Whether a scope that moves the visual holds its route (5.2.3).
+
+        A drag of its transform, or a scrub of its scene's dims.
+        """
+        if self._transform_interaction_driver.is_active(visual_id):
+            return True
+        scene_id = self._visual_to_scene.get(visual_id)
+        return scene_id is not None and self._dims_driver.is_active(scene_id)
+
+    def _release_sticky_route(self, visual_id: UUID) -> bool:
+        """Re-choose a visual's route once the scope holding it has ended.
+
+        Returns
+        -------
+        bool
+            Whether the route changed; the visual is then placed again (its
+            node swapped, its spaces pushed) and is owed a plan.
+        """
+        cached = self._slice_routes.pop(visual_id, None)
+        if cached is None or visual_id not in self._visual_to_scene:
+            return False
+        entry = self._slice_route_entry(visual_id)
+        if (
+            entry is not None
+            and entry[1] == cached.axes
+            and entry[0] == cached.decision
+        ):
+            self._push_slab_for(visual_id)
+            return False
+        scene_id = self._visual_to_scene[visual_id]
+        visual = self._get_visual_model(visual_id)
+        store = self._model.data.stores.get(UUID(visual.data_store_id))
+        if store is not None:
+            displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
+            self._rebuild_visual_space(
+                visual_id, self._space_mode(visual_id, displayed), store
+            )
+        self._refresh_draw_status(scene_id)
+        self._push_render_spaces(scene_id)
+        self._request_draw_for_scene(scene_id)
+        return True
+
+    def _candidate_slice_axes(self, visual_id: UUID) -> tuple[int, int, int] | None:
+        """The slice node's world axes a tilt of this 2D view would most likely use.
+
+        The visual's own on the route; otherwise the last sliced world axis
+        whose row reads the data, then the displayed axes.  A guess for
+        preparing the atlas (U12): a tilt through another axis re-lays the
+        layout out but keeps the atlas.
+        """
+        axes = self._brick_route_axes(visual_id)
+        if axes is not None:
+            return axes
+        visual = self._model_visual_or_none(visual_id)
+        scene_id = self._visual_to_scene.get(visual_id)
+        if visual is None or scene_id is None:
+            return None
+        displayed = tuple(self._model.scenes[scene_id].dims.selection.displayed_axes)
+        transform = getattr(visual, "transform", None)
+        if len(displayed) != 2 or transform is None:
+            return None
+        coupling = effective_transform(transform).axis_coupling()
+        sliced = [
+            axis
+            for axis in range(coupling.shape[0])
+            if axis not in displayed and coupling[axis].any()
+        ]
+        if not sliced:
+            return None
+        return (sliced[-1], displayed[0], displayed[1])
+
+    def _prepare_slice_route(self, visual_id: UUID) -> None:
+        """Prepare a visual's brick atlas before its first switch (5.1, U12)."""
+        visual = self._model_visual_or_none(visual_id)
+        if visual is None or not isinstance(visual, _RASTER_VISUALS):
+            return
+        if _visual_family(visual) not in _BRICK_ROUTE_FAMILIES:
+            return
+        scene_manager = self._render_manager._scenes.get(
+            self._visual_to_scene.get(visual_id)
+        )
+        if scene_manager is None:
+            return
+        gfx_visual = scene_manager.get_visual(visual_id)
+        prepare = getattr(gfx_visual, "prepare_slice_route", None)
+        axes = self._candidate_slice_axes(visual_id)
+        if prepare is not None and axes is not None:
+            prepare(axes)
+
+    def _apply_slice_route(self, scene_manager: Any, visual_id: UUID) -> None:
+        """Give a visual its route, and swap its node in if the route changed.
+
+        Before its render spaces are pushed (C3): today's 2D placement must
+        never see a tilted raster view.
+        """
+        gfx_visual = scene_manager.get_visual(visual_id)
+        setter = getattr(gfx_visual, "set_slice_route", None)
+        if setter is None:
+            return
+        axes = self._brick_route_axes(visual_id)
+        if setter(axes):
+            if axes is None and isinstance(gfx_visual, BrickRouteHost):
+                # Off the route an in-memory visual is no longer a chunked
+                # visual, so nothing would retire its atlas: forget it now.
+                self._render_manager._slice_coordinator.forget_visual(visual_id)
+            scene_id = self._visual_to_scene[visual_id]
+            displayed = tuple(
+                self._model.scenes[scene_id].dims.selection.displayed_axes
+            )
+            scene_manager.swap_node(visual_id, gfx_visual.get_node_for_dims(displayed))
+            if axes is not None:
+                # The atlas goes on the GPU now, zero-filled, rather than
+                # uploading on the first frame (U12).
+                gfx_visual.prepare_slice_route(axes)
+            visual = self._model_visual_or_none(visual_id)
+            if visual is not None and int(visual.outline.slot) >= 1:
+                # The outline's depth range follows the route (5.8).
+                self._push_visual_outline(visual)
+        self._push_slab_for(visual_id)
+
+    def _push_slice_footprint(self, scene_manager: Any, visual_id: UUID) -> None:
+        """Hand a slice node its footprint (bounds, fit, outline; 5.5)."""
+        gfx_visual = scene_manager.get_visual(visual_id)
+        if getattr(gfx_visual, "slice_axes", None) is None:
+            return
+        scene_id = self._visual_to_scene[visual_id]
+        rendered = self._scene_rendered(scene_id)
+        classification = self.view_classification(visual_id)
+        store = self._model.data.stores.get(
+            UUID(self._get_visual_model(visual_id).data_store_id)
+        )
+        if rendered is None or classification is None or store is None:
+            return
+        scene = self._model.scenes[scene_id]
+        route = self._slice_routes.get(visual_id)
+        projection = None if route is None else route.projection
+        slab_axis = None if projection is None else projection.projection_world_axis
+        selection = scene.dims.to_selection(*rendered).with_planes_at_slice(
+            [axis for axis in classification.sliced_world_axes if axis != slab_axis]
+        )
+        polygon = slice_footprint(
+            store.level_shapes[0],
+            classification,
+            selection,
+            projection_world_axis=slab_axis,
+        )
+        gfx_visual.set_slice_footprint(polygon)
+
+    def _push_slab_for(self, visual_id: UUID) -> None:
+        """Give a visual's slice node the slab it projects, or none (4.2)."""
+        scene_id = self._visual_to_scene.get(visual_id)
+        scene_manager = self._render_manager._scenes.get(scene_id)
+        if scene_manager is None:
+            return
+        setter = getattr(scene_manager.get_visual(visual_id), "set_slab", None)
+        if setter is None:
+            return
+        route = self._slice_routes.get(visual_id)
+        projection = None if route is None else route.projection
+        if projection is None or self._brick_route_axes(visual_id) is None:
+            setter(None)
+            return
+        appearance = self._get_visual_model(visual_id).appearance
+        thickness = self._model.scenes[scene_id].dims.selection.thickness
+        setter(
+            SlabSettings(
+                op=SLAB_OPS[appearance.slab_projection],
+                half_extent=float(thickness.get(projection.projection_world_axis, 0.0)),
+                along_axis=projection.depth_alignment is DepthAlignment.ALONG_AXIS,
+                steps_per_voxel=float(appearance.projection_steps_per_voxel),
+            )
+        )
+
+    def _reroute_visual(self, scene_id: UUID, visual_id: UUID) -> bool:
+        """Re-choose one raster visual's route after its slab may have changed.
+
+        A projection's route follows the thickness (crossing zero) and the
+        appearance's projection fields (5.2.2).  The visual is placed again
+        if its route changed; a slice node is re-placed either way (its
+        embedding carries the slice, 5.3.2) and given its slab.
+
+        Returns
+        -------
+        bool
+            Whether the route changed.
+        """
+        scene_manager = self._render_manager._scenes.get(scene_id)
+        if scene_manager is None:
+            return False
+        gfx_visual = scene_manager.get_visual(visual_id)
+        if not hasattr(gfx_visual, "set_slice_route"):
+            return False
+        before = gfx_visual.slice_axes
+        axes = self._brick_route_axes(visual_id)
+        changed = axes != before
+        if changed:
+            visual = self._get_visual_model(visual_id)
+            store = self._model.data.stores.get(UUID(visual.data_store_id))
+            if store is not None:
+                displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
+                self._rebuild_visual_space(
+                    visual_id, self._space_mode(visual_id, displayed), store
+                )
+            self._apply_slice_route(scene_manager, visual_id)
+        else:
+            self._push_slab_for(visual_id)
+        if changed or axes is not None:
+            gfx_visual.set_render_spaces(self.render_spaces(visual_id))
+            self._push_slice_footprint(scene_manager, visual_id)
+        return changed
+
+    def _push_slice_route_spaces(self, scene_id: UUID) -> None:
+        """After a slice or thickness move, re-place every slice node on a scene.
+
+        Today's 2D nodes keep their matrix across a scrub; a slice node's
+        embedding carries the slice position (5.3.2), so it is pushed again.
+        A thickness change can move a projecting image onto the route or off
+        it (5.2.2), and changes its slab.
+        """
+        if scene_id not in self._render_manager._scenes:
+            return
+        changed = False
+        for visual_model in self._model.scenes[scene_id].visuals:
+            changed |= self._reroute_visual(scene_id, visual_model.id)
+        if changed:
+            self._refresh_draw_status(scene_id)
+
+    def draw_status(self, visual_id: UUID) -> DrawStatus | None:
+        """Whether a visual's scene draws it in its current view, and why not.
+
+        A view that cannot draw a visual -- a 2D view whose slice cuts an
+        image at an angle, say -- draws nothing of it rather than something
+        wrong (design v2, D3): the visual is not sliced and its nodes are
+        out of the scene until a view or transform that draws it arrives.
+        Each change is announced by a :class:`DrawStatusChangedEvent`
+        (:meth:`on_draw_status_changed`) and each change into "not drawn" is
+        logged once as a warning on the ``cellier.draw_status`` logger.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+
+        Returns
+        -------
+        DrawStatus or None
+            ``None`` when the visual is not in a scene or has no transform.
+        """
+        visual = self._model_visual_or_none(visual_id)
+        if visual is None:
+            return None
+        return self._compute_draw_status(visual)
+
+    def _view_draws(self, visual_id: UUID) -> bool:
+        """Whether the scene's current view draws *visual_id* (default yes)."""
+        status = self.draw_status(visual_id)
+        return status is None or status.drawable
+
+    def on_draw_status_changed(
+        self,
+        scene_id: UUID,
+        callback: Callable[[DrawStatusChangedEvent], None],
+        *,
+        owner_id: UUID,
+        weak: bool = False,
+    ) -> SubscriptionHandle:
+        """Register a callback fired when a visual's draw status changes.
+
+        Parameters
+        ----------
+        scene_id :
+            The scene whose visuals to watch.
+        callback :
+            Called with the :class:`DrawStatusChangedEvent`.
+        owner_id :
+            UUID under which this subscription is registered.
+        weak :
+            If True, hold only a weak reference to *callback*.
+
+        Returns
+        -------
+        SubscriptionHandle
+        """
+        return self._outgoing_events.subscribe(
+            DrawStatusChangedEvent,
+            callback,
+            entity_id=scene_id,
+            owner_id=owner_id,
+            weak=weak,
+        )
+
+    def _refresh_draw_status(self, scene_id: UUID) -> None:
+        """Recompute every visual's draw status on a scene, and act on changes.
+
+        A visual the view does not draw is taken out of the scene graph (it
+        neither draws nor picks, whatever it last loaded); a change emits a
+        :class:`DrawStatusChangedEvent`; a change into "not drawn" logs one
+        warning.
+        """
+        scene = self._model.scenes.get(scene_id)
+        if scene is None:
+            return
+        scene_manager = self._render_manager._scenes.get(scene_id)
+        for visual in scene.visuals:
+            status = self._compute_draw_status(visual)
+            if status is None:
+                continue
+            if scene_manager is not None:
+                scene_manager.set_visual_suppressed(visual.id, not status.drawable)
+            previous = self._draw_status.get(visual.id)
+            if previous == status:
+                continue
+            self._draw_status[visual.id] = status
+            if not status.drawable and (previous is None or previous.drawable):
+                _DRAW_STATUS_LOGGER.warning(
+                    "%r is not drawn in this view: %s", status.name, status.reason
+                )
+            self._outgoing_events.emit(
+                DrawStatusChangedEvent(
+                    source_id=self._id,
+                    scene_id=scene_id,
+                    visual_id=visual.id,
+                    status=status,
+                )
+            )
+            # The status overlay (and a suppressed node) show on next frame.
+            self._request_draw_for_scene(scene_id)
+
+    def paint_refusal(self, visual_id: UUID) -> str | None:
+        """Why a labels visual cannot be painted in its current view, or ``None``.
+
+        The brush is a ball of data voxels round the pulled-back pick.  Under
+        a rotation times a per-axis scale it lands as today's (anisotropic)
+        brush does; a shear would paint a slanted shape the user did not ask
+        for.  So painting is allowed where the view draws the visual and is
+        ``AXIS_ALIGNED``, or ``IN_PLANE`` with mutually orthogonal columns in
+        the displayed block ``L[D, R]`` (full affine design v2, D5).
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual.
+
+        Returns
+        -------
+        str or None
+            A sentence naming the alignment, or ``None`` when painting is
+            allowed.
+        """
+        status = self.draw_status(visual_id)
+        if status is not None and not status.drawable:
+            return f"this view does not draw it ({status.reason})"
+        classification = self.view_classification(visual_id)
+        if classification is None:
+            return None
+        alignment = classification.alignment
+        if alignment is SliceAlignment.AXIS_ALIGNED:
+            return None
+        if alignment is SliceAlignment.IN_PLANE:
+            from cellier.render.visuals._image import _displayed_linear_block
+
+            scene_id = self._visual_to_scene[visual_id]
+            displayed = tuple(
+                self._model.scenes[scene_id].dims.selection.displayed_axes
+            )
+            transform = self._model_visual_or_none(visual_id).transform
+            block = _displayed_linear_block(transform, displayed)
+            gram = block.T @ block
+            off_diagonal = gram - np.diag(np.diag(gram))
+            scale = float(np.abs(gram).max(initial=0.0))
+            if np.abs(off_diagonal).max(initial=0.0) <= 1e-9 * scale:
+                return None
+            return (
+                "its transform shears the displayed axes in this view "
+                "(IN_PLANE with non-orthogonal axes), so a round brush would "
+                "paint a slanted shape; painting needs an axis-aligned view or "
+                "a rotation with per-axis scale"
+            )
+        return (
+            f"its transform is {alignment.name} in this view; painting needs "
+            f"an axis-aligned view or a rotation with per-axis scale"
+        )
+
+    def _draw_status_lines(self, scene_id: UUID) -> list[str]:
+        """One line per visual on *scene_id* its view does not draw (D8 B)."""
+        scene = self._model.scenes.get(scene_id)
+        if scene is None:
+            return []
+        lines = []
+        for visual in scene.visuals:
+            status = self._draw_status.get(visual.id)
+            if status is not None and not status.drawable:
+                lines.append(f"Not shown: {status.name} ({status.alignment.upper()})")
+            elif status is not None and status.reason:
+                # Drawn, with a caveat: a projection that draws the plane.
+                lines.append(f"{status.name}: {status.reason}")
+        return lines
+
+    def _check_transform_assignable(
+        self, scene_id: UUID, visual: BaseVisual, transform: Any, data_store: Any
+    ) -> None:
+        """Refuse a transform no view of the scene could draw (design v2 4.2).
+
+        Two things are refused at assignment, everything else is decided
+        per view (D3): a channel axis coupled to any other axis (D6), on
+        either side, and a singular block (data axes the transform collapses
+        onto fewer world dimensions).
+
+        Raises
+        ------
+        ValueError
+            On either.
+        """
+        if transform is None:
+            return
+        coupling = transform.axis_coupling()
+        world = self._model.scenes[scene_id].dims.world_coordinate_system
+        systems = getattr(data_store, "data_coordinate_systems", None) or []
+        data_axes = systems[0].axes if systems else ()
+        channel_columns = {
+            index
+            for index, axis in enumerate(data_axes)
+            if axis.axis_type == "channel" and index < coupling.shape[1]
+        }
+        channel_axis = getattr(visual, "channel_axis", None)
+        if channel_axis is not None and 0 <= channel_axis < coupling.shape[1]:
+            channel_columns.add(int(channel_axis))
+        channel_rows = {
+            index
+            for index, axis in enumerate(world.axes)
+            if axis.axis_type == "channel" and index < coupling.shape[0]
+        }
+        for column in sorted(channel_columns):
+            rows = np.flatnonzero(coupling[:, column])
+            if rows.size > 1 or any(coupling[row].sum() > 1 for row in rows):
+                raise ValueError(
+                    f"Data axis {column} of {visual.name!r} is a channel axis, "
+                    f"and its transform couples it with other axes (world axes "
+                    f"{rows.tolist()}).  Space and time may be rotated, sheared "
+                    f"or drifted, but a channel axis must map to one world axis "
+                    f"alone."
+                )
+        for row in sorted(channel_rows):
+            columns = np.flatnonzero(coupling[row])
+            if columns.size > 1 or any(coupling[:, c].sum() > 1 for c in columns):
+                raise ValueError(
+                    f"World axis {row} ({world.axes[row].name!r}) is a channel "
+                    f"axis, and the transform of {visual.name!r} feeds it from "
+                    f"data axes {columns.tolist()}, coupled with others.  A "
+                    f"channel axis must be fed by one data axis alone."
+                )
+        used = [int(c) for c in np.flatnonzero(coupling.any(axis=0))]
+        rank = _rank_of_rows(transform, range(coupling.shape[0]))
+        if rank < len(used):
+            raise ValueError(
+                f"The transform of {visual.name!r} is singular: its {len(used)} "
+                f"data axes that reach the world span only {rank} world "
+                f"dimensions, so no view can draw it."
+            )
 
     def _scene_rendered(
         self, scene_id: UUID
@@ -4608,10 +5950,13 @@ class CellierController:
             return
         for visual_model in self._model.scenes[scene_id].visuals:
             gfx_visual = scene_manager.get_visual(visual_model.id)
+            # The route first (oblique 2D design v3, C3).
+            self._apply_slice_route(scene_manager, visual_model.id)
             setter = getattr(gfx_visual, "set_render_spaces", None)
             if setter is None:
                 continue
             setter(self.render_spaces(visual_model.id))
+            self._push_slice_footprint(scene_manager, visual_model.id)
 
     def _rebuild_visual_spaces(self, scene_id: UUID) -> None:
         """Rebuild every visual space on a scene after a displayed_axes change.
@@ -4624,12 +5969,13 @@ class CellierController:
         switches into it, which is this same trigger.
         """
         displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
-        mode = _render_mode_for(displayed)
         for visual_model in self._model.scenes[scene_id].visuals:
             store = self._model.data.stores.get(UUID(visual_model.data_store_id))
             if store is None:
                 continue
-            self._rebuild_visual_space(visual_model.id, mode, store)
+            self._rebuild_visual_space(
+                visual_model.id, self._space_mode(visual_model.id, displayed), store
+            )
 
     def _forget_visual_spaces(self, visual_id: UUID) -> None:
         """Drop every render mode's visual space for one visual."""
@@ -4873,12 +6219,14 @@ class CellierController:
                 self._rebuild_visuals_geometry(
                     scene_id, new_state.selection.displayed_axes
                 )
+                self._refresh_draw_status(scene_id)
                 self._switch_canvas_cameras(
                     scene_id, new_state.selection.displayed_axes
                 )
                 self._refresh_scene_overlays(scene_id)
             elif prev_slice != new_slice:
                 self._rebuild_rendered_embedding(scene_id)
+                self._push_slice_route_spaces(scene_id)
             region_changed = displayed_axes_changed or prev_slice != new_slice
             resolved_source_id = _source_id_override.get() or self._id
             _SOURCE_ID_LOGGER.debug(
@@ -5142,36 +6490,34 @@ class CellierController:
     def _check_render_plane_transform(
         visual: BaseVisual, index: int, axes: list[int], world: Any
     ) -> None:
-        """Refuse a plane on world axes the visual's data does not map to singly.
+        """Refuse a plane on world axes a view of which cannot draw the visual.
 
-        The plane's level rule and culling rows take the visual's transform,
-        on the plane's three axes, to be a scale and a translation per axis:
-        each of the three world axes fed by one data axis that feeds nothing
-        else.
+        A plane is drawn in a 3D view of its own three axes.  The plane
+        planner reads the full linear block off the camera pull-back, so a
+        rotation or shear is fine (full affine design v2, K6): what a plane
+        needs is data behind each of its axes, a linear block to read, and a
+        view of its three axes that the visual's family draws (``_DRAWABLE``).
         """
-        linear = getattr(visual.transform, "linear", None)
-        ok = linear is not None
+        transform = visual.transform
+        ok = getattr(transform, "linear", None) is not None
         if ok:
-            linear = np.asarray(linear)
-            columns = []
-            for row in axes:
-                fed_by = np.flatnonzero(linear[row])
-                if fed_by.size != 1:
-                    ok = False
-                    break
-                columns.append(int(fed_by[0]))
+            coupling = transform.axis_coupling()
+            ok = all(coupling[row].any() for row in axes)
+        if ok:
+            classification = classify_view(transform, axes)
             ok = (
-                ok
-                and len(set(columns)) == 3
-                and all(np.flatnonzero(linear[:, c]).size == 1 for c in columns)
+                len(classification.retained_data_axes) >= 3
+                and classification.alignment in _DRAWABLE[_visual_family(visual)]
             )
         if not ok:
             names = tuple(world.axes[axis].name for axis in axes)
             raise ValueError(
                 f"Render plane {index} of visual {visual.name!r} is on world "
-                f"axes {names}, which the visual's transform does not map by "
-                "a scale and a translation per axis.  A render plane needs "
-                "each of its axes to be one data axis, scaled and shifted."
+                f"axes {names}, which a 3D view of those axes cannot draw this "
+                f"visual in.  A render plane needs the data behind each of its "
+                f"axes through an affine block -- a scale and a translation per "
+                f"axis, or any rotation or shear of them -- in a view the "
+                f"visual draws (see CellierController.draw_status)."
             )
 
     def _draws_planes(self, visual: BaseVisual) -> bool:
@@ -5390,7 +6736,15 @@ class CellierController:
         and nothing else: the atlases are kept.  The other fields size GPU
         resources when the visual is added and do not apply at runtime.
         """
-        if not isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual)):
+        if not isinstance(
+            visual,
+            (
+                MultiscaleImageVisual,
+                MultiscaleLabelVisual,
+                ImageVisual,
+                LabelMemoryVisual,
+            ),
+        ):
             return
         visual_id = visual.id
         # The field signal carries only the new value.
@@ -5430,9 +6784,41 @@ class CellierController:
         """
 
         def _on_transform(new_transform: AffineTransform) -> None:
-            # A replaced transform can carry a different axis correspondence,
-            # which the render spaces read back off the matrix -- and which
-            # decides the world axes this visual wants sliders for.
+            visual_model = self._model_visual_or_none(visual_id)
+            store = (
+                self._model.data.stores.get(UUID(visual_model.data_store_id))
+                if visual_model is not None
+                else None
+            )
+            if visual_model is not None:
+                try:
+                    self._check_transform_assignable(
+                        scene_id, visual_model, new_transform, store
+                    )
+                except ValueError:
+                    # Refused (design v2 4.2): put the accepted transform
+                    # back without running this handler again, then raise.
+                    previous = self._accepted_transforms.get(visual_id)
+                    with visual_model.events.transform.blocked():
+                        visual_model.transform = previous
+                    raise
+                self._accepted_transforms[visual_id] = new_transform
+            # A tick of a drag while a scope is open; otherwise a jump
+            # (design v3, D7).  Heard first, so the route stays where a drag
+            # holds it (5.2.3) and the plan mode below is the drag's.
+            self._transform_interaction_driver.tick(
+                visual_id, self._id, interactive=False
+            )
+            # A replaced transform can change which data axes the view
+            # retains and whether the view draws the visual at all (design
+            # v2 D3), which the render spaces read back off the matrix -- and
+            # which decides the world axes this visual wants sliders for.
+            if store is not None:
+                displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
+                self._rebuild_visual_space(
+                    visual_id, self._space_mode(visual_id, displayed), store
+                )
+            self._refresh_draw_status(scene_id)
             self._push_render_spaces(scene_id)
             self._check_slider_axes(scene_id)
             self._refresh_scene_overlays(scene_id)
@@ -5445,10 +6831,34 @@ class CellierController:
                 )
             )
             if not self._suppress_reslice:
-                self.reslice_scene(scene_id)
+                held = visual_model is not None and self._hold_plan_for_transform_drag(
+                    visual_model
+                )
+                if held:
+                    # A 3D view keeps its last plan: the bricks move with
+                    # the node matrix, and the drag's end plans (D7).
+                    others = frozenset(
+                        visual.id
+                        for visual in self._model.scenes[scene_id].visuals
+                        if visual.id != visual_id
+                    )
+                    if others:
+                        self._render_manager.reslice_scene(
+                            scene_id=scene_id,
+                            dims_state=self._dims_state_for_scene(scene_id),
+                            visual_configs=self._build_visual_configs_for_scene(
+                                scene_id
+                            ),
+                            target_visual_ids=others,
+                            selections=self._selections_for_scene(scene_id),
+                        )
+                else:
+                    self.reslice_scene(scene_id)
             # A transform moves the visual whether or not it reslices, and the
             # reslice path would only redraw once its data commits.
             self._request_draw_for_scene(scene_id)
+            # No event loop means no timer: the drag ends here.
+            self._transform_interaction_driver.settle_without_loop(visual_id)
 
         return _on_transform
 
@@ -6190,12 +7600,17 @@ class CellierController:
                 )
         placement = visual.outline.placement or _default_placement(visual)
         kind = _outline_kind(visual)
+        depth_range = _outline_depth_range(visual)
+        if depth_range is not None and self._brick_route_axes(visual.id) is not None:
+            # A 2D slice node draws one plane: ``depth_threshold`` acts as
+            # ``all_boundaries`` there (oblique 2D design v3, 5.8, D5).
+            depth_range = None
         self._render_manager.set_visual_outline(
             visual.id,
             slot=slot,
             placement=placement,
             kind=kind,
-            depth_range=_outline_depth_range(visual),
+            depth_range=depth_range,
         )
 
     def _push_label_selection(self, visual: BaseVisual) -> None:
@@ -6304,6 +7719,8 @@ class CellierController:
                     self.reslice_visual(visual_id)
                 elif field_name == "render_mode":
                     self._refresh_plane_mode(visual_id)
+                elif field_name in _PROJECTION_FIELDS:
+                    self._on_projection_changed(visual_id)
 
             # An appearance change repaints the same data, so it triggers no
             # reslice (only the three _RESLICE_FIELDS do) and nothing else in
@@ -6638,18 +8055,25 @@ class CellierController:
                 axes=axes,
             )
         )
+        rerouted: set[UUID] = set()
+        if transition.phase == "end":
+            # The scrub no longer holds the routes (5.2.3).
+            scene = self._model.scenes.get(scene_id)
+            for visual in scene.visuals if scene is not None else ():
+                if self._release_sticky_route(visual.id):
+                    rerouted.add(visual.id)
         if transition.phase != "end" or transition.reason in ("jump", "cancel"):
             return
         scene = self._model.scenes.get(scene_id)
         if scene is None:
             return
         live = {visual.id: visual for visual in scene.visuals}
-        target = pending & set(live)
+        target = (pending | rerouted) & set(live)
         if self._scene_camera_moving(scene_id):
             # Planned now, the camera-sensitive ones would issue target reads
             # from a camera that is still moving, for a view its end
             # replaces.  They keep their backstop until that end plans them.
-            handed = {vid for vid in target if live[vid].requires_camera_reslice}
+            handed = {vid for vid in target if self._camera_sensitive(live[vid])}
             if handed:
                 self._camera_handoff.setdefault(scene_id, set()).update(handed)
                 target -= handed
@@ -6868,8 +8292,18 @@ class CellierController:
         thickness: Mapping[int, float],
         *,
         source_id: UUID | None = None,
+        interactive: bool = False,
     ) -> None:
         """Replace a scene's per-axis half-thicknesses.
+
+        A change on a sliced axis is a tick of the scene's dims tracker, as a
+        slice move is (oblique 2D design v3, D13): inside
+        :meth:`dims_interaction`, or with *interactive*, it is a tick of a
+        drag -- visuals that plan coarse while moving load their backstop
+        only, and plan in full when the drag ends (``dims_settle_s`` after
+        the last tick, without a scope).  Otherwise it is a jump.  A
+        thickness box's stepped changes are sent this way; a typed value is
+        a jump.
 
         Parameters
         ----------
@@ -6880,6 +8314,8 @@ class CellierController:
             absent from the mapping slices a plane.
         source_id :
             UUID to stamp on the emitted ``DimsChangedEvent``.
+        interactive :
+            Whether the change is a tick of a drag.  Default ``False``.
 
         Raises
         ------
@@ -6894,13 +8330,32 @@ class CellierController:
                 f"world {dims.axis_labels} (ndim={dims.ndim})."
             )
         new = {int(axis): float(value) for axis, value in thickness.items()}
-        if new == dims.selection.thickness:
+        old = dims.selection.thickness
+        if new == old:
             return
+        resolved_source_id = source_id if source_id is not None else self._id
+        displayed = set(dims.selection.displayed_axes)
+        ticked = {
+            axis
+            for axis in set(new) | set(old)
+            if axis not in displayed and new.get(axis, 0.0) != old.get(axis, 0.0)
+        }
+        if ticked:
+            if interactive or self._dims_driver.scope_open(scene_id):
+                self._dims_scrub_axes.setdefault(scene_id, set()).update(ticked)
+            self._dims_driver.tick(
+                scene_id, resolved_source_id, interactive=interactive
+            )
+            self._dims_ticks[scene_id] = self._dims_driver.is_active(scene_id)
         token = _source_id_override.set(source_id)
         try:
             dims.selection.thickness = new
         finally:
             _source_id_override.reset(token)
+            self._dims_ticks.pop(scene_id, None)
+        if ticked:
+            # No event loop means no timer: the drag ends here.
+            self._dims_driver.settle_without_loop(scene_id)
 
     def set_slider_override(
         self,
@@ -7405,7 +8860,9 @@ class CellierController:
                     f"Visual {visual_id} has no channel_axis, so it cannot composite."
                 )
             scene_id = self._visual_to_scene[visual_id]
-            world_axis = visual.transform.axis_correspondence().get(visual.channel_axis)
+            world_axis = visual.transform.exclusive_axis_correspondence().get(
+                visual.channel_axis
+            )
             displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
             if world_axis in displayed:
                 raise ValueError(
@@ -7454,7 +8911,7 @@ class CellierController:
                         "composite."
                     )
                 scene_id = self._visual_to_scene[visual_id]
-                world_axis = visual.transform.axis_correspondence().get(
+                world_axis = visual.transform.exclusive_axis_correspondence().get(
                     visual.channel_axis
                 )
                 displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
@@ -7998,9 +9455,16 @@ class CellierController:
         return True
 
     def _leave_to_plane_drags(self, visuals: Iterable[BaseVisual]) -> set[UUID]:
-        """Ids of *visuals* whose plan a plane drag holds; each is now owed one."""
+        """Ids of *visuals* whose plan a drag holds; each is now owed one.
+
+        A drag of the visual's planes, or of its transform in a 3D view
+        (oblique 2D design v3, D7).
+        """
         return {
-            visual.id for visual in visuals if self._hold_plan_for_plane_drag(visual)
+            visual.id
+            for visual in visuals
+            if self._hold_plan_for_plane_drag(visual)
+            or self._hold_plan_for_transform_drag(visual)
         }
 
     def _plan_after_plane_drag(self, visual_id: UUID) -> None:
@@ -8020,7 +9484,7 @@ class CellierController:
             self._dims_scrub_pending.setdefault(scene_id, set()).add(visual_id)
             return
         if (
-            visual.requires_camera_reslice
+            self._camera_sensitive(visual)
             and self._render_manager.config.camera.reslice_enabled
             and self._scene_camera_moving(scene_id)
         ):
@@ -8129,6 +9593,169 @@ class CellierController:
         {"idle", "active"}
         """
         return self._plane_interaction_driver.state(visual_id).value
+
+    # ------------------------------------------------------------------
+    # Transform drags (oblique 2D design v3, D7)
+    # ------------------------------------------------------------------
+
+    def _transform_drag_plans_coarse(self, visual: BaseVisual) -> bool:
+        """Whether a drag of *visual*'s transform plans it ``BACKSTOP_ONLY``.
+
+        In a 2D view, while the drag is on, for a visual whose 2D moving
+        setting is on (the 2D rule, design v3 5.3.7).
+        """
+        if not self._transform_interaction_driver.is_active(visual.id):
+            return False
+        scene_id = self._visual_to_scene.get(visual.id)
+        if scene_id is None or self._n_displayed_dims(scene_id) != 2:
+            return False
+        return visual.plans_coarse_while_moving(2)
+
+    def _hold_plan_for_transform_drag(self, visual: BaseVisual) -> bool:
+        """Whether to skip a plan of *visual* because its transform is dragged.
+
+        ``True`` for a multiscale image or labels visual in a 3D view with
+        ``coarsest_while_moving_3d`` on, while the drag is on: it keeps
+        drawing the bricks it has, which move with the node matrix, and is
+        owed a plan, made when the drag ends.
+        """
+        if not self._transform_interaction_driver.is_active(visual.id):
+            return False
+        if not self._plane_drag_holds_plan(visual):
+            return False
+        self._transform_plan_owed.add(visual.id)
+        return True
+
+    def _on_transform_transition(self, visual_id: UUID, transition: Transition) -> None:
+        """Announce a transform drag's start or end; at the end, settle it.
+
+        A drag's end re-chooses the visual's route (a sticky route, 5.2.3,
+        is let go) and, by release or stillness, plans the target of a
+        visual the drag planned coarse or held.  An end by a jump or a
+        cancel plans nothing here: the change that caused it does.
+        """
+        self._outgoing_events.emit(
+            TransformInteractionEvent(
+                source_id=transition.source_id,
+                visual_id=visual_id,
+                phase=transition.phase,
+                reason=transition.reason,
+            )
+        )
+        if transition.phase != "end":
+            return
+        owed = visual_id in self._transform_plan_owed
+        self._transform_plan_owed.discard(visual_id)
+        rerouted = self._release_sticky_route(visual_id)
+        if transition.reason not in ("release", "settle"):
+            return
+        if owed or rerouted:
+            self._plan_after_transform_drag(visual_id)
+
+    def _plan_after_transform_drag(self, visual_id: UUID) -> None:
+        """Plan a visual's target once a drag of its transform has ended.
+
+        Only when every motion of the visual has stopped, as after a plane
+        drag (:meth:`_plan_after_plane_drag`).
+        """
+        if self._plane_interaction_driver.is_active(visual_id):
+            visual = self._model_visual_or_none(visual_id)
+            if visual is not None and self._plane_drag_holds_plan(visual):
+                self._plane_plan_owed.add(visual_id)
+                return
+        self._plan_after_plane_drag(visual_id)
+
+    def begin_transform_interaction(self, visual_id: UUID, *, source_id: UUID) -> None:
+        """Open a transform interaction scope on a visual.
+
+        While any scope is open, every change of the visual's ``transform``
+        is a tick of one drag, announced by a ``TransformInteractionEvent``
+        at its start and its end.  Opening a scope starts nothing by
+        itself; the first change does.  Holding still for
+        ``SchedulerConfig.dims_settle_s`` ends a drag, and the next change
+        starts a new one.
+
+        Inside a drag, a 2D view of a visual with
+        ``appearance.coarsest_while_moving_2d`` on plans only its backstop,
+        and a 3D view of a multiscale image or labels visual with
+        ``appearance.coarsest_while_moving_3d`` on keeps its last plan.  The
+        target is planned when the drag ends, once the scene's dims and
+        cameras are still too.  A visual a drag moves onto the brick route
+        of a tilted 2D view stays on it until the drag ends (oblique 2D
+        design v3, 5.2.3), and opening the scope prepares that route's
+        brick atlas, so the first switch is about one frame (U12).
+
+        A rotation slider calls this when it is pressed.  Scripts normally
+        use :meth:`transform_interaction`.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual whose transform is about to be dragged.
+        source_id : UUID
+            Who holds the scope.  One scope is counted per source.
+
+        Raises
+        ------
+        KeyError
+            If *visual_id* is not registered.
+        """
+        if visual_id not in self._visual_to_scene:
+            raise KeyError(f"No visual with id {visual_id}")
+        self._prepare_slice_route(visual_id)
+        self._transform_interaction_driver.begin_scope(visual_id, source_id)
+
+    def end_transform_interaction(self, visual_id: UUID, *, source_id: UUID) -> None:
+        """Close a transform interaction scope opened by *source_id*.
+
+        Closing the last open scope ends a drag at once (``"release"``).
+        Closing a scope that is not open does nothing.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual the scope was opened on.
+        source_id : UUID
+            The source that opened it.
+        """
+        self._transform_interaction_driver.end_scope(visual_id, source_id)
+
+    @contextmanager
+    def transform_interaction(self, visual_id: UUID) -> Generator[None, None, None]:
+        """Drag a visual's transform for the length of a ``with`` block.
+
+        Every assignment of the visual's ``transform`` inside the block
+        belongs to one drag::
+
+            with controller.transform_interaction(visual.id):
+                for angle in angles:
+                    controller.set_visual_transform(visual.id, rotated(angle))
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual whose transform is dragged.
+        """
+        source_id = uuid4()
+        self.begin_transform_interaction(visual_id, source_id=source_id)
+        try:
+            yield
+        finally:
+            self.end_transform_interaction(visual_id, source_id=source_id)
+
+    def transform_interaction_state(self, visual_id: UUID) -> Literal["idle", "active"]:
+        """Whether *visual_id*'s transform is being dragged.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The visual to query.
+
+        Returns
+        -------
+        {"idle", "active"}
+        """
+        return self._transform_interaction_driver.state(visual_id).value
 
     # ------------------------------------------------------------------
     # Clipping plane gizmo
@@ -8599,6 +10226,7 @@ class CellierController:
                 event.scene_id,
                 {**current, **event.thickness},
                 source_id=event.source_id,
+                interactive=event.interactive,
             )
 
     def _on_dims_interaction_update(self, event: DimsInteractionUpdateEvent) -> None:
@@ -9127,7 +10755,7 @@ class CellierController:
         handed = self._camera_handoff.pop(scene_id, set())
         if self._render_manager.config.camera.reslice_enabled:
             target_ids = frozenset(
-                visual.id for visual in scene.visuals if visual.requires_camera_reslice
+                visual.id for visual in scene.visuals if self._camera_sensitive(visual)
             )
         else:
             target_ids = frozenset(
@@ -9542,6 +11170,9 @@ class CellierController:
         ------
         TypeError
             If the visual type has no registered paint controller.
+        ValueError
+            If the view or the transform does not allow painting
+            (:meth:`paint_refusal`).
         """
         from cellier.visuals._label_memory import LabelMemoryVisual
         from cellier.visuals._labels import MultiscaleLabelVisual
@@ -9550,6 +11181,9 @@ class CellierController:
         scene = self._model.scenes[scene_id]
         visual_model = next(v for v in scene.visuals if v.id == visual_id)
         data_store = self._model.data.stores[UUID(visual_model.data_store_id)]
+        refusal = self.paint_refusal(visual_id)
+        if refusal is not None:
+            raise ValueError(f"Cannot paint {visual_model.name!r}: {refusal}.")
 
         if isinstance(visual_model, LabelMemoryVisual):
             from cellier.paint import SyncPaintController
@@ -9709,6 +11343,9 @@ class CellierController:
         self._cancel_move_pick_read(canvas_id)
 
         # 3. Update controller lookup maps, dropping the canvas's overlays.
+        draw_status = self._draw_status_overlays.pop(canvas_id, None)
+        if draw_status is not None:
+            draw_status[0].events.disconnect(draw_status[2])
         for overlay_id in [
             overlay_id
             for overlay_id, entry in self._overlays.items()
@@ -9768,6 +11405,8 @@ class CellierController:
         self._cancel_visual_pick_reads(visual_id)
         self._plane_interaction_driver.drop(visual_id)
         self._plane_plan_owed.discard(visual_id)
+        self._transform_interaction_driver.drop(visual_id)
+        self._transform_plan_owed.discard(visual_id)
         self._plane_mode_shown.pop(visual_id, None)
         self._channel_render_modes.pop(visual_id, None)
         self._render_plane_axes_warned.discard(visual_id)
@@ -9775,6 +11414,10 @@ class CellierController:
         # 4. Remove from controller lookup maps.
         self._visual_to_scene.pop(visual_id)
         self._forget_visual_spaces(visual_id)
+        self._draw_status.pop(visual_id, None)
+        self._classifications.pop(visual_id, None)
+        self._forget_slice_route(visual_id)
+        self._accepted_transforms.pop(visual_id, None)
 
         # 5. Render-layer teardown.
         self._render_manager.remove_visual(visual_id)
@@ -10079,19 +11722,45 @@ class CellierController:
                 coordinate[world_axis] = float(world_position)
             return tuple(float(value) for value in coordinate)
 
+        # The uncoupled pairs.  Under an axis-aligned transform that is the
+        # whole correspondence, and the displayed coordinates land as before.
+        pairs = transform.exclusive_axis_correspondence()
         data_axis_of_world = {
-            world_axis: data_axis
-            for data_axis, world_axis in axis_correspondence(transform).items()
+            world_axis: data_axis for data_axis, world_axis in pairs.items()
         }
         coordinate = np.zeros(transform.input_ndim, dtype=np.float64)
-        for slot, world_axis in enumerate(displayed_axes):
-            data_axis = data_axis_of_world.get(world_axis)
-            if data_axis is not None:
+        slice_axes = (
+            self._brick_route_axes(hit_visual_id) if hit_visual_id is not None else None
+        )
+        if slice_axes is not None:
+            # A 2D slice node (oblique 2D design v3, 5.6): the decode is the
+            # three data axes of its layout, ascending, all of them placed.
+            retained = self._slice_route_entry(hit_visual_id)[2]
+            for slot, data_axis in enumerate(retained[: len(decoded)]):
+                coordinate[data_axis] = decoded[slot]
+        elif self._pick_axes_paired(transform, displayed_axes, data_axis_of_world):
+            for slot, world_axis in enumerate(displayed_axes):
+                data_axis = data_axis_of_world.get(world_axis)
+                if data_axis is not None:
+                    coordinate[data_axis] = decoded[slot]
+        else:
+            # Rotated or sheared among the displayed axes (design v2): no
+            # displayed world axis names a data axis, and the decoded
+            # position is in the visual's own retained data axes, ascending.
+            retained = classify_view(transform, displayed_axes).retained_data_axes
+            for slot, data_axis in enumerate(retained[: len(decoded)]):
                 coordinate[data_axis] = decoded[slot]
 
         if collapsed_data_indices is not None:
+            # A slice node draws all three of its layout's axes, its depth
+            # included (a slab's winning sample, O12): none is collapsed.
+            drawn = (
+                set(self._slice_route_entry(hit_visual_id)[2])
+                if slice_axes is not None
+                else set()
+            )
             for data_axis, index in collapsed_data_indices:
-                if 0 <= data_axis < coordinate.size:
+                if 0 <= data_axis < coordinate.size and data_axis not in drawn:
                     coordinate[data_axis] = float(index) + 0.5
             return tuple(float(value) for value in coordinate)
 
@@ -10101,10 +11770,8 @@ class CellierController:
         # Pulled back through imap_coordinates rather than by reading
         # .linear / .translation, so a non-affine data -> world transform
         # works here too.  Mapping the whole world point at once is exact
-        # because axis_correspondence above already established that the
-        # transform is axis-aligned -- each data axis is fed by exactly one
-        # world axis, so the axes this loop does not fill cannot perturb the
-        # ones it reads.
+        # for the uncoupled axes this loop reads: each is fed by exactly one
+        # world axis, so the axes this loop does not fill cannot perturb it.
         world_point = np.zeros(transform.output_ndim, dtype=np.float64)
         for world_axis, world_position in slice_indices.items():
             if 0 <= world_axis < world_point.size:
@@ -11275,6 +12942,8 @@ class CellierController:
         self._dims_driver.close()
         self._plane_interaction_driver.close()
         self._plane_plan_owed.clear()
+        self._transform_interaction_driver.close()
+        self._transform_plan_owed.clear()
         self._dims_scrub_pending.clear()
         self._dims_scrub_axes.clear()
         for task in self._store_reslice_tasks.values():

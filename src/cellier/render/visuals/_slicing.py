@@ -15,13 +15,16 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from cellier._rounding import round_half_up_clamped
-from cellier.transform import ConvexRegion, RegionSelection
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Mapping
 
     from cellier.render._spaces import RenderSpaces
-    from cellier.transform import AxisAlignedBoundingBox, BaseTransform
+    from cellier.transform import (
+        AxisAlignedBoundingBox,
+        BaseTransform,
+        RegionSelection,
+    )
 
 
 def round_world_to_voxel(raw: float, size: int) -> int:
@@ -129,10 +132,10 @@ def axis_selections_from_box(
                 f"([{low}, {high}]).  That happens when the data -> world "
                 f"transform has a cross-term on a collapsed axis: the "
                 f"preimage of the slice plane is a slanted hyperplane and no "
-                f"single voxel index lies on it.  Remove the shear -- "
-                f"_check_transform_no_rotation imposes the same restriction "
-                f"on the multiscale brick shader -- or wait for the oblique "
-                f"path."
+                f"single voxel index lies on it.  cellier.transform."
+                f"classify_view calls such a view OBLIQUE, and images and "
+                f"labels draw nothing in it rather than reaching this point; "
+                f"a caller that slices one directly must not."
             )
         elif low == high:
             result.append(round_world_to_voxel(low, int(size)))
@@ -237,6 +240,27 @@ def select_plane_within_slab(
     return chosen
 
 
+def _single_reader_rows(spaces: RenderSpaces) -> dict[int, int]:
+    """``{world axis: data axis}`` for each world row that reads one data axis.
+
+    The slicing rule pins a sliced world axis to one sample of the data axis
+    behind it.  That needs the world row to read that data axis alone; the
+    data axis may also reach a displayed world axis (a drift ``x += v t``,
+    a shear ``x += s z``), which moves the slab across the view but does not
+    tilt the slice (full affine design v2, ``SLICE_SHIFT``).  Under an
+    axis-aligned transform this is the axis correspondence.
+    """
+    coupling = spaces.coupling
+    if coupling is None:
+        return {int(w): int(d) for d, w in spaces.data_to_world_axes.items()}
+    rows: dict[int, int] = {}
+    for world_axis in range(coupling.shape[0]):
+        reads = np.flatnonzero(coupling[world_axis])
+        if reads.size == 1:
+            rows[world_axis] = int(reads[0])
+    return rows
+
+
 def image_plane_selection(
     selection: RegionSelection,
     transform: BaseTransform,
@@ -253,7 +277,10 @@ def image_plane_selection(
     the visual draws nothing and ``None`` is returned.
 
     Otherwise the returned selection replaces each of those slabs with a plane
-    at the slice position.  :func:`axis_selections_from_box` then rounds that
+    at the slice position, read from the selection's translation and never
+    from the slab's bounds (:meth:`RegionSelection.with_planes_at_slice`: the
+    midpoint of ``p - h`` and ``p + h`` can miss ``p`` by an ulp, and a plane
+    there selects nothing).  :func:`axis_selections_from_box` then rounds that
     position to exactly the sample chosen here -- the nearest sample is the one
     that contains the position, or the end sample when the position lies
     past the data but within the band -- and a multiscale visual's coarser
@@ -282,14 +309,17 @@ def image_plane_selection(
     """
     world = spaces.world
     box = selection.region.bounding_box()
-    world_to_data = {int(w): int(d) for d, w in spaces.data_to_world_axes.items()}
+    world_to_data = _single_reader_rows(spaces)
     data_ndim = len(shape)
     base_world = np.asarray(
         transform.map_coordinates(np.zeros((1, data_ndim))), dtype=float
     )
+    # A sliced world axis is one the rendered -> world embedding holds
+    # constant; its translation entry is the slice position.
+    sliced = ~np.any(selection.transform.linear != 0, axis=1)
+    slice_position = selection.slice_position
 
-    slabs: dict = {}
-    changed = False
+    pinned: list[int] = []
     for world_axis in range(world.ndim):
         low = float(box.min_coordinate[world_axis])
         high = float(box.max_coordinate[world_axis])
@@ -299,13 +329,11 @@ def image_plane_selection(
         if low_unbounded or high_unbounded:
             # A shear; the assembler rejects it with the explanation.
             return selection
-        position = (low + high) / 2.0
-        half_thickness = (high - low) / 2.0
-        axis_id = world.axes[world_axis].id
         data_axis = world_to_data.get(world_axis)
-        if data_axis is None or data_axis in exempt_data_axes:
-            slabs[axis_id] = (position, half_thickness)
+        if not sliced[world_axis] or data_axis is None or data_axis in exempt_data_axes:
             continue
+        position = float(slice_position[world_axis])
+        half_thickness = (high - low) / 2.0
 
         def index_to_world(indices, d=data_axis, w=world_axis):
             points = np.zeros((indices.size, data_ndim))
@@ -326,12 +354,7 @@ def image_plane_selection(
         )
         if index is None:
             return None
-        slabs[axis_id] = (position, 0.0)
-        changed = changed or half_thickness != 0.0
+        if half_thickness != 0.0:
+            pinned.append(world_axis)
 
-    if not changed:
-        return selection
-    return RegionSelection(
-        transform=selection.transform,
-        region=ConvexRegion.from_axis_slabs(world, slabs),
-    )
+    return selection.with_planes_at_slice(pinned)

@@ -189,3 +189,78 @@ def test_a_selection_that_reaches_nothing_is_still_rejected():
             transform=embedding(world, slices={"T": 99.0, "C": 2.0}),
             region=ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5)}),
         )
+
+
+# -- with_planes_at_slice ----------------------------------------------
+
+#: A slice position whose slab midpoint ``((p - 1) + (p + 1)) / 2`` is one ulp
+#: above ``p``: the value the H4 hand check's slider landed on.
+_ROUNDING_POSITION = 31.3796992481203
+
+
+def test_the_slab_midpoint_misses_the_rounding_position():
+    """The premise of the tests below: rebuilding ``p`` from bounds can miss."""
+    p = _ROUNDING_POSITION
+    assert ((p - 1.0) + (p + 1.0)) / 2.0 != p
+
+
+def test_a_plane_at_the_slab_midpoint_selects_nothing():
+    """Why the plane must come from the translation, not the bounds."""
+    world = tczyx()
+    p = _ROUNDING_POSITION
+    box = selection(
+        world, slices={"T": p, "C": 2.0}, slabs={"T": (p, 1.0)}
+    ).region.bounding_box()
+    midpoint = float(box.min_coordinate[0] + box.max_coordinate[0]) / 2.0
+    with pytest.raises(ValidationError, match="would select nothing"):
+        RegionSelection(
+            transform=embedding(world, slices={"T": p, "C": 2.0}),
+            region=ConvexRegion.from_axis_slabs(world, {"T": (midpoint, 0.0)}),
+        )
+
+
+def test_a_slab_narrows_to_a_plane_at_the_translation():
+    world = tczyx()
+    p = _ROUNDING_POSITION
+    narrowed = selection(
+        world, slices={"T": p, "C": 2.0}, slabs={"T": (p, 1.0)}
+    ).with_planes_at_slice([0])
+    box = narrowed.region.bounding_box()
+    assert box.min_coordinate[0] == p
+    assert box.max_coordinate[0] == p
+    assert narrowed.slice_position[0] == p
+
+
+def test_constraints_on_other_axes_are_kept():
+    world = tczyx()
+    original = selection(
+        world,
+        slices={"T": 7.0, "C": 2.0},
+        slabs={"T": (7.0, 0.5), "C": (2.0, 0.5), "Z": (3.0, 1.0)},
+    )
+    narrowed = original.with_planes_at_slice([1])
+    kept = [
+        half_space
+        for half_space in original.region.half_spaces
+        if half_space.normal[1] == 0
+    ]
+    assert set(kept) <= set(narrowed.region.half_spaces)
+    assert len(narrowed.region.half_spaces) == len(kept) + 2
+    box = narrowed.region.bounding_box()
+    assert box.min_coordinate[1] == box.max_coordinate[1] == 2.0
+    assert (box.min_coordinate[2], box.max_coordinate[2]) == (2.0, 4.0)
+
+
+def test_no_axes_returns_the_same_selection():
+    original = selection()
+    assert original.with_planes_at_slice([]) is original
+
+
+def test_a_displayed_axis_has_no_plane_to_narrow_to():
+    with pytest.raises(ValueError, match="is displayed"):
+        selection().with_planes_at_slice([2])
+
+
+def test_an_out_of_range_axis_is_rejected():
+    with pytest.raises(ValueError, match="out of range"):
+        selection().with_planes_at_slice([5])

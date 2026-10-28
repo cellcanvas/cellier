@@ -503,10 +503,16 @@ def _restrict(candidates: np.ndarray, faces: np.ndarray | None) -> np.ndarray:
     return candidates[faces[position] == candidates]
 
 
-def _flatten(points: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
-    """Upload-ready ``(n, 3)`` float32 with a zero third column; its bounds."""
+def _flatten(
+    points: np.ndarray, keep_depth: bool = False
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Upload-ready ``(n, 3)`` float32 with a zero third column; its bounds.
+
+    *keep_depth* keeps the third (section-axis) column instead.
+    """
     out = np.zeros((len(points), 3), dtype=np.float32)
-    out[:, :2] = points[:, :2]
+    columns = 3 if keep_depth else 2
+    out[:, :columns] = points[:, :columns]
     return out, (_bounds(out) if len(out) else None)
 
 
@@ -625,8 +631,9 @@ def slice_section(
     else:
         parts = section_cut(points, indices, normal, low, tol, **options)
 
-    fill_positions, fill_bounds = _flatten(parts.fill_positions)
-    outline_positions, outline_bounds = _flatten(parts.outline_positions)
+    depth = bool(request.section_depth)
+    fill_positions, fill_bounds = _flatten(parts.fill_positions, depth)
+    outline_positions, outline_bounds = _flatten(parts.outline_positions, depth)
 
     def colors_of(values):
         if arrays.colors is None or values is None:

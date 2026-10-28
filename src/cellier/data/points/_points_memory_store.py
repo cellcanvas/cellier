@@ -256,6 +256,12 @@ class PointsMemoryStore(BaseDataStore):
             )
 
         new_positions = positions[surviving_indices][:, displayed]  # (n_surv, n_disp)
+        # The collapsed columns a coupled view folds in (design v2, D11).
+        fold_positions = (
+            positions[surviving_indices][:, list(request.fold_axes)]
+            if request.fold_axes
+            else None
+        )
         new_colors = colors[surviving_indices] if colors is not None else None
         new_sizes = sizes[surviving_indices] if sizes is not None else None
 
@@ -268,4 +274,5 @@ class PointsMemoryStore(BaseDataStore):
             size_mode=self.size_mode,
             is_empty=False,
             original_indices=surviving_indices,
+            fold_positions=fold_positions,
         )

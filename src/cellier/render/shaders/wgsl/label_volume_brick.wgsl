@@ -415,7 +415,15 @@ fn vs_main(in: VertexInput) -> Varyings {
     );
 
     let norm_pos  = corners[indices[box_winding_index(in.vertex_index)]];
+    $$ if slice_2d
+    // A 2D view's slice node (oblique 2D design v3, 5.3.3): the box is
+    // flattened onto rendered depth 0, as the image brick shader does, so
+    // the 2D camera's depth range never clips it.
+    let box_pos   = u_wobject.world_transform * vec4<f32>(norm_pos, 1.0);
+    let world_pos = vec4<f32>(box_pos.xy, 0.0, box_pos.w);
+    $$ else
     let world_pos = u_wobject.world_transform * vec4<f32>(norm_pos, 1.0);
+    $$ endif
     let ndc_pos   = u_stdinfo.projection_transform
                   * u_stdinfo.cam_transform
                   * world_pos;
@@ -516,7 +524,13 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let plane_ndc = u_stdinfo.projection_transform * u_stdinfo.cam_transform * plane_world;
     // Flat label colour: a plane is not shaded.
     out.color = vec4<f32>(plane_color.rgb, plane_color.a * u_material.opacity);
+    $$ if slice_2d
+    // The flattened proxy's rasterised depth: a 2D tile's depth exactly
+    // (oblique 2D design v3, 5.3.3, K27).
+    out.depth = varyings.position.z;
+    $$ else
     out.depth = plane_ndc.z / plane_ndc.w;
+    $$ endif
     $$ if write_normal
     // The plane's own normal, faced to the viewer by pack_view_normal.
     out.normal = pack_view_normal(
@@ -784,10 +798,14 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         clip_start_normal_local() / (dataset_size / norm_size), on_cut_face);
     $$ endif
     $$ if render_mode in ["iso_categorical", "smooth_iso", "smooth_geometry"]
-    // Shade with ambient + diffuse using the object-space gradient normal.
-    let view_dir = normalize(-ray_dir);
+    // Shade with ambient + diffuse in world space (cellier.view_normal.wgsl).
+    // ``obj_normal`` is a voxel-space direction and ``ray_dir`` a direction
+    // in the normalized proxy space, so the normal takes the per-axis
+    // index-per-unit factor first, as the normal target below does.
+    let shading  = world_shading(obj_normal * (dataset_size / norm_size), ray_dir);
+    let view_dir = shading.view_dir;
     let normal   = select(
-        normalize(obj_normal),
+        shading.normal,
         vec3<f32>(0.0, 1.0, 0.0),
         dot(obj_normal, obj_normal) < 1e-10,
     );

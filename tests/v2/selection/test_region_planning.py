@@ -182,16 +182,16 @@ async def test_a_thickness_too_thin_to_reach_the_data_draws_nothing(kind):
     assert _plan(controller, scene, visual) == []
 
 
-async def test_a_sheared_transform_is_rejected_when_it_is_assigned():
-    """D7, caught one step earlier than the assembler.
+async def test_a_sheared_transform_is_accepted_and_the_view_draws_nothing():
+    """Full affine design v2 (D3, D6), which flipped this from a refusal.
 
-    Today's in-memory path builds a zero-filled world point, writes the slice
-    positions into it and inverts -- which answers "the ``t`` at world
-    ``Z = Y = X = 0``", an arbitrary choice nothing states, and no error.  A
-    sheared transform now fails when it is *assigned*, because the render
-    spaces read the axis correspondence off the matrix and there is none.
-    The assembler's own half-bounded guard is the second line of defence, and
-    is covered in the assembler's tests.
+    World ``T`` picks up a little of data ``z``: a time-space coupling, which
+    is allowed at assignment.  In the ``zyx`` view the sliced ``T`` row reads
+    data ``z``, so the slice is a tilted plane through the data -- ``OBLIQUE``
+    -- and the image draws nothing there and says why, rather than answering
+    "the ``t`` at world ``Z = Y = X = 0``".  The assembler's own half-bounded
+    guard is still the second line of defence, covered in the assembler's
+    tests.
     """
     from cellier.transform import AffineTransform
 
@@ -202,5 +202,12 @@ async def test_a_sheared_transform_is_rejected_when_it_is_assigned():
     sheared = AffineTransform.from_matrix(
         matrix, store.data_coordinate_system, scene.dims.world_coordinate_system
     )
-    with pytest.raises(Exception, match="one output axis per input axis"):
-        visual.transform = sheared
+    visual.transform = sheared
+    assert visual.transform is sheared
+    status = controller.draw_status(visual.id)
+    assert status.alignment == "oblique"
+    assert not status.drawable
+    assert "OBLIQUE" in status.reason
+    assert not controller._render_config_for(scene.id, visual).slicing_enabled
+    scene_manager = controller._render_manager._scenes[scene.id]
+    assert scene_manager.is_visual_suppressed(visual.id)

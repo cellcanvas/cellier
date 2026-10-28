@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
+from cellier.visuals._loading import ProgressiveLoadingConfig
 from cellier.visuals._render_plane import PLANE_RENDER_MODE, RenderPlane
 
 OutlineMode = Literal["per_label", "whole_object", "all_boundaries", "depth_threshold"]
@@ -110,7 +111,57 @@ class BaseLabelsAppearance(BaseAppearance):
 
 
 class InMemoryLabelsAppearance(BaseLabelsAppearance):
-    """Appearance parameters for an in-memory label visual."""
+    """Appearance parameters for an in-memory label visual.
+
+    The level-of-detail and motion fields apply to a 2D view on the brick
+    route only -- a tilted view -- which draws the labels from 3D bricks
+    with a coarse level (oblique 2D design v3, U1).  Aligned 2D views and 3D
+    views load the whole slice and ignore them.
+
+    Parameters
+    ----------
+    settled_lod_bias : float
+        Level-of-detail bias of a settled view on the brick route.  Divisor
+        on the screen-space LOD threshold: higher is coarser.  Default 1.0.
+    coarsest_while_moving_2d : bool
+        On the brick route, each tick of a dims scrub or a transform drag
+        (inside ``transform_interaction``) loads only the new slice's coarse
+        level; the full level is loaded once the motion ends.  Default
+        ``False``.
+    force_level : int or None
+        1-indexed level the brick route draws (1 is the array, 2 its coarse
+        level), overriding the automatic choice.  Default None.
+    """
+
+    settled_lod_bias: float = 1.0
+    coarsest_while_moving_2d: bool = False
+    force_level: int | None = None
+
+
+class InMemoryLabelRenderConfig(BaseModel):
+    """Render-layer configuration of an in-memory labels visual's brick route.
+
+    Used only while a tilted 2D view draws the labels from 3D bricks
+    (oblique 2D design v3, U1).  Nothing is allocated for a visual that
+    never takes that route.
+
+    Parameters
+    ----------
+    block_size : int
+        Brick side length in voxels.  Default 32.
+    gpu_budget_bytes : int
+        Maximum GPU memory for the brick atlas.  Default 1 GiB.
+    loading : ProgressiveLoadingConfig
+        The coarse backstop loaded ahead of the full level.  Changing only
+        this reslices; the other fields take effect when the route is first
+        taken.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    block_size: int = 32
+    gpu_budget_bytes: int = 1 * 1024**3
+    loading: ProgressiveLoadingConfig = Field(default_factory=ProgressiveLoadingConfig)
 
 
 class BaseLabelsVisual(BaseVisual):
@@ -239,8 +290,19 @@ class LabelMemoryVisual(BaseLabelsVisual):
     ----------
     appearance : InMemoryLabelsAppearance
         Colormap and rendering appearance.
+    render_config : InMemoryLabelRenderConfig
+        The brick route's GPU configuration.
     """
 
     visual_type: Literal["label_memory"] = "label_memory"
     appearance: InMemoryLabelsAppearance
     requires_camera_reslice: bool = Field(default=False, frozen=True)
+    render_config: InMemoryLabelRenderConfig = Field(
+        default_factory=InMemoryLabelRenderConfig
+    )
+
+    def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:
+        """The 2D moving setting in a 2D view; ``False`` in 3D (design v3, U1)."""
+        if n_displayed_dims == 3:
+            return False
+        return self.appearance.coarsest_while_moving_2d

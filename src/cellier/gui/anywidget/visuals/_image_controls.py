@@ -98,6 +98,9 @@ class AnywidgetImageControls(VisualIdGroup, anywidget.AnyWidget):
     attenuation_modes = traitlets.List(list(ATTENUATION_MODES)).tag(sync=True)
     """Render modes that show the attenuation row (in 3D)."""
     n_displayed_dimensions = traitlets.Int(3).tag(sync=True)
+    #: The projection rows' options, ``{"ops": [...], "axes": [...]}``, when
+    #: the field list asks for them (oblique 2D design v3, 4.2).
+    projection = traitlets.Dict({}).tag(sync=True)
     """How many dimensions the scene displays (2 or 3).  Python to JS only."""
 
     @traitlets.validate("n_displayed_dimensions")
@@ -133,6 +136,7 @@ class AnywidgetImageControls(VisualIdGroup, anywidget.AnyWidget):
             threshold_modes=list(values.get("threshold_modes", THRESHOLD_MODES)),
             attenuation_modes=list(values.get("attenuation_modes", ATTENUATION_MODES)),
             n_displayed_dimensions=n_displayed_dimensions,
+            projection=dict(values.get("projection") or {}),
             **kwargs,
         )
         self._scene_ids = tuple(scene_ids)

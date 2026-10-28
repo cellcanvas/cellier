@@ -10,14 +10,20 @@ import pygfx as gfx
 
 from cellier.data.graph._graph_requests import GraphSliceRequest
 from cellier.render._clipping import GeometryClippingMixin, notify_planes_placed
+from cellier.render._node_transform import set_node_matrix
 from cellier.render._spaces import (
+    ElementFold,
     RenderSpaces,
     data_slice_positions,
+    element_fold,
+    geometry_data_region,
+    node_follows_slice,
     node_matrix,
     snap_discrete_positions,
     widen_discrete_edges,
     window_half_extents,
     world_half_thickness,
+    world_row_reading,
 )
 from cellier.render.shaders._alpha_modulated import (
     AlphaLineSegmentMaterial,
@@ -28,6 +34,13 @@ from cellier.render.visuals._aabb import (
     make_aabb_line,
     refresh_aabb_line,
 )
+from cellier.render.visuals._world_frame import (
+    collapsed_columns,
+    translation_matrix,
+    world_frame_active,
+    world_frame_positions,
+)
+from cellier.transform import ConvexRegion, effective_transform
 
 if TYPE_CHECKING:
     from cellier._state import DimsState
@@ -177,7 +190,7 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
 
         self.visual_model_id: UUID = visual_model.id
         self.render_modes: set[str] = render_modes
-        self._transform: BaseTransform | None = transform
+        self._transform: BaseTransform | None = effective_transform(transform)
         # The systems this visual's geometry is placed with, pushed by
         # the controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
@@ -185,6 +198,14 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
         # planned request.  The node matrix reads it (design 3.9).
         self._last_data_positions: dict[int, float] = {}
         self._last_displayed_axes: tuple[int, ...] | None = None
+        # The per-element fold of the current view (design v2, D11), or None.
+        self._fold: ElementFold | None = None
+        # Whether the last request was planned for a world-frame upload, and
+        # the origin of the one on the GPU (None: the usual frame).
+        self._request_world_frame: bool = False
+        self._world_origin: np.ndarray | None = None
+        self._commit_world: bool = False
+        self._commit_origin: np.ndarray | None = None
 
         self._aabb_enabled: bool = visual_model.aabb.enabled
         self._aabb_color: str = visual_model.aabb.color
@@ -332,9 +353,19 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
         self._last_displayed_axes = displayed_axes
         if self._spaces is None or self._transform is None:
             return
-        self.node.local.matrix = node_matrix(
-            self._spaces, self._transform, self._collapsed_origin()
-        )
+        if self._world_origin is not None or world_frame_active(self._spaces):
+            # The geometry is placed in the world frame (Phase 6): in such a
+            # view no node matrix maps the data to the screen.
+            origin = self._world_origin
+            set_node_matrix(
+                self.node,
+                translation_matrix(origin if origin is not None else (0, 0, 0)),
+            )
+        else:
+            set_node_matrix(
+                self.node,
+                node_matrix(self._spaces, self._transform, self._collapsed_origin()),
+            )
         self._apply_clipping_planes()
 
     def _clip_targets(self):
@@ -545,7 +576,12 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
         # of an axis with no trail, and the least a trail's window can be: a
         # trail widens the slab and never narrows it.
         world_thickness = world_half_thickness(selection.region)
-        data_to_world_axes = self._spaces.data_to_world_axes
+        # The world row that reads each data axis alone: a drift or a shear
+        # couples the data axis elsewhere too, but its own row still carries
+        # the scene's thickness (full affine design v2, Phase 5).
+        data_to_world_axes = {
+            axis: world_row_reading(self._transform, axis) for axis in sliced
+        }
         axes = self._spaces.data.axes
         discrete = {
             axis
@@ -553,7 +589,17 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
             if 0 <= axis < len(axes) and axes[axis].sampling == "discrete"
         }
 
-        for axis in sliced:
+        # A sliced axis no world row reads alone (a time axis a world row
+        # mixes with space, say) has no window to convert: it is filtered by
+        # plain containment in the region below (design v2 4.5), as is a
+        # slab tilted through the retained axes (an OBLIQUE view, Phase 6).
+        coupling = self._transform.axis_coupling()
+        windowed = [
+            axis
+            for axis in sliced
+            if data_to_world_axes.get(axis) is not None or not coupling[:, axis].any()
+        ]
+        for axis in windowed:
             slab = float(world_thickness.get(data_to_world_axes.get(axis), 0.0))
             config = self._trail.get(axis)
             if config is None:
@@ -580,6 +626,16 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
                     stacklevel=2,
                 )
 
+        # A view whose collapsed axes reach a displayed one places each node
+        # and edge vertex at its own collapsed position (design v2, D11); a
+        # view that tilts the slice draws it in the world frame (Phase 6).
+        self._request_world_frame = world_frame_active(self._spaces)
+        if self._request_world_frame:
+            self._fold = None
+            fold_axes = tuple(self._spaces.collapsed_axes)
+        else:
+            self._fold = element_fold(self._spaces, self._transform)
+            fold_axes = () if self._fold is None else self._fold.axes
         shared_id = uuid4()
         return GraphSliceRequest(
             slice_request_id=shared_id,
@@ -587,10 +643,49 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
             scale_index=0,
             displayed_axes=dims_state.selection.displayed_axes,
             retained_axes=self._spaces.retained_axes,
-            slice_positions={axis: float(positions.get(axis, 0.0)) for axis in sliced},
+            slice_positions={
+                axis: float(positions.get(axis, 0.0)) for axis in windowed
+            },
             extents=extents,
             fades=fades,
             clip_planes=clip_planes,
+            fold_axes=fold_axes,
+            region=self._containment_region(selection, windowed, data_to_world_axes),
+        )
+
+    def _containment_region(self, selection, windowed, data_to_world_axes):
+        """The selection's constraints no window stands for, in data space.
+
+        Every constraint on a world axis whose data axis is windowed is the
+        window's to apply; the rest -- a slab tilted through the data, an
+        axis no world row reads alone -- are pulled back exactly and filter
+        by containment.  ``None`` when the windows cover everything, which
+        is every view where each sliced world row reads one data axis.
+        """
+        handled = {
+            data_to_world_axes[axis]
+            for axis in windowed
+            if data_to_world_axes.get(axis) is not None
+        }
+        region = selection.region
+        rest = [
+            half_space
+            for half_space in region.half_spaces
+            if not set(np.flatnonzero(half_space.normal).tolist()) <= handled
+        ]
+        if not rest:
+            return None
+        remaining = selection.model_copy(
+            update={
+                "region": ConvexRegion(
+                    coordinate_system=region.coordinate_system,
+                    ndim=region.ndim,
+                    half_spaces=tuple(rest),
+                )
+            }
+        )
+        return geometry_data_region(
+            remaining, self._transform, self._spaces.world, self._spaces.data
         )
 
     def build_slice_request(
@@ -650,6 +745,25 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
         # 3D path -- reverse (z, y, x) data order to (x, y, z) pygfx order.
         return np.ascontiguousarray(positions)[:, [2, 1, 0]]
 
+    def _folded(
+        self, positions: np.ndarray, fold_positions: np.ndarray | None
+    ) -> np.ndarray:
+        """Fold each element's collapsed position into its upload (D11)."""
+        fold = self._fold
+        if (
+            fold is None
+            or fold_positions is None
+            or self._spaces is None
+            or fold_positions.shape[1] != len(fold.axes)
+        ):
+            return positions
+        return fold.apply(positions, fold_positions, self._collapsed_origin())
+
+    def _follow_slice(self) -> None:
+        """Place the node again in a view the slice moves the data in."""
+        if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
+            self._update_node_matrix(self._last_displayed_axes)
+
     def _commit(self, graph_data: GraphData, is_2d: bool) -> None:
         """Upload one GraphData into the two sub-nodes.
 
@@ -661,11 +775,40 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
         the store to back it is a misconfiguration and raises here rather
         than silently falling back to uniform.
         """
+        self._follow_slice()
+        # An OBLIQUE view (design v2, Phase 6) uploads nodes and edges in the
+        # world frame, relative to one origin they share.
+        self._commit_world = self._request_world_frame and self._spaces is not None
+        self._commit_origin = None
         self._commit_nodes(graph_data)
         self._commit_edges(graph_data)
+        was_world_frame = self._world_origin is not None
+        self._world_origin = self._commit_origin if self._commit_world else None
+        moved = self._world_origin is not None or was_world_frame
+        if moved and self._last_displayed_axes is not None:
+            self._update_node_matrix(self._last_displayed_axes)
+
+    def _placed_positions(
+        self, positions: np.ndarray, fold_positions: np.ndarray | None, empty: bool
+    ) -> np.ndarray:
+        """One part's upload: world frame, folded, or as read."""
+        if self._commit_world and not empty:
+            placed, self._commit_origin = world_frame_positions(
+                self._spaces,
+                self._transform,
+                positions,
+                collapsed_columns(positions, fold_positions),
+                origin=self._commit_origin,
+            )
+            return placed
+        return self._to_pygfx_positions(self._folded(positions, fold_positions))
 
     def _commit_nodes(self, graph_data: GraphData) -> None:
-        positions = self._to_pygfx_positions(graph_data.node_positions)
+        positions = self._placed_positions(
+            graph_data.node_positions,
+            graph_data.node_fold_positions,
+            graph_data.nodes_empty,
+        )
         n_points = positions.shape[0]
 
         colors = graph_data.node_colors
@@ -711,7 +854,11 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
         )
 
     def _commit_edges(self, graph_data: GraphData) -> None:
-        positions = self._to_pygfx_positions(graph_data.edge_positions)
+        positions = self._placed_positions(
+            graph_data.edge_positions,
+            graph_data.edge_fold_positions,
+            graph_data.edges_empty,
+        )
         n_vertices = positions.shape[0]
 
         colors = graph_data.edge_colors
@@ -781,7 +928,7 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
     # ------------------------------------------------------------------
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
-        self._transform = event.transform
+        self._transform = effective_transform(event.transform)
         if self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
 

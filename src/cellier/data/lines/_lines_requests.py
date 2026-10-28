@@ -56,6 +56,9 @@ class LinesSliceRequest(NamedTuple):
         Set only where the shader cannot clip: geometry flattened along an
         axis a plane has a component on (clipping planes design 5.2).
         Empty otherwise.
+    fold_axes : tuple[int, ...]
+        Collapsed data axes whose columns the store also returns, for the
+        render layer's per-element fold (full affine design v2, D11).
     """
 
     slice_request_id: UUID
@@ -65,6 +68,7 @@ class LinesSliceRequest(NamedTuple):
     retained_axes: tuple[int, ...]
     region: ConvexRegion
     clip_planes: tuple = ()
+    fold_axes: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -94,6 +98,9 @@ class LinesData:
         ``arange(n_segments)``.  Used by the render layer to translate a
         pick's rendered-buffer edge index into the original edge index.
         None on the empty-placeholder path.
+    fold_positions : np.ndarray | None
+        ``(n_vertices, len(fold_axes))``, row-matched to ``positions``.
+        None when the request asked for none.
     """
 
     request_id: UUID
@@ -102,6 +109,7 @@ class LinesData:
     color_mode: str = "uniform"
     is_empty: bool = False
     original_edge_indices: np.ndarray | None = None
+    fold_positions: np.ndarray | None = None
 
     @property
     def shape(self) -> str:

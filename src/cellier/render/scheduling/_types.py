@@ -238,9 +238,16 @@ def is_chunked_visual(visual: object) -> bool:
     """Whether *visual* loads through the chunk scheduler (``ChunkedVisual``).
 
     Read off the class (``chunked = True``), so a mock or a visual that
-    happens to have a ``plan`` attribute is not routed by accident.
+    happens to have a ``plan`` attribute is not routed by accident.  A class
+    that sets ``routes_chunked = True`` (the in-memory image and labels
+    visuals, oblique 2D design v3 5.4) is chunked while its instance's
+    ``chunked_now`` says so: on the brick route.
     """
-    return getattr(type(visual), "chunked", False) is True
+    if getattr(type(visual), "chunked", False) is True:
+        return True
+    if getattr(type(visual), "routes_chunked", False) is True:
+        return bool(visual.chunked_now)
+    return False
 
 
 def _readonly(array: np.ndarray) -> np.ndarray:

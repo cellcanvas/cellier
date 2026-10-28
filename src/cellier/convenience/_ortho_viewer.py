@@ -24,6 +24,7 @@ from cellier.convenience._ortho_planes import OrthoPlaneController
 from cellier.convenience._render_settings import RenderSettingsMixin
 from cellier.convenience._startup import StartupState
 from cellier.convenience.gui._controls_config import validate_controls
+from cellier.events import CanvasAddedEvent
 from cellier.render._capture import write_png
 from cellier.scene._background import viewer_background
 from cellier.scene.dims import (
@@ -33,6 +34,7 @@ from cellier.scene.dims import (
     world_coordinate_system,
 )
 from cellier.scene.scene import Scene
+from cellier.visuals._canvas_overlay import DrawStatusOverlay
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Mapping, Sequence
@@ -81,9 +83,14 @@ if TYPE_CHECKING:
         ImageVisual,
         InMemoryImageAppearance,
         InMemoryImageChannelAppearance,
+        InMemoryImageRenderConfig,
         InMemoryImageSingleAppearance,
     )
-    from cellier.visuals._label_memory import BaseLabelsAppearance, LabelMemoryVisual
+    from cellier.visuals._label_memory import (
+        BaseLabelsAppearance,
+        InMemoryLabelRenderConfig,
+        LabelMemoryVisual,
+    )
     from cellier.visuals._labels import (
         MultiscaleLabelRenderConfig,
         MultiscaleLabelsAppearance,
@@ -266,6 +273,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         for headless capture via :meth:`screenshot`. Fixed at construction.
         ``"offscreen"`` orthoviewers have no embeddable widgets, so the grid
         builders reject them.
+    draw_status_overlay : bool
+        Whether every panel names, in its top-left corner, the visuals its
+        view does not draw.  Default ``True``.  See
+        :attr:`draw_status_overlay`.
     """
 
     # Clipping planes controls live in the ortho clipping widget, one per
@@ -281,11 +292,16 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         link_clipping_planes: ClippingLinkMode = "all",
         render_config: RenderManagerConfig | None = None,
         gui: Literal["qt", "anywidget", "offscreen"] = "qt",
+        draw_status_overlay: bool = True,
     ) -> None:
         self._controller = CellierController(render_config=render_config, gui=gui)
+        self._draw_status_overlay = DrawStatusOverlay() if draw_status_overlay else None
         self._clipping_controller = OrthoClippingController(
             self._controller, link_clipping_planes
         )
+        # Each panel's visual id -> every panel's copy of the same visual,
+        # from one fanned-out add (``transform_interaction``).
+        self._panel_copies: dict[UUID, tuple[UUID, ...]] = {}
         world = world_coordinate_system(axes)
         self._spatial_axes = _resolve_spatial_axes(world.axis_names(), spatial_axes)
         self._ndim = world.ndim
@@ -303,6 +319,33 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._ready_callbacks: list[Callable[[], None]] = []
         if link_axes:
             self._wire_axis_sync()
+        if self._draw_status_overlay is not None:
+            for scene in self._scenes.values():
+                self._controller._outgoing_events.subscribe(
+                    CanvasAddedEvent,
+                    self._show_draw_status,
+                    entity_id=scene.id,
+                    weak=True,
+                )
+
+    @property
+    def draw_status_overlay(self) -> DrawStatusOverlay | None:
+        """The text overlay naming visuals a panel's view does not draw.
+
+        On by default (``OrthoViewer(..., draw_status_overlay=True)``); every
+        panel canvas shows it.  Under a rotation not about one view axis, a
+        2D panel whose slice cuts an image at an angle draws nothing of it
+        and lists it here (full affine design v2, D1, D3, D8).  Its fields
+        are live.  ``None`` when the viewer was built without it.
+        """
+        return self._draw_status_overlay
+
+    def _show_draw_status(self, event: CanvasAddedEvent) -> None:
+        """Give a new panel canvas the draw-status overlay."""
+        if self._draw_status_overlay is not None:
+            self._controller.show_draw_status(
+                event.canvas_id, self._draw_status_overlay
+            )
 
     # ------------------------------------------------------------------
     # Scene construction
@@ -984,6 +1027,39 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 stack.enter_context(self._controller.dims_interaction(scene.id))
             yield
 
+    @contextmanager
+    def transform_interaction(
+        self, visual: UUID | object | dict[str, object]
+    ) -> Generator[None, None, None]:
+        """Drag one visual's transform in every panel for a ``with`` block.
+
+        Opens ``CellierController.transform_interaction`` on every panel's
+        copy of the visual, so each panel plans coarse while the transform
+        changes (when its view's moving setting is on) and in full when the
+        block exits, and a tilted 2D panel switches onto the brick route with
+        about a one-frame gap (oblique 2D design v3, 5.2.4)::
+
+            with viewer.transform_interaction(visuals):
+                for angle in angles:
+                    for copy in visuals.values():
+                        copy.transform = rotated(copy, angle)
+
+        Parameters
+        ----------
+        visual : UUID, visual or dict[str, visual]
+            Any panel's copy (or its id), or the dict a fanned-out ``add_*``
+            returned.
+        """
+        if isinstance(visual, dict):
+            visual = next(iter(visual.values()))
+        visual_id = visual if isinstance(visual, UUID) else visual.id
+        copies = self._panel_copies.get(visual_id, (visual_id,))
+        with ExitStack() as stack:
+            for copy_id in copies:
+                if copy_id in self._controller._visual_to_scene:
+                    stack.enter_context(self._controller.transform_interaction(copy_id))
+            yield
+
     # ------------------------------------------------------------------
     # Camera control
     # ------------------------------------------------------------------
@@ -1102,6 +1178,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         :attr:`clipping_controller`, which links them as its mode says.
         """
         visuals = {key: add_one(key, scene) for key, scene in self._scenes.items()}
+        copies = tuple(visual.id for visual in visuals.values())
+        for visual_id in copies:
+            self._panel_copies[visual_id] = copies
         self._clipping_controller.add_group(visuals)
         self._plane_controller.add_visual(visuals["vol"])
         return visuals
@@ -1126,6 +1205,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         ambient_occlusion: bool | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        transform: BaseTransform | None = None,
+        render_config: InMemoryImageRenderConfig | None = None,
     ) -> dict[str, ImageVisual]:
         """Add an in-memory image to every panel from a single data store.
 
@@ -1187,6 +1268,13 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             Given to the 3D panel's visual only: the 2D panels show
             their slices.  Replaced by the slice planes while
             ``plane_controller.mode`` is ``"slices"``.
+        transform : BaseTransform or None
+            The ``data -> world`` transform, shared by every panel's visual.
+            ``None`` (default) is the identity.
+        render_config : InMemoryImageRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the image (oblique 2D design v3).  ``None`` uses the
+            defaults.
 
         Returns
         -------
@@ -1211,6 +1299,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 ambient_occlusion=ambient_occlusion,
                 clipping_planes=clipping_planes,
                 render_planes=render_planes if key == "vol" else (),
+                transform=transform,
+                render_config=render_config,
             )
         )
         self._record_controls(visuals, controls, name)
@@ -1228,6 +1318,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline_selected_labels: dict[int, int] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        render_config: InMemoryLabelRenderConfig | None = None,
     ) -> dict[str, LabelMemoryVisual]:
         """Add an in-memory label image to every panel from one data store.
 
@@ -1281,6 +1372,11 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             their slices.  Replaced by the slice planes while
             ``plane_controller.mode`` is ``"slices"``.
 
+        render_config : InMemoryLabelRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the labels (oblique 2D design v3).  ``None`` uses the
+            defaults.
+
         Returns
         -------
         dict[str, LabelMemoryVisual]
@@ -1300,6 +1396,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 outline_selected_labels=outline_selected_labels,
                 clipping_planes=clipping_planes,
                 render_planes=render_planes if key == "vol" else (),
+                render_config=render_config,
             )
         )
         self._record_controls(visuals, controls, name)

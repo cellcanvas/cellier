@@ -9,7 +9,9 @@ import numpy as np
 import pygfx as gfx
 
 if TYPE_CHECKING:
-    from cellier.visuals._canvas_overlay import CenteredAxes2D
+    from collections.abc import Callable
+
+    from cellier.visuals._canvas_overlay import CenteredAxes2D, DrawStatusOverlay
 
 
 class GFXCanvasOverlay(ABC):
@@ -449,3 +451,87 @@ class GFXCenteredAxes2D(GFXCanvasOverlay):
                 float(tip_b[1]),
                 0.0,
             )
+
+
+class GFXDrawStatusOverlay(GFXCanvasOverlay):
+    """Render-layer implementation of :class:`DrawStatusOverlay`.
+
+    Screen-space text in the top-left corner, one line per visual the
+    canvas's view does not draw.  The lines come from *lines*, a callable
+    the controller supplies (it owns the draw status); the text is rebuilt
+    only when they or the canvas width change, and nothing draws while
+    there are none.
+
+    Parameters
+    ----------
+    model : DrawStatusOverlay
+        The model-layer overlay.
+    lines : Callable[[], list[str]]
+        Returns the lines to show, read once per frame.
+    """
+
+    def __init__(self, model: DrawStatusOverlay, lines: Callable[[], list[str]]):
+        self._lines = lines
+        self._model_visible = bool(model.visible)
+        self._offset = tuple(float(v) for v in model.corner_offset_px)
+        self._scene = gfx.Scene()
+        self._camera = gfx.ScreenCoordsCamera(invert_y=True)
+        self._material = gfx.TextMaterial(
+            color=tuple(model.color),
+            outline_color=(0.0, 0.0, 0.0, 1.0),
+            outline_thickness=0.25,
+            depth_test=False,
+            depth_write=False,
+        )
+        self._text = gfx.Text(
+            text=" ",
+            font_size=float(model.font_size_px),
+            screen_space=True,
+            anchor="top-left",
+            material=self._material,
+        )
+        self._text.visible = False
+        self._scene.add(self._text)
+        self._last: tuple = ()
+
+    @property
+    def overlay_scene(self) -> gfx.Scene:
+        """The pygfx Scene holding the text."""
+        return self._scene
+
+    @property
+    def overlay_camera(self) -> gfx.Camera:
+        """Pixel coordinates, origin top-left."""
+        return self._camera
+
+    def current_lines(self) -> list[str]:
+        """The lines the overlay shows now."""
+        return list(self._lines())
+
+    def on_frame(self, canvas_width: float, canvas_height: float) -> None:
+        """Rebuild the text when the lines or the canvas width changed."""
+        lines = self.current_lines()
+        key = (tuple(lines), float(canvas_width), self._offset)
+        if key != self._last:
+            self._last = key
+            self._text.set_text("\n".join(lines) if lines else " ")
+            self._text.local.position = (self._offset[0], self._offset[1], 0.0)
+            self._text.max_width = max(float(canvas_width) - 2 * self._offset[0], 50.0)
+        self._text.visible = self._model_visible and bool(lines)
+
+    def set_visible(self, visible: bool) -> None:
+        """Show or hide the overlay (it still hides itself when empty)."""
+        self._model_visible = bool(visible)
+        self._last = ()
+
+    def apply(self, field_name: str, value: object) -> None:
+        """Apply one model change."""
+        if field_name == "visible":
+            self.set_visible(bool(value))
+        elif field_name == "font_size_px":
+            self._text.font_size = float(value)
+        elif field_name == "color":
+            self._material.color = tuple(value)
+        elif field_name == "corner_offset_px":
+            self._offset = tuple(float(v) for v in value)
+        self._last = ()

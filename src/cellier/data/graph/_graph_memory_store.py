@@ -843,6 +843,8 @@ class GraphMemoryStore(BaseDataStore):
             before, after = request.extents.get(axis, _NO_EXTENT)
             coord = self.positions[:, axis]
             mask &= (coord >= idx - before) & (coord <= idx + after)
+        if request.region is not None:
+            mask &= request.region.contains(self.positions)
         return mask
 
     def _select_mask(
@@ -899,6 +901,8 @@ class GraphMemoryStore(BaseDataStore):
         graph = self.graph
         node_rows = np.asarray(graph.query_nodes_in_roi(roi)).astype(np.intp)
         node_rows.sort()
+        if request.region is not None and node_rows.shape[0]:
+            node_rows = node_rows[request.region.contains(self.positions[node_rows])]
 
         candidates = np.asarray(graph.query_edges_in_roi(roi))
         if candidates.shape[0]:
@@ -921,6 +925,8 @@ class GraphMemoryStore(BaseDataStore):
             before, after = request.extents.get(axis, _NO_EXTENT)
             coord = self.positions[rows, axis]
             keep &= (coord >= idx - before) & (coord <= idx + after)
+        if request.region is not None and rows.shape[0]:
+            keep &= request.region.contains(self.positions[rows])
         return keep
 
     # ------------------------------------------------------------------
@@ -968,6 +974,9 @@ class GraphMemoryStore(BaseDataStore):
         # axes; it was the fallback for a headlessly constructed visual until
         # v1 was retired (R8.3).
         displayed = list(request.retained_axes)
+        # The collapsed columns a coupled view folds in (design v2, D11).
+        folded = list(request.fold_axes)
+        node_fold = edge_fold = None
         fading = bool(request.fades)
         clip_planes = request.clip_planes
 
@@ -986,6 +995,8 @@ class GraphMemoryStore(BaseDataStore):
             original_node_rows = None
         else:
             node_positions = self.positions[node_rows][:, displayed]
+            if folded:
+                node_fold = self.positions[node_rows][:, folded]
             node_colors = (
                 self.node_colors[node_rows] if self.node_colors is not None else None
             )
@@ -1013,6 +1024,8 @@ class GraphMemoryStore(BaseDataStore):
             # exactly the vertex-pair layout LineSegmentMaterial wants.
             vertex_rows = edge_endpoints.reshape(-1).astype(np.intp)
             edge_positions = self.positions[vertex_rows][:, displayed]
+            if folded:
+                edge_fold = self.positions[vertex_rows][:, folded]
             edge_colors = (
                 np.repeat(self.edge_colors[edge_rows], 2, axis=0)
                 if (self.edge_colors is not None and edge_rows is not None)
@@ -1050,6 +1063,8 @@ class GraphMemoryStore(BaseDataStore):
                 )
                 cut = np.stack([start, end], axis=1).reshape(-1, start.shape[1])
                 edge_positions = cut[:, displayed]
+                if folded:
+                    edge_fold = cut[:, folded]
                 at = width
                 if edge_colors is not None:
                     n_color = edge_colors.shape[1]
@@ -1066,6 +1081,7 @@ class GraphMemoryStore(BaseDataStore):
                     original_edge_rows = edge_rows[kept]
                 if len(kept) == 0:
                     edges_empty = True
+                    edge_fold = None
                     edge_positions = np.zeros(
                         (_PLACEHOLDER_N_EDGE_VERTICES, len(displayed)),
                         dtype=np.float32,
@@ -1093,4 +1109,6 @@ class GraphMemoryStore(BaseDataStore):
             original_edge_rows=original_edge_rows,
             nodes_empty=nodes_empty,
             edges_empty=edges_empty,
+            node_fold_positions=node_fold,
+            edge_fold_positions=edge_fold,
         )

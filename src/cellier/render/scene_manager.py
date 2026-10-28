@@ -83,6 +83,9 @@ class SceneManager:
         )
         self._visuals: dict[UUID, _GFXVisual] = {}
         self._active_nodes: dict[UUID, gfx.WorldObject | None] = {}
+        # Visuals whose nodes are out of the graph: the scene's view cannot
+        # draw them (full affine design v2, D3).
+        self._suppressed: set[UUID] = set()
         # Scene overlays, keyed by overlay model id.  Their nodes live in the
         # same gfx.Scene as the visuals but are not visuals: they are never
         # sliced and never picked.
@@ -241,13 +244,50 @@ class SceneManager:
             # Single-node visual or no change — leave scene graph alone.
             return
 
-        if old_node is not None:
+        # A suppressed visual's nodes stay out of the graph; only the record
+        # of which one is active moves.
+        attached = visual_id not in self._suppressed
+        if old_node is not None and attached:
             self._scene.remove(old_node)
 
-        if new_node is not None:
+        if new_node is not None and attached:
             self._scene.add(new_node)
 
         self._active_nodes[visual_id] = new_node
+
+    def set_visual_suppressed(self, visual_id: UUID, suppressed: bool) -> None:
+        """Take a visual's node out of the scene graph, or put it back.
+
+        For a visual the scene's current view cannot draw (full affine design
+        v2, D3): out of the graph it neither draws nor picks, whatever it last
+        loaded, and its own visibility is left alone.  The active node is
+        still tracked, so :meth:`swap_node` keeps working while suppressed,
+        and lifting the suppression adds back whichever node is active then.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            ID of a registered visual.  An unknown id is ignored.
+        suppressed : bool
+            Whether the visual is out of the graph.
+        """
+        if visual_id not in self._visuals:
+            return
+        if suppressed == (visual_id in self._suppressed):
+            return
+        node = self._active_nodes.get(visual_id)
+        if suppressed:
+            self._suppressed.add(visual_id)
+            if node is not None:
+                self._scene.remove(node)
+        else:
+            self._suppressed.discard(visual_id)
+            if node is not None:
+                self._scene.add(node)
+
+    def is_visual_suppressed(self, visual_id: UUID) -> bool:
+        """Whether :meth:`set_visual_suppressed` has a visual out of the graph."""
+        return visual_id in self._suppressed
 
     def add_overlay(self, overlay_id: UUID, overlay: GFXSceneOverlay) -> None:
         """Register a scene overlay and add its node to the scene graph.
@@ -342,8 +382,9 @@ class SceneManager:
         """
         self._axis_extents.pop(visual_id, None)
         active_node = self._active_nodes.pop(visual_id, None)
-        if active_node is not None:
+        if active_node is not None and visual_id not in self._suppressed:
             self._scene.remove(active_node)
+        self._suppressed.discard(visual_id)
         visual = self._visuals.pop(visual_id)
         visual._planes_placed_listener = None
         self._outline_kinds.pop(visual_id, None)

@@ -339,6 +339,10 @@ _IMAGE_FIELDS: dict[str, str] = {
     "clim": "image",
     "render_mode": "image",
     "iso_threshold": "image",
+    # The slab projection of a 2D view (oblique 2D design v3, 4.2): rows of
+    # the image control, beside the render mode.
+    "slab_projection": "image",
+    "projection_axes": "image",
 }
 _LABELS_FIELDS: dict[str, str] = {
     "visible": "visible",
@@ -413,7 +417,16 @@ _COMMON_CONTROLS: tuple[type[Control], ...] = (
 )
 
 ALLOWED_CONTROLS: dict[str, tuple[type[Control], ...]] = {
-    "image": (ImageControl, RenderPlanesControl, *_COMMON_CONTROLS),
+    # In-memory images and labels have levels on their brick route (oblique
+    # 2D design v3, U1): the level-of-detail and loading controls.
+    "image": (
+        ImageControl,
+        LevelOfDetailControl,
+        RenderPlanesControl,
+        LoadingIndicator,
+        LoadingConfigControl,
+        *_COMMON_CONTROLS,
+    ),
     "multiscale_image": (
         ImageControl,
         LevelOfDetailControl,
@@ -422,7 +435,14 @@ ALLOWED_CONTROLS: dict[str, tuple[type[Control], ...]] = {
         LoadingConfigControl,
         *_COMMON_CONTROLS,
     ),
-    "labels": (FieldControls, RenderPlanesControl, *_COMMON_CONTROLS),
+    "labels": (
+        FieldControls,
+        LevelOfDetailControl,
+        RenderPlanesControl,
+        LoadingIndicator,
+        LoadingConfigControl,
+        *_COMMON_CONTROLS,
+    ),
     "multiscale_labels": (
         FieldControls,
         LevelOfDetailControl,

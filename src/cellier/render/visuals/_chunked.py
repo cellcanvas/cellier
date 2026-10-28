@@ -110,6 +110,35 @@ def viewport_2d(request: ReslicingRequest) -> tuple[np.ndarray, np.ndarray]:
     return center - half, center + half
 
 
+#: Half-depth of the 2D slice node's culling prism, in rendered units: far
+#: beyond any slab, so the 2D camera's own near and far planes never cull
+#: (oblique 2D design v3, 5.3.4, C2).
+SLICE_PRISM_DEPTH = 1.0e7
+
+
+def viewport_prism(request: ReslicingRequest) -> np.ndarray:
+    """A 2D request's viewport as frustum corners unbounded in depth.
+
+    The 2D slice node is planned by the 3D brick planner (design v3,
+    5.3.4), which culls with frustum corners.  A 2D request carries none,
+    and the 2D camera's near and far planes must not cull: they would drop
+    a slab's bricks to the backstop (Phase 0c P-b).  So the corners are the
+    viewport in ``(x, y)`` and +-``SLICE_PRISM_DEPTH`` in depth, in pygfx's
+    order: ``[near, far] x [(l, b), (r, b), (r, t), (l, t)]``, the near
+    side at ``+z`` (the camera looks down ``-z``).
+    """
+    (x0, y0), (x1, y1) = viewport_2d(request)
+    corners = np.empty((2, 4, 3), dtype=np.float64)
+    for side, depth in enumerate((SLICE_PRISM_DEPTH, -SLICE_PRISM_DEPTH)):
+        corners[side] = [
+            (x0, y0, depth),
+            (x1, y0, depth),
+            (x1, y1, depth),
+            (x0, y1, depth),
+        ]
+    return corners
+
+
 def _pack(
     planner: MultiscaleRegionPlanner,
     residency: ImageResidency3D | ImageResidency2D,

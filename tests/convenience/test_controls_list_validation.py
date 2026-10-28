@@ -36,6 +36,9 @@ KINDS = list(ALLOWED_CONTROLS)
 IMAGE_KINDS = ["image", "multiscale_image"]
 FIELD_CONTROL_KINDS = [kind for kind in KINDS if kind not in IMAGE_KINDS]
 MULTISCALE_VOLUME_KINDS = ["multiscale_image", "multiscale_labels"]
+#: The kinds with levels of detail: the multiscale volumes, and the in-memory
+#: image and labels, whose brick route has levels (oblique 2D design v3, U1).
+LOD_KINDS = [*MULTISCALE_VOLUME_KINDS, "image", "labels"]
 
 ALL_CONTROLS = [
     ImageControl,
@@ -98,7 +101,7 @@ def test_there_are_nine_visual_kinds_and_fifteen_models():
     [
         (ImageControl, IMAGE_KINDS),
         (FieldControls, FIELD_CONTROL_KINDS),
-        (LevelOfDetailControl, MULTISCALE_VOLUME_KINDS),
+        (LevelOfDetailControl, LOD_KINDS),
         (BoundingBoxControl, KINDS),
         (ClippingPlanesControl, KINDS),
         (
@@ -110,9 +113,9 @@ def test_there_are_nine_visual_kinds_and_fifteen_models():
         (PickingControl, KINDS),
         (
             LoadingIndicator,
-            ["multiscale_image", "multiscale_labels", "mesh", "multiscale_mesh"],
+            [*LOD_KINDS, "mesh", "multiscale_mesh"],
         ),
-        (LoadingConfigControl, MULTISCALE_VOLUME_KINDS),
+        (LoadingConfigControl, LOD_KINDS),
         (MeshSectionControl, ["mesh", "multiscale_mesh"]),
         (MeshLodControl, ["multiscale_mesh"]),
         (TrailControl, ["graph"]),
@@ -344,15 +347,13 @@ def test_a_field_of_another_kind_is_refused(kind, field):
         validate_controls([_field_item(kind, [field])], kind, "v")
 
 
-@pytest.mark.parametrize("kind", MULTISCALE_VOLUME_KINDS)
+@pytest.mark.parametrize("kind", LOD_KINDS)
 def test_level_of_detail_as_a_field_names_the_control_to_add(kind):
     with pytest.raises(ValueError, match=r"add LevelOfDetailControl\(\)"):
         validate_controls([_field_item(kind, ["level_of_detail"])], kind, "v")
 
 
-@pytest.mark.parametrize(
-    "kind", [kind for kind in KINDS if kind not in MULTISCALE_VOLUME_KINDS]
-)
+@pytest.mark.parametrize("kind", [kind for kind in KINDS if kind not in LOD_KINDS])
 def test_level_of_detail_as_a_field_on_a_kind_without_it(kind):
     with pytest.raises(ValueError, match="LevelOfDetailControl") as excinfo:
         validate_controls([_field_item(kind, ["level_of_detail"])], kind, "v")

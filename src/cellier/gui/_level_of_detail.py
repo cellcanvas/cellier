@@ -50,24 +50,32 @@ def moving_field(n_displayed_dimensions: int) -> str:
 
 
 def level_of_detail_values(appearance: Any) -> dict[str, Any]:
-    """Read the control's construction values off a multiscale appearance.
+    """Read the control's construction values off an appearance with levels.
 
     Parameters
     ----------
-    appearance : MultiscaleImageAppearance or MultiscaleLabelsAppearance
-        The appearance model the control drives.
+    appearance : appearance model
+        A multiscale image or labels appearance, or an in-memory one (whose
+        levels are its brick route's, oblique 2D design v3 U1).
 
     Returns
     -------
     dict
         ``settled_lod_bias`` (float) and the two ``coarsest_while_moving``
-        booleans, keyed by field name.
+        booleans keyed by field name.  An appearance without the 3D setting
+        (an in-memory one: a 3D view of it loads the whole volume) also has
+        ``has_moving_3d: False``, and the checkbox is hidden in 3D.
     """
-    return {
+    values = {
         "settled_lod_bias": float(appearance.settled_lod_bias),
-        "coarsest_while_moving_3d": bool(appearance.coarsest_while_moving_3d),
+        "coarsest_while_moving_3d": bool(
+            getattr(appearance, "coarsest_while_moving_3d", False)
+        ),
         "coarsest_while_moving_2d": bool(appearance.coarsest_while_moving_2d),
     }
+    if not hasattr(appearance, "coarsest_while_moving_3d"):
+        values["has_moving_3d"] = False
+    return values
 
 
 def from_control_value(field: str, value: Any) -> Any:

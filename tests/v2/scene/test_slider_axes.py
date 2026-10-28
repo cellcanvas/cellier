@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import numpy as np
 import pytest
 from cmap import Colormap
@@ -140,23 +138,47 @@ def test_a_visual_without_a_transform_contributes_nothing():
     assert scene.slider_axes == ()
 
 
-def test_a_transform_without_axis_correspondence_raises():
-    """D37: that case is not designed yet, so the error is not swallowed."""
+_TZYX = [("t", "time"), *spatial_axes("z", "y", "x")]
+
+
+def _tzyx_points(linear):
+    """Points in a ``TZYX`` world placed by the ``(4, 4)`` block *linear*."""
     controller = CellierController(gui="offscreen")
-    scene = controller.add_scene(
-        coordinate_system=_TCZYX, displayed_axes=("z", "y", "x")
+    scene = controller.add_scene(coordinate_system=_TZYX, displayed_axes=("y", "x"))
+    store = PointsMemoryStore(positions=np.zeros((1, 4), dtype=np.float32))
+    controller._ensure_data_coordinate_systems(scene.id, store)
+    matrix = np.eye(5)
+    matrix[:4, :4] = linear
+    transform = AffineTransform.from_matrix(
+        matrix, store.data_coordinate_systems[0], scene.dims.world_coordinate_system
     )
-
-    def _no_correspondence():
-        raise ValueError("a shear")
-
-    scene.visuals.append(
-        SimpleNamespace(
-            transform=SimpleNamespace(axis_correspondence=_no_correspondence)
-        )
+    controller.add_points(
+        data=store,
+        scene_id=scene.id,
+        appearance=PointsMarkerAppearance(),
+        transform=transform,
     )
-    with pytest.raises(ValueError, match="a shear"):
-        _ = scene.slider_axes
+    return scene
+
+
+def test_slider_axes_under_a_rotation_come_from_the_coupling_pattern():
+    """Full affine design v2: every world axis some data axis reaches.
+
+    A rotation in ``(z, x)`` couples two spatial axes; ``T`` is still read by
+    data ``t`` alone.
+    """
+    theta = np.deg2rad(30.0)
+    linear = np.eye(4)
+    linear[1, 1] = linear[3, 3] = np.cos(theta)
+    linear[1, 3], linear[3, 1] = -np.sin(theta), np.sin(theta)
+    assert _tzyx_points(linear).slider_axes == (0, 1, 2, 3)
+
+
+def test_slider_axes_under_drift_keep_the_time_axis():
+    """A drift ``x += v t`` couples ``t`` into ``x``; ``T`` keeps its slider."""
+    linear = np.eye(4)
+    linear[3, 0] = 0.5
+    assert _tzyx_points(linear).slider_axes == (0, 1, 2, 3)
 
 
 # ---------------------------------------------------------------------------

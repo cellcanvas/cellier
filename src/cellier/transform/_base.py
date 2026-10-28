@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import numpy as np
 from pydantic import UUID4, BaseModel, ConfigDict, Field
 
 # Transform is imported at runtime, not under TYPE_CHECKING: pydantic
@@ -19,9 +20,7 @@ from cellier.transform._geometry_ops import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    import numpy as np
+    from collections.abc import Mapping, Sequence
 
     from cellier.transform._affine import AffineTransform
     from cellier.transform._axis import AxisRef
@@ -295,7 +294,72 @@ class BaseTransform(BaseModel, ABC):
             If any input axis feeds more than one output axis, or any output
             axis is fed by more than one input axis.  That is a shear or a
             rotation, which the axis-aligned slicing path cannot express.
+
+        See Also
+        --------
+        axis_coupling, cellier.transform.classify_view : never raise, and say
+            how a rotated or sheared transform lines up with a view.
         """
+
+    @abstractmethod
+    def axis_coupling(self) -> np.ndarray:
+        """Return which output axes each input axis reaches, as booleans.
+
+        The non-zero pattern of the linear block under decision D7's relative
+        tolerance (``cellier.transform._alignment.coupling_pattern``):
+        ``coupling[o, i]`` is whether input axis ``i`` contributes to output
+        axis ``o``.  Unlike :meth:`axis_correspondence` it never raises -- a
+        shear or a rotation is just a denser pattern -- and it is structural
+        in the same way: an affine reads it off its matrix, a block container
+        off its block declarations, and a non-affine leaf answers for itself.
+
+        Returns
+        -------
+        np.ndarray
+            ``(output_ndim, input_ndim)`` booleans.
+        """
+
+    def data_axes_feeding(self, output_axes: Sequence[int]) -> tuple[int, ...]:
+        """Return the input axes that reach any of *output_axes*, ascending.
+
+        Parameters
+        ----------
+        output_axes : Sequence[int]
+            Output axis indices.
+
+        Returns
+        -------
+        tuple[int, ...]
+            Input axis indices.
+        """
+        coupling = self.axis_coupling()
+        rows = [int(axis) for axis in output_axes]
+        return tuple(int(axis) for axis in np.flatnonzero(coupling[rows].any(axis=0)))
+
+    def exclusive_axis_correspondence(self) -> dict[int, int]:
+        """Return ``{input axis: output axis}`` for the **uncoupled** pairs only.
+
+        An input axis is in the result when, under D7's pattern
+        (:meth:`axis_coupling`), it reaches exactly one output axis and that
+        output axis is reached by nothing else.  Where
+        :meth:`axis_correspondence` holds it is that mapping; under a
+        rotation or shear it keeps the pairs the coupling leaves alone (a
+        time axis beside a rotated volume, a channel axis) and drops the
+        rest instead of raising.  Callers that need a per-axis pairing use it
+        on the axes the classifier shows uncoupled (design v2, I2).
+
+        Returns
+        -------
+        dict[int, int]
+            Input axis index to output axis index.
+        """
+        coupling = self.axis_coupling()
+        result: dict[int, int] = {}
+        for column in range(coupling.shape[1]):
+            rows = np.flatnonzero(coupling[:, column])
+            if rows.size == 1 and coupling[rows[0]].sum() == 1:
+                result[column] = int(rows[0])
+        return result
 
     def broadcast_output_axes(self) -> frozenset[UUID4]:
         """Return the ids of the output axes the input has no extent along.

@@ -13,6 +13,13 @@ integration.
 """
 
 from cellier.transform._affine import AffineTransform
+from cellier.transform._alignment import (
+    COUPLING_TOLERANCE,
+    SliceAlignment,
+    ViewClassification,
+    classify_view,
+    effective_transform,
+)
 from cellier.transform._axis import Axis, AxisRef, AxisSampling, AxisType
 from cellier.transform._base import BaseTransform
 from cellier.transform._by_dimension import ByDimensionTransform, TransformBlock
@@ -36,9 +43,28 @@ from cellier.transform._nonuniform import (
 )
 from cellier.transform._region import ConvexRegion, HalfSpace
 from cellier.transform._selection import RegionSelection
+from cellier.transform._slice_plane import (
+    BRICK_ROUTE_AXES,
+    DepthAlignment,
+    ProjectionGeometry,
+    ProjectionRefusal,
+    ProjectionRefusalReason,
+    RouteDecision,
+    RouteRefusalReason,
+    SlicePlaneFrame,
+    SliceRoute,
+    choose_slice_route,
+    classify_projection,
+    projection_axis,
+    ray_step,
+    slice_footprint,
+    slice_plane_frame,
+)
 from cellier.transform._types import TransformType
 
 __all__ = [
+    "BRICK_ROUTE_AXES",
+    "COUPLING_TOLERANCE",
     "AffineTransform",
     "Axis",
     "AxisAlignedBoundingBox",
@@ -53,15 +79,33 @@ __all__ = [
     "CoordinateSystemType",
     "DataCoordinateSystem",
     "DegenerateNormalError",
+    "DepthAlignment",
     "HalfSpace",
     "NonAffineTransformError",
     "NonInvertibleTransformError",
     "NonUniformAxisTransform",
     "Plane",
+    "ProjectionGeometry",
+    "ProjectionRefusal",
+    "ProjectionRefusalReason",
     "RegionSelection",
     "RenderedCoordinateSystem",
+    "RouteDecision",
+    "RouteRefusalReason",
+    "SliceAlignment",
+    "SlicePlaneFrame",
+    "SliceRoute",
     "TransformBlock",
     "TransformType",
+    "ViewClassification",
     "VisualCoordinateSystem",
     "WorldCoordinateSystem",
+    "choose_slice_route",
+    "classify_projection",
+    "classify_view",
+    "effective_transform",
+    "projection_axis",
+    "ray_step",
+    "slice_footprint",
+    "slice_plane_frame",
 ]

@@ -50,6 +50,10 @@ class PointsSliceRequest(NamedTuple):
         against **data** coordinates -- the latent bug D4 exists to fix: on a
         2 um z spacing it could show a point 24 um off the slice plane and
         hide the three that are on it.  There is no second path now (R8.3).
+    fold_axes : tuple[int, ...]
+        Collapsed data axes whose columns the store also returns, for the
+        render layer's per-element fold (full affine design v2, D11).  Empty
+        in every view where no collapsed axis reaches a displayed one.
     """
 
     slice_request_id: UUID
@@ -58,6 +62,7 @@ class PointsSliceRequest(NamedTuple):
     displayed_axes: tuple[int, ...]
     retained_axes: tuple[int, ...]
     region: ConvexRegion
+    fold_axes: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -91,6 +96,9 @@ class PointsData:
         ``arange(N)``.  Used by the render layer to translate a pick's
         rendered-buffer vertex index into the original point index.  None on
         the empty-placeholder path.
+    fold_positions : np.ndarray | None
+        ``(n, len(fold_axes))``: the surviving points on the request's
+        ``fold_axes``.  None when it asked for none.
     """
 
     request_id: UUID
@@ -101,6 +109,7 @@ class PointsData:
     size_mode: str = "uniform"
     is_empty: bool = False
     original_indices: np.ndarray | None = None
+    fold_positions: np.ndarray | None = None
 
     @property
     def shape(self) -> str:

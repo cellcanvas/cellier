@@ -58,9 +58,10 @@ class DimsUpdateEvent(NamedTuple):
         Tuple of axis indices to display, or ``None`` to leave the
         current displayed axes unchanged.
     interactive :
-        Whether the slice-position change is a tick of a scrub (a slider
-        being moved).  GUI sliders pass ``True``; the default is a jump,
-        which plans in full at once.
+        Whether the slice-position or thickness change is a tick of a drag
+        (a slider being moved, a thickness box stepped).  GUI sliders and
+        thickness steps pass ``True``; the default is a jump, which plans
+        in full at once.
     thickness :
         Mapping of axis index -> half-thickness in world units for the axes
         whose thickness changed, or ``None`` to leave every thickness

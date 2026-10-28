@@ -19,7 +19,7 @@ from cellier.scene.dims import (
     resolve_displayed_axes,
     world_coordinate_system,
 )
-from cellier.visuals._canvas_overlay import CanvasOverlay
+from cellier.visuals._canvas_overlay import CanvasOverlay, DrawStatusOverlay
 from cellier.visuals._scene_overlay import SceneOverlay
 
 if TYPE_CHECKING:
@@ -71,10 +71,12 @@ if TYPE_CHECKING:
         ImageVisual,
         InMemoryImageAppearance,
         InMemoryImageChannelAppearance,
+        InMemoryImageRenderConfig,
         InMemoryImageSingleAppearance,
     )
     from cellier.visuals._label_memory import (
         BaseLabelsAppearance,
+        InMemoryLabelRenderConfig,
         LabelMemoryVisual,
         OutlineMode,
     )
@@ -150,6 +152,11 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Lights in the scene.  ``"default"`` adds an ambient and a
         directional light, which a mesh with ``MeshPhongAppearance`` needs
         (without lights it renders black).  ``"none"`` (default) adds none.
+    draw_status_overlay : bool
+        Whether every canvas names, in its top-left corner, the visuals its
+        view does not draw and why in one word -- a 2D view whose slice cuts
+        a rotated image at an angle, say.  Default ``True``.  See
+        :attr:`draw_status_overlay`.
     """
 
     def __init__(
@@ -161,7 +168,10 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         render_config: RenderManagerConfig | None = None,
         gui: Literal["qt", "anywidget", "offscreen"] = "qt",
         lighting: Literal["none", "default"] = "none",
+        draw_status_overlay: bool = True,
     ) -> None:
+        # Built before the scene so the first canvas finds it.
+        self._draw_status_overlay = DrawStatusOverlay() if draw_status_overlay else None
         resolved_render_modes = (
             render_modes if render_modes is not None else {"2d", "3d"}
         )
@@ -240,6 +250,20 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             entity_id=self._scene.id,
             weak=True,
         )
+
+    @property
+    def draw_status_overlay(self) -> DrawStatusOverlay | None:
+        """The text overlay naming visuals a canvas's view does not draw.
+
+        On by default (``Viewer(..., draw_status_overlay=True)``); every
+        canvas of this viewer shows it.  Its fields are live: set ``visible``
+        to hide it, or change its colour and size.  It lists the visuals
+        whose :meth:`CellierController.draw_status` is not drawable -- a 2D
+        view that cuts a rotated image at an angle, say (full affine design
+        v2, D3 and D8).  ``None`` when the viewer was built without it.  It
+        is not one of :attr:`overlays`.
+        """
+        return self._draw_status_overlay
 
     @property
     def overlays(self) -> tuple[CanvasOverlay | SceneOverlay, ...]:
@@ -359,7 +383,14 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._controls_changed.emit()
 
     def _attach_pending_canvas_overlays(self, event: CanvasAddedEvent) -> None:
-        """Attach the held canvas overlays to the viewer's first canvas."""
+        """Attach the held canvas overlays to the viewer's first canvas.
+
+        Every canvas also gets the draw-status overlay, when it is on.
+        """
+        if self._draw_status_overlay is not None:
+            self._controller.show_draw_status(
+                event.canvas_id, self._draw_status_overlay
+            )
         if not self._pending_canvas_overlays:
             return
         pending, self._pending_canvas_overlays = self._pending_canvas_overlays, []
@@ -1153,6 +1184,28 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         with self._controller.dims_interaction(self._scene.id):
             yield
 
+    @contextmanager
+    def transform_interaction(
+        self, visual: UUID | object
+    ) -> Generator[None, None, None]:
+        """Drag a visual's transform for the length of a ``with`` block.
+
+        Every assignment of the visual's ``transform`` inside the block is a
+        tick of one drag (``CellierController.transform_interaction``)::
+
+            with viewer.transform_interaction(visual):
+                for angle in angles:
+                    visual.transform = rotated(angle)
+
+        Parameters
+        ----------
+        visual : UUID or visual
+            The visual, or its id.
+        """
+        visual_id = visual if isinstance(visual, UUID) else visual.id
+        with self._controller.transform_interaction(visual_id):
+            yield
+
     # ------------------------------------------------------------------
     # Camera control
     # ------------------------------------------------------------------
@@ -1304,6 +1357,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         pick_write: bool = True,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        render_config: InMemoryImageRenderConfig | None = None,
     ) -> ImageVisual:
         """Add an in-memory image visual.
 
@@ -1357,6 +1411,10 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             world_coordinate_system, ...)``).  Ignored in every other
             render mode.  They can be changed later with
             ``controller.set_render_planes``.  Default none.
+        render_config : InMemoryImageRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the image (oblique 2D design v3).  ``None`` uses the
+            defaults.
 
         Returns
         -------
@@ -1380,6 +1438,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             pick_write=pick_write,
             clipping_planes=clipping_planes,
             render_planes=render_planes,
+            render_config=render_config,
         )
         self._store_controls([visual.id], controls)
         return visual
@@ -1399,6 +1458,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         outline_depth_range: tuple[float, float] | None = None,
         clipping_planes: Sequence[ClippingPlane] = (),
         render_planes: Sequence[RenderPlane] = (),
+        render_config: InMemoryLabelRenderConfig | None = None,
     ) -> LabelMemoryVisual:
         """Add an in-memory label visual.
 
@@ -1470,6 +1530,11 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             render mode.  They can be changed later with
             ``controller.set_render_planes``.  Default none.
 
+        render_config : InMemoryLabelRenderConfig or None
+            The GPU configuration of the brick route, which draws a tilted
+            2D view of the labels (oblique 2D design v3).  ``None`` uses the
+            defaults.
+
         Returns
         -------
         LabelMemoryVisual
@@ -1490,6 +1555,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             outline_depth_range=outline_depth_range,
             clipping_planes=clipping_planes,
             render_planes=render_planes,
+            render_config=render_config,
         )
         self._store_controls([visual.id], controls)
         return visual

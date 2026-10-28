@@ -324,9 +324,18 @@ def _image_specs(
                 clim_range=item.clim_range,
                 channel_labels=item.channel_labels,
                 decimals=item.decimals,
+                axis_names=_axis_names(store),
             ),
         )
     ]
+
+
+def _axis_names(store: object) -> tuple[str, ...]:
+    """The level-0 axis names of *store*, or none when it has no systems."""
+    systems = getattr(store, "data_coordinate_systems", None) or ()
+    if not systems:
+        return ()
+    return tuple(systems[0].axis_names())
 
 
 def _field_specs(

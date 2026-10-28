@@ -1,5 +1,8 @@
 // -- View-space surface normal for the ambient occlusion pass --------------
 //
+// (Also home to `world_shading`, the world-space normal and view direction
+// the volume shaders light a surface hit with.)
+//
 // Included by every cellier volume shader.  Produces the vec4 written to
 // the `normal` render target, which the ambient occlusion pass prefers
 // over reconstructing a normal from depth.
@@ -24,6 +27,45 @@
 //
 // Requires from the including shader: `u_wobject` and `u_stdinfo`.
 
+// Transform an object-space (local) normal to world space, unnormalised.
+//
+// A normal is a covector, so it takes the inverse transpose of the
+// object-to-world matrix (see `local_normal_to_view` below for why that
+// matters on anisotropic data).
+fn local_normal_to_world(local_normal: vec3<f32>) -> vec3<f32> {
+    let inv = u_wobject.world_transform_inv;
+    let normal_matrix = transpose(mat3x3<f32>(inv[0].xyz, inv[1].xyz, inv[2].xyz));
+    return normal_matrix * local_normal;
+}
+
+// Transform an object-space (local) direction to world space, unnormalised.
+//
+// A direction is a vector, so it takes the object-to-world matrix itself.
+fn local_direction_to_world(local_dir: vec3<f32>) -> vec3<f32> {
+    let m = u_wobject.world_transform;
+    return mat3x3<f32>(m[0].xyz, m[1].xyz, m[2].xyz) * local_dir;
+}
+
+// The world-space unit normal and view direction a surface hit is shaded
+// with, from an object-space normal and the object-space ray direction.
+//
+// The volume shaders march in object space, but lighting there is right
+// only when object -> world is a similarity: z-anisotropic voxels would be
+// shaded as cubes, and a shear tilts every highlight.  Carrying both
+// vectors to world space once per hit costs nothing per sample.  The
+// normal is NOT faced to the viewer here; the caller does that.
+struct WorldShading {
+    normal:   vec3<f32>,
+    view_dir: vec3<f32>,
+};
+
+fn world_shading(local_normal: vec3<f32>, local_ray_dir: vec3<f32>) -> WorldShading {
+    var s: WorldShading;
+    s.normal   = normalize(local_normal_to_world(local_normal));
+    s.view_dir = normalize(local_direction_to_world(-local_ray_dir));
+    return s;
+}
+
 // Transform an object-space (local) normal to view space.
 //
 // The object-to-world step uses the **inverse transpose** rather than the
@@ -35,9 +77,7 @@
 // The world-to-view step uses the camera matrix directly: a camera
 // transform is rigid, so there its inverse transpose is the same thing.
 fn local_normal_to_view(local_normal: vec3<f32>) -> vec3<f32> {
-    let inv = u_wobject.world_transform_inv;
-    let normal_matrix = transpose(mat3x3<f32>(inv[0].xyz, inv[1].xyz, inv[2].xyz));
-    let world_normal = normal_matrix * local_normal;
+    let world_normal = local_normal_to_world(local_normal);
     let cam = u_stdinfo.cam_transform;
     let view_normal = mat3x3<f32>(cam[0].xyz, cam[1].xyz, cam[2].xyz) * world_normal;
     return view_normal;

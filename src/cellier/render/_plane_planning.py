@@ -224,7 +224,11 @@ def _half_spaces(reduced: ReducedPlanes, index: int, reach_world: float) -> list
 
 
 def plane_row_sets(
-    reduced: ReducedPlanes, linear: np.ndarray, offset: np.ndarray
+    reduced: ReducedPlanes,
+    linear: np.ndarray,
+    offset: np.ndarray,
+    reach_voxels: float = PLANE_REACH_VOXELS,
+    reach_world: float = 0.0,
 ) -> list[np.ndarray]:
     """Each plane as culling rows (design 6.2).
 
@@ -238,6 +242,13 @@ def plane_row_sets(
         The planes the view draws.
     linear, offset : np.ndarray
         ``data -> world``, pygfx order.
+    reach_voxels : float
+        How far either side of the plane a brick may sit and still be
+        planned, in level-0 voxels along the plane's normal.  The default is
+        a plane's.
+    reach_world : float
+        Further reach in world units: a slab's half-thickness (oblique 2D
+        design v3, 5.3.4).
 
     Returns
     -------
@@ -250,7 +261,8 @@ def plane_row_sets(
     voxel_world = np.abs(linear).sum(axis=1)
     out = []
     for index in range(len(reduced)):
-        reach = PLANE_REACH_VOXELS * float(np.abs(normals[index]) @ voxel_world)
+        reach = reach_voxels * float(np.abs(normals[index]) @ voxel_world)
+        reach += float(reach_world) * float(np.linalg.norm(normals[index]))
         out.append(
             np.array(
                 [
@@ -267,6 +279,8 @@ def build_plane_planning(
     reduced: ReducedPlanes,
     to_level0: Callable[[np.ndarray], np.ndarray],
     level_scales: np.ndarray,
+    reach_voxels: float = PLANE_REACH_VOXELS,
+    reach_world: float = 0.0,
 ) -> PlanePlanning:
     """What the brick planner needs of the planes one view draws.
 
@@ -279,6 +293,8 @@ def build_plane_planning(
         The visual's rendered-space to level-0 data map, pygfx order.
     level_scales : np.ndarray
         ``(n_levels, 3)``: each level's voxel in level-0 voxels, pygfx order.
+    reach_voxels, reach_world : float
+        See :func:`plane_row_sets`.
 
     Returns
     -------
@@ -293,7 +309,7 @@ def build_plane_planning(
             metric=np.linalg.norm(linear, axis=0),
         )
     return PlanePlanning(
-        row_sets=plane_row_sets(reduced, linear, offset),
+        row_sets=plane_row_sets(reduced, linear, offset, reach_voxels, reach_world),
         voxel_size=plane_voxel_sizes(reduced, linear, scales),
         metric=np.linalg.norm(linear, axis=0),
     )

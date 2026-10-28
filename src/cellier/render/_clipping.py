@@ -406,10 +406,19 @@ class GeometryClippingMixin(ClippingPlanesMixin):
         raise NotImplementedError
 
     def _wants_cpu_clip(self) -> bool:
-        """Whether an enabled plane has a component on a collapsed axis."""
+        """Whether an enabled plane has a component on a collapsed axis.
+
+        Or whether the view draws the geometry in the world frame (an
+        ``OBLIQUE`` view, full affine design v2 Phase 6): the node's frame is
+        then not the data's, so the read clips every enabled plane.
+        """
         spaces = getattr(self, "_spaces", None)
         if spaces is None or not self._clipping_planes:
             return False
+        from cellier.render.visuals._world_frame import world_frame_active
+
+        if world_frame_active(spaces):
+            return any(item.enabled for item in self._clipping_planes)
         collapsed = list(spaces.collapsed_axes)
         if not collapsed:
             return False

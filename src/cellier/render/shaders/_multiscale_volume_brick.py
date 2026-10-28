@@ -416,12 +416,29 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
     render_planes_buffer : Buffer or None
         The visual's ``u_render_planes`` buffer, read in ``"plane"`` render
         mode.  ``None`` gives the material one of its own with no plane.
+    slice_2d : bool
+        Draw as a 2D view's slice node (oblique 2D design v3, 5.3.3): the
+        proxy box is flattened onto rendered depth 0 and the plane branch
+        writes the rasterised depth, so the node is never clipped by the 2D
+        camera's depth range and sits at exactly a 2D tile's depth.
+        Default ``False``.
+    slab_op : str
+        Slab projection of a 2D view's slice node (oblique 2D design v3,
+        5.3.8): ``"max"``, ``"min"``, ``"mean"``, or ``"none"`` (default)
+        to draw the plane.  A template variable: ``"none"`` compiles the
+        slab out.  The window and the step are uniforms
+        (:meth:`set_slab`).
     """
 
     uniform_type: ClassVar[dict] = dict(
         gfx.VolumeIsoMaterial.uniform_type,
         attenuation="f4",
         ray_steps_per_voxel="f4",
+        slab_half_extent="f4",
+        slab_steps_per_voxel="f4",
+        slab_along_axis="f4",
+        slab_nearest="f4",
+        slab_direction="4xf4",
     )
 
     def __init__(
@@ -437,6 +454,8 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         attenuation: float = 1.0,
         ray_steps_per_voxel: float = 1.0,
         render_planes_buffer: Buffer | None = None,
+        slice_2d: bool = False,
+        slab_op: str = "none",
         **kwargs,
     ) -> None:
         super().__init__(
@@ -457,6 +476,10 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
             else make_render_planes_buffer()
         )
         self._store.render_mode = "iso"
+        self._store.slice_2d = bool(slice_2d)
+        self._store.slab_op = str(slab_op)
+        self.uniform_buffer.data["slab_direction"] = (0.0, 0.0, 1.0, 0.0)
+        self.uniform_buffer.data["slab_steps_per_voxel"] = 1.0
         self.uniform_buffer.data["attenuation"] = float(attenuation)
         self.uniform_buffer.data["ray_steps_per_voxel"] = float(ray_steps_per_voxel)
         self.uniform_buffer.update_full()
@@ -474,6 +497,59 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
     @render_mode.setter
     def render_mode(self, value: str) -> None:
         self._store.render_mode = value
+
+    @property
+    def slice_2d(self) -> bool:
+        """Whether the material draws a 2D view's slice node (see class)."""
+        return self._store.slice_2d
+
+    @slice_2d.setter
+    def slice_2d(self, value: bool) -> None:
+        self._store.slice_2d = bool(value)
+
+    @property
+    def slab_op(self) -> str:
+        """The slab projection's operator, or ``"none"`` (see class)."""
+        return self._store.slab_op
+
+    @slab_op.setter
+    def slab_op(self, value: str) -> None:
+        self._store.slab_op = str(value)
+
+    def set_slab(
+        self,
+        half_extent: float,
+        direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+        steps_per_voxel: float = 1.0,
+        along_axis: bool = False,
+        nearest: bool = True,
+    ) -> None:
+        """Write the slab window and sampling (oblique 2D design v3, 5.3.8).
+
+        Parameters
+        ----------
+        half_extent : float
+            ``h``: the window is ``[-h, +h)`` of slab depth.
+        direction : tuple[float, float, float]
+            The direction, in rendered pygfx ``(x, y, z)``, in which the
+            projection axis's world coordinate increases (D10).  ``+z`` for
+            a 2D view's slice node.
+        steps_per_voxel : float
+            Samples per drawn-level voxel along the ray.
+        along_axis : bool
+            The ray runs along one data axis: samples sit on its voxel
+            centres, so the reduction is exact (4.2).
+        nearest : bool
+            Nearest sampling: a sample counts when the centre of the voxel
+            it reads is in the window; otherwise when the sample is.
+        """
+        data = self.uniform_buffer.data
+        data["slab_half_extent"] = float(half_extent)
+        data["slab_direction"] = (*(float(v) for v in direction), 0.0)
+        data["slab_steps_per_voxel"] = float(steps_per_voxel)
+        data["slab_along_axis"] = 1.0 if along_axis else 0.0
+        data["slab_nearest"] = 1.0 if nearest else 0.0
+        self.uniform_buffer.update_full()
 
     @property
     def attenuation(self) -> float:
@@ -536,6 +612,10 @@ class MultiscaleVolumeBrickShader(BaseVolumeShader):
         self["debug_mode"] = getattr(material, "debug_mode", "none")
         # Template variable for render mode (iso / mip).
         self["render_mode"] = getattr(material, "render_mode", "iso")
+        # A 2D view's slice node: flattened proxy, rasterised depth.
+        self["slice_2d"] = bool(getattr(material, "slice_2d", False))
+        # Slab projection: "none" compiles the slab loop out.
+        self["slab_op"] = str(getattr(material, "slab_op", "none"))
         # Default for the ``normal`` render target.  ``write_normal`` is
         # overridden by CellierBlender.get_shader_kwargs when the target
         # exists; without it the write compiles away, so the same shader
