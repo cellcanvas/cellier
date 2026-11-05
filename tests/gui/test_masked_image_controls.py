@@ -458,11 +458,10 @@ def example():
     return module
 
 
-def _example_viewer(example, gui, *flags):
+def _example_viewer(example, gui, **options):
     from tests.render._masked import load
 
-    args = example.parse_args(["--side", str(SIDE), "--budget-mib", "16", *flags])
-    viewer = example.build_masked(args, gui=gui)
+    viewer = example.build_masked(side=SIDE, budget_mib=16, gui=gui, **options)
     load(viewer, size=(SIZE, SIZE))
     return viewer
 
@@ -499,28 +498,28 @@ def _drive_anywidget(widget, field, value):
     ids=["qt", "anywidget"],
 )
 @pytest.mark.parametrize(
-    ("start", "edits", "flags"),
+    ("start", "edits", "options"),
     [
         # A threshold across a band edge (iso 4 in band 1, 12 in band 2).
-        ([], {"iso_threshold": 12.0}, ["--threshold", "12"]),
+        ({}, {"iso_threshold": 12.0}, {"threshold": 12.0}),
         # Max inward over a band, from iso 4: distances 4 to 12, band 2.
-        ([], {"surface_thickness": 8.0}, ["--thickness", "8"]),
+        ({}, {"surface_thickness": 8.0}, {"thickness": 8.0}),
         # Min over the same interval is band 1: the thickness-0 surface's.
-        (["--thickness", "8"], {"surface_projection": "min"}, []),
+        ({"thickness": 8.0}, {"surface_projection": "min"}, {}),
     ],
     ids=["threshold", "thickness", "projection"],
 )
 def test_the_controls_drive_the_example(
-    qtbot, example, gui, backend, drive, start, edits, flags
+    qtbot, example, gui, backend, drive, start, edits, options
 ):
     """The example's frame after the edits is the frame of the expected answer.
 
-    The reference is the example started with flags that give the same
+    The reference is the example started with options that give the same
     surface.  Each edit must also change the frame, so the comparison is
     not of two unchanged frames.
     """
-    viewer = _example_viewer(example, gui, *start)
-    reference = _example_viewer(example, gui, *flags)
+    viewer = _example_viewer(example, gui, **start)
+    reference = _example_viewer(example, gui, **options)
     try:
         widget = _image_widget(viewer, backend)
         before = _frame(viewer)
