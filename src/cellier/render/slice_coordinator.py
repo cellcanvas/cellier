@@ -171,7 +171,11 @@ class SliceCoordinator:
 
         for visual_id, desired_sets in planned.items():
             cfg = visual_configs.get(visual_id)
-            if cfg is not None and cfg.plan_mode is PlanMode.BACKSTOP_ONLY:
+            if (cfg is not None and cfg.plan_mode is PlanMode.BACKSTOP_ONLY) or (
+                # A MaskedImage's surface target waiting for its coarse mask
+                # (masked image design 8.3).
+                getattr(scene_manager.get_visual(visual_id), "target_deferred", False)
+            ):
                 self._deferred.add(visual_id)
             else:
                 self._deferred.discard(visual_id)

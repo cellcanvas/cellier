@@ -9,6 +9,11 @@ Rows that only mean something for some render modes, or only in 3D, hide
 themselves (:func:`cellier.gui._image_controls.row_visible`).  A multiscale
 image's attenuation is one shared value, so it sits under the render mode on
 the single page and once, below the channels, on the composite page.
+
+A MaskedImage's control adds the surface rows (thickness, placement, the
+projection along the normal) and the 2D band's rows (minimum width, rays,
+cap) to the single page, and shows its threshold in 2D as well (masked image
+design 10).
 """
 
 from __future__ import annotations
@@ -27,10 +32,12 @@ from cellier.gui._appearance_fields import VisualIdGroup
 from cellier.gui._image_controls import (
     FIELD_LABELS,
     FRACTION_DECIMALS,
+    HIDEABLE_FIELDS,
     INBOUND_EVENT_TYPES,
+    INT_FIELD_RANGES,
     MIN_TRACK_WIDTH_PX,
+    MIN_WIDTH_RANGE,
     MODE_FIELDS,
-    THREE_D_FIELDS,
     displayed_dimensions,
     image_update_event,
     inbound_target,
@@ -98,6 +105,9 @@ class QtImageControls(VisualIdGroup):
         self._init_visual_ids(visual_id)
         self._values = values
         self._fields = set(values["fields"])
+        # A MaskedImage's rows follow their own 2D/3D rule (design 10).
+        self._masked = bool(values.get("masked", False))
+        self._labels = {**FIELD_LABELS, **(values.get("labels") or {})}
         # (page, channel, field) -> apply a value with the control's signals
         # blocked, for the inbound path.
         self._appliers: dict[tuple[str, int | None, str], Callable[[Any], None]] = {}
@@ -264,6 +274,21 @@ class QtImageControls(VisualIdGroup):
             self._rows[("shared", None, field)] = (layout, combo)
             layout.addRow(FIELD_LABELS[field], combo)
 
+        # A MaskedImage's target loading (design 8.3), when the field list
+        # asks for it; hidden in 2D.
+        if "target_bricks" in self._fields and "target_bricks" in shared:
+            field = "target_bricks"
+            combo = QComboBox()
+            combo.addItems(values["choices"][field])
+            combo.setCurrentText(shared[field])
+            combo.currentTextChanged.connect(
+                lambda text: self._emit("shared", "target_bricks", text)
+            )
+            self._appliers[("shared", None, field)] = _combo_applier(combo)
+            self._controls[("shared", None, field)] = combo
+            self._rows[("shared", None, field)] = (layout, combo)
+            layout.addRow(FIELD_LABELS[field], combo)
+
     def _has_attenuation(self, values) -> bool:
         """A multiscale image's attenuation row, when the config asks for it."""
         return "attenuation" in values["shared"] and "attenuation" in self._fields
@@ -294,7 +319,14 @@ class QtImageControls(VisualIdGroup):
 
     def _mode_rows(self, page: str, channel: int | None, mode: dict, values: dict):
         from qtpy.QtCore import Qt
-        from qtpy.QtWidgets import QCheckBox, QComboBox, QFormLayout, QWidget
+        from qtpy.QtWidgets import (
+            QCheckBox,
+            QComboBox,
+            QDoubleSpinBox,
+            QFormLayout,
+            QSpinBox,
+            QWidget,
+        )
         from superqt import (
             QColormapComboBox,
             QLabeledDoubleRangeSlider,
@@ -348,13 +380,45 @@ class QtImageControls(VisualIdGroup):
                 control.setCurrentText(mode["render_mode"])
                 control.currentTextChanged.connect(emit(field))
                 applier = _combo_applier(control)
-            else:  # opacity, iso_threshold
+            elif field in ("surface_placement", "surface_projection"):
+                control = QComboBox()
+                control.addItems(values["choices"][field])
+                control.setCurrentText(mode[field])
+                control.currentTextChanged.connect(emit(field))
+                applier = _combo_applier(control)
+            elif field in INT_FIELD_RANGES:
+                control = QSpinBox()
+                control.setRange(*values["int_ranges"][field])
+                control.setValue(int(mode[field]))
+                control.valueChanged.connect(
+                    lambda v, f=field: self._emit(page, f, int(v), channel)
+                )
+                applier = _value_applier(control, int)
+            elif field == "surface_min_width_px":
+                low, high, step = values.get("min_width_range", MIN_WIDTH_RANGE)
+                control = QDoubleSpinBox()
+                control.setRange(low, high)
+                control.setSingleStep(step)
+                control.setDecimals(FRACTION_DECIMALS)
+                control.setValue(float(mode[field]))
+                control.valueChanged.connect(
+                    lambda v, f=field: self._emit(page, f, float(v), channel)
+                )
+                applier = _value_applier(control)
+            else:  # opacity, iso_threshold, surface_thickness
                 control = QLabeledDoubleSlider(Qt.Orientation.Horizontal)
-                # A threshold is in data units, like the contrast limits;
-                # opacity is a fraction.
+                # A threshold is in data units, like the contrast limits (a
+                # MaskedImage's in the mask's, with its own range); a
+                # thickness in world units; opacity is a fraction.
                 if field == "iso_threshold":
                     control.setDecimals(values["decimals"])
-                    control.setRange(*values["clim_range"])
+                    control.setRange(
+                        *values.get("threshold_range", values["clim_range"])
+                    )
+                    _set_min_track_width(control)
+                elif field == "surface_thickness":
+                    control.setDecimals(values["decimals"])
+                    control.setRange(*values["thickness_range"])
                     _set_min_track_width(control)
                 else:
                     control.setDecimals(FRACTION_DECIMALS)
@@ -366,9 +430,9 @@ class QtImageControls(VisualIdGroup):
                 applier = _value_applier(control)
             self._appliers[(page, channel, field)] = applier
             self._controls[(page, channel, field)] = control
-            if field in THREE_D_FIELDS:
+            if field in HIDEABLE_FIELDS:
                 self._rows[(page, channel, field)] = (layout, control)
-            layout.addRow(FIELD_LABELS[field], control)
+            layout.addRow(self._labels[field], control)
             if field == "render_mode" and page == "single":
                 if self._has_attenuation(values):
                     self._add_attenuation_row(layout, page, values)
@@ -450,7 +514,10 @@ class QtImageControls(VisualIdGroup):
             else:
                 modes = [self._render_modes.get((page, channel), "")]
             layout.setRowVisible(
-                control, row_visible(field, modes, self._n_displayed_dimensions)
+                control,
+                row_visible(
+                    field, modes, self._n_displayed_dimensions, masked=self._masked
+                ),
             )
 
     def _on_event(self, event) -> None:

@@ -1196,6 +1196,40 @@ class LabelsPickInfo(NamedTuple):
     value: int
 
 
+class MaskedImagePickInfo(NamedTuple):
+    """Element-level pick result for a MaskedImage (masked image design v2, 9.3).
+
+    Every value is read at **level 0** and at the **nearest voxel**, as image
+    picks are, so a pick can differ slightly from the drawn colour while a
+    coarse level is on screen, or under linear interpolation.
+
+    Attributes
+    ----------
+    data_coordinate : tuple[float, ...]
+        The hit in the **mask**'s level-0 data coordinates, the convention of
+        ``ImagePickInfo.data_coordinate``: ``floor`` gives the voxel index.
+    value_coordinate : tuple[float, ...]
+        The same point in the **value** image's level-0 data coordinates, the
+        same convention.
+    mask_value : float or None
+        The mask at the hit; ``None`` outside the mask's data.
+    surface_value : float or None
+        The value image at the hit; ``None`` outside the value's data.
+    projected_value : float or None
+        3D: the max, mean or min of the value along the inward normal over
+        the placed ``surface_thickness``, as the surface is coloured (on a
+        clipping plane's cut face, along the plane's normal into the kept
+        side).  2D, and 3D with thickness 0: ``surface_value``.  ``None``
+        where no sample lies in the value's data.
+    """
+
+    data_coordinate: tuple[float, ...]
+    value_coordinate: tuple[float, ...]
+    mask_value: float | None
+    surface_value: float | None
+    projected_value: float | None
+
+
 class GraphNodePickInfo(NamedTuple):
     """Element-level pick result for a node of a graph visual.
 
@@ -1239,6 +1273,7 @@ VisualPickDetails = (
     PointsPickInfo
     | LinesPickInfo
     | ImagePickInfo
+    | MaskedImagePickInfo
     | MeshPickInfo
     | LabelsPickInfo
     | GraphNodePickInfo
@@ -1459,6 +1494,58 @@ class LabelsPickEvent(NamedTuple):
     pick_info: LabelsPickInfo
 
 
+class MaskedImagePickEvent(NamedTuple):
+    """A MaskedImage was hit on a canvas (masked image design v2, 9.3).
+
+    Timing as for ``ImagePickEvent``: synchronous when both stores are in
+    memory, otherwise emitted when the level-0 reads complete.  The reads run
+    in two passes, the mask first (its value and the normal at the hit), then
+    the value image (at the hit and along the normal); a newer pointer event
+    cancels an in-flight ``move`` read in either pass.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.
+    scene_id : UUID
+        The canvas's scene.
+    visual_id : UUID
+        The picked visual.
+    action : str
+        ``"press"``, ``"move"`` or ``"release"``.
+    camera_type : str
+        ``"2d"`` or ``"3d"``.
+    world_coordinate : np.ndarray or None
+        The pointer's world position on a 2D canvas, as on the mouse event.
+    ray : ViewRay or None
+        The view ray on a 3D canvas, as on the mouse event.
+    button : int
+        As on the mouse event.
+    buttons : tuple
+        As on the mouse event.
+    modifiers : tuple
+        As on the mouse event.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    pick_info : MaskedImagePickInfo
+        What was hit.
+    """
+
+    source_id: UUID
+    scene_id: UUID
+    visual_id: UUID
+    action: Literal["press", "move", "release"]
+    camera_type: Literal["2d", "3d"]
+    world_coordinate: np.ndarray | None
+    ray: ViewRay | None
+    button: int
+    buttons: tuple
+    modifiers: tuple
+    gesture_id: UUID | None
+    pick_info: MaskedImagePickInfo
+
+
 class PointsPickEvent(NamedTuple):
     """A points visual was hit on a canvas (design 3.7).
 
@@ -1658,6 +1745,7 @@ class GraphPickEvent(NamedTuple):
 #: Every typed pick event, for ``CellierController.on_pick``.
 PICK_EVENT_TYPES: tuple[type, ...] = (
     ImagePickEvent,
+    MaskedImagePickEvent,
     LabelsPickEvent,
     PointsPickEvent,
     LinesPickEvent,
@@ -1667,6 +1755,7 @@ PICK_EVENT_TYPES: tuple[type, ...] = (
 
 PickEvent = (
     ImagePickEvent
+    | MaskedImagePickEvent
     | LabelsPickEvent
     | PointsPickEvent
     | LinesPickEvent

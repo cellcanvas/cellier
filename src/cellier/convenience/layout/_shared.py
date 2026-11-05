@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -158,13 +159,18 @@ class RenderPlanesTarget(NamedTuple):
 _LEVEL_OF_DETAIL_FIELD = "settled_lod_bias"
 """The appearance field whose presence says a visual has levels of detail."""
 
-_IMAGE_FIELD_ORDER = tuple(FIELD_KINDS["multiscale_image"])
+_IMAGE_KINDS = ("image", "multiscale_image", "masked_image")
+"""The visual kinds whose fields the one image control draws."""
+
+_IMAGE_FIELD_ORDER = tuple(
+    dict.fromkeys(field for kind in _IMAGE_KINDS for field in FIELD_KINDS[kind])
+)
 """Every image field name, in the order the image control is given them."""
 
 _FIELD_CONTROL_KINDS = {
     field: kind
     for visual_kind, fields in FIELD_KINDS.items()
-    if visual_kind not in ("image", "multiscale_image")
+    if visual_kind not in _IMAGE_KINDS
     for field, kind in fields.items()
 }
 """Field name to control kind, for the single-field controls.
@@ -201,8 +207,13 @@ def _default_title(field: str) -> str:
     return field.replace("_", " ").capitalize()
 
 
-def _resolve_data_store(controller: object, visual: object) -> object | None:
+def _resolve_data_store(
+    controller: object, visual: object, field: str = "data_store_id"
+) -> object | None:
     """Return the visual's backing data store, or ``None`` if there is none.
+
+    *field* names the visual's store id: ``"value_store_id"`` gives a
+    MaskedImage's value store, and ``None`` for any visual without one.
 
     A visual with no controller or no
     ``data_store_id`` yields ``None`` quietly -- there is nothing to look up.
@@ -215,7 +226,7 @@ def _resolve_data_store(controller: object, visual: object) -> object | None:
     is coerced here; passing the string through looks up nothing and finds
     nothing.
     """
-    store_id = getattr(visual, "data_store_id", None)
+    store_id = getattr(visual, field, None)
     if controller is None or store_id is None:
         return None
 
@@ -238,6 +249,7 @@ def appearance_specs(
     controls: Sequence[Control] | None,
     store: object | None = None,
     palette: object = (),
+    value_store: object | None = None,
 ) -> AppearanceSpecs:
     """Decide which appearance controls *visual* gets from its *controls* list.
 
@@ -267,6 +279,10 @@ def appearance_specs(
         The outline palette, needed only by the outline control, whose slot
         swatches offer exactly the slots it holds.  Passed in for the same
         reason *store* is.
+    value_store : BaseDataStore or None
+        A MaskedImage's value store (its ``value_store_id``), which the
+        dataset info block describes after the mask's; *store* is the
+        mask's.  ``None`` for every other visual.
 
     Returns
     -------
@@ -275,6 +291,13 @@ def appearance_specs(
     specs: list[ControlSpec] = []
     skipped: list[str] = []
     for item in controls or ():
+        if (
+            isinstance(item, DatasetInfoControl)
+            and item.info is None
+            and value_store is not None
+        ):
+            specs.extend(_masked_dataset_info_specs(store, value_store))
+            continue
         specs.extend(_SPEC_BUILDERS[type(item)](item, visual, store, palette, skipped))
     return AppearanceSpecs(specs, skipped)
 
@@ -325,6 +348,8 @@ def _image_specs(
                 channel_labels=item.channel_labels,
                 decimals=item.decimals,
                 axis_names=_axis_names(store),
+                threshold_range=item.threshold_range,
+                thickness_range=item.thickness_range,
             ),
         )
     ]
@@ -709,6 +734,43 @@ def _dataset_info_specs(
         return []
     return [
         ControlSpec("dataset_info", _CONTROL_TITLES["dataset_info"], {"info": info})
+    ]
+
+
+def _masked_dataset_info_specs(
+    mask_store: object, value_store: object
+) -> list[ControlSpec]:
+    """A MaskedImage's dataset-info block: the mask's store, then the value's.
+
+    Each store's own sections, under a heading that names the image: the
+    inline rows become a "Mask" or "Value" section and a titled section's
+    heading is prefixed with the image's name.  One block rather than a
+    selector, so both are in view at once (masked image design 10).
+    """
+    from cellier.data._dataset_info import DatasetInfo, RowSection
+
+    sections = []
+    for image, store in (("Mask", mask_store), ("Value", value_store)):
+        if store is None or not hasattr(store, "dataset_info"):
+            continue
+        info = store.dataset_info()
+        if info is None:
+            continue
+        for section in info.sections:
+            if isinstance(section, RowSection) and section.label is None:
+                sections.append(dataclasses.replace(section, label=image))
+            else:
+                sections.append(
+                    dataclasses.replace(section, label=f"{image}: {section.label}")
+                )
+    if not sections:
+        return []
+    return [
+        ControlSpec(
+            "dataset_info",
+            _CONTROL_TITLES["dataset_info"],
+            {"info": DatasetInfo(sections)},
+        )
     ]
 
 

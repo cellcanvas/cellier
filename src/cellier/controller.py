@@ -17,6 +17,13 @@ from uuid import UUID, uuid4
 import numpy as np
 
 from cellier._interaction_driver import _InteractionDriver
+from cellier._masked_image import (
+    check_in_memory_fits,
+    check_masked_pair,
+    resolve_value_to_mask,
+    value_world_transform,
+    visual_store_ids,
+)
 from cellier.clipping import (
     ClippingPlaneGizmoController,
     PlaneGizmoController,
@@ -116,6 +123,7 @@ from cellier.events._events import (
     LabelsPickInfo,
     LinesPickEvent,
     LinesPickInfo,
+    MaskedImagePickEvent,
     MeshPickEvent,
     MeshPickInfo,
     PointsPickEvent,
@@ -156,6 +164,7 @@ from cellier.render.visuals._image_memory import GFXImageMemoryVisual
 from cellier.render.visuals._label_memory import GFXLabelMemoryVisual
 from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
 from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
+from cellier.render.visuals._masked_image import GFXMaskedImageVisual
 from cellier.render.visuals._mesh import GFXMeshVisual
 from cellier.render.visuals._points_memory import GFXPointsMemoryVisual
 from cellier.render.visuals._scene_overlay import GFXSceneBoundingBox
@@ -256,6 +265,12 @@ from cellier.visuals._labels import (
 )
 from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
 from cellier.visuals._loading import GeometryLodConfig, ProgressiveLoadingConfig
+from cellier.visuals._masked_image import (
+    MaskedImageAppearance,
+    MaskedImageRenderConfig,
+    MaskedImageSingleAppearance,
+    MaskedImageVisual,
+)
 from cellier.visuals._mesh_memory import (
     SECTION_RESLICE_FIELDS,
     BaseMeshVisual,
@@ -303,8 +318,27 @@ if TYPE_CHECKING:
 
 # Appearance fields that require a reslice (not just a GPU material update).
 _RESLICE_FIELDS: frozenset[str] = frozenset(
-    {"settled_lod_bias", "force_level", "frustum_cull"}
+    {
+        "settled_lod_bias",
+        "force_level",
+        "frustum_cull",
+        # A MaskedImage's (masked image design 4.1, 8.3).
+        "value_force_level",
+        "target_bricks",
+    }
 )
+
+#: A MaskedImage's single fields its ``target_bricks="surface"`` plan reads
+#: (masked image design 8.3): a change re-plans which bricks are near the
+#: surface.
+_SURFACE_PLAN_FIELDS: frozenset[str] = frozenset({"iso_threshold", "surface_thickness"})
+
+#: Re-plans a second a ``target_bricks="surface"`` MaskedImage takes while
+#: its threshold or thickness is dragged (masked image design 8.3).  The first
+#: change re-plans at once; changes inside the interval fold into one
+#: trailing re-plan at its end.  A plan reads nothing (the coarse mask is
+#: kept), so this caps only the planning and the reads the new plan starts.
+SURFACE_REPLAN_MAX_HZ = 10.0
 
 #: An image appearance's projection fields (oblique 2D design v3, 4.2): a
 #: change can move the image onto the brick route or off it.
@@ -461,6 +495,52 @@ def _slice_layout(effective: Any, axes: tuple[int, int, int]) -> tuple[int, ...]
         axis
         for axis in classify_view(effective, axes).retained_data_axes
         if coupling[:, axis].any()
+    )
+
+
+def retained_raster_axes(
+    transform: Any, classification: Any, displayed: Sequence[int]
+) -> tuple[int, ...]:
+    """The data axes a placement keeps off the brick route, ascending.
+
+    The pure core of :meth:`CellierController._retained_data_axes` (design
+    3.14, full affine v2 3.1), with the transform and its classification
+    passed in, so the value side of a MaskedImage is placed by the same rule
+    as the visual (masked image design 5.1).
+
+    Parameters
+    ----------
+    transform : Any
+        The placement's ``data -> world`` transform.
+    classification : ViewClassification
+        ``classify_view(transform, displayed)``.
+    displayed : Sequence[int]
+        The displayed world axes.
+    """
+    if classification.alignment is not SliceAlignment.AXIS_ALIGNED or not (
+        _has_bijection(classification.effective_transform)
+    ):
+        # Rotated, sheared or drifted (design v2 3.1), or two sliced axes
+        # coupled to each other in an otherwise aligned view: the data
+        # axes no sliced world axis reads.  A data axis that reaches no
+        # world axis at all has no extent to keep, as before.
+        coupling = transform.axis_coupling()
+        return tuple(
+            axis
+            for axis in classification.retained_data_axes
+            if coupling[:, axis].any()
+        )
+    # D7: the snapped matrix, which the classifier called aligned.
+    data_axis_of_world = {
+        world_axis: data_axis
+        for data_axis, world_axis in axis_correspondence(
+            classification.effective_transform
+        ).items()
+    }
+    return tuple(
+        sorted(
+            data_axis_of_world[axis] for axis in displayed if axis in data_axis_of_world
+        )
     )
 
 
@@ -1138,6 +1218,12 @@ class CellierController:
         # indexed in (D45).  One per mode: a multiscale visual's 3D node is in
         # normalized proxy-box space and its 2D node in level-0 pixels.
         self._visual_spaces: dict[tuple[UUID, str], VisualCoordinateSystem] = {}
+        # MaskedImage id -> (mode, retained axes, the value side's visual
+        # system): the value store's placement, keyed by the MaskedImage's
+        # own id since the value side has none (masked image design 5.1, G8).
+        self._value_spaces: dict[
+            UUID, tuple[str, tuple[int, ...], VisualCoordinateSystem]
+        ] = {}
         # Canvases whose camera could not be fitted when their displayed
         # axes changed, because the scene was momentarily empty.  Drained
         # by ``_request_draw_for_scene`` once a reslice commits.
@@ -1238,6 +1324,10 @@ class CellierController:
         self._store_reslice_at: dict[UUID, float] = {}
         self._store_reslice_tasks: dict[UUID, asyncio.Task] = {}
         self._store_reslice_extent: dict[UUID, bool] = {}
+        # A target_bricks="surface" MaskedImage's re-plans (masked image
+        # design 8.3): the loop time of the last one and the one waiting.
+        self._surface_replan_at: dict[UUID, float] = {}
+        self._surface_replan_tasks: dict[UUID, asyncio.Task] = {}
         # Per-canvas count of active pick-event subscribers (``on_pick``).
         # Drives RenderManager pick-detail gating (Decision 4).  Keyed by
         # canvas_id.
@@ -1304,6 +1394,12 @@ class CellierController:
         self._outgoing_events.subscribe(
             CanvasSizeChangedEvent,
             self._on_canvas_size_changed,
+            owner_id=self._id,
+        )
+        # A MaskedImage's surface target waits for its coarse mask (8.3).
+        self._outgoing_events.subscribe(
+            BackstopCompleteEvent,
+            self._on_backstop_complete_surface,
             owner_id=self._id,
         )
         self._render_manager.connect_event_bus(self._outgoing_events)
@@ -1716,7 +1812,7 @@ class CellierController:
             (scene_id, visual)
             for scene_id, scene in self._model.scenes.items()
             for visual in scene.visuals
-            if UUID(str(visual.data_store_id)) == store_id
+            if store_id in visual_store_ids(visual)
             and visual.id in self._visual_to_scene
         ]
 
@@ -1819,8 +1915,98 @@ class CellierController:
         )
         for _scene_id, visual in self._store_readers(store_id):
             if isinstance(visual, _SCHEDULED_VISUALS) and not extent:
-                continue
+                if not self._surface_reads_mask(visual, store_id):
+                    continue
             self.reslice_visual(visual.id)
+
+    # -- target_bricks="surface" (masked image design 8.3) ---------------------
+
+    def _on_backstop_complete_surface(self, event: BackstopCompleteEvent) -> None:
+        """Re-plan a MaskedImage whose surface target waited for this backstop.
+
+        The scheduler can report a backstop from inside a plan (one already
+        resident), so the re-plan runs as a task, never in this callback.
+        """
+        scene_manager = self._render_manager._scenes.get(event.scene_id)
+        if scene_manager is None:
+            return
+        try:
+            gfx_visual = scene_manager.get_visual(event.visual_id)
+        except KeyError:
+            return
+        if isinstance(gfx_visual, GFXMaskedImageVisual) and (
+            gfx_visual.settle_surface()
+        ):
+            self._queue_surface_replan(event.visual_id, capped=False)
+
+    def _on_surface_field(self, visual_id: UUID, field_name: str) -> None:
+        """Re-plan a 3D surface target after a threshold or thickness change."""
+        if field_name not in _SURFACE_PLAN_FIELDS:
+            return
+        scene_id = self._visual_to_scene.get(visual_id)
+        visual = None if scene_id is None else self._get_visual_model(visual_id)
+        if (
+            not isinstance(visual, MaskedImageVisual)
+            or visual.appearance.target_bricks != "surface"
+            or scene_id is None
+        ):
+            return
+        displayed = self._dims_state_for_scene(scene_id).selection.displayed_axes
+        if len(displayed) != 3:
+            return  # 2D plans no surface filter (design 4.1)
+        self._queue_surface_replan(visual_id, capped=True)
+
+    def _queue_surface_replan(self, visual_id: UUID, *, capped: bool) -> None:
+        """Re-plan *visual_id*, at most ``SURFACE_REPLAN_MAX_HZ`` when *capped*.
+
+        Uncapped, the re-plan still runs as a task (it is asked for from a
+        scheduler callback); with no running loop it runs at once.
+        """
+        if visual_id in self._surface_replan_tasks:
+            return  # the waiting re-plan picks this change up
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._surface_replan(visual_id)
+            return
+        wait = 0.0
+        if capped:
+            last = self._surface_replan_at.get(visual_id)
+            interval = 1.0 / SURFACE_REPLAN_MAX_HZ
+            wait = 0.0 if last is None else last + interval - loop.time()
+            if wait <= 0.0:
+                self._surface_replan(visual_id)
+                return
+        self._surface_replan_tasks[visual_id] = loop.create_task(
+            self._surface_replan_after(visual_id, max(wait, 0.0))
+        )
+
+    async def _surface_replan_after(self, visual_id: UUID, wait: float) -> None:
+        await asyncio.sleep(wait)
+        self._surface_replan_tasks.pop(visual_id, None)
+        self._surface_replan(visual_id)
+
+    def _surface_replan(self, visual_id: UUID) -> None:
+        if visual_id not in self._visual_to_scene:
+            return
+        try:
+            self._surface_replan_at[visual_id] = asyncio.get_running_loop().time()
+        except RuntimeError:
+            pass
+        self.reslice_visual(visual_id)
+
+    @staticmethod
+    def _surface_reads_mask(visual: Any, store_id: UUID) -> bool:
+        """Whether *visual* plans a surface target from *store_id* (8.3).
+
+        Its coarse mask is forgotten when the mask store changes, so even a
+        contents change re-plans it: the target waits for the new backstop.
+        """
+        return (
+            isinstance(visual, MaskedImageVisual)
+            and visual.appearance.target_bricks == "surface"
+            and UUID(str(visual.data_store_id)) == UUID(str(store_id))
+        )
 
     def _deferred_reslice_tasks(self) -> list[asyncio.Task]:
         """Reslices still to come: interaction ends, queued and store-change ones.
@@ -1838,7 +2024,11 @@ class CellierController:
             *self._camera_driver.tasks(),
             *(
                 task
-                for tasks in (self._camera_reslice_tasks, self._store_reslice_tasks)
+                for tasks in (
+                    self._camera_reslice_tasks,
+                    self._store_reslice_tasks,
+                    self._surface_replan_tasks,
+                )
                 for task in tasks.values()
                 if not task.done()
             ),
@@ -1914,6 +2104,9 @@ class CellierController:
                 visual_model, visual_model.render_planes, scene_id=scene_id
             )
 
+        # Before the multiscale branch: a MaskedImage is a multiscale image.
+        if isinstance(visual_model, MaskedImageVisual):
+            return self._add_masked_image_visual(scene_id, visual_model)
         if isinstance(visual_model, MultiscaleImageVisual):
             return self._add_multiscale_image_visual(scene_id, visual_model)
         elif isinstance(visual_model, ImageVisual):
@@ -2701,6 +2894,114 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
+    def add_masked_image(
+        self,
+        mask: BaseDataStore,
+        value: BaseDataStore,
+        scene_id: UUID,
+        value_to_mask: AffineTransform | np.ndarray | None = None,
+        transform: AffineTransform | None = None,
+        appearance: MaskedImageAppearance | None = None,
+        single: MaskedImageSingleAppearance | None = None,
+        render_config: MaskedImageRenderConfig | None = None,
+        name: str = "masked image",
+        *,
+        outline: VisualOutline | None = None,
+        ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
+        clipping_planes: Sequence[ClippingPlane] = (),
+    ) -> MaskedImageVisual:
+        """Add a MaskedImage: a mask's isosurface coloured by a value image.
+
+        The surface is found and lit in *mask* at ``single.iso_threshold``
+        and coloured from *value*.  In 3D the colour is the max, mean or min
+        of the value along the surface normal over ``single.surface_thickness``;
+        in 2D the thickness is the width of a contour band, each pixel showing
+        its own value (masked image design v2).
+
+        Parameters
+        ----------
+        mask : BaseDataStore
+            The image whose isosurface is drawn: an in-memory or a multiscale
+            store.  It is the visual's ``data_store_id``.
+        value : BaseDataStore
+            The image the surface is coloured from, in memory or multiscale,
+            on its own grid.  Its non-spatial axes (time, a ``c`` slider)
+            must follow the same world axes as the mask's.
+        scene_id : UUID
+            ID of an existing scene.
+        value_to_mask : AffineTransform, array-like or None
+            Value level-0 data coordinates to mask level-0 data coordinates,
+            as a transform between the two stores' level-0 systems or an
+            augmented matrix in data axis order.  ``None`` (default): the two
+            share a grid.  The value's world transform is ``transform`` after
+            this, so moving the visual moves both images.
+        transform : AffineTransform or None
+            The mask's data-to-world transform.  Defaults to the identity.
+        appearance : MaskedImageAppearance or None
+            Shared appearance, including each image's level of detail.
+        single : MaskedImageSingleAppearance or None
+            The surface's appearance: the value's colour map, ``clim`` and
+            opacity, the mask's ``iso_threshold``, and the thickness fields.
+        render_config : MaskedImageRenderConfig or None
+            Block size and each image's GPU budget.  Each side allocates its
+            whole budget, 1,100 MiB by default; lower the two fields to
+            reserve less.
+        name : str
+            Human-readable name.  Default ``"masked image"``.
+        outline, ambient_occlusion, pick_write, clipping_planes
+            As :meth:`add_image_multiscale`.
+
+        Returns
+        -------
+        MaskedImageVisual
+
+        Raises
+        ------
+        ValueError
+            If a store has fewer than three spatial axes; the two stores'
+            non-spatial axes do not follow the same world axes; ``value_to_mask``
+            couples a slider axis to a spatial one or names other systems; or
+            an in-memory side does not fit its GPU budget.  Each message says
+            which.
+        """
+        for store in (mask, value):
+            if store.id not in self._model.data.stores:
+                self.add_data_store(store)
+        resolved_transform = self._prepare_transform(scene_id, mask, transform)
+        self._ensure_data_coordinate_systems(scene_id, value)
+        resolved_value_to_mask = resolve_value_to_mask(
+            value_to_mask,
+            value.data_coordinate_systems[0],
+            mask.data_coordinate_systems[0],
+        )
+        visual_model = MaskedImageVisual(
+            clipping_planes=clipping_planes,
+            name=name,
+            data_store_id=str(mask.id),
+            level_transforms=mask.level_transforms,
+            value_store_id=str(value.id),
+            value_to_mask=resolved_value_to_mask,
+            value_level_transforms=value.level_transforms,
+            appearance=(
+                appearance if appearance is not None else MaskedImageAppearance()
+            ),
+            single=single if single is not None else MaskedImageSingleAppearance(),
+            render_config=(
+                render_config
+                if render_config is not None
+                else MaskedImageRenderConfig()
+            ),
+            transform=resolved_transform,
+        )
+        _apply_render_settings(
+            visual_model,
+            outline=outline,
+            ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
+        )
+        return self.add_visual(scene_id, visual_model, data_store=mask)
+
     def add_labels_multiscale(
         self,
         data: BaseDataStore,
@@ -2999,9 +3300,7 @@ class CellierController:
         scene_manager = self._render_manager._scenes.get(scene_id)
         if scene_manager is not None:
             self._apply_slice_route(scene_manager, visual_model.id)
-        setter = getattr(gfx_visual, "set_render_spaces", None)
-        if setter is not None:
-            setter(self.render_spaces(visual_model.id))
+        self._set_render_spaces(gfx_visual, visual_model.id)
         if scene_manager is not None:
             self._push_slice_footprint(scene_manager, visual_model.id)
         if visual_model.clipping_planes:
@@ -3080,11 +3379,15 @@ class CellierController:
             (DataStoreMetadataChangedEvent, "on_data_store_metadata_changed"),
         ):
             handler = getattr(gfx_visual, handler_name, None)
-            if handler is not None:
+            if handler is None:
+                continue
+            # A MaskedImage reads two stores; it hands each event to the
+            # side that reads the store.
+            for store_id in visual_store_ids(visual_model):
                 self._outgoing_events.subscribe(
                     event_type,
                     handler,
-                    entity_id=UUID(str(visual_model.data_store_id)),
+                    entity_id=store_id,
                     owner_id=visual_model.id,
                 )
 
@@ -3117,6 +3420,101 @@ class CellierController:
         )
         self._register_visual(
             scene_id, visual_model, gfx_visual, data_store, displayed_axes
+        )
+        return visual_model
+
+    def _check_masked_image(self, scene_id: UUID, visual_model: MaskedImageVisual):
+        """Refuse a MaskedImage whose stores cannot be drawn together.
+
+        Runs before any render object is built, on every path in
+        (:meth:`add_masked_image` and :meth:`add_visual` from a model).
+
+        Returns
+        -------
+        tuple
+            ``(mask store, value store)``.
+        """
+        mask_store = self._model.data.stores[UUID(visual_model.data_store_id)]
+        value_id = UUID(visual_model.value_store_id)
+        if value_id not in self._model.data.stores:
+            raise KeyError(
+                f"MaskedImage {visual_model.name!r} reads value store "
+                f"{value_id}, which is not registered; add it with "
+                "add_data_store first."
+            )
+        value_store = self._model.data.stores[value_id]
+        self._ensure_data_coordinate_systems(scene_id, value_store)
+        mask_system = mask_store.data_coordinate_systems[0]
+        value_system = value_store.data_coordinate_systems[0]
+        world = self._model.scenes[scene_id].dims.world_coordinate_system
+        check_masked_pair(
+            mask_system,
+            value_system,
+            visual_model.transform,
+            visual_model.value_to_mask,
+            world,
+        )
+        config = visual_model.render_config
+        check_in_memory_fits(
+            mask_store, mask_system, "mask", "gpu_budget_bytes", config
+        )
+        check_in_memory_fits(
+            value_store, value_system, "value", "value_gpu_budget_bytes", config
+        )
+        return mask_store, value_store
+
+    def _masked_image_fit_refusal(self, visual: MaskedImageVisual) -> str | None:
+        """Why an in-memory side of *visual* no longer fits, or ``None``.
+
+        Refused when added (:meth:`_check_masked_image`); a live store that
+        grows later cannot be, so the view draws nothing of the visual
+        while it does not fit (masked image design 5.2).
+        """
+        for store_id, side, field_name in (
+            (visual.data_store_id, "mask", "gpu_budget_bytes"),
+            (visual.value_store_id, "value", "value_gpu_budget_bytes"),
+        ):
+            store = self._model.data.stores.get(UUID(str(store_id)))
+            if store is None or not store.data_coordinate_systems:
+                continue
+            try:
+                check_in_memory_fits(
+                    store,
+                    store.data_coordinate_systems[0],
+                    side,
+                    field_name,
+                    visual.render_config,
+                )
+            except ValueError as error:
+                return str(error)
+        return None
+
+    def _add_masked_image_visual(
+        self,
+        scene_id: UUID,
+        visual_model: MaskedImageVisual,
+    ) -> MaskedImageVisual:
+        """Check, wire and register a pre-built MaskedImageVisual."""
+        mask_store, value_store = self._check_masked_image(scene_id, visual_model)
+        scene = self._model.scenes[scene_id]
+        displayed_axes = scene.dims.selection.displayed_axes
+        world = scene.dims.world_coordinate_system
+        gfx_visual = GFXMaskedImageVisual(
+            visual_model,
+            level_shapes=list(mask_store.level_shapes),
+            value_level_shapes=list(value_store.level_shapes),
+            value_store=value_store,
+            value_transform=value_world_transform(
+                visual_model.transform,
+                visual_model.value_to_mask,
+                value_store.data_coordinate_systems[0],
+                world,
+            ),
+            world=world,
+            displayed_axes=displayed_axes,
+        )
+        self._register_visual(
+            scene_id, visual_model, gfx_visual, mask_store, displayed_axes
         )
         return visual_model
 
@@ -4903,35 +5301,8 @@ class CellierController:
             # Phase 6): it is drawn in the world frame from every data axis
             # a displayed world axis reads, so those are the ones it keeps.
             return list(transform.data_axes_feeding(displayed))
-        if (
-            classification is not None
-            and classification.alignment is not SliceAlignment.AXIS_ALIGNED
-        ) or (
-            classification is not None
-            and not _has_bijection(classification.effective_transform)
-        ):
-            # Rotated, sheared or drifted (design v2 3.1), or two sliced axes
-            # coupled to each other in an otherwise aligned view: the data
-            # axes no sliced world axis reads.  A data axis that reaches no
-            # world axis at all has no extent to keep, as before.
-            coupling = transform.axis_coupling()
-            return [
-                axis
-                for axis in classification.retained_data_axes
-                if coupling[:, axis].any()
-            ]
-        if transform is not None:
-            # D7: the snapped matrix, which the classifier called aligned.
-            transform = classification.effective_transform
-            data_axis_of_world = {
-                world_axis: data_axis
-                for data_axis, world_axis in axis_correspondence(transform).items()
-            }
-            return sorted(
-                data_axis_of_world[axis]
-                for axis in displayed
-                if axis in data_axis_of_world
-            )
+        if classification is not None:
+            return list(retained_raster_axes(transform, classification, displayed))
         offset = scene.dims.world_coordinate_system.ndim - level_zero.ndim
         return sorted(
             axis - offset for axis in displayed if 0 <= axis - offset < level_zero.ndim
@@ -5021,6 +5392,95 @@ class CellierController:
             classification=self.view_classification(visual_id),
         )
 
+    def value_render_spaces(self, visual_id: UUID) -> RenderSpaces | None:
+        """The value side's systems for a MaskedImage (masked design 5.1, G8).
+
+        Keyed by the MaskedImage's own id: the value side has no id of its
+        own.  The route, the rendered system and its embedding are the
+        mask's (one canvas draws both); the value store's own
+        classification, retained axes, visual system and levels come from
+        its world transform, ``transform @ value_to_mask``.
+
+        Parameters
+        ----------
+        visual_id : UUID
+            The MaskedImage.
+
+        Returns
+        -------
+        RenderSpaces or None
+            ``None`` whenever :meth:`render_spaces` is (the view does not
+            draw the visual, no canvas yet, ...), so the two sides cannot
+            disagree about whether the visual is placed; also for a visual
+            that is not a MaskedImage.
+        """
+        visual = self._model_visual_or_none(visual_id)
+        if not isinstance(visual, MaskedImageVisual):
+            return None
+        mask_spaces = self.render_spaces(visual_id)
+        value_store = self._model.data.stores.get(UUID(visual.value_store_id))
+        if (
+            mask_spaces is None
+            or value_store is None
+            or not value_store.data_coordinate_systems
+        ):
+            self._forget_value_space(visual_id)
+            return None
+        scene = self._model.scenes[self._visual_to_scene[visual_id]]
+        displayed = tuple(scene.dims.selection.displayed_axes)
+        level_zero = value_store.data_coordinate_systems[0]
+        transform = value_world_transform(
+            visual.transform,
+            visual.value_to_mask,
+            level_zero,
+            scene.dims.world_coordinate_system,
+        )
+        route_axes = self._brick_route_axes(visual_id)
+        classification = classify_view(transform, displayed)
+        if route_axes is not None:
+            retained = _slice_layout(classification.effective_transform, route_axes)
+            classification = classify_view(transform, route_axes)
+            mode = "slice"
+        else:
+            retained = retained_raster_axes(transform, classification, displayed)
+            mode = _render_mode_for(displayed)
+        if not retained:
+            self._forget_value_space(visual_id)
+            return None
+        cached = self._value_spaces.get(visual_id)
+        if cached is not None and cached[0] == mode and cached[1] == retained:
+            space = cached[2]
+        else:
+            self._forget_value_space(visual_id)
+            space = VisualCoordinateSystem.from_data(
+                level_zero,
+                [level_zero.axes[axis].id for axis in retained],
+                visual_id,
+                name=f"value_{mode}",
+            )
+            self._register_coordinate_systems(space)
+            self._value_spaces[visual_id] = (mode, retained, space)
+        return build_render_spaces(
+            level_zero,
+            space,
+            mask_spaces.world,
+            mask_spaces.rendered,
+            mask_spaces.rendered_to_world,
+            transform,
+            list(retained),
+            data_levels=value_store.data_coordinate_systems,
+            level_transforms=store_level_transforms(value_store),
+            classification=classification,
+        )
+
+    def _set_render_spaces(self, gfx_visual: Any, visual_id: UUID) -> None:
+        """Hand a render visual its systems; a MaskedImage gets both sides'."""
+        spaces = self.render_spaces(visual_id)
+        if isinstance(gfx_visual, GFXMaskedImageVisual):
+            gfx_visual.set_render_spaces(spaces, self.value_render_spaces(visual_id))
+        else:
+            gfx_visual.set_render_spaces(spaces)
+
     @staticmethod
     def _pick_axes_paired(
         transform: Any, displayed_axes: Sequence[int], data_axis_of_world: dict
@@ -5076,19 +5536,40 @@ class CellierController:
             return None
         family = _visual_family(visual)
         alignment = classification.alignment
+        if isinstance(visual, MaskedImageVisual):
+            refusal = self._masked_image_fit_refusal(visual)
+            if refusal is not None:
+                # An in-memory side that grew past its budget draws nothing,
+                # never part of the image (masked image design 5.2).
+                return DrawStatus(
+                    visual_id=visual.id,
+                    scene_id=scene_id,
+                    name=visual.name,
+                    alignment=alignment.value,
+                    drawable=False,
+                    reason=refusal,
+                )
         decision = self.slice_route(visual.id)
         route = self._slice_routes.get(visual.id)
         if decision is not None and decision.route is SliceRoute.NONE:
             # The route table refuses it (design v3, 5.2.2, U13).
+            reason = _route_refusal_reason(
+                family, decision, route is not None and route.projection is not None
+            )
+            if isinstance(visual, MaskedImageVisual) and alignment in _NOT_OBLIQUE:
+                # An aligned view refused by the masked route (masked image
+                # design 6.3): no single sliced space axis is its normal.
+                reason = (
+                    f"this view slices {decision.dimension} space axes; a masked "
+                    "image's 2D view slices exactly one"
+                )
             return DrawStatus(
                 visual_id=visual.id,
                 scene_id=scene_id,
                 name=visual.name,
                 alignment=alignment.value,
                 drawable=False,
-                reason=_route_refusal_reason(
-                    family, decision, route is not None and route.projection is not None
-                ),
+                reason=reason,
             )
         drawable = alignment in _DRAWABLE[family] or (
             decision is not None
@@ -5154,6 +5635,28 @@ class CellierController:
             visual, scene, displayed, classification
         )
         decision = choose_slice_route(classification, projection)
+        if decision.route is SliceRoute.TODAY and isinstance(visual, MaskedImageVisual):
+            # Every 2D view of a MaskedImage is drawn by the slice node
+            # (masked image design 6.3): the normal is the one sliced world
+            # axis of type space (a time axis is sliced too).
+            world = scene.dims.world_coordinate_system
+            sliced_space = [
+                axis
+                for axis, world_axis in enumerate(world.axes)
+                if world_axis.axis_type == "space" and axis not in displayed
+            ]
+            if len(sliced_space) == 1:
+                decision = RouteDecision(
+                    SliceRoute.BRICK, normal_world_axis=sliced_space[0]
+                )
+            else:
+                # Without one, the tile path would draw the mask as a
+                # plain image: refused instead.
+                decision = RouteDecision(
+                    SliceRoute.NONE,
+                    RouteRefusalReason.NORMAL_NOT_ONE_AXIS,
+                    len(sliced_space),
+                )
         axes: tuple[int, int, int] | None = None
         retained: tuple[int, ...] = ()
         if (
@@ -5420,7 +5923,7 @@ class CellierController:
         self._give_brick_source(scene_id, visual_model, gfx_visual, store)
         if was_routed:
             self._apply_slice_route(scene_manager, visual_id)
-            gfx_visual.set_render_spaces(self.render_spaces(visual_id))
+            self._set_render_spaces(gfx_visual, visual_id)
             self._push_slice_footprint(scene_manager, visual_id)
 
     def _on_brick_source_built(self, visual_id: UUID, source: Any) -> None:
@@ -5671,7 +6174,7 @@ class CellierController:
         else:
             self._push_slab_for(visual_id)
         if changed or axes is not None:
-            gfx_visual.set_render_spaces(self.render_spaces(visual_id))
+            self._set_render_spaces(gfx_visual, visual_id)
             self._push_slice_footprint(scene_manager, visual_id)
         return changed
 
@@ -5952,10 +6455,9 @@ class CellierController:
             gfx_visual = scene_manager.get_visual(visual_model.id)
             # The route first (oblique 2D design v3, C3).
             self._apply_slice_route(scene_manager, visual_model.id)
-            setter = getattr(gfx_visual, "set_render_spaces", None)
-            if setter is None:
+            if getattr(gfx_visual, "set_render_spaces", None) is None:
                 continue
-            setter(self.render_spaces(visual_model.id))
+            self._set_render_spaces(gfx_visual, visual_model.id)
             self._push_slice_footprint(scene_manager, visual_model.id)
 
     def _rebuild_visual_spaces(self, scene_id: UUID) -> None:
@@ -5981,6 +6483,13 @@ class CellierController:
         """Drop every render mode's visual space for one visual."""
         for key in [key for key in self._visual_spaces if key[0] == visual_id]:
             self._forget_coordinate_systems(self._visual_spaces.pop(key))
+        self._forget_value_space(visual_id)
+
+    def _forget_value_space(self, visual_id: UUID) -> None:
+        """Drop a MaskedImage's value-side visual system."""
+        cached = self._value_spaces.pop(visual_id, None)
+        if cached is not None:
+            self._forget_coordinate_systems(cached[2])
 
     @staticmethod
     def _slice_signature(selection: Any) -> tuple:
@@ -6983,6 +7492,7 @@ class CellierController:
             )
             if info.signal.name == "render_mode":
                 self._refresh_plane_mode(visual_id)
+            self._on_surface_field(visual_id, info.signal.name)
             self._request_draw_for_visual(visual_id)
 
         visual.single.events.connect(_on_single_field)
@@ -11180,6 +11690,12 @@ class CellierController:
         scene_id = self._visual_to_scene[visual_id]
         scene = self._model.scenes[scene_id]
         visual_model = next(v for v in scene.visuals if v.id == visual_id)
+        if isinstance(visual_model, MaskedImageVisual):
+            raise TypeError(
+                f"Cannot paint {visual_model.name!r}: a MaskedImage draws a "
+                "surface of one image coloured by another, and painting "
+                "either is not supported."
+            )
         data_store = self._model.data.stores[UUID(visual_model.data_store_id)]
         refusal = self.paint_refusal(visual_id)
         if refusal is not None:
@@ -11459,7 +11975,7 @@ class CellierController:
             v
             for scene in self._model.scenes.values()
             for v in scene.visuals
-            if UUID(v.data_store_id) == data_store_id
+            if data_store_id in visual_store_ids(v)
         ]
         if referencing:
             names = ", ".join(f"{v.name!r} ({v.id})" for v in referencing)
@@ -11909,6 +12425,10 @@ class CellierController:
 
         raw_pick = event.pick_details
         event_type = _pick_event_type(raw_pick)
+        if event_type is ImagePickEvent and isinstance(
+            self._model_visual_or_none(event.hit_visual_id), MaskedImageVisual
+        ):
+            event_type = MaskedImagePickEvent
         if event_type is None or not self._pick_event_counts.get(
             (event.canvas_id, event_type)
         ):
@@ -11952,6 +12472,9 @@ class CellierController:
             hit_visual_id=event.hit_visual_id,
             collapsed_data_indices=raw_pick.collapsed_data_indices,
         )
+        if isinstance(visual, MaskedImageVisual):
+            self._read_masked_pick(event, common, visual, store, coordinate)
+            return
         shape = tuple(int(size) for size in store.level_shapes[0])
 
         if isinstance(raw_pick, _LabelsDisplayedDataCoord):
@@ -11992,6 +12515,48 @@ class CellierController:
 
         self._read_pick_values(event, store, reads, build)
 
+    def _read_masked_pick(
+        self,
+        event: _CanvasRawPointerEvent,
+        common: dict,
+        visual: MaskedImageVisual,
+        mask_store: Any,
+        coordinate: tuple[float, ...],
+    ) -> None:
+        """Read a MaskedImage pick in two passes and emit its event (design 9.3).
+
+        The mask first: its value at the hit and, in 3D, the stencil that
+        gives the normal.  Then the value image at the hit and along that
+        normal.  Each pass is one read of one store, so the cancel-on-move
+        rule applies to whichever is in flight.
+        """
+        from cellier._masked_image import MaskedPick
+
+        value_store = self._model.data.stores.get(UUID(visual.value_store_id))
+        if value_store is None:
+            return
+        pick = MaskedPick.for_visual(
+            visual,
+            coordinate,
+            mask_store,
+            value_store,
+            three_d=event.camera_type == "3d",
+        )
+
+        def after_mask(mask_values: dict) -> None:
+            def after_value(value_values: dict) -> None:
+                self._outgoing_events.emit(
+                    MaskedImagePickEvent(
+                        **common, pick_info=pick.info(mask_values, value_values)
+                    )
+                )
+
+            self._read_store_values(
+                event, value_store, pick.value_reads(mask_values), after_value
+            )
+
+        self._read_store_values(event, mask_store, pick.mask_reads(), after_mask)
+
     def _read_pick_values(
         self,
         event: _CanvasRawPointerEvent,
@@ -12001,10 +12566,27 @@ class CellierController:
     ) -> None:
         """Read the voxels in *reads* from *store* and emit ``build(values)``.
 
+        See :meth:`_read_store_values` for when the event is emitted.
+        """
+
+        def emit(values: dict) -> None:
+            self._outgoing_events.emit(build(values))
+
+        self._read_store_values(event, store, reads, emit)
+
+    def _read_store_values(
+        self,
+        event: _CanvasRawPointerEvent,
+        store: Any,
+        reads: dict[Any, tuple[int, ...]],
+        on_values: Callable[[dict], None],
+    ) -> None:
+        """Read the voxels in *reads* from *store* and call ``on_values(values)``.
+
         An in-memory store holds a plain array (its ``get_data`` is a
-        coroutine only for the slicer's sake), so the read and the emit happen
+        coroutine only for the slicer's sake), so the read and the call happen
         here.  Any other store is read at level 0 through the render layer's
-        cancellable slicer, and the event is emitted when every value has
+        cancellable slicer, and *on_values* is called when every value has
         arrived -- never, if the read is cancelled.
         """
         array = getattr(store, "data", None)
@@ -12012,7 +12594,7 @@ class CellierController:
             values = (
                 {key: array[index] for key, index in reads.items()} if reads else {}
             )
-            self._outgoing_events.emit(build(values))
+            on_values(values)
             return
 
         from cellier.data.image._image_requests import ChunkRequest
@@ -12039,7 +12621,7 @@ class CellierController:
 
         def on_complete() -> None:
             self._forget_pick_read(canvas_id, visual_id, read_id)
-            self._outgoing_events.emit(build(values))
+            on_values(values)
 
         self._render_manager.submit_pick_read(
             requests, store.get_data, on_batch, on_complete
@@ -12149,8 +12731,10 @@ class CellierController:
             The canvas to watch.
         event_type : type
             One of :data:`cellier.events.PICK_EVENT_TYPES`: ``ImagePickEvent``,
-            ``LabelsPickEvent``, ``PointsPickEvent``, ``LinesPickEvent``,
-            ``MeshPickEvent`` or ``GraphPickEvent``.
+            ``MaskedImagePickEvent``, ``LabelsPickEvent``, ``PointsPickEvent``,
+            ``LinesPickEvent``, ``MeshPickEvent`` or ``GraphPickEvent``.  A
+            MaskedImage emits ``MaskedImagePickEvent`` only, not
+            ``ImagePickEvent``.
         callback : Callable
             Called with each pick event.
         owner_id : UUID
@@ -12950,6 +13534,10 @@ class CellierController:
             task.cancel()
         self._store_reslice_tasks.clear()
         self._store_reslice_extent.clear()
+        for task in self._surface_replan_tasks.values():
+            task.cancel()
+        self._surface_replan_tasks.clear()
+        self._surface_replan_at.clear()
         # cancel_all rather than a cancel_pending_slices walk per scene: a
         # superseded non-cancellable reslice is no longer named by any scene's
         # bookkeeping, so the per-scene walk cannot reach it.

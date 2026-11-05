@@ -5,7 +5,9 @@
 //
 // Rows that only mean something for some render modes, or only in 3D, hide
 // themselves: rowVisible mirrors cellier.gui._image_controls.row_visible,
-// with the mode lists and n_displayed_dimensions read from the model.
+// with the mode lists and n_displayed_dimensions read from the model.  A
+// MaskedImage's control ("masked") adds the surface and band rows and follows
+// that model's rule (masked image design 10).
 
 const THROTTLE_MS = 50;
 
@@ -13,6 +15,7 @@ const LABELS = {
   visible: "Visible",
   transparency_mode: "Blending",
   interpolation: "Interpolation",
+  target_bricks: "Load bricks",
   attenuation: "Attenuation",
   color_map: "Colormap",
   clim: "Contrast",
@@ -21,9 +24,28 @@ const LABELS = {
   iso_threshold: "Threshold",
   slab_projection: "Projection",
   projection_axes: "Project along",
+  surface_thickness: "Thickness",
+  surface_placement: "Placement",
+  surface_projection: "Projection",
+  surface_min_width_px: "Min width (px)",
+  band_rays: "Band rays",
+  band_cap: "Band cap",
 };
 
-const MODE_FIELDS = ["color_map", "clim", "opacity", "render_mode", "iso_threshold"];
+// A MaskedImage's surface and 2D band rows; mirrors
+// cellier.gui._image_controls.SURFACE_FIELDS and BAND_FIELDS.
+const SURFACE_FIELDS = ["surface_thickness", "surface_placement", "surface_projection"];
+const BAND_FIELDS = ["surface_min_width_px", "band_rays", "band_cap"];
+
+const MODE_FIELDS = [
+  "color_map",
+  "clim",
+  "opacity",
+  "render_mode",
+  "iso_threshold",
+  ...SURFACE_FIELDS,
+  ...BAND_FIELDS,
+];
 
 // Decimal places for the fraction-like fields (opacity, attenuation); mirrors
 // cellier.gui._image_controls.FRACTION_DECIMALS.  Data-unit fields (contrast
@@ -42,7 +64,25 @@ const THREE_D_FIELDS = ["render_mode", "iso_threshold", "attenuation"];
 // cellier.gui._image_controls.TWO_D_FIELDS.
 const TWO_D_FIELDS = ["slab_projection", "projection_axes"];
 
-function rowVisible(field, modes, nDisplayed, thresholdModes, attenuationModes) {
+// A MaskedImage's rows shown only in 3D, and only in 2D; mirrors
+// cellier.gui._image_controls.MASKED_THREE_D_FIELDS and MASKED_TWO_D_FIELDS.
+const MASKED_THREE_D_FIELDS = ["surface_projection", "target_bricks"];
+const MASKED_TWO_D_FIELDS = BAND_FIELDS;
+
+// Every field whose row can hide; mirrors HIDEABLE_FIELDS.
+const HIDEABLE_FIELDS = [
+  ...THREE_D_FIELDS,
+  ...TWO_D_FIELDS,
+  ...MASKED_THREE_D_FIELDS,
+  ...MASKED_TWO_D_FIELDS,
+];
+
+function rowVisible(field, modes, nDisplayed, thresholdModes, attenuationModes, masked) {
+  if (masked) {
+    if (MASKED_TWO_D_FIELDS.includes(field)) return nDisplayed === 2;
+    if (MASKED_THREE_D_FIELDS.includes(field)) return nDisplayed === 3;
+    if (field === "iso_threshold") return true;
+  }
   if (TWO_D_FIELDS.includes(field)) return nDisplayed === 2;
   if (!THREE_D_FIELDS.includes(field)) return true;
   if (nDisplayed !== 3) return false;
@@ -142,6 +182,25 @@ function makeFloatSlider(min, max, initial, onChange, decimals = FRACTION_DECIMA
   };
 }
 
+function makeNumber(min, max, step, initial, onChange, integer) {
+  // A spin box: the band's rays and cap (integers) and its minimum width.
+  const el = document.createElement("input");
+  el.type = "number";
+  el.className = "cellier-app-number";
+  el.min = min;
+  el.max = max;
+  el.step = step;
+  el.value = initial;
+  el.addEventListener("change", () => {
+    let v = integer ? parseInt(el.value, 10) : parseFloat(el.value);
+    if (Number.isNaN(v)) return;
+    v = Math.min(max, Math.max(min, v));
+    el.value = v;
+    onChange(v);
+  });
+  return { el, set: (v) => { el.value = v; } };
+}
+
 function makeClimSlider(range, initial, onChange, decimals) {
   // Four numbers, as the Qt control shows: the current low and high on a line
   // above the track, and the range bounds at its two ends.
@@ -236,7 +295,7 @@ function render({ model, el }) {
     r.dataset.field = field;
     const label = document.createElement("label");
     label.className = "cellier-app-label";
-    label.textContent = LABELS[field] || field;
+    label.textContent = (model.get("labels") || {})[field] || LABELS[field] || field;
     r.appendChild(label);
     r.appendChild(control.el);
     parent.appendChild(r);
@@ -245,7 +304,7 @@ function render({ model, el }) {
 
   function hideableRow(parent, page, channel, field, control) {
     const r = row(parent, field, control);
-    if (THREE_D_FIELDS.includes(field) || TWO_D_FIELDS.includes(field)) {
+    if (HIDEABLE_FIELDS.includes(field)) {
       hideable.push({ el: r, page, channel, field });
     }
     return r;
@@ -268,6 +327,7 @@ function render({ model, el }) {
     const n = model.get("n_displayed_dimensions");
     const thresholdModes = model.get("threshold_modes") || [];
     const attenuationModes = model.get("attenuation_modes") || [];
+    const masked = Boolean(model.get("masked"));
     const single = model.get("single") || {};
     const channels = model.get("channels") || {};
     const channelModes = Object.values(channels).map((c) => c.render_mode);
@@ -276,7 +336,7 @@ function render({ model, el }) {
       if (page === "composite") modes = channelModes;
       else if (page === "channel") modes = [(channels[channel] || {}).render_mode];
       else modes = [single.render_mode];
-      const visible = rowVisible(field, modes, n, thresholdModes, attenuationModes);
+      const visible = rowVisible(field, modes, n, thresholdModes, attenuationModes, masked);
       r.style.display = visible ? "" : "none";
     }
   }
@@ -307,12 +367,27 @@ function render({ model, el }) {
       return makeClimSlider(model.get("clim_range") || [0, 1], v, onChange, decimals);
     }
     if (field === "render_mode") return makeSelect(model.get("render_modes"), v, onChange);
-    if (field === "iso_threshold") {
-      // A threshold is in data units, like the contrast limits.
-      const [lo, hi] = model.get("clim_range") || [0, 1];
-      const slider = makeFloatSlider(lo, hi, v, onChange, decimals);
+    if (field === "iso_threshold" || field === "surface_thickness") {
+      // A threshold is in data units, like the contrast limits (a
+      // MaskedImage's in the mask's, with its own range); a thickness in
+      // world units.
+      let range = model.get("clim_range") || [0, 1];
+      if (field === "surface_thickness") range = model.get("thickness_range") || [0, 10];
+      else if ((model.get("threshold_range") || []).length === 2) range = model.get("threshold_range");
+      const slider = makeFloatSlider(range[0], range[1], v, onChange, decimals);
       slider.el.querySelector("input").style.minWidth = `${MIN_TRACK_WIDTH_PX}px`;
       return slider;
+    }
+    if (field === "surface_placement" || field === "surface_projection") {
+      return makeSelect((model.get("choices") || {})[field] || [], v, onChange);
+    }
+    if (field === "band_rays" || field === "band_cap") {
+      const [lo, hi] = (model.get("int_ranges") || {})[field] || [1, 128];
+      return makeNumber(lo, hi, 1, v, onChange, true);
+    }
+    if (field === "surface_min_width_px") {
+      const [lo, hi, step] = model.get("min_width_range") || [0, 8, 0.5];
+      return makeNumber(lo, hi, step, v, onChange, false);
     }
     return makeFloatSlider(0.0, 1.0, v, onChange, FRACTION_DECIMALS);
   }
@@ -355,6 +430,16 @@ function render({ model, el }) {
       const c = makeSelect(options, shared[field], (v) => write("shared", null, field, v));
       controls["shared||" + field] = c;
       hideableRow(sharedBox, "shared", null, field, c);
+    }
+    // A MaskedImage's target loading (design 8.3), when the field list asks
+    // for it; hidden in 2D.
+    if (fieldsOn.includes("target_bricks") && "target_bricks" in shared) {
+      const options = (model.get("choices") || {}).target_bricks || [];
+      const c = makeSelect(options, shared.target_bricks, (v) =>
+        write("shared", null, "target_bricks", v),
+      );
+      controls["shared||target_bricks"] = c;
+      hideableRow(sharedBox, "shared", null, "target_bricks", c);
     }
     el.appendChild(sharedBox);
 
@@ -484,7 +569,7 @@ function render({ model, el }) {
       applyVisibility();
     }
   });
-  for (const name of ["n_displayed_dimensions", "threshold_modes", "attenuation_modes"]) {
+  for (const name of ["n_displayed_dimensions", "threshold_modes", "attenuation_modes", "masked"]) {
     model.on(`change:${name}`, applyVisibility);
   }
   model.on("change:composite", () => {

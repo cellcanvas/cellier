@@ -32,6 +32,7 @@ SHARED_FIELDS: tuple[str, ...] = (
     "visible",
     "transparency_mode",
     "interpolation",
+    "target_bricks",
     "attenuation",
     "slab_projection",
     "projection_axes",
@@ -46,14 +47,29 @@ NO_PROJECTION_AXIS: str = "(none)"
 #: The projection operators, in display order.
 PROJECTION_OPS: tuple[str, ...] = ("none", "mip", "minip", "mean")
 
+#: A MaskedImage's surface rows (masked image design 10): the thickness and
+#: placement in 2D and 3D, the projection along the normal in 3D only.
+SURFACE_FIELDS: tuple[str, ...] = (
+    "surface_thickness",
+    "surface_placement",
+    "surface_projection",
+)
+
+#: A MaskedImage's 2D band rows (design 4.1, 7.2): the minimum width and the
+#: contour search's rays and cap.
+BAND_FIELDS: tuple[str, ...] = ("surface_min_width_px", "band_rays", "band_cap")
+
 #: Fields each mode page shows, in display order.  A channel row adds
-#: ``visible`` in front.
+#: ``visible`` in front.  The surface and band rows are a MaskedImage's: no
+#: other model carries them, so no other control shows them.
 MODE_FIELDS: tuple[str, ...] = (
     "color_map",
     "clim",
     "opacity",
     "render_mode",
     "iso_threshold",
+    *SURFACE_FIELDS,
+    *BAND_FIELDS,
 )
 
 #: The shared transparency modes, with ``"auto"`` standing for ``None``.
@@ -93,6 +109,39 @@ THREE_D_FIELDS: tuple[str, ...] = ("render_mode", "iso_threshold", "attenuation"
 #: Fields whose rows are shown only in 2D: a 3D view does not project.
 TWO_D_FIELDS: tuple[str, ...] = PROJECTION_FIELDS
 
+#: A MaskedImage's rows shown only in 3D: a 2D pixel shows its own value, so
+#: nothing is projected (MI-D8), and only a 3D plan filters its target bricks
+#: (design 4.1, 8.3).
+MASKED_THREE_D_FIELDS: tuple[str, ...] = ("surface_projection", "target_bricks")
+
+#: A MaskedImage's rows shown only in 2D: the band's.
+MASKED_TWO_D_FIELDS: tuple[str, ...] = BAND_FIELDS
+
+#: Every field whose row can hide, on either kind of image.
+HIDEABLE_FIELDS: tuple[str, ...] = (
+    *THREE_D_FIELDS,
+    *TWO_D_FIELDS,
+    *MASKED_THREE_D_FIELDS,
+    *MASKED_TWO_D_FIELDS,
+)
+
+#: The integer fields' bounds on the control, ``(min, max)``.  The model's
+#: own lower bound with an upper one the prototype found enough (P0-18).
+INT_FIELD_RANGES: dict[str, tuple[int, int]] = {
+    "band_rays": (1, 64),
+    "band_cap": (1, 128),
+}
+
+#: The minimum band width's control: ``(min, max, step)``, screen pixels.
+MIN_WIDTH_RANGE: tuple[float, float, float] = (0.0, 8.0, 0.5)
+
+#: A MaskedImage's label overrides: the contrast limits and the threshold are
+#: in different images' units, so the labels say which (design 10).
+MASKED_FIELD_LABELS: dict[str, str] = {
+    "clim": "Contrast (value)",
+    "iso_threshold": "Threshold (mask)",
+}
+
 #: The display dimensionalities a scene can have.
 DISPLAY_DIMENSIONS: tuple[int, ...] = (2, 3)
 
@@ -109,6 +158,7 @@ FIELD_LABELS: dict[str, str] = {
     "visible": "Visible",
     "transparency_mode": "Blending",
     "interpolation": "Interpolation",
+    "target_bricks": "Load bricks",
     "attenuation": "Attenuation",
     "color_map": "Colormap",
     "clim": "Contrast",
@@ -117,6 +167,12 @@ FIELD_LABELS: dict[str, str] = {
     "iso_threshold": "Threshold",
     "slab_projection": "Projection",
     "projection_axes": "Project along",
+    "surface_thickness": "Thickness",
+    "surface_placement": "Placement",
+    "surface_projection": "Projection",
+    "surface_min_width_px": "Min width (px)",
+    "band_rays": "Band rays",
+    "band_cap": "Band cap",
 }
 
 DEFAULT_COLORMAP_NAMES: list[str] = [
@@ -154,7 +210,11 @@ def validate_n_displayed_dimensions(value: Any) -> int:
 
 
 def row_visible(
-    field: str, render_modes: Iterable[str], n_displayed_dimensions: int
+    field: str,
+    render_modes: Iterable[str],
+    n_displayed_dimensions: int,
+    *,
+    masked: bool = False,
 ) -> bool:
     """Whether a row of the image control is shown.
 
@@ -170,14 +230,28 @@ def row_visible(
         for the composite page's shared attenuation row.
     n_displayed_dimensions : int
         How many dimensions the scene displays (2 or 3).
+    masked : bool
+        Whether the control drives a MaskedImage, whose threshold applies in
+        2D as well (it places the contour band), whose projection along the
+        normal is 3D only and whose band rows are 2D only (design 10).
 
     Returns
     -------
     bool
         ``render_mode`` rows are shown in 3D; ``iso_threshold`` rows in 3D for
-        a mode in :data:`THRESHOLD_MODES`; ``attenuation`` rows in 3D for a
-        mode in :data:`ATTENUATION_MODES`.  Every other row is always shown.
+        a mode in :data:`THRESHOLD_MODES`, and in both on a MaskedImage;
+        ``attenuation`` rows in 3D for a mode in :data:`ATTENUATION_MODES`.
+        On a MaskedImage the :data:`MASKED_THREE_D_FIELDS` rows are shown in
+        3D and the :data:`MASKED_TWO_D_FIELDS` rows in 2D.  Every other row
+        is always shown.
     """
+    if masked:
+        if field in MASKED_TWO_D_FIELDS:
+            return n_displayed_dimensions == 2
+        if field in MASKED_THREE_D_FIELDS:
+            return n_displayed_dimensions == 3
+        if field == "iso_threshold":
+            return True
     if field in TWO_D_FIELDS:
         return n_displayed_dimensions == 2
     if field not in THREE_D_FIELDS:
@@ -249,8 +323,16 @@ def to_widget_value(field: str, value: Any) -> Any:
         return [float(value[0]), float(value[1])]
     if field == "transparency_mode":
         return "auto" if value is None else str(value)
-    if field in ("opacity", "iso_threshold", "attenuation"):
+    if field in (
+        "opacity",
+        "iso_threshold",
+        "attenuation",
+        "surface_thickness",
+        "surface_min_width_px",
+    ):
         return float(value)
+    if field in INT_FIELD_RANGES:
+        return int(value)
     if field == "projection_axes":
         names = tuple(value or ())
         return names[0] if names else NO_PROJECTION_AXIS
@@ -265,6 +347,8 @@ def to_model_value(field: str, value: Any) -> Any:
         return None if value in (None, "auto") else str(value)
     if field == "projection_axes":
         return () if value in (None, "", NO_PROJECTION_AXIS) else (str(value),)
+    if field in INT_FIELD_RANGES:
+        return int(value)
     return value
 
 
@@ -310,10 +394,15 @@ def image_update_event(
 
 
 def mode_values(appearance: Any) -> dict[str, Any]:
-    """A single or channel appearance, in control terms."""
+    """A single or channel appearance, in control terms.
+
+    Only the :data:`MODE_FIELDS` the appearance carries: the surface and band
+    fields are a MaskedImage's alone.
+    """
     values = {
         field: to_widget_value(field, getattr(appearance, field))
         for field in MODE_FIELDS
+        if hasattr(appearance, field)
     }
     if hasattr(appearance, "visible"):
         values["visible"] = bool(appearance.visible)
@@ -329,6 +418,8 @@ def image_control_values(
     channel_labels: dict[int, str] | None = None,
     decimals: int = 2,
     axis_names: Iterable[str] | None = None,
+    threshold_range: tuple[float, float] | None = None,
+    thickness_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Everything either front end needs to build the image control.
 
@@ -352,6 +443,14 @@ def image_control_values(
     axis_names : iterable of str or None
         The axis names the projection-axis row offers (the store's, which
         name the world's), when *fields* asks for it.
+    threshold_range : tuple[float, float] or None
+        Iso-threshold slider bounds.  ``None``: the contrast slider's on an
+        image, whose threshold is in the same units; on a MaskedImage, whose
+        threshold is in the mask's units, a window of ``max(1, |t|)`` either
+        side of the threshold ``t`` (:func:`default_threshold_range`).
+    thickness_range : tuple[float, float] or None
+        A MaskedImage's thickness slider bounds, world units.  ``None``:
+        ``(0, max(10, 4 * thickness))``.  Ignored for other images.
 
     Returns
     -------
@@ -378,6 +477,8 @@ def image_control_values(
     }
     if multiscale:
         shared["attenuation"] = float(appearance.attenuation)
+    if hasattr(appearance, "target_bricks"):
+        shared["target_bricks"] = str(appearance.target_bricks)
     projection = None
     if any(field in fields for field in PROJECTION_FIELDS):
         # Only when asked for, so a control without the rows is unchanged.
@@ -396,6 +497,22 @@ def image_control_values(
             max([1.0, *(float(c[1]) for c in limits)]),
         )
     labels = dict(channel_labels or {})
+    masked = _is_masked(visual)
+    extra: dict[str, Any] = {}
+    if projection is not None:
+        extra["projection"] = projection
+    if masked:
+        extra.update(
+            _masked_values(visual.single, clim_range, threshold_range, thickness_range)
+        )
+        extra["choices"]["target_bricks"] = list(
+            literal_choices(appearance, "target_bricks")
+        )
+    elif threshold_range is not None:
+        extra["threshold_range"] = [
+            float(threshold_range[0]),
+            float(threshold_range[1]),
+        ]
     return {
         "storage": "multiscale" if multiscale else "memory",
         "colormaps": {
@@ -422,7 +539,63 @@ def image_control_values(
         "decimals": int(decimals),
         "threshold_modes": list(THRESHOLD_MODES),
         "attenuation_modes": list(ATTENUATION_MODES),
-        **({} if projection is None else {"projection": projection}),
+        **extra,
+    }
+
+
+def _is_masked(visual: Any) -> bool:
+    """Whether *visual* is a MaskedImage model."""
+    from cellier.visuals._masked_image import MaskedImageVisual
+
+    return isinstance(visual, MaskedImageVisual)
+
+
+def default_threshold_range(threshold: float) -> tuple[float, float]:
+    """A MaskedImage's threshold slider bounds when none are given.
+
+    A window of ``max(1, |t|)`` either side of the threshold ``t``: it holds 0
+    for a positive threshold, both signs for a signed distance threshold of
+    0, and 0 to 255 for a ``uint8`` binary mask's 127.5.  A fixed rule that
+    reads no data; set ``ImageControl.threshold_range`` to suit the mask.
+    """
+    t = float(threshold)
+    half = max(1.0, abs(t))
+    return (t - half, t + half)
+
+
+def default_thickness_range(thickness: float) -> tuple[float, float]:
+    """A MaskedImage's thickness slider bounds when none are given, world units."""
+    return (0.0, max(10.0, 4.0 * float(thickness)))
+
+
+def _masked_values(
+    single: Any,
+    clim_range: tuple[float, float],
+    threshold_range: tuple[float, float] | None,
+    thickness_range: tuple[float, float] | None,
+) -> dict[str, Any]:
+    """The seed's MaskedImage keys (masked image design 10).
+
+    ``masked`` switches the row rule, ``labels`` names each slider's units,
+    and the ranges and choices build the surface and band rows.
+    """
+    from cellier.gui._appearance_fields import literal_choices
+
+    if threshold_range is None:
+        threshold_range = default_threshold_range(single.iso_threshold)
+    if thickness_range is None:
+        thickness_range = default_thickness_range(single.surface_thickness)
+    return {
+        "masked": True,
+        "labels": dict(MASKED_FIELD_LABELS),
+        "threshold_range": [float(threshold_range[0]), float(threshold_range[1])],
+        "thickness_range": [float(thickness_range[0]), float(thickness_range[1])],
+        "min_width_range": list(MIN_WIDTH_RANGE),
+        "int_ranges": {k: list(v) for k, v in INT_FIELD_RANGES.items()},
+        "choices": {
+            field: list(literal_choices(single, field))
+            for field in ("surface_placement", "surface_projection")
+        },
     }
 
 

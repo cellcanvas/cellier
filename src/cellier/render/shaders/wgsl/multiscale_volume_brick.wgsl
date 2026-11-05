@@ -195,7 +195,13 @@ fn sample_atlas(
     // probe past the ghost border repeats the edge texel instead of reading
     // (or linearly blending into) the neighbouring atlas slot.
     // brick_corner_k is placed (placed_corner_k): it already carries t / s.
+    $$ if masked and extent_clamp and render_mode != 'plane'
+    // A MaskedImage's mask repeats a level's last voxel past its end
+    // (masked image design 6.4, MI-P16): masked_value.wgsl.
+    let voxel_k      = mask_extent_clamp(voxel_pos / lod_scale, lut_entry.w);
+    $$ else
     let voxel_k      = voxel_pos / lod_scale;
+    $$ endif
     let pos_in_brick = clamp(voxel_k - brick_corner_k,
                              vec3<f32>(-BORDER),
                              block_size - vec3<f32>(1.0) + vec3<f32>(BORDER));
@@ -529,6 +535,12 @@ fn vs_main(in: VertexInput) -> Varyings {
 
 {$ include 'cellier.ray_clip.wgsl' $}
 
+$$ if masked
+// A MaskedImage (masked image design 6): the value image's lookup, an exact
+// copy of the mask's on the value's bindings, and the reads that use it.
+{$ include 'cellier_masked.value_access.wgsl' $}
+{$ include 'cellier.masked_value.wgsl' $}
+$$ endif
 $$ if render_mode == 'plane'
 {$ include 'cellier.render_planes.wgsl' $}
 $$ if slab_op != 'none'
@@ -616,9 +628,18 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         near_pos, ray_dir, inv_ray_dir, plane.t, t_end, norm_size, dataset_size);
     if (!plane_brick.valid) { discard; }
     let plane_pos = near_pos + ray_dir * plane.t;
+    $$ if masked
+    // A MaskedImage draws a band round the mask's contour, coloured by the
+    // value (masked image design 7.1): masked_value.wgsl.
+    let masked_plane = masked_plane_band(
+        plane_pos, plane_brick, plane.normal, norm_size, dataset_size);
+    if (!masked_plane.found) { discard; }
+    let plane_value = masked_plane.value;
+    $$ else
     let plane_value = sample_atlas(
         norm_to_voxel(plane_pos, norm_size, dataset_size),
         plane_brick.lut_entry, plane_brick.lod_scale, plane_brick.brick_corner_k);
+    $$ endif
     $$ endif
     // A value below the contrast limits is drawn, not skipped.
     let plane_color = sampled_value_to_color(vec4<f32>(plane_value, 0.0, 0.0, 1.0));
@@ -627,7 +648,12 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     $$ else
     let plane_physical = plane_color.rgb;
     $$ endif
+    $$ if masked and slab_op == 'none'
+    // The band's edges are antialiased by the pixel's share of it (7.3).
+    let plane_opacity = plane_color.a * u_material.opacity * masked_plane.coverage;
+    $$ else
     let plane_opacity = plane_color.a * u_material.opacity;
+    $$ endif
     do_alpha_test(plane_opacity);
     let plane_world = u_wobject.world_transform * vec4<f32>(plane_pos, 1.0);
     let plane_ndc = u_stdinfo.projection_transform * u_stdinfo.cam_transform * plane_world;
@@ -1029,7 +1055,20 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
 
     $$ else
     // ── Phong shading ──────────────────────────────────────────────────
+    $$ if masked
+    // The value along the surface normal (masked image design 6.2).  World
+    // and unit, not faced to the viewer: the surface normal points out of
+    // the object, but a clipping plane's points INTO the kept side
+    // (ray_clip.wgsl keeps dot(abc, p) >= d), so a cut face takes the
+    // opposite sign.
+    let masked_normal  = world_shading(normal * (dataset_size / norm_size), ray_dir).normal;
+    let masked_inward  = select(-masked_normal, masked_normal, on_cut_face);
+    let masked_sample  = masked_project(refined_pos, masked_inward);
+    if (!masked_sample.found) { discard; }
+    let the_value      = vec4<f32>(masked_sample.value, 0.0, 0.0, 1.0);
+    $$ else
     let the_value      = vec4<f32>(surface_density, 0.0, 0.0, 1.0);
+    $$ endif
     let color          = sampled_value_to_color(the_value);
     $$ if colorspace == 'srgb'
     let physical_color = srgb2physical(color.rgb);

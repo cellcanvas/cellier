@@ -59,7 +59,10 @@ def test_canvas_pick_info_reports_only_the_hit() -> None:
 
 
 def test_every_pick_event_shares_the_mouse_context_fields() -> None:
-    """Design 3.7: the six pick events differ only in ``pick_info``."""
+    """Design 3.7: the pick events differ only in ``pick_info``.
+
+    Seven: the six of design 3.7 and the MaskedImage's (masked image 9.3).
+    """
     expected = (
         "source_id",
         "scene_id",
@@ -74,7 +77,7 @@ def test_every_pick_event_shares_the_mouse_context_fields() -> None:
         "gesture_id",
         "pick_info",
     )
-    assert len(PICK_EVENT_TYPES) == 6
+    assert len(PICK_EVENT_TYPES) == 7
     for event_type in PICK_EVENT_TYPES:
         assert event_type._fields == expected, event_type.__name__
 

@@ -1103,7 +1103,7 @@ event type (press / move / release).
 
 Mouse events report *that* something was hit (`CanvasPickInfo.hit_visual_id`);
 typed pick events report *what* was hit.  There is one event per visual
-family, and all six share the mouse event's context fields -- `source_id`
+family, and all seven share the mouse event's context fields -- `source_id`
 (the canvas), `scene_id`, `visual_id`, `action`, `camera_type`,
 `world_coordinate` (2D) or `ray` (3D), `button`, `buttons`, `modifiers` and
 `gesture_id` -- apart from `pick_info`:
@@ -1111,6 +1111,7 @@ family, and all six share the mouse event's context fields -- `source_id`
 | Event | Visuals | `pick_info` |
 |---|---|---|
 | `ImagePickEvent` | `ImageVisual`, `MultiscaleImageVisual` | `ImagePickInfo` |
+| `MaskedImagePickEvent` | `MaskedImageVisual` | `MaskedImagePickInfo` |
 | `LabelsPickEvent` | `LabelMemoryVisual`, `MultiscaleLabelVisual` | `LabelsPickInfo` |
 | `PointsPickEvent` | `PointsVisual` | `PointsPickInfo` |
 | `LinesPickEvent` | `LinesVisual` | `LinesPickInfo` |
@@ -1146,6 +1147,16 @@ picked voxel.  A visual without a channel axis reports `{0: value}`; single
 mode reports its drawn channel; composite mode reports every drawn (visible)
 channel on a 2D canvas and only the pick-buffer winner's channel on a 3D
 canvas.  `LabelsPickInfo.value` is the label id at the picked voxel.
+
+A MaskedImage emits `MaskedImagePickEvent` only.  Its `MaskedImagePickInfo`
+holds the hit in the mask's data coordinates and in the value's
+(`data_coordinate`, `value_coordinate`), the mask and the value there
+(`mask_value`, `surface_value`) and `projected_value`: in 3D the max, mean
+or min of the value along the inward normal over the placed thickness, as
+the surface is coloured, and in 2D the value at the hit.  All are level-0
+nearest-voxel reads, in two passes (the mask and its normal, then the value),
+so a pick can differ slightly from a colour drawn from a coarse level or by
+linear interpolation.
 
 Detail extraction is **gated**: it runs only while a canvas has at least one
 `on_pick` subscriber (`RenderManager.set_pick_details_enabled`, driven by the

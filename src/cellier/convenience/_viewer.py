@@ -52,7 +52,7 @@ if TYPE_CHECKING:
     from cellier.render._config import RenderManagerConfig
     from cellier.scene._background import BackgroundAppearance
     from cellier.scene.scene import Scene
-    from cellier.transform import AxisRef, BaseTransform
+    from cellier.transform import AffineTransform, AxisRef, BaseTransform
     from cellier.visuals import ClippingPlane, RenderPlane
     from cellier.visuals._base_visual import VisualOutline
     from cellier.visuals._graph_memory import (
@@ -87,6 +87,12 @@ if TYPE_CHECKING:
     )
     from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
     from cellier.visuals._loading import GeometryLodConfig, ProgressiveLoadingConfig
+    from cellier.visuals._masked_image import (
+        MaskedImageAppearance,
+        MaskedImageRenderConfig,
+        MaskedImageSingleAppearance,
+        MaskedImageVisual,
+    )
     from cellier.visuals._mesh_memory import (
         MeshAppearance,
         MeshSectionConfig,
@@ -2049,6 +2055,94 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             pick_write=pick_write,
             clipping_planes=clipping_planes,
             render_planes=render_planes,
+        )
+        self._store_controls([visual.id], controls)
+        return visual
+
+    def add_masked_image(
+        self,
+        mask: BaseDataStore | UUID,
+        value: BaseDataStore | UUID,
+        value_to_mask: AffineTransform | np.ndarray | None = None,
+        transform: AffineTransform | None = None,
+        appearance: MaskedImageAppearance | None = None,
+        single: MaskedImageSingleAppearance | None = None,
+        render_config: MaskedImageRenderConfig | None = None,
+        name: str = "masked image",
+        controls: list[Control] | None = None,
+        *,
+        outline: VisualOutline | None = None,
+        ambient_occlusion: bool | None = None,
+        pick_write: bool = True,
+        clipping_planes: Sequence[ClippingPlane] = (),
+    ) -> MaskedImageVisual:
+        """Add a MaskedImage: a mask's isosurface coloured by a value image.
+
+        The surface is found and lit in *mask* at ``single.iso_threshold``
+        and coloured from *value*.  In 3D the colour is the max, mean or min
+        of the value along the surface normal over ``single.surface_thickness``;
+        in 2D the thickness is the width of a contour band, each pixel
+        showing its own value.  See
+        :meth:`cellier.controller.CellierController.add_masked_image`.
+
+        Parameters
+        ----------
+        mask : BaseDataStore or UUID
+            The image whose isosurface is drawn, in memory or multiscale, or
+            the UUID of a registered store.
+        value : BaseDataStore or UUID
+            The image the surface is coloured from, in memory or multiscale,
+            on its own grid, or the UUID of a registered store.
+        value_to_mask : AffineTransform, array-like or None
+            Value level-0 data coordinates to mask level-0 data coordinates.
+            ``None`` (default): the two share a grid.
+        transform : AffineTransform or None
+            The mask's data-to-world transform; the value follows it.
+            Defaults to the identity.
+        appearance : MaskedImageAppearance or None
+            Shared appearance, including each image's level of detail.
+        single : MaskedImageSingleAppearance or None
+            The surface's appearance: the value's colour map, ``clim`` and
+            opacity, the mask's ``iso_threshold``, and the thickness and band
+            fields.
+        render_config : MaskedImageRenderConfig or None
+            Block size and each image's GPU budget (1,100 MiB each by
+            default, allocated whatever the image's size).
+        name : str
+            Human-readable label.  Default ``"masked image"``.
+        controls : list[Control] or None
+            The controls to show for this visual in the layout's docks, in
+            the order of the list.  ``ImageControl(fields=[...])`` takes the
+            surface and band rows (``surface_thickness``,
+            ``surface_placement``, ``surface_projection``,
+            ``surface_min_width_px``, ``band_rays``, ``band_cap``) and the
+            3D ``target_bricks`` row beside ``visible``, ``color_map``,
+            ``clim``, ``opacity`` and ``iso_threshold``.  ``None``
+            (default) or an empty list shows none.
+        outline, ambient_occlusion, pick_write, clipping_planes
+            As :meth:`add_image_multiscale`; clipping planes are in the
+            mask store's level-0 data coordinates.
+
+        Returns
+        -------
+        MaskedImageVisual
+        """
+        controls = validate_controls(controls, "masked_image", name)
+        self._check_controls_docks(controls, name)
+        visual = self._controller.add_masked_image(
+            self._resolve_data_store(mask),
+            self._resolve_data_store(value),
+            self._scene.id,
+            value_to_mask=value_to_mask,
+            transform=transform,
+            appearance=appearance,
+            single=single,
+            render_config=render_config,
+            name=name,
+            outline=outline,
+            ambient_occlusion=ambient_occlusion,
+            pick_write=pick_write,
+            clipping_planes=clipping_planes,
         )
         self._store_controls([visual.id], controls)
         return visual

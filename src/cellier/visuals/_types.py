@@ -11,12 +11,14 @@ from cellier.visuals._image_memory import ImageVisual
 from cellier.visuals._label_memory import LabelMemoryVisual
 from cellier.visuals._labels import MultiscaleLabelVisual
 from cellier.visuals._lines_memory import LinesVisual
+from cellier.visuals._masked_image import MaskedImageVisual
 from cellier.visuals._mesh_memory import MeshVisual, MultiscaleMeshVisual
 from cellier.visuals._points_memory import PointsVisual
 
 VisualType = Annotated[
     Union[
         MultiscaleImageVisual,
+        MaskedImageVisual,
         ImageVisual,
         LabelMemoryVisual,
         MultiscaleLabelVisual,

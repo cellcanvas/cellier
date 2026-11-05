@@ -616,6 +616,9 @@ class MultiscaleVolumeBrickShader(BaseVolumeShader):
         self["slice_2d"] = bool(getattr(material, "slice_2d", False))
         # Slab projection: "none" compiles the slab loop out.
         self["slab_op"] = str(getattr(material, "slab_op", "none"))
+        # A MaskedImage's mask material sets it (masked image design 6.1);
+        # false compiles every masked branch out, to the original text.
+        self["masked"] = False
         # Default for the ``normal`` render target.  ``write_normal`` is
         # overridden by CellierBlender.get_shader_kwargs when the target
         # exists; without it the write compiles away, so the same shader
