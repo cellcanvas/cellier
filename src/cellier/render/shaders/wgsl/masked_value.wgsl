@@ -299,7 +299,9 @@ fn mask_cell_skips(c: MaskCell, inside: bool) -> bool {
     let range = textureLoad(t_mask_range, c.cell, 0);
     if (range.z != f32(c.lut.w)) { return false; }
     let iso = u_material.threshold;
-    return select(range.y < iso, range.x >= iso, inside);
+    // Parenthesised: naga >= wgpu 0.32 reads `y < iso, range.x >` as a
+    // template list.
+    return select((range.y < iso), (range.x >= iso), inside);
 }
 
 // The read at p is the data's own: within the level's voxel centres on every
