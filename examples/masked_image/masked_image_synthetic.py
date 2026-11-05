@@ -10,9 +10,8 @@
 """A MaskedImage rendering of an ellipsoid structure.
 
 The mask is the ellipsoid's distance map and the value is a set of concentric
-bands, so the iso threshold lights a surface of one band.  Run the file to open
-the viewer; :func:`build_masked` takes the scene's options as keyword
-arguments for tests and scripts.
+bands. Changing the threshold value, "slices" through different layers
+by selecting different distance values for the surface.
 """
 
 from __future__ import annotations
