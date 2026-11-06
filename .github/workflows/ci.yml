@@ -164,9 +164,13 @@ jobs:
       # The windows runners ship no Vulkan driver (the loader is there, but finds
       # no ICD). This installs lavapipe and registers its ICD under
       # HKLM\SOFTWARE\Khronos\Vulkan\Drivers, so WGPU_BACKEND_TYPE=Vulkan resolves.
+      #
+      # Pinned to v1.7.0: from v1.8.0 (keepAlive on its downloads) the step
+      # sits idle for about 3 minutes after it prints "Done." (PR 131's runs);
+      # v1.7.0 took 37 to 44 s.
       - name: Install lavapipe for offscreen canvas
         if: matrix.platform == 'windows-latest'
-        uses: jakoch/install-vulkan-sdk-action@v1
+        uses: jakoch/install-vulkan-sdk-action@d17de7e2f5e50efb5d2123efed18497d3c58c533 # v1.7.0
         with:
           install_lavapipe: true
           stripdown: true
