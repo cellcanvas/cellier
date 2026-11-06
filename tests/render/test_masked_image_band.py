@@ -318,7 +318,11 @@ def test_an_in_memory_side_reads_as_a_one_level_store(tmp_path, view):
     memory = _memory_or_lazy(tmp_path / "m", "memory", view)
     lazy = _memory_or_lazy(tmp_path / "l", "lazy", view)
     assert band.drawn(memory).sum() > 1000
-    np.testing.assert_array_equal(memory, lazy)
+    # Within one code: a lazy store's bricks land in atlas slots in the order
+    # their reads finish, and a read at another atlas coordinate can round
+    # the other way (two lazy runs of the tilted view differ by a pixel about
+    # half the time).  A wrong reading rule moves whole edges.
+    np.testing.assert_allclose(memory.astype(int), lazy.astype(int), rtol=0, atol=1)
 
 
 def test_the_data_edge_follows_the_tile_rule(tmp_path):

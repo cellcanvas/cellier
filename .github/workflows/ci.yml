@@ -265,9 +265,49 @@ jobs:
 
       # A run that hangs (in the driver, or on exit) fails here, not at the
       # 6 hour job limit.
+      #
+      # pytest-xdist runs the files in parallel, one worker per core on the
+      # 4-core Ubuntu and Windows runners. Windows lavapipe rasterises on the
+      # calling thread (LP_NUM_THREADS=0, above), so serially three of its four
+      # cores sat idle. macOS gets 2: its runner has 3 cores and 7 GB, and a
+      # worker peaked at 3 GB locally. loadfile keeps each file on one worker,
+      # so module-scoped fixtures (the masked image tests' shared scenes) are
+      # still built once. Locally (10 cores) 4 workers took the suite from 150 s
+      # to 64 s; every worker collects the whole suite first.
+      #
+      # --junitxml keeps every test's time (setup, call and teardown), and the
+      # worker that ran it; "Test timings" below summarises it.
       - name: 🧪 Run Tests
         timeout-minutes: 45
-        run: pytest --color=yes --durations=25 --cov --cov-report=xml --cov-report=term-missing
+        run: >-
+          pytest --color=yes --durations=25
+          -n ${{ matrix.platform == 'macos-latest' && '2' || '4' }} --dist loadfile
+          --junitxml=test-results.xml
+          --cov --cov-report=xml --cov-report=term-missing
+
+      # Wall time, time per xdist worker, and the slowest files and tests, on
+      # the job's summary page; the junit file is the artifact
+      # test-timings-<platform>-py<version> (scripts/ci_profiling/compare.py
+      # reads the same format). Also after a failed run: a slow failure is
+      # still worth timing.
+      - name: Test timings
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          if [ -f test-results.xml ]; then
+            python scripts/ci_profiling/timing_summary.py test-results.xml | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "no test-results.xml: the test step did not get far enough to write it"
+          fi
+
+      - name: Upload test timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-timings-${{ matrix.platform }}-py${{ matrix.python-version }}
+          path: test-results.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
       # What "Native stack dump tools" caught, in the log and as an artifact
       # (the .dmp minidumps open in WinDbg).

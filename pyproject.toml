@@ -73,6 +73,7 @@ test = [
     "pytest-cov",
     "pytest-qt",
     "pytest-timeout",
+    "pytest-xdist",
 ]
 # add anything else you like to have in your dev environment here
 dev = [
