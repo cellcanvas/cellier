@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pygfx as gfx
@@ -1636,6 +1636,12 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
     #: Applies the image slicing rule (design 3.2) itself, so the scene
     #: manager's data-coverage pre-check does not skip it.
     decides_empty_slices: bool = True
+    #: The 3D node's material class; a MaskedImage's mask side builds its own
+    #: (masked image design 5.1).
+    _material_3d_class: type = MultiscaleVolumeBrickMaterial
+    #: Whether the 3D atlas paints only the current slice's bricks (masked
+    #: image design 8.5).  An image keeps showing earlier views.
+    _current_slice_only: bool = False
 
     def __init__(
         self,
@@ -2604,6 +2610,14 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         # the backstop has taken its share (design 5.3).
         return brick_arr
 
+    def _make_cell_ranges(self) -> Any:
+        """A new atlas's per-cell range table; an image keeps none (7.4)."""
+        return None
+
+    def _make_surface_map(self) -> Any:
+        """A new atlas's coarse-level copy; an image keeps none (8.3)."""
+        return None
+
     def residency_3d(self) -> ImageResidency3D | None:
         """The chunk scheduler's adapter for this slot's 3D atlas.
 
@@ -2638,6 +2652,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                 self._ndim,
                 brick_max=_brick_max_image,
                 on_write=self._on_brick_written_3d,
+                current_slice_only=self._current_slice_only,
+                cell_ranges=self._make_cell_ranges(),
+                surface_map=self._make_surface_map(),
             )
             self._residency_3d = residency
             if len(self._last_displayed_axes or ()) == 3:
@@ -3175,7 +3192,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         proxy_data = np.zeros((2, 2, 2), dtype=np.float32)
         proxy_tex = gfx.Texture(proxy_data, dim=3)
 
-        material = MultiscaleVolumeBrickMaterial(
+        material = self._material_3d_class(
             cache_texture=self._block_cache_3d.cache_tex,
             lut_texture=self._lut_manager_3d.lut_tex,
             brick_max_texture=self._lut_manager_3d.brick_max_tex,
@@ -3361,6 +3378,9 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     #: Applies the image slicing rule (design 3.2) itself, so the scene
     #: manager's data-coverage pre-check does not skip it.
     decides_empty_slices: bool = True
+    #: The slot class the pool is built from; a MaskedImage's mask side
+    #: builds its own (masked image design 5.1).
+    _slot_class: type = _MultiscaleImageSlot
 
     def __init__(
         self,
@@ -3409,7 +3429,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 self._last_displayed_axes,
                 config.block_size,
             )
-            slot = _MultiscaleImageSlot(
+            slot = self._slot_class(
                 visual_model_id=visual_model.id,
                 volume_geometry=volume_geometry,
                 image_geometry_2d=image_geometry_2d,
@@ -4118,6 +4138,9 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                         else target_room(planner.residency_3d(), backstop, loading)
                     ),
                 )
+                if not slice_node:
+                    fill = {self._channel_axis: keys[0]} if self._composite() else None
+                    arr = self._filter_target_3d(planner, arr, config, fill)
         base_coord = planner._block_key_slice_coord()
         composite = self._composite()
         n_target = 0 if arr is None else len(arr)
@@ -4140,6 +4163,37 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         log_backstop_cap_once(self, desired)
         log_intermediate_cap_once(self, desired)
         return desired
+
+    def _filter_target_3d(
+        self,
+        planner: _MultiscaleImageSlot,
+        arr: np.ndarray,
+        config: VisualRenderConfig,
+        fill: dict[int, int] | None,
+    ) -> np.ndarray | None:
+        """Filter a 3D target plan; an image keeps every brick.
+
+        The hook a MaskedImage's ``target_bricks="surface"`` overrides
+        (masked image design 8.3).  Called on a full plan of a 3D view only
+        (not the 2D slice node), before truncation.
+
+        Parameters
+        ----------
+        planner : _MultiscaleImageSlot
+            The planning slot.
+        arr : np.ndarray
+            ``_plan_bricks``'s ``(N, 4)`` rows, in fetch order.
+        config : VisualRenderConfig
+            The plan's render config.
+        fill : dict[int, int] or None
+            The first drawn slot's selection overrides.
+
+        Returns
+        -------
+        np.ndarray or None
+            The rows to keep, in order; ``None`` plans no target.
+        """
+        return arr
 
     def _plane_planning(
         self, planner: _MultiscaleImageSlot, key: int

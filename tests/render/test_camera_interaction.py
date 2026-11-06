@@ -265,17 +265,30 @@ class Rig:
         """
         self.submit("pointer_down", canvas=canvas, button=1, buttons=(1,))
         self.step()
-        x = 100.0
-        for _ in range(moves):
-            x += 6.0
-            self.submit("pointer_move", canvas=canvas, x=x, buttons=(1,))
-            self.step()
+        x = self.move_now(moves, canvas=canvas)
         idle = 0
         for _ in range(400 if tail else 0):
             self.step()
             idle = 0 if any(self.changed) else idle + 1
             if idle >= 5:
                 break
+        return x
+
+    def move_now(
+        self, moves: int = 1, *, canvas: int = 0, start: float = 100.0
+    ) -> float:
+        """Move with the button down without yielding to the event loop.
+
+        :meth:`move` awaits each frame, so with a short real-time settle
+        threshold a frame slower than it (a busy CI worker drawing on a
+        software GPU) lets the stillness timer end the motion between two
+        moves.  As in :meth:`press_and_move_now`, the timer cannot fire here.
+        """
+        x = start
+        for _ in range(moves):
+            x += 6.0
+            self.submit("pointer_move", canvas=canvas, x=x, buttons=(1,))
+            self.step()
         return x
 
     async def release(self, x: float, *, canvas: int = 0) -> None:
@@ -469,11 +482,13 @@ async def test_a_drag_held_still_settles_and_moving_again_starts_again(make_rig)
     await asyncio.sleep(0)
     assert len(rig.reslices) == 1
 
-    x = await rig.move(2, start=x)
+    # Without yielding: a frame slower than the 50 ms threshold would let the
+    # timer settle the motion again before the long threshold is armed.
+    x = rig.move_now(2, start=x)
     assert rig.events[-1] == (0, "start", None)
     assert rig.view.camera_moving is True
     rig.controller._render_manager.config.camera.settle_threshold_s = NO_SETTLE
-    await rig.move(1, start=x)  # re-arm with the long settle time
+    rig.move_now(1, start=x)  # re-arm with the long settle time
     await rig.release(x + 6.0)
     assert rig.events[-1] == (0, "end", "release")
     assert len(rig.reslices) == 2

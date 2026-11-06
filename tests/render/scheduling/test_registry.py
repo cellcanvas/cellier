@@ -202,3 +202,54 @@ def test_paint_groups_keeping_is_the_foreground_alone_once_complete() -> None:
     assert n_background == 0
     assert [view.key[g].tolist() for g in groups] == [[4, 5, 6]]
     assert groups[0].tolist() == view.paint_groups()[0].tolist()
+
+
+# -- paint_groups_current_slice (masked image design 8.5) ---------------------
+
+
+def test_current_slice_drops_another_slices_background() -> None:
+    view = _view(
+        [
+            (1, R, RC, 5, 2),  # the old time point: never painted
+            (2, R, RC, 8, 4),  # the current slice, an earlier view: kept
+            (3, R, V, 8, 9),  # foreground
+            (4, Q, V, 8, 9),  # not resident
+        ],
+        complete=False,
+    )
+    levels = np.ones(4, np.int64)
+    groups = [view.key[g].tolist() for g in view.paint_groups_current_slice(levels)]
+    assert groups == [[2], [3]]
+
+
+def test_current_slice_compares_per_level() -> None:
+    """One selection id can mean different positions at two levels."""
+    view = _view(
+        [
+            (1, R, RC, 8, 2),  # slice 8 at level 2: not the level wanted
+            (2, R, RC, 8, 4),  # slice 8 at level 1: kept
+            (3, R, V, 8, 9),  # foreground, level 1
+        ],
+        complete=False,
+    )
+    levels = np.array([2, 1, 1], np.int64)
+    groups = [view.key[g].tolist() for g in view.paint_groups_current_slice(levels)]
+    assert groups == [[2], [3]]
+
+
+def test_current_slice_with_no_background_is_the_foreground() -> None:
+    view = _view([(1, R, RC, 5, 2), (3, R, V, 8, 9)], complete=False)
+    groups = view.paint_groups_current_slice(np.ones(2, np.int64))
+    assert [view.key[g].tolist() for g in groups] == [[3]]
+
+
+def test_current_slice_once_complete_is_the_foreground() -> None:
+    view = _view([(2, R, RC, 8, 4), (3, R, V, 8, 9)], complete=True)
+    groups = view.paint_groups_current_slice(np.ones(2, np.int64))
+    assert [view.key[g].tolist() for g in groups] == [[3]]
+
+
+def test_current_slice_with_nothing_resident_draws_nothing() -> None:
+    view = _view([(1, R, RC, 5, 2), (3, Q, V, 8, 9)], complete=False)
+    groups = view.paint_groups_current_slice(np.ones(2, np.int64))
+    assert sum(len(g) for g in groups) == 0

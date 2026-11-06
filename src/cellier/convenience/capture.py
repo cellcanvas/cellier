@@ -151,17 +151,22 @@ async def _wait_for_slicer(controller: object) -> None:
     render_manager = controller._render_manager
     slicer = render_manager._slicer
     deferred = getattr(controller, "_deferred_reslice_tasks", list)
-    for _ in range(50):
-        pending = deferred()
-        if not pending:
+    # A drain can queue a reslice of its own (a MaskedImage's surface target
+    # re-plans once its backstop lands), so go round until none is left.
+    for _ in range(10):
+        for _ in range(50):
+            pending = deferred()
+            if not pending:
+                break
+            await asyncio.gather(*pending, return_exceptions=True)
+        for _ in range(50):
+            tasks = list(slicer._tasks.values())
+            if not tasks:
+                break
+            await asyncio.gather(*tasks)
+        await render_manager.scheduler.drain(commit=True)
+        if not deferred():
             break
-        await asyncio.gather(*pending, return_exceptions=True)
-    for _ in range(50):
-        tasks = list(slicer._tasks.values())
-        if not tasks:
-            break
-        await asyncio.gather(*tasks)
-    await render_manager.scheduler.drain(commit=True)
 
 
 async def _load_data(viewer: object) -> None:

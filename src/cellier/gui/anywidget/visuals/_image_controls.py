@@ -30,6 +30,7 @@ from cellier.gui._appearance_fields import VisualIdGroup
 from cellier.gui._image_controls import (
     ATTENUATION_MODES,
     INBOUND_EVENT_TYPES,
+    MIN_WIDTH_RANGE,
     THRESHOLD_MODES,
     displayed_dimensions,
     image_update_event,
@@ -102,6 +103,20 @@ class AnywidgetImageControls(VisualIdGroup, anywidget.AnyWidget):
     #: the field list asks for them (oblique 2D design v3, 4.2).
     projection = traitlets.Dict({}).tag(sync=True)
     """How many dimensions the scene displays (2 or 3).  Python to JS only."""
+    masked = traitlets.Bool(False).tag(sync=True)
+    """Whether the control drives a MaskedImage (its own row rule)."""
+    labels = traitlets.Dict({}).tag(sync=True)
+    """Row label overrides, field to label (a MaskedImage's units)."""
+    threshold_range = traitlets.List([]).tag(sync=True)
+    """Threshold slider bounds; empty uses ``clim_range``."""
+    thickness_range = traitlets.List([0.0, 10.0]).tag(sync=True)
+    """A MaskedImage's thickness slider bounds, world units."""
+    min_width_range = traitlets.List(list(MIN_WIDTH_RANGE)).tag(sync=True)
+    """A MaskedImage's minimum band width bounds and step, pixels."""
+    int_ranges = traitlets.Dict({}).tag(sync=True)
+    """A MaskedImage's integer rows' bounds, field to ``[min, max]``."""
+    choices = traitlets.Dict({}).tag(sync=True)
+    """A MaskedImage's choice rows' options, field to list."""
 
     @traitlets.validate("n_displayed_dimensions")
     def _validate_n_displayed_dimensions(self, proposal):
@@ -137,6 +152,13 @@ class AnywidgetImageControls(VisualIdGroup, anywidget.AnyWidget):
             attenuation_modes=list(values.get("attenuation_modes", ATTENUATION_MODES)),
             n_displayed_dimensions=n_displayed_dimensions,
             projection=dict(values.get("projection") or {}),
+            masked=bool(values.get("masked", False)),
+            labels=dict(values.get("labels") or {}),
+            threshold_range=list(values.get("threshold_range") or []),
+            thickness_range=list(values.get("thickness_range") or [0.0, 10.0]),
+            min_width_range=list(values.get("min_width_range") or MIN_WIDTH_RANGE),
+            int_ranges=dict(values.get("int_ranges") or {}),
+            choices=dict(values.get("choices") or {}),
             **kwargs,
         )
         self._scene_ids = tuple(scene_ids)

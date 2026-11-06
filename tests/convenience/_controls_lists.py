@@ -32,7 +32,7 @@ from cellier.convenience.gui._controls_config import (
 )
 from cellier.data._dataset_info import DatasetInfo, RowSection
 
-IMAGE_KINDS = ("image", "multiscale_image")
+IMAGE_KINDS = ("image", "multiscale_image", "masked_image")
 
 
 _PHONG_ONLY = ("shininess", "flat_shading")

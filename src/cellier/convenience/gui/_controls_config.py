@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 VisualKind = Literal[
     "image",
     "multiscale_image",
+    "masked_image",
     "labels",
     "multiscale_labels",
     "mesh",
@@ -105,7 +106,11 @@ class ImageControl(Control):
         Required and not empty.  The list chooses rows; it does not order
         them: the control has its own layout.  Names: ``visible``,
         ``opacity``, ``color_map``, ``clim``, ``render_mode``,
-        ``iso_threshold``, and on a multiscale image ``attenuation``.
+        ``iso_threshold``, and on a multiscale image ``attenuation``.  A
+        MaskedImage has no ``render_mode`` or ``attenuation`` and adds
+        ``surface_thickness``, ``surface_placement``,
+        ``surface_projection`` (shown in 3D), and the 2D band's
+        ``surface_min_width_px``, ``band_rays`` and ``band_cap``.
     colormap_names : list[str] or None
         Names available in the colormap dropdowns.  A curated list when
         ``None``.
@@ -119,6 +124,15 @@ class ImageControl(Control):
         Decimal places shown for values in data units: the contrast limits
         and the iso threshold.  Default 2.  Set it to suit the data, e.g. 0
         for integer images; fractions such as opacity always show 2.
+    threshold_range : tuple[float, float] or None
+        ``(min, max)`` bounds of the iso-threshold slider.  ``None`` uses
+        the contrast limits' bounds, which are in the same units, except on
+        a MaskedImage: its threshold is in the mask's units, and ``None``
+        gives a window of ``max(1, |t|)`` either side of the threshold ``t``.
+    thickness_range : tuple[float, float] or None
+        ``(min, max)`` bounds of a MaskedImage's thickness slider, in world
+        units.  ``None`` gives ``(0, max(10, 4 * thickness))``.  Ignored on
+        other images.
     """
 
     fields: list[str]
@@ -126,6 +140,8 @@ class ImageControl(Control):
     clim_range: tuple[float, float] | None = None
     channel_labels: dict[int, str] | None = None
     decimals: int = 2
+    threshold_range: tuple[float, float] | None = None
+    thickness_range: tuple[float, float] | None = None
 
     def __post_init__(self) -> None:
         """Check the shape of ``fields`` and ``decimals``."""
@@ -363,9 +379,28 @@ _MESH_FIELDS: dict[str, str] = {
     "flat_shading": "flat_shading",
 }
 
+_MASKED_IMAGE_FIELDS: dict[str, str] = {
+    "visible": "image",
+    "opacity": "image",
+    "color_map": "image",
+    "clim": "image",
+    "iso_threshold": "image",
+    # The surface (masked image design 10) and the 2D band (4.1, 7.2).
+    "surface_thickness": "image",
+    "surface_placement": "image",
+    "surface_projection": "image",
+    "surface_min_width_px": "image",
+    "band_rays": "image",
+    "band_cap": "image",
+    # 3D target loading (8.3).
+    "target_bricks": "image",
+}
+
 FIELD_KINDS: dict[str, dict[str, str]] = {
     "image": _IMAGE_FIELDS,
     "multiscale_image": {**_IMAGE_FIELDS, "attenuation": "image"},
+    # No render mode (always iso), attenuation or slab projection.
+    "masked_image": _MASKED_IMAGE_FIELDS,
     "labels": _LABELS_FIELDS,
     "multiscale_labels": _LABELS_FIELDS,
     "mesh": _MESH_FIELDS,
@@ -435,6 +470,14 @@ ALLOWED_CONTROLS: dict[str, tuple[type[Control], ...]] = {
         LoadingConfigControl,
         *_COMMON_CONTROLS,
     ),
+    # No render planes: a MaskedImage refuses them (masked image design 4.3).
+    "masked_image": (
+        ImageControl,
+        LevelOfDetailControl,
+        LoadingIndicator,
+        LoadingConfigControl,
+        *_COMMON_CONTROLS,
+    ),
     "labels": (
         FieldControls,
         LevelOfDetailControl,
@@ -468,6 +511,7 @@ ALLOWED_CONTROLS: dict[str, tuple[type[Control], ...]] = {
 _ADD_METHODS: dict[str, str] = {
     "image": "add_image",
     "multiscale_image": "add_image_multiscale",
+    "masked_image": "add_masked_image",
     "labels": "add_labels",
     "multiscale_labels": "add_labels_multiscale",
     "mesh": "add_mesh",

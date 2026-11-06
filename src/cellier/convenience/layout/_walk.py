@@ -201,6 +201,7 @@ def build_appearance_widgets(
         controls,
         _resolve_data_store(controller, visual),
         palette=controller.render_config.outline.palette,
+        value_store=_resolve_data_store(controller, visual, "value_store_id"),
     )
     warn_skipped_appearance_fields(skipped, visual)
     # Every visual the controls write to: one on a ``Viewer``, a group of

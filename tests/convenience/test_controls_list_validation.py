@@ -33,12 +33,14 @@ from cellier.convenience.gui._controls_config import (
 )
 
 KINDS = list(ALLOWED_CONTROLS)
-IMAGE_KINDS = ["image", "multiscale_image"]
+IMAGE_KINDS = ["image", "multiscale_image", "masked_image"]
 FIELD_CONTROL_KINDS = [kind for kind in KINDS if kind not in IMAGE_KINDS]
 MULTISCALE_VOLUME_KINDS = ["multiscale_image", "multiscale_labels"]
 #: The kinds with levels of detail: the multiscale volumes, and the in-memory
-#: image and labels, whose brick route has levels (oblique 2D design v3, U1).
-LOD_KINDS = [*MULTISCALE_VOLUME_KINDS, "image", "labels"]
+#: image and labels, whose brick route has levels (oblique 2D design v3, U1),
+#: and a MaskedImage, whose two images each have their own (masked image
+#: design 4.5).
+LOD_KINDS = [*MULTISCALE_VOLUME_KINDS, "image", "labels", "masked_image"]
 
 ALL_CONTROLS = [
     ImageControl,
@@ -77,10 +79,11 @@ def _field_item(kind: str, fields: list[str]) -> Control:
 # ---------------------------------------------------------------------------
 
 
-def test_there_are_nine_visual_kinds_and_fifteen_models():
+def test_there_are_ten_visual_kinds_and_fifteen_models():
     assert KINDS == [
         "image",
         "multiscale_image",
+        "masked_image",
         "labels",
         "multiscale_labels",
         "mesh",

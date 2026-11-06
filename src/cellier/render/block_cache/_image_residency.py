@@ -50,6 +50,8 @@ if TYPE_CHECKING:
 
     from cellier.render.block_cache._block_cache import BlockCache3D
     from cellier.render.block_cache._block_cache_2d import BlockCache2D
+    from cellier.render.block_cache._cell_ranges import CellRanges
+    from cellier.render.block_cache._surface_map import SurfaceMap
     from cellier.render.lut_indirection import LutIndirectionManager3D
     from cellier.render.lut_indirection._lut_indirection_manager_2d import (
         LutIndirectionManager2D,
@@ -428,6 +430,18 @@ class ImageResidency3D(_AtlasResidency):
     on_write : Callable[[], None] or None
         Called after every brick write (the visual reveals its bounding box
         on the first).
+    current_slice_only : bool
+        Paint no brick of another slice, even while the current one loads
+        (masked image design 8.5).  Default ``False``: an image keeps showing
+        earlier views under the current one.
+    cell_ranges : CellRanges or None
+        A MaskedImage's mask keeps each brick's range and repaints the
+        per-cell table with the LUT (masked image design 7.4).  Default
+        ``None``: an image keeps no ranges.
+    surface_map : SurfaceMap or None
+        A MaskedImage's mask copies each brick of its coarse level into the
+        map ``target_bricks="surface"`` plans from (masked image design 8.3).
+        Default ``None``: an image keeps no copy.
 
     Attributes
     ----------
@@ -448,6 +462,9 @@ class ImageResidency3D(_AtlasResidency):
         level_translations: np.ndarray,
         brick_max: Callable[[np.ndarray], float] = _max_value,
         on_write: Callable[[], None] | None = None,
+        current_slice_only: bool = False,
+        cell_ranges: CellRanges | None = None,
+        surface_map: SurfaceMap | None = None,
     ) -> None:
         super().__init__(
             block_cache,
@@ -458,6 +475,12 @@ class ImageResidency3D(_AtlasResidency):
             on_write=on_write,
         )
         self._brick_max_fn = weak_callback(brick_max, dead_result=0.0)
+        #: Paint only the current slice's bricks (masked image design 8.5).
+        self.current_slice_only = bool(current_slice_only)
+        #: The per-cell range table, or None (masked image design 7.4).
+        self.cell_ranges = cell_ranges
+        #: The coarse mask for the surface filter, or None (design 8.3).
+        self.surface_map = surface_map
         side = int(block_cache.info.grid_side)
         flat = np.arange(1, self.n_slots + 1)
         sz, rem = np.divmod(flat, side * side)
@@ -471,17 +494,34 @@ class ImageResidency3D(_AtlasResidency):
         """Upload a padded brick into scheduler slot *slot*."""
         data = np.asarray(data)
         self.brick_max[slot] = self._brick_max_fn(data)
+        if self.cell_ranges is not None:
+            self.cell_ranges.record(slot, key, data)
+        if self.surface_map is not None:
+            levels, sids, grids = unpack_keys(np.asarray([key], dtype=np.int64))
+            self.surface_map.record(
+                self.selection(int(sids[0])), int(levels[0]), grids[0], data
+            )
         grid_pos = tuple(int(v) for v in self.slot_grid[slot])
         self.block_cache.write_brick(TileSlot(index=slot + 1, grid_pos=grid_pos), data)
         if self._on_write is not None:
             self._on_write()
 
     def rebuild_draw(self, view: RegistryView) -> None:
-        """Paint the LUT: background oldest first, then the foreground (5.8)."""
-        keys, slots, levels, grids, phases = self._drawn(view)
+        """Paint the LUT: background oldest first, then the foreground (5.8).
+
+        With ``current_slice_only`` the background is only the current
+        slice's earlier bricks (:meth:`RegistryView.paint_groups_current_slice`).
+        """
+        groups = None
+        if self.current_slice_only:
+            levels, _, _ = unpack_keys(np.asarray(view.key, dtype=np.int64))
+            groups = view.paint_groups_current_slice(levels)
+        keys, slots, levels, grids, phases = self._drawn(view, groups)
         slot_grid = self.slot_grid[slots] if len(slots) else np.empty((0, 3), np.int64)
         brick_max = self.brick_max[slots] if len(slots) else np.empty(0, np.float32)
         self.lut_manager.paint(levels, grids, slot_grid, brick_max, phases)
+        if self.cell_ranges is not None:
+            self.cell_ranges.repaint(self.lut_manager.lut_data)
         self.block_cache.tile_manager.tilemap = _DrawnView(
             keys, slots, self._slice_coords(), slot_grid, brick_max
         )

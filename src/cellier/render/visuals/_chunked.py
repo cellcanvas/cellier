@@ -8,7 +8,7 @@ planner never touches the atlas or the LUT (invariant 10).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -58,6 +58,9 @@ def make_residency_3d(
     ndim: int,
     brick_max: Callable[[np.ndarray], float],
     on_write: Callable[[], None] | None,
+    current_slice_only: bool = False,
+    cell_ranges: Any = None,
+    surface_map: Any = None,
 ) -> ImageResidency3D:
     """An adapter over *block_cache* and *lut_manager*, with a fresh cache id."""
     from cellier.render.visuals._image import _level_scale_and_translation
@@ -73,6 +76,9 @@ def make_residency_3d(
         np.asarray(translations),
         brick_max=brick_max,
         on_write=on_write,
+        current_slice_only=current_slice_only,
+        cell_ranges=cell_ranges,
+        surface_map=surface_map,
     )
 
 

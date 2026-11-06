@@ -1,6 +1,7 @@
 """Test fixtures for Cellier."""
 
 import asyncio
+import os
 import sys
 import weakref
 
@@ -44,6 +45,20 @@ def pytest_report_header(config):
     if cov is None:
         return None
     return f"coverage core: {dict(cov.sys_info()).get('core')}"
+
+
+def pytest_runtest_setup(item):
+    """Tag each test with the pytest-xdist worker that ran it.
+
+    The tag lands in ``--junitxml`` as a ``xdist_worker`` property, so
+    ``scripts/ci_profiling/timing_summary.py`` can show how evenly the
+    workers were loaded.  Appended to ``user_properties`` directly: the
+    ``record_property`` fixture warns under the default ``xunit2`` family,
+    and warnings are errors here.
+    """
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker:
+        item.user_properties.append(("xdist_worker", worker))
 
 
 @pytest.hookimpl(wrapper=True)

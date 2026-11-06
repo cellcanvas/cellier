@@ -45,6 +45,12 @@ from cellier.visuals._labels import (
 )
 from cellier.visuals._lines_memory import LinesMemoryAppearance, LinesVisual
 from cellier.visuals._loading import GeometryLodConfig, ProgressiveLoadingConfig
+from cellier.visuals._masked_image import (
+    MaskedImageAppearance,
+    MaskedImageRenderConfig,
+    MaskedImageSingleAppearance,
+    MaskedImageVisual,
+)
 from cellier.visuals._mesh_memory import (
     MeshAppearance,
     MeshFlatAppearance,
@@ -90,6 +96,10 @@ __all__ = [
     "LabelMemoryVisual",
     "LinesMemoryAppearance",
     "LinesVisual",
+    "MaskedImageAppearance",
+    "MaskedImageRenderConfig",
+    "MaskedImageSingleAppearance",
+    "MaskedImageVisual",
     "MeshAppearance",
     "MeshFlatAppearance",
     "MeshPhongAppearance",

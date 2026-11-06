@@ -65,6 +65,13 @@
   flex: 1 1 auto;
 }
 
+/* A MaskedImage's band rows: rays, cap and the minimum width. */
+.cellier-app-number {
+  width: 5em;
+  font-size: inherit;
+  font-family: inherit;
+}
+
 /* ── Contrast limits dual-range (mirrors panel.css) ──────────────────────── */
 
 /* Four numbers, as in the Qt control: the current low / high above the track

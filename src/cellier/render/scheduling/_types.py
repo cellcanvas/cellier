@@ -331,6 +331,42 @@ class RegistryView:
         groups.append(foreground)
         return groups
 
+    def paint_groups_current_slice(self, levels: np.ndarray) -> list[np.ndarray]:
+        """Painter's order that never paints another slice (masked design 8.5).
+
+        For a cache whose earlier views must not show through: a MaskedImage
+        colours one image's surface from another, so a surface of one time
+        point under values of another would be wrong, not stale.  While the
+        ``VISIBLE`` set is incomplete the background keeps only the records
+        of a slice the ``VISIBLE`` set has **at the same level** (an earlier
+        zoom of the current time point), in one group under the foreground.
+        A slice id names a collapsed selection and not a level, and one
+        selection can mean different positions at two levels, so each record
+        is compared with its level.
+
+        Parameters
+        ----------
+        levels : np.ndarray
+            Each record's level, one entry per record (the adapter decodes
+            it from the key, since the core does not look inside a key).
+
+        Returns
+        -------
+        list[np.ndarray]
+            Index arrays into this view; the last is the foreground.
+        """
+        resident = self.state == ChunkState.RESIDENT
+        visible = self.tier == Tier.VISIBLE
+        foreground = np.flatnonzero(resident & visible)
+        if self.complete:
+            return [foreground]
+        pair = (np.asarray(levels, dtype=np.int64) << 32) | np.asarray(
+            self.slice_id, dtype=np.int64
+        )
+        wanted = np.unique(pair[visible])
+        earlier = np.flatnonzero(resident & ~visible & np.isin(pair, wanted))
+        return [earlier, foreground] if len(earlier) else [foreground]
+
     def paint_groups_keeping(self, current: np.ndarray) -> tuple[list[np.ndarray], int]:
         """Painter's order that keeps some earlier records above the backstop.
 
