@@ -19,12 +19,15 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import numpy as np
 import pygfx as gfx
 import pytest
 from pygfx.renderers.wgpu import get_shared
 from rendercanvas.offscreen import RenderCanvas
 
+from cellier.convenience.capture import _wait_for_slicer
 from cellier.render._cellier_blender import NORMAL_TARGET, install_cellier_blender
 from cellier.render.scheduling import ChunkClass
 from cellier.render.visuals._masked_image import value_clipping_planes
@@ -164,33 +167,56 @@ def _face_counts(viewer, model) -> np.ndarray:
     return counts
 
 
+#: The projections each cut-face scene is drawn with.
+CUT_OPS = ("max", "mean")
+
+
+@pytest.fixture(scope="module")
+def face_counts(tmp_path_factory):
+    """``face_counts(kind, keep)``: ``op -> band counts`` on the cut face.
+
+    The ops differ only in the single appearance, so each store kind and
+    kept side is built once and drawn with each projection.
+    """
+    cache: dict[tuple[str, float], dict[str, np.ndarray]] = {}
+
+    def get(kind: str, keep: float = 1.0) -> dict[str, np.ndarray]:
+        if (kind, keep) not in cache:
+            root = tmp_path_factory.mktemp(f"cut_{kind}_{keep}")
+            viewer, model = _cut_viewer(root, kind, CUT_OPS[0], keep=keep)
+            out = {}
+            try:
+                for op in CUT_OPS:
+                    model.single.surface_projection = op
+                    asyncio.run(_wait_for_slicer(viewer.controller))
+                    out[op] = _face_counts(viewer, model)
+            finally:
+                viewer.controller.close()
+            cache[kind, keep] = out
+        return cache[kind, keep]
+
+    return get
+
+
 @pytest.mark.parametrize("kind", ["memory", "lazy"])
 @pytest.mark.parametrize(("op", "band"), [("max", 2), ("mean", 1)])
-def test_a_cut_face_projects_into_the_kept_side(tmp_path, kind, op, band):
+def test_a_cut_face_projects_into_the_kept_side(face_counts, kind, op, band):
     """Max reads 37.5 (blue) and mean 35 (green); the wrong sign would be red."""
-    viewer, model = _cut_viewer(tmp_path, kind, op)
-    try:
-        counts = _face_counts(viewer, model)
-        assert counts.sum() > 300, counts
-        assert counts[band] == counts.sum(), counts
-    finally:
-        viewer.controller.close()
+    counts = face_counts(kind)[op]
+    assert counts.sum() > 300, counts
+    assert counts[band] == counts.sum(), counts
 
 
-@pytest.mark.parametrize("op", ["max", "mean"])
-def test_a_cut_face_keeping_the_other_side_projects_into_it(tmp_path, op):
+@pytest.mark.parametrize("op", CUT_OPS)
+def test_a_cut_face_keeping_the_other_side_projects_into_it(face_counts, op):
     """Keep ``z <= CUT``, seen from above: max reads 31.5 and mean 29, both red.
 
     The wrong sign would read 37.5 (blue) and 35 (green): the projection
     follows the plane's kept side, not a fixed direction.
     """
-    viewer, model = _cut_viewer(tmp_path, "memory", op, keep=-1.0)
-    try:
-        counts = _face_counts(viewer, model)
-        assert counts.sum() > 300, counts
-        assert counts[0] == counts.sum(), counts
-    finally:
-        viewer.controller.close()
+    counts = face_counts("memory", keep=-1.0)[op]
+    assert counts.sum() > 300, counts
+    assert counts[0] == counts.sum(), counts
 
 
 def test_a_cut_face_projects_on_the_value_grid(tmp_path):

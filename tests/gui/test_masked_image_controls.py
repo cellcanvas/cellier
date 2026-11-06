@@ -472,6 +472,28 @@ def _frame(viewer):
     return render(viewer, SIZE)[0][..., :3].astype(np.int64)
 
 
+@pytest.fixture(scope="module")
+def reference_frame(example):
+    """``reference_frame(**options)``: the example's frame, started with *options*.
+
+    Drawn once per options, without a GUI: the toolkit does not change the
+    frame (the qt, anywidget and offscreen frames were equal when written).
+    """
+    cache: dict[tuple, np.ndarray] = {}
+
+    def get(**options) -> np.ndarray:
+        key = tuple(sorted(options.items()))
+        if key not in cache:
+            viewer = _example_viewer(example, "offscreen", **options)
+            try:
+                cache[key] = _frame(viewer)
+            finally:
+                viewer.controller.close()
+        return cache[key]
+
+    return get
+
+
 def _differ(a, b) -> float:
     """The fraction of pixels whose colour differs by more than 8 codes."""
     return float(np.mean(np.abs(a - b).max(axis=-1) > 8))
@@ -510,7 +532,7 @@ def _drive_anywidget(widget, field, value):
     ids=["threshold", "thickness", "projection"],
 )
 def test_the_controls_drive_the_example(
-    qtbot, example, gui, backend, drive, start, edits, options
+    qtbot, example, reference_frame, gui, backend, drive, start, edits, options
 ):
     """The example's frame after the edits is the frame of the expected answer.
 
@@ -518,19 +540,17 @@ def test_the_controls_drive_the_example(
     surface.  Each edit must also change the frame, so the comparison is
     not of two unchanged frames.
     """
+    expected = reference_frame(**options)
     viewer = _example_viewer(example, gui, **start)
-    reference = _example_viewer(example, gui, **options)
     try:
         widget = _image_widget(viewer, backend)
         before = _frame(viewer)
         for field, value in edits.items():
             drive(widget, field, value)
         after = _frame(viewer)
-        expected = _frame(reference)
 
         assert int((before.max(axis=-1) > 8).sum()) > 1000
         assert _differ(before, after) > 0.02
         assert _differ(after, expected) < 0.002
     finally:
         viewer.controller.close()
-        reference.controller.close()

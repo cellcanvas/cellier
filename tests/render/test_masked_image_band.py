@@ -9,10 +9,14 @@ shortfall (a few percent of a band's far edge at 16 rays).
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass, field
+
 import numpy as np
 import pytest
 from scipy import ndimage as ndi
 
+from cellier.convenience.capture import _wait_for_slicer
 from cellier.data import ImageMemoryStore
 from cellier.render.block_cache._cell_ranges import CellRanges
 from cellier.render.block_cache._image_residency import pack_keys
@@ -52,18 +56,83 @@ def _without_skip(viewer, model) -> np.ndarray:
     return _frame(viewer)
 
 
+def _set_band(viewer, model, name: str) -> None:
+    """Give the live model band *name*'s thickness and placement."""
+    interval = band.BANDS[name]
+    model.single.surface_thickness = interval[1] - interval[0]
+    model.single.surface_placement = band.placement(interval)
+    asyncio.run(_wait_for_slicer(viewer.controller))
+
+
+# -- one viewer a scene -------------------------------------------------------------
+#
+# The truth and skip cases differ only in the band, an appearance, so each
+# (mask, view) scene is built once and every band drawn from it.  On CI's
+# software GPU the build and its first frames are most of a case's time.
+
+#: The bands the skip is checked on.
+SKIP_BANDS = ("inward_t8", "outward_t8")
+
+
+@dataclass
+class _Scene:
+    """Frames of one (mask, view) scene, and its read uniforms."""
+
+    band: dict[str, np.ndarray] = field(default_factory=dict)
+    skipped: dict[str, np.ndarray] = field(default_factory=dict)
+    plain: dict[str, np.ndarray] = field(default_factory=dict)
+    uniforms: dict[str, object] = field(default_factory=dict)
+
+
+def _render_scene(root, mask: str, view: str) -> _Scene:
+    data, iso = MASKS[mask]
+    names = list(band.BANDS)
+    viewer, model = band.build(root, data, iso, view, band.BANDS[names[0]])
+    out = _Scene()
+    try:
+        visual = gfx_visual(viewer, model.id)
+        uniforms = visual._slots[0].material_3d.uniform_buffer.data
+        out.uniforms = {
+            "mask_snap": list(uniforms["mask_snap"][:3]),
+            "value_snap": list(uniforms["value_snap"][:3]),
+            "mask_edge_fade": float(uniforms["mask_edge_fade"]),
+        }
+        for name in names:
+            _set_band(viewer, model, name)
+            out.band[name] = _frame(viewer)
+            if name in SKIP_BANDS:
+                visual.tick()
+                out.skipped[name] = _frame(viewer)
+        # Last: the unmatched table stays unmatched for the rest of the viewer.
+        for name in SKIP_BANDS:
+            _set_band(viewer, model, name)
+            out.plain[name] = _without_skip(viewer, model)
+    finally:
+        viewer.controller.close()
+    return out
+
+
+@pytest.fixture(scope="module")
+def scene(tmp_path_factory):
+    """``scene(mask, view)``: that scene's frames, drawn on first use."""
+    cache: dict[tuple[str, str], _Scene] = {}
+
+    def get(mask: str, view: str) -> _Scene:
+        if (mask, view) not in cache:
+            root = tmp_path_factory.mktemp(f"band_{mask}_{view}")
+            cache[mask, view] = _render_scene(root, mask, view)
+        return cache[mask, view]
+
+    return get
+
+
 # -- the band against the truth (7.2, 7.3; P0-18) ---------------------------------
 
 
 @pytest.mark.parametrize(("mask", "view", "name"), CASES)
-def test_the_band_matches_the_in_plane_truth(tmp_path, mask, view, name):
+def test_the_band_matches_the_in_plane_truth(scene, mask, view, name):
     """Every mask kind, aligned and tilted, two levels, four placements."""
-    data, iso = MASKS[mask]
-    viewer, _model = band.build(tmp_path, data, iso, view, band.BANDS[name])
-    try:
-        frame = _frame(viewer)
-    finally:
-        viewer.controller.close()
+    frame = scene(mask, view).band[name]
     d, px = _truth(mask, view)
     drawn = band.drawn(frame)
     score = band.score(drawn, d, band.BANDS[name], px)
@@ -100,17 +169,10 @@ def test_a_flat_mask_at_its_value_draws_nothing(tmp_path):
 
 @pytest.mark.parametrize("mask", band.MASK_KINDS)
 @pytest.mark.parametrize("view", band.VIEWS)
-@pytest.mark.parametrize("name", ["inward_t8", "outward_t8"])
-def test_the_skip_changes_no_pixel(tmp_path, mask, view, name):
-    data, iso = MASKS[mask]
-    viewer, model = band.build(tmp_path, data, iso, view, band.BANDS[name])
-    try:
-        gfx_visual(viewer, model.id).tick()
-        skipped = _frame(viewer)
-        plain = _without_skip(viewer, model)
-    finally:
-        viewer.controller.close()
-    np.testing.assert_array_equal(skipped, plain)
+@pytest.mark.parametrize("name", SKIP_BANDS)
+def test_the_skip_changes_no_pixel(scene, mask, view, name):
+    frames = scene(mask, view)
+    np.testing.assert_array_equal(frames.skipped[name], frames.plain[name])
 
 
 def test_a_uniformly_inside_slice_casts_no_ray(tmp_path):
@@ -146,8 +208,45 @@ def test_a_uniformly_inside_slice_casts_no_ray(tmp_path):
 # -- unloaded cells (MI-D18) ------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["inward_t8", "outward_t8", "hairline"])
-def test_an_unloaded_cell_invents_no_contour(tmp_path, name):
+#: The bands the unloaded-cell case draws.
+UNLOADED_BANDS = ("inward_t8", "outward_t8", "hairline")
+
+
+@pytest.fixture(scope="module")
+def unloaded(tmp_path_factory) -> dict:
+    """Half the binary mask's cells blanked: ``name -> (frame, plain, world)``.
+
+    One viewer for every band; the frames with the skip first, then the
+    unmatched table (which stays unmatched) for each.
+    """
+    data, iso = MASKS["binary"]
+    root = tmp_path_factory.mktemp("band_unloaded")
+    viewer, model = band.build(
+        root, data, iso, "L0_aligned", band.BANDS[UNLOADED_BANDS[0]]
+    )
+    out = {}
+    try:
+        visual = gfx_visual(viewer, model.id)
+        lut = visual._slots[0]._lut_manager_3d
+        # Cells of x index 2 and 3: x from 31.5 on.
+        lut.lut_data[:, :, 2:, :] = 0
+        lut.lut_tex.update_range((0, 0, 0), lut.lut_tex.size)
+        _ranges(viewer, model).repaint(lut.lut_data)
+        world, _px = band.pixel_world(band.Frames(viewer).view.camera)
+        frames = {}
+        for name in UNLOADED_BANDS:
+            _set_band(viewer, model, name)
+            frames[name] = _frame(viewer)
+        for name in UNLOADED_BANDS:
+            _set_band(viewer, model, name)
+            out[name] = (frames[name], _without_skip(viewer, model), world)
+    finally:
+        viewer.controller.close()
+    return out
+
+
+@pytest.mark.parametrize("name", UNLOADED_BANDS)
+def test_an_unloaded_cell_invents_no_contour(unloaded, name):
     """Half the mask's cells blanked: nothing drawn in them, nothing extra.
 
     A ray that read the blank half as zero would draw a contour along the
@@ -156,20 +255,7 @@ def test_an_unloaded_cell_invents_no_contour(tmp_path, name):
     the blank half.  The skip, which never crosses an unloaded cell, gives
     the same frame.
     """
-    data, iso = MASKS["binary"]
-    viewer, model = band.build(tmp_path, data, iso, "L0_aligned", band.BANDS[name])
-    try:
-        visual = gfx_visual(viewer, model.id)
-        lut = visual._slots[0]._lut_manager_3d
-        # Cells of x index 2 and 3: x from 31.5 on.
-        lut.lut_data[:, :, 2:, :] = 0
-        lut.lut_tex.update_range((0, 0, 0), lut.lut_tex.size)
-        _ranges(viewer, model).repaint(lut.lut_data)
-        frame = _frame(viewer)
-        world, _px = band.pixel_world(band.Frames(viewer).view.camera)
-        plain = _without_skip(viewer, model)
-    finally:
-        viewer.controller.close()
+    frame, plain, world = unloaded[name]
     drawn = band.drawn(frame)
     assert drawn.any()
     assert not drawn[world[..., 2] > 31.5].any()
@@ -265,32 +351,27 @@ def test_the_data_edge_follows_the_tile_rule(tmp_path):
 def test_the_extent_clamp_leaves_2d_frames_alone(tmp_path):
     """The clamp is 3D only (6.4): every 2D frame is identical without it."""
     data, iso = MASKS["signed_distance"]
-    frames = []
-    for clamp in (True, False):
-        viewer, model = band.build(
-            tmp_path / str(clamp), data, iso, "L1_aligned", (0.0, 8.0)
-        )
-        try:
-            gfx_visual(viewer, model.id)._slots[0].material_3d.extent_clamp = clamp
+    viewer, model = band.build(tmp_path, data, iso, "L1_aligned", (0.0, 8.0))
+    try:
+        material = gfx_visual(viewer, model.id)._slots[0].material_3d
+        frames = []
+        for clamp in (True, False):
+            material.extent_clamp = clamp
             frames.append(_frame(viewer))
-        finally:
-            viewer.controller.close()
+    finally:
+        viewer.controller.close()
     np.testing.assert_array_equal(*frames)
 
 
-def test_each_side_reads_its_own_sliced_axis(tmp_path):
+@pytest.mark.parametrize(
+    ("view", "expected"), [("L0_aligned", [0, 0, 1]), ("L0_tilted30", [0, 0, 0])]
+)
+def test_each_side_reads_its_own_sliced_axis(scene, view, expected):
     """Aligned: both snap z (shader axis 2); tilted against the mask: neither."""
-    data, iso = MASKS["binary"]
-    for view, expected in (("L0_aligned", [0, 0, 1]), ("L0_tilted30", [0, 0, 0])):
-        viewer, model = band.build(tmp_path / view, data, iso, view)
-        try:
-            uniforms = gfx_visual(viewer, model.id)._slots[0].material_3d
-            uniforms = uniforms.uniform_buffer.data
-            assert list(uniforms["mask_snap"][:3]) == expected
-            assert list(uniforms["value_snap"][:3]) == expected
-            assert float(uniforms["mask_edge_fade"]) == float(any(expected))
-        finally:
-            viewer.controller.close()
+    uniforms = scene("binary", view).uniforms
+    assert uniforms["mask_snap"] == expected
+    assert uniforms["value_snap"] == expected
+    assert uniforms["mask_edge_fade"] == float(any(expected))
 
 
 # -- the range table (7.4) --------------------------------------------------------

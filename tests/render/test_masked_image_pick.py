@@ -267,36 +267,62 @@ def _index(coordinate) -> tuple[int, ...]:
     return tuple(int(np.floor(v)) for v in coordinate)
 
 
+#: ``(op, band)``: inward from iso 4 over 8, max is band 2 and min band 1.
+OP_BANDS = [("max", 2.0), ("min", 1.0)]
+
+
+@pytest.fixture(scope="module")
+def picks_3d(tmp_path_factory):
+    """``picks_3d(kind)``: ``op -> (hits, events, image events)``, and the arrays.
+
+    The ops differ only in the single appearance, so one viewer per store
+    kind serves both: the projection is set on the live model, then the
+    frame drawn and its hits picked again.
+    """
+    cache: dict[str, tuple] = {}
+
+    def get(kind: str) -> tuple[dict, np.ndarray, np.ndarray]:
+        if kind not in cache:
+            root = tmp_path_factory.mktemp(f"pick_{kind}")
+            viewer, model, mask_data, value_data = _viewer(
+                root, kind, "3d", iso_threshold=4.0, surface_thickness=8.0
+            )
+            out = {}
+            try:
+                for op, _band in OP_BANDS:
+                    model.single.surface_projection = op
+                    asyncio.run(_wait_for_slicer(viewer.controller))
+                    hits = _hits(viewer)
+                    events, image_events = _picks(viewer, "3d", hits)
+                    # Copies: the handlers stay subscribed for the next op.
+                    out[op] = (hits, list(events), list(image_events))
+            finally:
+                viewer.controller.close()
+            cache[kind] = (out, mask_data, value_data)
+        return cache[kind]
+
+    return get
+
+
 @pytest.mark.parametrize("kind", ["memory", "lazy"])
-@pytest.mark.parametrize(("op", "band"), [("max", 2.0), ("min", 1.0)])
-def test_3d_picks_report_both_images(tmp_path, kind, op, band):
+@pytest.mark.parametrize(("op", "band"), OP_BANDS)
+def test_3d_picks_report_both_images(picks_3d, kind, op, band):
     """Inward from iso 4 over 8: max is band 2 and min band 1 (as drawn)."""
-    viewer, _model, mask_data, value_data = _viewer(
-        tmp_path,
-        kind,
-        "3d",
-        iso_threshold=4.0,
-        surface_thickness=8.0,
-        surface_projection=op,
-    )
-    try:
-        hits = _hits(viewer)
-        assert len(hits) > 40
-        events, image_events = _picks(viewer, "3d", hits)
-        assert image_events == []
-        assert len(events) == len(hits)
-        for event in events:
-            info = event.pick_info
-            assert event.camera_type == "3d"
-            index = _index(info.data_coordinate)
-            assert info.mask_value == float(mask_data[index])
-            assert info.value_coordinate == info.data_coordinate
-            assert info.surface_value == float(value_data[index])
-            # The hit is on the surface, within a voxel's worth of the iso.
-            assert abs(info.mask_value - 4.0) <= 1.0, info
-            assert info.projected_value == band, info
-    finally:
-        viewer.controller.close()
+    by_op, mask_data, value_data = picks_3d(kind)
+    hits, events, image_events = by_op[op]
+    assert len(hits) > 40
+    assert image_events == []
+    assert len(events) == len(hits)
+    for event in events:
+        info = event.pick_info
+        assert event.camera_type == "3d"
+        index = _index(info.data_coordinate)
+        assert info.mask_value == float(mask_data[index])
+        assert info.value_coordinate == info.data_coordinate
+        assert info.surface_value == float(value_data[index])
+        # The hit is on the surface, within a voxel's worth of the iso.
+        assert abs(info.mask_value - 4.0) <= 1.0, info
+        assert info.projected_value == band, info
 
 
 @pytest.mark.parametrize("kind", ["memory", "lazy"])

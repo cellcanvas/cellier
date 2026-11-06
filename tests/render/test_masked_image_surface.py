@@ -71,68 +71,127 @@ def _band_viewer(tmp_path, kind, value_scale=1, **single):
     return viewer, model
 
 
+#: ``(iso, band)``: the surface at ``iso`` lies in ``band``.
+SURFACE_BANDS = [(4.0, 1), (12.0, 2)]
+
+#: ``(op, placement, iso, thickness, bands)`` of the projection cases.
+PROJECTIONS = [
+    # Inward from iso 4 over 8 voxels: distances 4 to 12, bands 1 and 2.
+    ("max", "inward", 4.0, 8.0, {2}),
+    ("min", "inward", 4.0, 8.0, {1}),
+    ("mean", "inward", 4.0, 8.0, {1, 2}),
+    # Outward from iso 4 over 3: distances 1 to 4, band 1 only.
+    ("max", "outward", 4.0, 3.0, {1}),
+    # Outward from iso 13 over 8: distances 5 to 13.
+    ("min", "outward", 13.0, 8.0, {1}),
+    ("max", "outward", 13.0, 8.0, {2}),
+    # Centred on iso 13 over 8: distances 9 to 17, band 2 at least.
+    ("min", "centred", 13.0, 8.0, {2}),
+]
+
+
+#: The surface fields each case sets, unnamed ones at their defaults.
+SURFACE_FIELDS = (
+    "iso_threshold",
+    "surface_thickness",
+    "surface_projection",
+    "surface_placement",
+)
+
+
+def _projection(op, placement, iso, thickness) -> dict:
+    return {
+        "iso_threshold": iso,
+        "surface_thickness": thickness,
+        "surface_projection": op,
+        "surface_placement": placement,
+    }
+
+
+def _surface_cases(kind: str, value_scale: int) -> list[dict]:
+    """The single appearances drawn on one store kind and value grid."""
+    cases = [{"iso_threshold": iso} for iso, _band in SURFACE_BANDS]
+    if (kind, value_scale) == ("memory", 1):
+        cases += [_projection(*case[:4]) for case in PROJECTIONS]
+    return cases
+
+
+def _key(single: dict) -> tuple:
+    return tuple(sorted(single.items()))
+
+
+def _surface_counts(root, kind: str, value_scale: int) -> dict[tuple, np.ndarray]:
+    """Band counts of every case of :func:`_surface_cases`, from one viewer.
+
+    Each case sets every surface field (the unnamed ones at their defaults)
+    on the live model; ``test_a_projection_follows_the_thickness_when_it_changes``
+    is the check that a changed appearance reaches the material.
+    """
+    defaults = MaskedImageSingleAppearance.model_fields
+    viewer, model = _band_viewer(root, kind, value_scale)
+    out = {}
+    try:
+        for single in _surface_cases(kind, value_scale):
+            for name in SURFACE_FIELDS:
+                setattr(model.single, name, single.get(name, defaults[name].default))
+            asyncio.run(_wait_for_slicer(viewer.controller))
+            out[_key(single)] = band_counts(render(viewer, SIZE)[0])
+    finally:
+        viewer.controller.close()
+    return out
+
+
+@pytest.fixture(scope="module")
+def surface_counts(tmp_path_factory):
+    """``surface_counts(kind, value_scale, **single)``: a frame's band counts.
+
+    The cases differ only in the single appearance, so each store kind and
+    value grid is built once and all its cases drawn then (the autouse
+    teardown closes every viewer at the end of a test, so none outlives it).
+    """
+    cache: dict[tuple[str, int], dict[tuple, np.ndarray]] = {}
+
+    def get(kind: str, value_scale: int = 1, **single) -> np.ndarray:
+        if (kind, value_scale) not in cache:
+            root = tmp_path_factory.mktemp(f"surface_{kind}_{value_scale}")
+            cache[kind, value_scale] = _surface_counts(root, kind, value_scale)
+        return cache[kind, value_scale][_key(single)]
+
+    return get
+
+
 # -- the value at the surface (6.2) ----------------------------------------------
 
 
 @pytest.mark.parametrize("kind", ["memory", "lazy"])
 @pytest.mark.parametrize("value_scale", [1, 2])
-@pytest.mark.parametrize(("iso", "band"), [(4.0, 1), (12.0, 2)])
-def test_the_surface_shows_its_band(tmp_path, kind, value_scale, iso, band):
+@pytest.mark.parametrize(("iso", "band"), SURFACE_BANDS)
+def test_the_surface_shows_its_band(surface_counts, kind, value_scale, iso, band):
     """Every drawn pixel of the surface at ``iso`` is the band ``iso`` lies in.
 
     On one grid and on a value at twice the mask's resolution, its own grid.
     """
-    viewer, _model = _band_viewer(tmp_path, kind, value_scale, iso_threshold=iso)
-    try:
-        counts = band_counts(render(viewer, SIZE)[0])
-        assert counts.sum() > 500, counts
-        assert counts[band - 1] == counts.sum(), counts
-    finally:
-        viewer.controller.close()
+    counts = surface_counts(kind, value_scale, iso_threshold=iso)
+    assert counts.sum() > 500, counts
+    assert counts[band - 1] == counts.sum(), counts
 
 
 # -- the projection along the normal (6.2) ---------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("op", "placement", "iso", "thickness", "bands"),
-    [
-        # Inward from iso 4 over 8 voxels: distances 4 to 12, bands 1 and 2.
-        ("max", "inward", 4.0, 8.0, {2}),
-        ("min", "inward", 4.0, 8.0, {1}),
-        ("mean", "inward", 4.0, 8.0, {1, 2}),
-        # Outward from iso 4 over 3: distances 1 to 4, band 1 only.
-        ("max", "outward", 4.0, 3.0, {1}),
-        # Outward from iso 13 over 8: distances 5 to 13.
-        ("min", "outward", 13.0, 8.0, {1}),
-        ("max", "outward", 13.0, 8.0, {2}),
-        # Centred on iso 13 over 8: distances 9 to 17, band 2 at least.
-        ("min", "centred", 13.0, 8.0, {2}),
-    ],
-)
+@pytest.mark.parametrize(("op", "placement", "iso", "thickness", "bands"), PROJECTIONS)
 def test_the_projection_reduces_along_the_inward_normal(
-    tmp_path, op, placement, iso, thickness, bands
+    surface_counts, op, placement, iso, thickness, bands
 ):
     """The max, min or mean over the placed interval gives the bands it spans.
 
     The cases pin the sign of the normal (a max inward is deeper, a max
     outward is not) and that the thickness is in world units.
     """
-    viewer, _model = _band_viewer(
-        tmp_path,
-        "memory",
-        iso_threshold=iso,
-        surface_thickness=thickness,
-        surface_projection=op,
-        surface_placement=placement,
-    )
-    try:
-        counts = band_counts(render(viewer, SIZE)[0])
-        assert counts.sum() > 500, counts
-        shown = {band + 1 for band in range(3) if counts[band] > 0}
-        assert shown == bands, counts
-    finally:
-        viewer.controller.close()
+    counts = surface_counts("memory", **_projection(op, placement, iso, thickness))
+    assert counts.sum() > 500, counts
+    shown = {band + 1 for band in range(3) if counts[band] > 0}
+    assert shown == bands, counts
 
 
 def test_a_projection_follows_the_thickness_when_it_changes(tmp_path):
@@ -261,14 +320,21 @@ def _signed_distance(shape) -> np.ndarray:
     return np.clip((1.0 - r) * semi.min(), -12.0, 12.0).astype(np.float32)
 
 
-def _drag(tmp_path, iso: float, clamp: bool, round_up: bool) -> tuple[int, int]:
-    """``(frames with far pixels, most far pixels in a frame)`` of a yaw drag.
+def _drag(
+    tmp_path, iso: float, round_up: bool, clamps: tuple[bool, ...]
+) -> dict[bool, tuple[int, int]]:
+    """``clamp -> (frames with far pixels, most far pixels in a frame)``.
 
-    Frustum culling on and a small mask budget, so a settled view holds
-    fine bricks in its frustum and the coarse backstop elsewhere.  Each
-    yaw's settled silhouette is kept, dilated; then from the first view the
-    camera yaws inside ``camera_interaction`` (nothing reslices) and each
-    frame's drawn pixels outside that yaw's silhouette are counted.
+    One yaw drag per clamp setting, in one viewer.  Frustum culling on and a
+    small mask budget, so a settled view holds fine bricks in its frustum and
+    the coarse backstop elsewhere.  Each yaw's settled silhouette is kept,
+    dilated, drawn with the clamp; then for each clamp setting, from the
+    first view, the camera yaws inside ``camera_interaction`` (nothing
+    reslices) and each frame's drawn pixels outside that yaw's silhouette
+    are counted.  Settled frames without the clamp can already show far
+    structures, so silhouettes of their own would hide some of the
+    control's far pixels: against the clamped ones it counts more (the most
+    in a frame 14,943 against 1,952 at iso 0 on Metal, in the same 8 frames).
     """
     rng = np.random.default_rng(0)
     mask = pyramid_store(
@@ -298,7 +364,7 @@ def _drag(tmp_path, iso: float, clamp: bool, round_up: bool) -> tuple[int, int]:
         )
         material = gfx_visual(viewer, model.id)._slots[0].material_3d
         assert isinstance(material, MaskedVolumeBrickMaterial)
-        material.extent_clamp = clamp
+        material.extent_clamp = True
         load(viewer, size=(DRAG_SIZE, DRAG_SIZE))
         canvas_id = controller.get_canvas_ids(viewer.scene.id)[0]
         base = controller.get_camera_state(canvas_id)._replace(zoom=2.0)
@@ -325,40 +391,63 @@ def _drag(tmp_path, iso: float, clamp: bool, round_up: bool) -> tuple[int, int]:
             yaw: ndi.binary_dilation(drawn(settled(yaw)), iterations=DRAG_MARGIN_PX)
             for yaw in DRAG_YAWS
         }
-        settled(0.0)
-        bad, worst = 0, 0
-        with controller.camera_interaction(canvas_id):
-            for yaw in DRAG_YAWS:
-                controller.set_camera_state(canvas_id, yawed(yaw))
-                far = int(
-                    (drawn(render(viewer, DRAG_SIZE)[0]) & ~silhouettes[yaw]).sum()
-                )
-                bad += far > 0
-                worst = max(worst, far)
-        return bad, worst
+        out = {}
+        for clamp in clamps:
+            material.extent_clamp = clamp
+            settled(0.0)
+            bad, worst = 0, 0
+            with controller.camera_interaction(canvas_id):
+                for yaw in DRAG_YAWS:
+                    controller.set_camera_state(canvas_id, yawed(yaw))
+                    far = int(
+                        (drawn(render(viewer, DRAG_SIZE)[0]) & ~silhouettes[yaw]).sum()
+                    )
+                    bad += far > 0
+                    worst = max(worst, far)
+            out[clamp] = (bad, worst)
+        return out
     finally:
         controller.close()
 
 
-@pytest.mark.parametrize("iso", [0.0, -4.0])
-def test_a_camera_drag_draws_nothing_past_a_coarse_level_end(tmp_path, iso):
-    assert _drag(tmp_path, iso, clamp=True, round_up=False) == (0, 0)
+@pytest.fixture(scope="module")
+def drag(tmp_path_factory):
+    """``drag(iso, round_up)``: :func:`_drag` of both clamp settings, cached.
+
+    One viewer per scene: the silhouettes are drawn once and both settings
+    drag from them.  A rounded-up pyramid is only dragged with the clamp.
+    """
+    cache: dict[tuple[float, bool], dict[bool, tuple[int, int]]] = {}
+
+    def get(iso: float, round_up: bool = False) -> dict[bool, tuple[int, int]]:
+        if (iso, round_up) not in cache:
+            root = tmp_path_factory.mktemp(f"drag_{iso}_{round_up}")
+            clamps = (True,) if round_up else (True, False)
+            cache[iso, round_up] = _drag(root, iso, round_up, clamps)
+        return cache[iso, round_up]
+
+    return get
 
 
 @pytest.mark.parametrize("iso", [0.0, -4.0])
-def test_without_the_clamp_the_drag_draws_far_structures(tmp_path, iso):
+def test_a_camera_drag_draws_nothing_past_a_coarse_level_end(drag, iso):
+    assert drag(iso)[True] == (0, 0)
+
+
+@pytest.mark.parametrize("iso", [0.0, -4.0])
+def test_without_the_clamp_the_drag_draws_far_structures(drag, iso):
     """The control: the zero padding in the missing strip draws surfaces."""
-    bad, worst = _drag(tmp_path, iso, clamp=False, round_up=False)
+    bad, worst = drag(iso)[False]
     assert bad >= 4 and worst > 500, (bad, worst)
 
 
 @pytest.mark.parametrize("clamp", [True, False])
-def test_a_positive_threshold_never_reaches_the_zero_padding(tmp_path, clamp):
+def test_a_positive_threshold_never_reaches_the_zero_padding(drag, clamp):
     """The second control: zero is below +4, so the strip draws nothing either way."""
-    assert _drag(tmp_path, 4.0, clamp=clamp, round_up=False) == (0, 0)
+    assert drag(4.0)[clamp] == (0, 0)
 
 
-def test_a_pyramid_rounded_up_is_clean_with_the_clamp(tmp_path):
+def test_a_pyramid_rounded_up_is_clean_with_the_clamp(drag):
     """Rounded up, each level covers the extent; the clamp keeps it clean.
 
     Without the clamp this pyramid draws a few far pixels (4 in 2 frames
@@ -367,40 +456,36 @@ def test_a_pyramid_rounded_up_is_clean_with_the_clamp(tmp_path):
     past it blends in the zero padding.  The design's prototype saw none on
     Position_6.
     """
-    assert _drag(tmp_path, -4.0, clamp=True, round_up=True) == (0, 0)
+    assert drag(-4.0, round_up=True)[True] == (0, 0)
 
 
 def test_settled_frames_barely_change_with_the_clamp(tmp_path):
     """At rest the clamp changes at most a few pixels (6.4)."""
+    mask = pyramid_store(tmp_path, "mask", _signed_distance(DRAG_SHAPE), DRAG_LEVELS)
+    value = pyramid_store(
+        tmp_path, "value", np.full(DRAG_SHAPE, 0.7, np.float32), DRAG_LEVELS
+    )
+    viewer = new_viewer("3d")
     frames = []
-    for clamp in (True, False):
-        mask = pyramid_store(
-            tmp_path / str(clamp), "mask", _signed_distance(DRAG_SHAPE), DRAG_LEVELS
+    try:
+        model = viewer.controller.add_masked_image(
+            mask,
+            value,
+            viewer.scene.id,
+            single=MaskedImageSingleAppearance(
+                color_map="viridis", clim=(0.0, 1.0), iso_threshold=-4.0
+            ),
+            render_config=masked_config(
+                gpu_budget_bytes=64 * 1024**2, value_gpu_budget_bytes=64 * 1024**2
+            ),
         )
-        value = pyramid_store(
-            tmp_path / str(clamp),
-            "value",
-            np.full(DRAG_SHAPE, 0.7, np.float32),
-            DRAG_LEVELS,
-        )
-        viewer = new_viewer("3d")
-        try:
-            model = viewer.controller.add_masked_image(
-                mask,
-                value,
-                viewer.scene.id,
-                single=MaskedImageSingleAppearance(
-                    color_map="viridis", clim=(0.0, 1.0), iso_threshold=-4.0
-                ),
-                render_config=masked_config(
-                    gpu_budget_bytes=64 * 1024**2, value_gpu_budget_bytes=64 * 1024**2
-                ),
-            )
-            material = gfx_visual(viewer, model.id)._slots[0].material_3d
+        material = gfx_visual(viewer, model.id)._slots[0].material_3d
+        material.extent_clamp = True
+        load(viewer, size=(DRAG_SIZE, DRAG_SIZE))
+        for clamp in (True, False):
             material.extent_clamp = clamp
-            load(viewer, size=(DRAG_SIZE, DRAG_SIZE))
             frames.append(render(viewer, DRAG_SIZE)[0][..., :3].astype(np.int64))
-        finally:
-            viewer.controller.close()
+    finally:
+        viewer.controller.close()
     differing = (np.abs(frames[0] - frames[1]).max(axis=-1) > 8).sum()
     assert differing <= 10, differing
