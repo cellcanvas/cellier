@@ -42,7 +42,10 @@ dependencies = [
     "pygfx>=0.17.0",
     "pylinalg>=0.6.7",
     "qtpy",
-    "rendercanvas>=2.7.1",
+    # <3: 3.0.0 runs the Qt loop's call_later on a helper thread that emits a
+    # Qt signal, which segfaulted a CI worker while a canvas was being made
+    # (PR 131).  2.7.x schedules with QTimer on the main thread.
+    "rendercanvas>=2.7.1,<3",
     "scipy>=1.15.2",
     "superqt>=0.7.2",
     "tensorstore>=0.1.74",
