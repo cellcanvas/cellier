@@ -13,12 +13,12 @@ The table below describes the core objects and data types used to orchestrate sl
 
 | **Component** | **Explanation** |
 |---|---|
-| **`ReslicingRequest`** | Immutable per-canvas snapshot of camera + dims at trigger time. The unit of work. One per canvas so each camera drives its own LOD/culling. Carries `request_id` (one per trigger) — *not* the ID used for fetch cancellation; see `slice_request_id` below. |
+| **`ReslicingRequest`** | Immutable per-canvas snapshot of camera + dims at trigger time. The unit of work. One per canvas so each camera drives its own LOD/culling. Carries `request_id` (one per trigger), which is not the `slice_request_id` its chunk requests share. |
 | **`DimsState` / `AxisAlignedSelectionState`** | Which axes are *displayed* (→ `slice(None)`) vs *sliced* (→ integer index). The selection that defines the plane/slab. |
 | **`ChunkRequest`** | A single padded brick/region read: `scale_index` + `axis_selections` (per-axis `int` for sliced, `(start,stop)` for displayed). Coords may be out-of-bounds; `get_data` clamps + zero-pads. Carries `slice_request_id`, shared by all chunks from one planning event. |
-| **`AsyncSlicer`** | Generic cancellable batch-fetch service. One asyncio.Task per `slice_request_id` (the shared `ChunkRequest` ID, *not* `ReslicingRequest.request_id`); data source injected per-submit as `fetch_fn`. `submit` returns the `slice_request_id`, which `SliceCoordinator` stores keyed by `(scene, canvas, visual)` and later passes to `cancel`. |
-| **`SliceCoordinator`** | Orchestrator: per-`(scene,canvas,visual)` cancellation, planning dispatch, reslice-start/complete events. Routes multiscale visuals (2D and 3D) to the chunk scheduler. |
-| **`ChunkScheduler`** (`cellier.render.scheduling`) | Loads multiscale visuals, 2D and 3D. A persistent registry per atlas that each reslice *re-prioritises* instead of cancelling: one global in-flight budget, nearest bricks first, slots chosen at commit time, and only unwanted (`RECENT`) bricks evicted. |
+| **`SliceCoordinator`** | Orchestrator: planning dispatch, registering each visual's caches with the chunk scheduler, passing its plans and retiring the caches it no longer plans, and the reslice-start/complete events. It never cancels a read. |
+| **`ChunkScheduler`** (`cellier.render.scheduling`) | Loads every visual, 2D and 3D. A persistent registry per cache that each reslice *re-prioritises* instead of cancelling: one global in-flight budget, nearest bricks first, slots chosen at commit time, and only unwanted (`RECENT`) items evicted. A multiscale visual's caches are brick or tile atlases; an in-memory image, labels, points, lines or graph visual has *whole-item* caches, each holding one slice (see [In-memory visual](#in-memory-visual)). |
+| **`CancellableReads`** (`render/_cancellable_reads.py`) | Pick-value reads only: one asyncio task per read id, cancelled when a newer hover pick supersedes it. Nothing that draws goes through it. |
 | **`CachePolicy`** | How the scheduler treats one cache's reads, declared by its `Residency` and read once at registration: a cap on target reads in flight (`max_target_fetching`; a backstop read is never held by it, and a capped cache starts its backstop and target reads of one plan together, holding the target only while a backstop result waits to be committed), the resource a read occupies (`"io"`, or `"compute"` for work done in an executor, which counts against `SchedulerConfig.compute_budget` and takes no I/O slot), and what a failure costs (`retry_max_attempts`, `retry_on_pass`). The default is what an image or labels atlas wants. |
 | **`Residency`** / `ImageResidency3D` / `ImageResidency2D` | The scheduler's adapter for one atlas: writes a brick (tile) into the slot the scheduler chose, turns keys back into store requests, and repaints the LUT. |
 | **GPU brick/tile cache** (multiscale) | Fixed-slot texture atlas. `write_brick` / `write_tile` upload into a slot. |
@@ -98,24 +98,25 @@ From the perspective of slicing, there are two main flavors of visuals: in-memor
 
 ### In-memory visual
 
+An in-memory visual (image, labels, points, lines, graph) loads through the chunk scheduler like a multiscale one, with one *whole-item* cache per slot and mode: a `LevelResidency` with a single level whose key names the whole slice it holds.  The key holds everything the read depends on except the store's contents (for an image, the axis selections, the collapsed indices and the composite flag), so a plan that names the key already held reads nothing.
+
 **Plan** (synchronous)
 
-4. **`CellierController.reslice_scene`**: snapshots the dims state and per-visual render config.
-5. **`RenderManager.reslice_scene`**: issues one reslicing request per canvas.
-6. **`CanvasView.capture_reslicing_request`**: freezes the camera and dims into an immutable `ReslicingRequest`.
-7. **`SliceCoordinator.submit`**: cancels any in-flight task for the visual, then plans.
-8. **`SceneManager.build_slice_requests`**: dispatches to the 2D or 3D planner by displayed-axis count.
-9. **`GFXImageMemoryVisual.build_slice_request`**: maps the world slice position into data space and emits one `ChunkRequest` for the whole slice.
+1. **`CellierController.reslice_scene`**: snapshots the dims state and per-visual render config.
+2. **`RenderManager.reslice_scene`**: issues one reslicing request per canvas.
+3. **`CanvasView.capture_reslicing_request`**: freezes the camera and dims into an immutable `ReslicingRequest`.
+4. **`SliceCoordinator.submit`** -> **`SceneManager.plan_chunked`** -> **`GFXImageMemoryVisual.plan`**: maps the world slice position into data space and returns one `DesiredSet` per drawn channel, naming the slice's key.  A slice that misses the data plans nothing, and the coordinator retires the visual's caches.
+5. **`ChunkScheduler.pass_`**: queues a read for a key the cache does not hold.  With two canvases on one scene, the last plan wins.
 
-**Fetch** (async, off render thread)
+**Fetch** (async)
 
-10. **`AsyncSlicer.submit`**: makes the request for a single read on one async task.
-11. **`ImageMemoryStore.get_data`**: returns the requested slice / sub-volume array.
+6. **`ImageMemoryStore.get_data`**: runs the padded read (`read_padded`) in an executor thread.  Reads are never aborted; a read of a key no longer planned lands and is dropped.
 
-**Commit** (main thread)
+**Commit** (main thread, once per drawn frame)
 
-12. **`GFXImageMemoryVisual.on_data_ready`**: uploads the whole array to the GPU.
-13. **`Renderer.render`**: draws the next frame.
+7. **`ChunkScheduler.commit_round`** -> **`LevelResidency.rebuild_draw`** -> the visual's **`upload_slice`**: uploads the array to that slot's texture for that mode and places the node from the key.
+8. **Visibility**: a node is shown only while its cache holds a drawable slice.  Until the new slice lands, the previous one stays drawn when it is compatible (the same displayed axes; in composite mode, the same channel), so a scrub shows no blank frame.
+9. **`Renderer.render`**: draws the next frame.
 
 ### Multiscale visual (the chunk scheduler)
 
@@ -124,7 +125,7 @@ From the perspective of slicing, there are two main flavors of visuals: in-memor
 **Plan** (synchronous)
 
 1. **`CellierController.reslice_scene`** and **`RenderManager.reslice_scene`**: as above, one `ReslicingRequest` per canvas.
-2. **`SliceCoordinator.submit`**: never cancels a multiscale visual; registers its atlases with the scheduler.
+2. **`SliceCoordinator.submit`**: registers the visual's atlases with the scheduler.
 3. **`SceneManager.plan_chunked`** → **`GFXMultiscaleImageVisual.plan`**: LOD selection, nearest-first sort, frustum (3D) or viewport (2D) cull and truncation, returning one `DesiredSet` of packed keys per drawn channel.  Each set leads with the **backstop**: by default the coarsest level over the whole volume (3D) or slice (2D), nearest first, capped at `backstop_max_slot_fraction` of the atlas (`render_config.loading`, a `ProgressiveLoadingConfig`).  Backstop reads go before every target read, from every visual, so the view is blurry rather than blank (or showing the previous slice) while the target loads.  Planning touches no GPU state.  The atlases of the other mode get an empty pass (they are *retired*): their bricks stay resident as `RECENT`, so switching back costs no reads.
 4. **`ChunkScheduler.pass_`**: passes in one loop turn coalesce.  Each atlas's registry is diffed against its desired set: new bricks are queued, bricks still wanted are re-prioritised, bricks no longer wanted become `RECENT` (queued ones are simply deleted; ones in flight still land).
 
@@ -147,7 +148,8 @@ A store announcing a change (`notify_changed`, or reassigning a data field) is h
 
 - **The chunk cache.** The store's tensorstore handles trust their cache (rechecks off), so the announcement also reopens them on the same context with `recheck_cached_data="open"`. Each chunk cached before the change is revalidated once, when next read: a `304` if unchanged, a refetch if changed.
 - **The GPU.** The controller invalidates at once. The reslice that follows is capped at `SchedulerConfig.store_change_max_hz` per store, so a store announcing frames at any rate costs at most 30 plans a second.
-- **Replanning.** A contents change does not replan multiscale readers: their invalidated bricks are already queued again.
+- **Replanning.** A contents change replans no reader: their invalidated bricks or slices are already queued again.  Only an `extent` change reslices (and a masked image whose surface reads the changed mask).
+- **In-memory readers.** A contents change of an in-memory store (a paint stroke, a reassigned array) invalidates the whole-item caches reading it.  The slice they hold stays drawn while it is read again; a read that was in flight when the change came lands *stale* and is drawn as kept (`CachePolicy.commit_stale`), then replaced by the re-read.
 
 ## Triggering slicing
 
@@ -255,7 +257,7 @@ A transition detected inside a draw (a camera tick, the controller's scope closi
 
 ## How a mesh loads
 
-A mesh (`GFXMeshVisual`) loads through the chunk scheduler, like a multiscale image, and not through `AsyncSlicer`. What it loads is a whole level of the mesh at one request, not bricks.
+A mesh (`GFXMeshVisual`) loads through the chunk scheduler, like every other visual. What it loads is a whole level of the mesh at one request, not bricks.
 
 - **The read runs off the event loop.** `MeshMemoryStore.get_data` slices in an executor thread and returns arrays ready to upload. At most `SchedulerConfig.compute_budget` such reads run at once, over all meshes.
 - **One read at a time per mesh, and the newest request wins.** A read cannot be cancelled, so while one runs the next waits; a request the slider has since left is dropped before it starts.
@@ -349,36 +351,20 @@ A mesh that is loading is not drawn, so an empty view does not say whether the m
 | `Coarse level ready. Fine on stop.` | A scrub in progress: the coarse level is drawn, and the finest loads when the scrub ends. |
 | `Loaded` | What the view asked for is drawn. `Loaded, 1 failed` when a read raised. |
 
-## Canceling requests
+## Superseded requests
 
-During interactive use the dims and camera models change faster than data loads complete, so a new reslice usually *supersedes* an in-flight one. Canceling the superseded load stops wasted reads from the data store and prevents stale data from committing to the GPU after the view has already moved on.
+During interactive use the dims and camera models change faster than data loads complete, so a new reslice usually *supersedes* a load still in flight.  Nothing that draws is cancelled: the chunk scheduler re-prioritises instead.
 
-### What cancels in-flight requests
+- **New slice request**: the new plan replaces the old one in each cache's registry.  Queued reads no longer wanted are deleted before they are issued; reads in flight land, and their results become `RECENT` (a multiscale brick, which may be drawn underneath until the new view is complete) or are dropped (a whole-item slice whose key is no longer planned).
+- **A hidden visual**: its caches are retired (an empty pass); what they hold stays resident, so showing it again reads nothing.
+- **Interaction teardown**: removing a scene or a canvas, or closing the controller, drops its interaction trackers: the stillness timers and any camera reslice queued from a draw are cancelled.  This cancels the *trigger* before any request exists.
+- **Visual removal**: the coordinator removes the visual's caches from the scheduler (`forget_visual`); a read in flight for them lands and is dropped.
+- **Close**: `RenderManager.close` closes the scheduler, which cancels its read tasks and timers.  A read already running in an executor thread cannot be cancelled and is not waited for; its result is dropped.
 
-There are four actions/events that cancel an in-flight fetch:
+### Pick-value reads
 
-- **New slice request**: if a new slice request is made before the previous one completed, the in-flight request is canceled.
-- **Interaction teardown**: removing a scene or a canvas, or closing the controller, drops its interaction trackers: the stillness timers and any camera reslice queued from a draw are cancelled. This cancels the *trigger* before any request exists, rather than an in-flight fetch.
-- **Safety-net resubmit**: `AsyncSlicer.submit` cancels any lingering task that shares the same `slice_request_id` before starting a new one.
-- **Scene teardown**: `SliceCoordinator.cancel_scene` cancels every in-flight task for a scene.
+The one cancellable read is a pick value from a store that is not an in-memory array.  `RenderManager.submit_pick_read` runs it on `CancellableReads`, one asyncio task per read id; a newer hover `move` pick cancels the previous one (`cancel_pick_read`), and removing the visual cancels its reads.  A cancelled read never calls its `on_complete`.
 
-### What gets canceled: the `cancellable` flag
+### GPU state after a superseded load
 
-Whether a visual's in-flight load is canceled is gated by its `cancellable` property:
-
-- The image and label visuals -- both in-memory (`GFXImageMemoryVisual`, `GFXLabelMemoryVisual`) and multiscale (`GFXMultiscaleImageVisual`, `GFXMultiscaleLabelVisual`) -- default to `cancellable = True`, so a superseding reslice cancels their in-flight reads.
-- The in-memory points and lines visuals are `cancellable = False`. Their tasks always run to completion so every intermediate slice position reaches the GPU. This is because these tend to be very fast to slice and thus there isn’t a need to cancel.
-- The mesh has no `cancellable` flag: it loads through the chunk scheduler, which never cancels (see [How a mesh loads](#how-a-mesh-loads)).
-
-`SliceCoordinator.submit` checks this flag for each visual it is about to re-submit and only cancels the ones marked cancellable.
-
-### The cancellation path
-
-1. **`SliceCoordinator.submit`** (or `cancel_scene`): decides which visuals to cancel. On submit, the visuals about to be re-loaded are canceled first, subject to the `cancellable` flag above.
-2. **`SliceCoordinator.cancel_visual`**: pops the `slice_request_id` for the `(scene, canvas, visual)` key out of `_active_slice_ids` and calls `AsyncSlicer.cancel`.
-3. **`AsyncSlicer.cancel`**: calls `task.cancel()`. Inside `_run`, the `CancelledError` is re-raised so asyncio marks the task canceled; the in-progress batch is discarded (its `callback` never fires), `on_complete` is skipped so no spurious `ResliceCompletedEvent` is emitted, and the `finally` block drops the task from `_tasks`.
-4. **`visual.cancel_pending_2d` / `cancel_pending`**: `cancel_visual` then calls these (selected by the visual's `render_modes`); in-memory visuals reserve no GPU slots, so these are no-ops.  Multiscale visuals are skipped: the scheduler never cancels.
-
-### GPU state after a cancel
-
-Multiscale visuals are not cancelled at all: the chunk scheduler lets reads in flight land (tensorstore keeps the bytes anyway), keeps them as `RECENT` bricks, and drops only reads it has not yet issued.  Bricks from an earlier slice position stay on screen underneath the new one until it is complete; a key carries the slice it was read on, so bricks of different positions never collide.
+No visual's load is cancelled: the chunk scheduler lets reads in flight land (tensorstore keeps the bytes anyway), keeps them as `RECENT` bricks, and drops only reads it has not yet issued.  Bricks from an earlier slice position stay on screen underneath the new one until it is complete; a key carries the slice it was read on, so bricks of different positions never collide.  A whole-item cache keeps drawing the slice it holds until the new one lands, when the two are compatible (see [In-memory visual](#in-memory-visual)); otherwise the node is hidden until then.

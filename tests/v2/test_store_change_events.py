@@ -74,8 +74,14 @@ def test_an_extent_change_is_announced_and_reslices_the_readers(
 
 
 def test_a_contents_change_carries_its_regions(controller, scene, monkeypatch):
+    """The event carries the regions; the points visual is not resliced.
+
+    Points load through the chunk scheduler: a contents change invalidates
+    its cache and the scheduler reads it again, with no new plan
+    (scheduler-only loading design v2, 4.7).
+    """
     store = _points_store()
-    visual = controller.add_points(store, scene.id)
+    controller.add_points(store, scene.id)
     events = _record_bus(controller)
     reslices = _record_reslices(controller, monkeypatch)
 
@@ -88,7 +94,7 @@ def test_a_contents_change_carries_its_regions(controller, scene, monkeypatch):
             regions=(((0.0, 1.0), (0.0, 1.0), (0.0, 1.0)),),
         )
     ]
-    assert reslices == [visual.id]
+    assert reslices == []
 
 
 def test_a_contents_change_leaves_extent_state_alone(controller, scene, monkeypatch):

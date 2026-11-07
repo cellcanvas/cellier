@@ -15,20 +15,19 @@ if TYPE_CHECKING:
 class PointsSliceRequest(NamedTuple):
     """Request for one proximity-filtered slice of points data.
 
-    The first three fields satisfy the AsyncSlicer logging contract:
-    ``slice_request_id`` is the task key; ``chunk_request_id`` and
-    ``scale_index`` appear in INFO/DEBUG log lines.
+    The first three fields are the request fields every store request
+    carries: ids that are fresh per plan (never in a cache key) and the
+    level, always 0 here.
 
     Parameters
     ----------
     slice_request_id : UUID
-        Shared ID for all requests in one planning event.  Used by
-        AsyncSlicer as the dict key for the running task — REQUIRED.
+        Shared ID for all requests in one planning event.
     chunk_request_id : UUID
         Per-request ID.  For points (never tiled) this equals
         ``slice_request_id``.
     scale_index : int
-        Always 0 — no LOD levels.  Present for slicer logging compat.
+        Always 0 — no LOD levels.  Present for parity with the image requests.
     displayed_axes : tuple[int, ...]
         Axis indices rendered in the canvas (2 for 2D, 3 for 3D).
     retained_axes : tuple[int, ...]
@@ -113,5 +112,5 @@ class PointsData:
 
     @property
     def shape(self) -> str:
-        """Summary string consumed by AsyncSlicer DEBUG logging."""
+        """A one-line summary of the result, for logging."""
         return f"positions={self.positions.shape}"

@@ -19,6 +19,7 @@ from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.scene.dims import spatial_axes
 from cellier.visuals._lines_memory import LinesMemoryAppearance
 from cellier.visuals._points_memory import PointsMarkerAppearance
+from tests._planning import planned_requests_2d
 from tests._v2 import bound, data_region
 
 # Design 3.12's six points and its 2 um z spacing.
@@ -56,7 +57,8 @@ async def _selected(controller, scene, visual, store, *, with_region=True):
     selection = (
         controller._selections_for_scene(scene.id)[canvas_id] if with_region else None
     )
-    requests = gfx.build_slice_request_2d(
+    requests = planned_requests_2d(
+        gfx,
         camera_pos_world=np.zeros(3),
         viewport_width_px=100.0,
         world_width=10.0,
@@ -129,7 +131,8 @@ async def test_the_uploaded_positions_are_in_ascending_data_axis_order():
     selection = controller._selections_for_scene(scene.id)[canvas_id]
 
     scene.dims.selection.displayed_axes = (2, 1)
-    requests = gfx.build_slice_request_2d(
+    requests = planned_requests_2d(
+        gfx,
         camera_pos_world=np.zeros(3),
         viewport_width_px=100.0,
         world_width=10.0,
@@ -141,7 +144,8 @@ async def test_the_uploaded_positions_are_in_ascending_data_axis_order():
     reversed_order = await store.get_data(requests[0])
 
     scene.dims.selection.displayed_axes = (1, 2)
-    requests = gfx.build_slice_request_2d(
+    requests = planned_requests_2d(
+        gfx,
         camera_pos_world=np.zeros(3),
         viewport_width_px=100.0,
         world_width=10.0,
@@ -174,7 +178,8 @@ async def test_lines_require_both_endpoints_as_they_always_did():
 
     gfx = controller._render_manager._scenes[scene.id].get_visual(visual.id)
     canvas_id = controller.get_canvas_ids(scene.id)[0]
-    requests = gfx.build_slice_request_2d(
+    requests = planned_requests_2d(
+        gfx,
         camera_pos_world=np.zeros(3),
         viewport_width_px=100.0,
         world_width=10.0,

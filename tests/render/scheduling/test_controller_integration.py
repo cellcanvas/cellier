@@ -77,8 +77,6 @@ async def test_a_3d_load_goes_through_the_scheduler(
     assert progress.resident_backstop == progress.needed_backstop
     needed = progress.needed_target + progress.needed_backstop
     assert len(reads) == needed
-    # Nothing went through the slicer for this visual.
-    assert not controller._render_manager._slicer._tasks
     # The backstop stays drawn under the target once it is complete.
     assert len(gfx._block_cache_3d.tile_manager.tilemap) == needed
 
@@ -307,7 +305,6 @@ async def test_a_2d_load_goes_through_the_scheduler(
     assert progress.resident_target == progress.needed_target
     needed = progress.needed_target + progress.needed_backstop
     assert len(reads) == needed
-    assert not controller._render_manager._slicer._tasks
     tilemap = gfx._block_cache_2d.tile_manager.tilemap
     assert len(tilemap) == needed
     # Every tile is on the plane the slider selects: z = 0 at level 1 (the

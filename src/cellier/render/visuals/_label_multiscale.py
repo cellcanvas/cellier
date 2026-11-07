@@ -195,7 +195,6 @@ class GFXMultiscaleLabelVisual(
 
     #: 3D loads go through the chunk scheduler (``plan`` / ``residencies``).
     chunked: bool = True
-    cancellable: bool = True
     #: The one-plane slicing rule decides when a slice misses the data, so
     #: the scene manager must not skip this visual on its own extent check.
     decides_empty_slices: bool = True
@@ -1158,10 +1157,10 @@ class GFXMultiscaleLabelVisual(
                 self._update_node_matrix(displayed)
 
         if self._last_displayed_axes is None:
-            raise RuntimeError("build_slice_request requires displayed_axes to be set.")
+            raise RuntimeError("3D planning requires displayed_axes to be set.")
         if len(self._last_displayed_axes) != 3:
             raise ValueError(
-                f"build_slice_request expects 3D display, got "
+                f"3D planning expects 3D display, got "
                 f"displayed_axes={self._last_displayed_axes}"
             )
         # Design 3.11 C: reverse once, by name, then map in one step.
@@ -1773,10 +1772,10 @@ class GFXMultiscaleLabelVisual(
     def close(self) -> None:
         """Release the caches, textures and nodes.  Unusable afterwards.
 
-        A slice task still in flight holds ``on_data_ready`` -- and so this
-        visual -- until the event loop runs its cancellation, so the brick
-        caches (up to ``gpu_budget_bytes`` each) are dropped here rather than
-        whenever the visual dies.  The textures are destroyed rather than
+        A read still in flight holds the visual's caches -- and so this
+        visual -- until it lands, so the brick caches (up to
+        ``gpu_budget_bytes`` each) are dropped here rather than whenever the
+        visual dies.  The textures are destroyed rather than
         dropped: pygfx's bind-group cache would otherwise keep their GPU memory
         after the visual is gone.
         """

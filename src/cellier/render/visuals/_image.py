@@ -1632,7 +1632,6 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         Maximum GPU memory for the 2D tile cache texture.
     """
 
-    cancellable: bool = True
     #: Applies the image slicing rule (design 3.2) itself, so the scene
     #: manager's data-coverage pre-check does not skip it.
     decides_empty_slices: bool = True
@@ -3374,7 +3373,6 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
 
     #: 3D loads go through the chunk scheduler (``plan`` / ``residencies``).
     chunked: bool = True
-    cancellable: bool = True
     #: Applies the image slicing rule (design 3.2) itself, so the scene
     #: manager's data-coverage pre-check does not skip it.
     decides_empty_slices: bool = True

@@ -117,14 +117,10 @@ async def _settle(viewer: Viewer) -> None:
     """Load to quiescence without waiting on an open drag's stillness timer."""
     controller = viewer.controller
     manager = controller._render_manager
-    for _ in range(20):
+    for _ in range(3):
+        # Let a pass scheduled with call_soon run before draining.
         await asyncio.sleep(0)
-        tasks = list(manager._slicer._tasks.values())
-        if tasks:
-            await asyncio.gather(*tasks)
         await manager.scheduler.drain(commit=True)
-        if all(task.done() for task in manager._slicer._tasks.values()):
-            return
 
 
 @pytest.fixture

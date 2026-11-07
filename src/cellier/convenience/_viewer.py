@@ -1146,7 +1146,6 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         new_displayed = resolve_displayed_axes(
             self._scene.dims.world_coordinate_system, axis_names
         )
-        self._controller.cancel_pending_slices(self._scene.id)
         self._controller.set_displayed_axes(self._scene.id, new_displayed)
         self._controller.fit_camera(self._scene.id)
 

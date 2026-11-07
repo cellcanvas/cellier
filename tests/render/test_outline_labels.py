@@ -43,6 +43,7 @@ from cellier.render.shaders._label_colormap import (
     build_outline_selection_texture,
     update_outline_selection,
 )
+from tests.render.conftest import drain_loading
 
 _BOUNDARY = (0.0, 0.0, 1.0, 1.0)
 _SLOT1 = (1.0, 0.0, 1.0, 1.0)
@@ -103,12 +104,7 @@ def label_scene(qtbot, offscreen_renderer):
         scene.dims.selection.slice_indices = {0: 24}
         controller.fit_camera(scene.id)
         controller.reslice_all()
-        slicer = controller._render_manager._slicer
-        for _ in range(20):
-            tasks = list(slicer._tasks.values())
-            if not tasks:
-                return
-            await asyncio.gather(*tasks)
+        await drain_loading(controller)
 
     asyncio.run(_load())
     controller.fit_camera(scene.id)

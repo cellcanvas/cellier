@@ -17,6 +17,7 @@ from cellier.render.shaders._alpha_modulated import (
 )
 from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
 from cellier.visuals import GraphAppearance, GraphVisual
+from tests._planning import commit_whole_item
 from tests._v2 import identity
 
 
@@ -64,10 +65,7 @@ def _commit(visual, store, displayed=(0, 1, 2), sliced=None, extents=None, fades
         fades=dict(fades or {}),
     )
     data = asyncio.run(store.get_data(request))
-    if len(displayed) == 2:
-        visual.on_data_ready_2d([(request, data)])
-    else:
-        visual.on_data_ready([(request, data)])
+    commit_whole_item(visual, request, data)
     return data
 
 

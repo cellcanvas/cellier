@@ -1,6 +1,6 @@
 """Asynchronous pick values for multiscale images and labels (design 3.7).
 
-A multiscale visual's value is read at level 0 through the slicer, one read
+A multiscale visual's value is read at level 0 by the pick reader, one read
 per pick, per canvas: a newer pointer event cancels an in-flight ``move``
 read, ``press`` and ``release`` reads always complete, and ``remove_visual``
 cancels every read the visual has in flight.

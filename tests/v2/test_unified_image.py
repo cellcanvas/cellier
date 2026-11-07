@@ -7,6 +7,9 @@ slicing rule, the slot pool and the model bridges are all exercised together.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+
 import numpy as np
 import pytest
 from pydantic import ValidationError
@@ -22,7 +25,8 @@ from cellier.visuals import (
     effective_transparency_mode,
 )
 from tests._displayed import trailing_axes
-from tests._planning import planned_requests_3d
+from tests._planning import land_planned, planned_requests_2d, planned_requests_3d
+from tests.render.conftest import drain_loading
 
 #: World ``(c, y, x)``; a 2D scene displays ``(y, x)`` and slices ``c``.
 _CYX = [("c", "channel"), *spatial_axes("y", "x")]
@@ -72,9 +76,37 @@ def _plan(controller, scene, visual):
             dims_state=dims_state,
             selection=selection,
         )
-    return gfx.build_slice_request_2d(
-        np.zeros(3), 100.0, 10.0, None, None, dims_state, selection=selection
+    return planned_requests_2d(
+        gfx, np.zeros(3), 100.0, 10.0, None, None, dims_state, selection=selection
     )
+
+
+def _reads(controller, scene, visual):
+    """Plan, and return the planned requests no cache holds yet (reads)."""
+    gfx = _gfx(controller, scene, visual)
+    requests = _plan(controller, scene, visual)
+    held = {
+        residency.item_of(residency.planned[0])[1][0]
+        for residency in gfx.residencies().values()
+        if residency.planned
+        and residency.held.get(0, (None,))[0] == residency.planned[0]
+    }
+    return [r for r in requests if tuple(r.axis_selections) not in held]
+
+
+def _count_reads(store, gate=None):
+    """Count the store's whole-slice reads; the first waits on *gate*."""
+    calls: list = []
+    original = store.read_padded
+
+    def read_padded(request):
+        calls.append(tuple(request.axis_selections))
+        if gate is not None and len(calls) == 1:
+            gate.wait(5.0)
+        return original(request)
+
+    object.__setattr__(store, "read_padded", read_padded)
+    return calls
 
 
 def _channel_indices(requests):
@@ -225,54 +257,76 @@ async def test_removing_the_last_channel_leaves_an_empty_composite():
     assert _plan(controller, scene, visual) == []
 
 
-async def test_a_mode_switch_does_not_refetch_a_slot_that_holds_the_slice():
+async def test_single_mode_draws_slot_zero_and_keeps_the_previous_slice():
+    """D19: single mode draws the slider's channel from slot 0.
+
+    Switching from composite to single at channel 1 gives slot 0 channel 1;
+    what slot 0 held (channel 0) stays drawn, kept, while channel 1 loads.
+    """
     controller, scene, visual = _setup(composite=True)
     gfx = _gfx(controller, scene, visual)
-    requests = _plan(controller, scene, visual)
-    gfx.on_data_ready_2d(
-        [(request, np.zeros((8, 8), dtype=np.float32)) for request in requests]
-    )
-    slot_for_one = gfx._slot_for_key[1]
+    _plan(controller, scene, visual)
+    land_planned(gfx, lambda key: np.zeros((8, 8), dtype=np.float32))
+    assert gfx._drawn[0] == 0
 
     controller.update_slice_indices(scene.id, {0: 1.0})
     visual.composite = False
 
-    assert _plan(controller, scene, visual) == []
-    assert gfx._drawn == {1: slot_for_one}
+    assert _channel_indices(_reads(controller, scene, visual)) == [1]
+    assert gfx._drawn == {1: 0}
+    assert gfx.slots[0].node_2d.visible is True
+    assert all(not slot.node_2d.visible for slot in gfx.slots[1:])
 
 
 @pytest.mark.parametrize("dim", ["2d", "3d"])
 @pytest.mark.parametrize("composite", [False, True])
 async def test_new_store_data_of_the_same_shape_is_fetched_again(dim, composite):
-    """A slot holding the planned selection still refetches after a store change."""
+    """A cache holding the planned slice reads it again after a store change."""
     controller, scene, visual = _setup(composite=composite, dim=dim)
     gfx = _gfx(controller, scene, visual)
     store = gfx._data_store
-    plane = (4, 8, 8) if dim == "3d" else (8, 8)
-    ready = gfx.on_data_ready if dim == "3d" else gfx.on_data_ready_2d
-    requests = _plan(controller, scene, visual)
-    ready([(request, np.ones(plane, dtype=np.float32)) for request in requests])
-    assert _plan(controller, scene, visual) == []
+    controller.reslice_all()
+    await drain_loading(controller)
+    drawn = len(gfx._drawn)
+    assert _reads(controller, scene, visual) == []
+    calls = _count_reads(store)
 
     store.data = np.zeros(store.data.shape, dtype=np.float32)
+    await drain_loading(controller)
 
-    assert len(_plan(controller, scene, visual)) == len(requests)
+    assert len(calls) == drawn
+    assert _reads(controller, scene, visual) == []
+    for index in gfx._drawn.values():
+        node = gfx.slots[index].node_3d if dim == "3d" else gfx.slots[index].node_2d
+        assert not np.any(node.geometry.grid.data)
+    controller.close()
 
 
-async def test_a_read_in_flight_at_a_store_change_is_not_recorded_as_held():
+async def test_a_read_in_flight_at_a_store_change_is_read_again():
+    """The read in flight lands stale (drawn as kept); the re-read replaces it."""
     controller, scene, visual = _setup(composite=True)
     gfx = _gfx(controller, scene, visual)
-    requests = _plan(controller, scene, visual)
+    store = gfx._data_store
+    gate = threading.Event()
+    calls = _count_reads(store, gate)
+    controller.reslice_all()
+    for _ in range(200):
+        await asyncio.sleep(0.001)
+        if calls:
+            break
+    assert calls
 
-    # Straight to the handler: a change announced by the store also reslices,
-    # which would replace the pending plan this test is about.
-    gfx.on_data_store_contents_changed(None)
-    gfx.on_data_ready_2d(
-        [(request, np.ones((8, 8), dtype=np.float32)) for request in requests]
-    )
+    store.data = np.full(store.data.shape, 2.0, dtype=np.float32)
+    gate.set()
+    await drain_loading(controller)
 
-    assert all(slot.loaded["2d"] is None for slot in gfx.slots)
-    assert len(_plan(controller, scene, visual)) == len(requests)
+    assert _reads(controller, scene, visual) == []
+    for index in gfx._drawn.values():
+        assert np.all(gfx.slots[index].node_2d.geometry.grid.data == 2.0)
+    # The first channel was read twice (stale, then again); the second once
+    # or twice, depending on whether it started before the change.
+    assert 3 <= len(calls) <= 4
+    controller.close()
 
 
 async def test_a_direct_composite_assignment_behaves_like_set_image_composite():
@@ -379,17 +433,19 @@ async def test_transparency_follows_the_mode_until_set():
     assert effective_transparency_mode(visual) == "multiply"
 
 
-def test_remove_visual_cancels_its_slices_and_closes_it():
+def test_remove_visual_forgets_its_caches_and_closes_it():
+    """Removing a visual removes its caches from the scheduler (design v2)."""
     controller, scene, visual = _setup(composite=True)
     gfx = _gfx(controller, scene, visual)
-    cancelled: list = []
-    coordinator = controller._render_manager._slice_coordinator
-    original = coordinator.cancel_visual
-    coordinator.cancel_visual = lambda s, c, v: (cancelled.append(v), original(s, c, v))
+    scheduler = controller._render_manager.scheduler
+    controller.reslice_all()
+    cache_ids = [residency.cache_id for residency in gfx.residencies().values()]
+    assert cache_ids
+    assert all(scheduler.core.is_registered(cache_id) for cache_id in cache_ids)
 
     controller.remove_visual(visual.id)
 
-    assert cancelled == [visual.id]
+    assert not any(scheduler.core.is_registered(cache_id) for cache_id in cache_ids)
     assert gfx.slots == ()
     assert gfx.node_2d.children == ()
 

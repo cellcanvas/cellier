@@ -433,7 +433,9 @@ class InMemoryBrickSource:
         lands); it waits for the recompute of a stale block it overlaps.
         """
         if request.scale_index == 0:
-            return await self.store.get_data(request)
+            # Inline, as before the whole-slice reads moved to the executor
+            # (scheduler-only loading design v2, D21).
+            return self.store.read_padded(request)
         coarse = self._coarse
         if coarse is None:
             # Planned before the build landed (a race with the plan's

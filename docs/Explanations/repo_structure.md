@@ -41,7 +41,6 @@ src/cellier/
 ├── py.typed          # PEP 561 marker (declares the package ships type hints)
 ├── render/           # rendering backend and canvas components
 ├── scene/            # scene models (cameras, canvas layouts, etc.)
-├── slicer.py         # components for fetching data to be rendered
 ├── transform/        # coordinate transform models (affine, etc.)
 ├── types.py          # shared annotated types for Pydantic models
 ├── viewer_model.py   # top-level viewer model (DataManager, ViewerModel)
@@ -87,7 +86,6 @@ Events are used to synchronize the state between the model and views. The events
 
 - `cellier.logging` module contains the debug logging infrastructure. See the [logging explanation](./logging.md) for more information.
 - `cellier.paint` module contains the paint controllers for labeling image data.
-- `cellier.slicer` module contains components for fetching data to be rendered.
 - `cellier.types` module contains shared annotated types for Pydantic models.
 
 ### Legacy

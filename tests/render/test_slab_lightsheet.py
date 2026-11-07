@@ -32,6 +32,7 @@ from cellier.visuals._labels import (
 )
 from tests._displayed import trailing_axes
 from tests._gpu_budget import SMALL_BUDGETS
+from tests._planning import planned_requests_2d
 from tests.render.conftest import _write_multiscale_zarr
 
 # Unevenly spaced frames, in seconds.
@@ -169,7 +170,8 @@ def _gfx(controller, scene, visual):
 
 def _graph_request(controller, scene, graph):
     canvas_id = controller.get_canvas_ids(scene.id)[0]
-    return _gfx(controller, scene, graph).build_slice_request_2d(
+    return planned_requests_2d(
+        _gfx(controller, scene, graph),
         camera_pos_world=np.zeros(3),
         viewport_width_px=100.0,
         world_width=10.0,
@@ -248,3 +250,34 @@ async def test_time_stays_in_step_across_families(controller, reslice, tmp_path)
         await reslice(controller, scene.id)
         assert _gfx(controller, scene, labels)._level0_axis_selections()[0] == frame
         assert _graph_request(controller, scene, graph).slice_positions[0] == frame
+
+
+async def test_the_graph_draws_its_trail_at_every_frame(controller, reslice, tmp_path):
+    """The channel constraint the graph broadcasts over pins no frame.
+
+    The graph has no ``c``, so its request keeps the scene's ``c = 0`` as a
+    containment region.  Pulled back through the non-uniform time axis, the
+    free world ``t`` comes back as the frame range; that range was once
+    anchored like a slice at its middle sample (frame 2 here), so only that
+    frame was ever drawn, whatever the slider said.
+    """
+    scene, _labels, graph = _scene(controller, tmp_path)
+    # A z slab deep enough for every node: only time selects.
+    controller.update_thickness(scene.id, {2: 10.0})
+    gfx = _gfx(controller, scene, graph)
+    # The trail reaches 10 s back and nothing forward.
+    for seconds, rows in [(0.0, [0]), (1.0, [0, 1]), (3.0, [0, 1, 2, 3])]:
+        controller.update_slice_indices(scene.id, {0: seconds, 2: 16.0})
+        await reslice(controller, scene.id)
+        assert not gfx._nodes_empty, seconds
+        assert sorted(np.asarray(gfx._original_node_rows).tolist()) == rows, seconds
+
+    region = _graph_request(controller, scene, graph).region
+    if region is not None:
+        # Whatever the region still holds, it keeps every frame.
+        lows, highs = (
+            region.bounding_box().min_coordinate,
+            region.bounding_box().max_coordinate,
+        )
+        assert lows[0] <= 0.0
+        assert highs[0] >= len(_TIMES) - 1

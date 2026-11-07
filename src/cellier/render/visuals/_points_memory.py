@@ -25,6 +25,7 @@ from cellier.render.visuals._aabb import (
     make_aabb_line,
     refresh_aabb_line,
 )
+from cellier.render.visuals._whole_item import WholeItemGeometryMixin
 from cellier.render.visuals._world_frame import (
     collapsed_columns as _collapsed_columns,
 )
@@ -45,7 +46,7 @@ if TYPE_CHECKING:
         TransformChangedEvent,
         VisualVisibilityChangedEvent,
     )
-    from cellier.transform import BaseTransform, RegionSelection
+    from cellier.transform import BaseTransform
     from cellier.visuals._points_memory import PointsMarkerAppearance, PointsVisual
 
 # Placeholder geometry — one invisible point so pygfx never sees an empty
@@ -76,7 +77,7 @@ def _build_material(appearance: PointsMarkerAppearance) -> AlphaPointsMaterial:
     return mat
 
 
-class GFXPointsMemoryVisual(GeometryClippingMixin):
+class GFXPointsMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
     """Render-layer visual for one PointsVisual backed by in-memory points data.
 
     Uses a single ``gfx.Points`` node for both 2D and 3D modes.
@@ -84,6 +85,11 @@ class GFXPointsMemoryVisual(GeometryClippingMixin):
     no-ops because ``old_node is new_node``.  The subsequent reslice updates
     geometry and swaps the material between ``_material`` and
     ``_empty_material``.
+
+    The filtered slice loads through the chunk scheduler as one whole
+    result (``WholeItemGeometryMixin``): ``plan`` builds the request, the
+    store filters in the loop's executor, and ``upload`` places the result
+    by its own request key.
 
     Coordinate convention
     ---------------------
@@ -112,10 +118,6 @@ class GFXPointsMemoryVisual(GeometryClippingMixin):
     transform : BaseTransform
         Data-to-world transform. Must cover all data axes.
     """
-
-    #: In-memory visuals are cheap to reslice and must never be cancelled.
-    #: SliceCoordinator.submit() reads this flag before calling cancel_visual.
-    cancellable: bool = False
 
     def __init__(
         self,
@@ -195,6 +197,10 @@ class GFXPointsMemoryVisual(GeometryClippingMixin):
         # a no-op for this visual.
         self.node_2d = self.node
         self.node_3d = self.node
+
+        # The whole filtered slice loads through the chunk scheduler
+        # (``plans/scheduler_only_loading_design_v2.md`` 4.4).
+        self._init_whole_item()
 
     # ------------------------------------------------------------------
     # LOD
@@ -408,42 +414,6 @@ class GFXPointsMemoryVisual(GeometryClippingMixin):
             fold_axes=fold_axes,
         )
 
-    def build_slice_request(
-        self,
-        camera_pos_world: np.ndarray,
-        frustum_corners_world: np.ndarray | None,
-        fov_y_rad: float,
-        screen_height_px: float,
-        lod_bias: float = 1.0,
-        dims_state: DimsState | None = None,
-        force_level: int | None = None,
-        selection: RegionSelection | None = None,
-    ) -> list[PointsSliceRequest]:
-        """3-D planning path — returns one PointsSliceRequest."""
-        displayed = dims_state.selection.displayed_axes
-        if displayed != self._last_displayed_axes:
-            self._update_node_matrix(displayed)
-        return [self._build_request(dims_state, selection)]
-
-    def build_slice_request_2d(
-        self,
-        camera_pos_world: np.ndarray,
-        viewport_width_px: float,
-        world_width: float,
-        view_min_world: np.ndarray | None,
-        view_max_world: np.ndarray | None,
-        dims_state: DimsState,
-        lod_bias: float = 1.0,
-        force_level: int | None = None,
-        use_culling: bool = True,
-        selection: RegionSelection | None = None,
-    ) -> list[PointsSliceRequest]:
-        """2-D planning path — returns one PointsSliceRequest."""
-        displayed = dims_state.selection.displayed_axes
-        if displayed != self._last_displayed_axes:
-            self._update_node_matrix(displayed)
-        return [self._build_request(dims_state, selection)]
-
     # ------------------------------------------------------------------
     # Commit — shared logic for both callbacks
     # ------------------------------------------------------------------
@@ -578,21 +548,11 @@ class GFXPointsMemoryVisual(GeometryClippingMixin):
         if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
             self._update_node_matrix(self._last_displayed_axes)
 
-    def on_data_ready(self, batch: list[tuple[PointsSliceRequest, PointsData]]) -> None:
-        """3-D callback — called on the main thread by SliceCoordinator."""
-        if not batch:
-            return
-        _, data = batch[0]
-        self._commit(data, is_2d=False)
-
-    def on_data_ready_2d(
-        self, batch: list[tuple[PointsSliceRequest, PointsData]]
-    ) -> None:
-        """2-D callback — called on the main thread by SliceCoordinator."""
-        if not batch:
-            return
-        _, data = batch[0]
-        self._commit(data, is_2d=True)
+    def _show_empty(self) -> None:
+        """Draw nothing: the residency holds no result (``release``)."""
+        self.node.material = self._empty_material
+        self._is_empty = True
+        self._original_indices = None
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -679,16 +639,6 @@ class GFXPointsMemoryVisual(GeometryClippingMixin):
             self._aabb_line_width = event.new_value
             if self._aabb_line is not None:
                 self._aabb_line.material.thickness = event.new_value
-
-    # ------------------------------------------------------------------
-    # No-op cancellation stubs (no brick cache)
-    # ------------------------------------------------------------------
-
-    def cancel_pending(self) -> None:
-        """No-op — in-memory visuals have no reserved GPU brick slots."""
-
-    def cancel_pending_2d(self) -> None:
-        """No-op — in-memory visuals have no reserved GPU brick slots."""
 
     def tick(self) -> None:
         """Called once per rendered frame. No per-frame state to advance.

@@ -31,9 +31,9 @@ def _placeholder_positions(n_display: int) -> np.ndarray:
 class PointsMemoryStore(BaseDataStore):
     """In-memory point-cloud data store backed by numpy arrays.
 
-    All reads are synchronous (data is in CPU RAM); ``get_data`` is
-    declared ``async`` to satisfy the AsyncSlicer contract and to
-    provide a single cancellation checkpoint.
+    ``get_data`` runs the filter in the event loop's default executor, so
+    a large cloud does not stall the loop (``plans/scheduler_only_loading_
+    design_v2.md`` D4); :meth:`read` is the same filter, synchronous.
 
     Positions are stored in *data-axis order*: column 0 is axis 0 (z),
     column 1 is axis 1 (y), column 2 is axis 2 (x).  The render layer
@@ -187,25 +187,37 @@ class PointsMemoryStore(BaseDataStore):
         return DatasetInfo(sections=[RowSection(None, rows)])
 
     # ------------------------------------------------------------------
-    # Async data access — one checkpoint for cancellability
+    # Data access
     # ------------------------------------------------------------------
 
     async def get_data(self, request: PointsSliceRequest) -> PointsData:
         """Return proximity-filtered point data for *request*.
 
-        Checkpoint
-        ----------
-        A  After the proximity mask is built but before gathering
-           surviving points.  Fires if the slider is moved quickly
-           enough to cancel the task before the gather.
-
-        If CancelledError fires at the checkpoint, the callback is never
-        called, preventing stale geometry from reaching the GPU.
+        The filter (:meth:`read`) runs in the loop's default executor.  A
+        filter that raises because the store changed under it fails this
+        read; the change's invalidation reads again.
 
         Parameters
         ----------
         request : PointsSliceRequest
-            Built by GFXPointsMemoryVisual.build_slice_request[_2d].
+            Planned by ``GFXPointsMemoryVisual.plan``.
+
+        Returns
+        -------
+        PointsData
+            Proximity-filtered, projected points ready for GPU upload.
+            ``is_empty=True`` when the filter produced zero points.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.read, request)
+
+    def read(self, request: PointsSliceRequest) -> PointsData:
+        """The filter of :meth:`get_data`, run on the calling thread.
+
+        Parameters
+        ----------
+        request : PointsSliceRequest
+            Planned by ``GFXPointsMemoryVisual.plan``.
 
         Returns
         -------
@@ -236,9 +248,6 @@ class PointsMemoryStore(BaseDataStore):
         # the "no sliced axes so the loop does not run" special case
         # disappears.
         point_mask = request.region.contains(positions)
-
-        # ── Checkpoint A ─────────────────────────────────────────────
-        await asyncio.sleep(0)
 
         # ── Phase 2: gather surviving points ─────────────────────────
         surviving_indices = np.where(point_mask)[0]

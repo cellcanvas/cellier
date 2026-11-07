@@ -26,7 +26,6 @@ class StubController:
         self.fit_calls: list = []
         self.reslice_enabled_at_fit: list = []
         self.reslice_calls: list = []
-        self.cancel_calls: list = []
         self._first_frame_cbs: list = []
         self._connected_cbs: list = []
 
@@ -62,9 +61,6 @@ class StubController:
         self.fire_connected()
         for cb in list(self._first_frame_cbs):
             cb()
-
-    def cancel_pending_slices(self, scene_id):
-        self.cancel_calls.append(scene_id)
 
 
 def _single_scene_viewer(controller, gui="qt"):
@@ -239,7 +235,6 @@ def test_display_handle_close_tears_down_once():
     handle.close()
 
     assert view.close_calls == 1
-    assert controller.cancel_calls == [scene.id]
     assert sidecar.close_calls == 1
 
     # Idempotent: a second close is a no-op.
@@ -248,15 +243,17 @@ def test_display_handle_close_tears_down_once():
     assert sidecar.close_calls == 1
 
 
-def test_display_handle_close_multi_scene_cancels_each():
+def test_display_handle_close_multi_scene_closes_the_view_only():
+    """Loading is the scheduler's; closing the display closes the view."""
     controller = StubController()
     scenes = {"a": SimpleNamespace(id=uuid4()), "b": SimpleNamespace(id=uuid4())}
     viewer = SimpleNamespace(controller=controller, scenes=scenes)
-    view = SimpleNamespace(close=lambda: None)
+    view = SimpleNamespace(close_calls=0)
+    view.close = lambda: setattr(view, "close_calls", view.close_calls + 1)
 
     DisplayHandle(viewer, view).close()
 
-    assert set(controller.cancel_calls) == {s.id for s in scenes.values()}
+    assert view.close_calls == 1
 
 
 def test_display_handle_repr_is_inert():

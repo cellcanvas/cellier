@@ -97,12 +97,22 @@ class CachePolicy:
         attempt.  ``True`` suits a store that may have been unreachable.
         ``False`` suits a read that fails the same way every time: the key
         is tried again only when its store is invalidated.
+    commit_stale : bool
+        Whether a result an invalidation makes stale is still shown, as
+        kept, until its re-read lands (``plans/scheduler_only_loading_design_v2.md``
+        D13, D14).  A read invalidated in flight, and an arrival an
+        invalidation hits before its commit round, are both handed to the
+        adapter's ``write_kept`` in the next commit round instead of being
+        dropped; the record is requeued either way.  Only for a whole-item
+        cache under a change stream (in-memory data being painted), whose
+        adapter implements ``write_kept``.
     """
 
     max_target_fetching: int | None = None
     resource: Literal["io", "compute"] = "io"
     retry_max_attempts: int | None = None
     retry_on_pass: bool = True
+    commit_stale: bool = False
 
     def __post_init__(self) -> None:
         """Reject values the scheduler cannot honour."""
@@ -216,6 +226,11 @@ class Residency(Protocol):
         """Boolean mask: which *keys* intersect *region* (invalidation)."""
         ...
 
+    # Optional, called only for a cache whose policy has ``commit_stale``:
+    #
+    #     def write_kept(self, key: int, data: Any) -> None:
+    #         """Keep a stale result of *key* to draw until its re-read lands."""
+
 
 @runtime_checkable
 class ChunkedVisual(Protocol):
@@ -238,16 +253,9 @@ def is_chunked_visual(visual: object) -> bool:
     """Whether *visual* loads through the chunk scheduler (``ChunkedVisual``).
 
     Read off the class (``chunked = True``), so a mock or a visual that
-    happens to have a ``plan`` attribute is not routed by accident.  A class
-    that sets ``routes_chunked = True`` (the in-memory image and labels
-    visuals, oblique 2D design v3 5.4) is chunked while its instance's
-    ``chunked_now`` says so: on the brick route.
+    happens to have a ``plan`` attribute is not routed by accident.
     """
-    if getattr(type(visual), "chunked", False) is True:
-        return True
-    if getattr(type(visual), "routes_chunked", False) is True:
-        return bool(visual.chunked_now)
-    return False
+    return getattr(type(visual), "chunked", False) is True
 
 
 def _readonly(array: np.ndarray) -> np.ndarray:

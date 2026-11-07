@@ -12,6 +12,11 @@ from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.image._image_requests import ChunkRequest
 from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import ImageVisual, InMemoryImageAppearance
+from tests._planning import (
+    commit_whole_item,
+    planned_requests_2d,
+    planned_requests_3d,
+)
 from tests._v2 import Context
 
 # ---------------------------------------------------------------------------
@@ -61,7 +66,7 @@ def _make_dims_state_3d() -> DimsState:
 
 
 @patch("cellier.render.visuals._image_memory.gfx")
-def test_build_slice_request_2d_returns_one_request(mock_gfx):
+def test_plan_2d_wants_one_request(mock_gfx):
     from cellier.render.visuals import GFXImageMemoryVisual
 
     store = _make_store(shape=(10, 20, 30))
@@ -73,7 +78,8 @@ def test_build_slice_request_2d_returns_one_request(mock_gfx):
     ctx.place(visual)
 
     dims = _make_dims_state_2d()
-    requests = visual.build_slice_request_2d(
+    requests = planned_requests_2d(
+        visual,
         camera_pos_world=np.zeros(3),
         viewport_width_px=800.0,
         world_width=30.0,
@@ -98,7 +104,7 @@ def test_build_slice_request_2d_returns_one_request(mock_gfx):
 
 
 @patch("cellier.render.visuals._image_memory.gfx")
-def test_build_slice_request_3d_returns_one_request(mock_gfx):
+def test_plan_3d_wants_one_request(mock_gfx):
     from cellier.render.visuals import GFXImageMemoryVisual
 
     store = _make_store(shape=(10, 20, 30))
@@ -110,7 +116,8 @@ def test_build_slice_request_3d_returns_one_request(mock_gfx):
     ctx.place(visual)
 
     dims = _make_dims_state_3d()
-    requests = visual.build_slice_request(
+    requests = planned_requests_3d(
+        visual,
         camera_pos_world=np.zeros(3),
         frustum_corners_world=None,
         fov_y_rad=1.0,
@@ -122,25 +129,6 @@ def test_build_slice_request_3d_returns_one_request(mock_gfx):
     assert len(requests) == 1
     req = requests[0]
     assert req.axis_selections == ((0, 10), (0, 20), (0, 30))
-
-
-@patch("cellier.render.visuals._image_memory.gfx")
-def test_build_slice_request_3d_handles_none_dims_state(mock_gfx):
-    """With dims_state=None all axes are treated as displayed."""
-    from cellier.render.visuals import GFXImageMemoryVisual
-
-    store = _make_store(shape=(5, 6, 7))
-    model = _make_visual_model(store)
-    visual = GFXImageMemoryVisual(model, store, render_modes={"3d"})
-
-    requests = visual.build_slice_request(
-        camera_pos_world=np.zeros(3),
-        frustum_corners_world=None,
-        fov_y_rad=1.0,
-        screen_height_px=600.0,
-        dims_state=None,
-    )
-    assert requests[0].axis_selections == ((0, 5), (0, 6), (0, 7))
 
 
 @patch("cellier.render.visuals._image_memory.gfx")
@@ -162,7 +150,8 @@ def test_5d_dims_state_2d_scene(mock_gfx):
             displayed_axes=(3, 4),
         ),
     )
-    requests = visual.build_slice_request_2d(
+    requests = planned_requests_2d(
+        visual,
         camera_pos_world=np.zeros(3),
         viewport_width_px=800.0,
         world_width=30.0,
@@ -195,7 +184,8 @@ def test_scaled_transform_halves_slice_index_2d(mock_gfx):
             # world z=10
         ),
     )
-    requests = visual.build_slice_request_2d(
+    requests = planned_requests_2d(
+        visual,
         camera_pos_world=np.zeros(3),
         viewport_width_px=800.0,
         world_width=30.0,
@@ -240,7 +230,8 @@ def test_non_spatial_axis_not_transformed_3d(mock_gfx):
             # t=6, non-spatial
         ),
     )
-    requests = visual.build_slice_request(
+    requests = planned_requests_3d(
+        visual,
         camera_pos_world=np.zeros(3),
         frustum_corners_world=None,
         fov_y_rad=1.0,
@@ -282,7 +273,8 @@ def test_scaled_transform_on_spatial_slice_in_4d(mock_gfx):
             # t=3 (non-spatial), z=8 (spatial)
         ),
     )
-    requests = visual.build_slice_request_2d(
+    requests = planned_requests_2d(
+        visual,
         camera_pos_world=np.zeros(3),
         viewport_width_px=800.0,
         world_width=30.0,
@@ -319,7 +311,8 @@ def test_identity_transform_preserves_slice_index(mock_gfx):
             displayed_axes=(1, 2),
         ),
     )
-    requests = visual.build_slice_request_2d(
+    requests = planned_requests_2d(
+        visual,
         camera_pos_world=np.zeros(3),
         viewport_width_px=800.0,
         world_width=30.0,
@@ -352,7 +345,8 @@ def test_slice_index_outside_store_bounds_draws_nothing(mock_gfx):
             # world z=5, data z=10 -> past the last plane
         ),
     )
-    requests = visual.build_slice_request_2d(
+    requests = planned_requests_2d(
+        visual,
         camera_pos_world=np.zeros(3),
         viewport_width_px=800.0,
         world_width=30.0,
@@ -366,12 +360,12 @@ def test_slice_index_outside_store_bounds_draws_nothing(mock_gfx):
 
 
 # ---------------------------------------------------------------------------
-# Tests: commit (on_data_ready / on_data_ready_2d)
+# Tests: commit (upload_slice)
 # ---------------------------------------------------------------------------
 
 
 @patch("cellier.render.visuals._image_memory.gfx")
-def test_on_data_ready_2d_transposes_correctly(mock_gfx):
+def test_upload_2d_does_not_transpose(mock_gfx):
     """Data (H=20, W=30) must be uploaded as (H=20, W=30, 1) — no transpose."""
     from cellier.render.visuals import GFXImageMemoryVisual
 
@@ -391,7 +385,7 @@ def test_on_data_ready_2d_transposes_correctly(mock_gfx):
     mock_gfx.Texture.side_effect = lambda arr, **kw: captured_arrays.append(arr)
     mock_gfx.Geometry.return_value = MagicMock()
 
-    visual.on_data_ready_2d([(req, data)])
+    commit_whole_item(visual, req, data, mode="2d")
 
     assert len(captured_arrays) == 1
     arr = captured_arrays[0]
@@ -400,7 +394,7 @@ def test_on_data_ready_2d_transposes_correctly(mock_gfx):
 
 
 @patch("cellier.render.visuals._image_memory.gfx")
-def test_on_data_ready_3d_no_transpose(mock_gfx):
+def test_upload_3d_does_not_transpose(mock_gfx):
     """Data (D=10, H=20, W=30) is uploaded as-is -- no transpose.
 
     pygfx maps a numpy texture's last axis to texture-x, so (D, H, W) =
@@ -425,25 +419,12 @@ def test_on_data_ready_3d_no_transpose(mock_gfx):
     mock_gfx.Texture.side_effect = lambda arr, **kw: captured_arrays.append(arr)
     mock_gfx.Geometry.return_value = MagicMock()
 
-    visual.on_data_ready([(req, data)])
+    commit_whole_item(visual, req, data, mode="3d")
 
     assert len(captured_arrays) == 1
     arr = captured_arrays[0]
     assert arr.shape == (10, 20, 30)
     np.testing.assert_array_equal(arr, data)
-
-
-@patch("cellier.render.visuals._image_memory.gfx")
-def test_on_data_ready_noop_on_empty_batch(mock_gfx):
-    from cellier.render.visuals import GFXImageMemoryVisual
-
-    store = _make_store()
-    model = _make_visual_model(store)
-    visual = GFXImageMemoryVisual(model, store, render_modes={"3d"})
-
-    # Should not raise
-    visual.on_data_ready([])
-    visual.on_data_ready_2d([])
 
 
 # ---------------------------------------------------------------------------
@@ -452,8 +433,8 @@ def test_on_data_ready_noop_on_empty_batch(mock_gfx):
 
 
 @patch("cellier.render.visuals._image_memory.gfx")
-def test_node_matrix_set_lazily_on_slice_request(mock_gfx):
-    """Node matrix is set on first build_slice_request, not construction."""
+def test_node_matrix_set_lazily_on_plan(mock_gfx):
+    """Node matrix is set on the first plan, not at construction."""
     from cellier.render.visuals import GFXImageMemoryVisual
 
     store = _make_store()
@@ -474,7 +455,8 @@ def test_node_matrix_set_lazily_on_slice_request(mock_gfx):
             displayed_axes=(0, 1, 2),
         ),
     )
-    visual.build_slice_request(
+    planned_requests_3d(
+        visual,
         camera_pos_world=np.zeros(3),
         frustum_corners_world=None,
         fov_y_rad=1.0,
@@ -511,7 +493,8 @@ def test_on_transform_changed_updates_node_after_initial_slice(mock_gfx):
             displayed_axes=(1, 2),
         ),
     )
-    visual.build_slice_request_2d(
+    planned_requests_2d(
+        visual,
         camera_pos_world=np.zeros(3),
         viewport_width_px=800.0,
         world_width=30.0,
@@ -679,7 +662,8 @@ def test_identity_transform_is_noop_3d(mock_gfx):
     ctx.place(visual)
 
     dims = _make_dims_state_3d()
-    requests = visual.build_slice_request(
+    requests = planned_requests_3d(
+        visual,
         camera_pos_world=np.zeros(3),
         frustum_corners_world=None,
         fov_y_rad=1.0,

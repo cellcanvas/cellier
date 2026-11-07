@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
@@ -185,6 +186,15 @@ class LabelMemoryStore(BaseDataStore):
 
     async def get_data(self, request: ChunkRequest) -> np.ndarray:
         """Return the requested sub-region as an int32 array.
+
+        Runs :meth:`read_padded` in the event loop's default executor
+        (scheduler-only loading design v2, D4).
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.read_padded, request)
+
+    def read_padded(self, request: ChunkRequest) -> np.ndarray:
+        """Return the requested sub-region as an int32 array, synchronously.
 
         Interprets ``request.axis_selections`` generically:
         - ``int`` entry  → sliced axis (dropped from output)

@@ -249,8 +249,19 @@ def test_an_unbounded_axis_stays_unbounded(leaf, systems):
     """Unbounded means 'not constrained', not 'reaches the edge of the data'."""
     _, world = systems
     mapped = leaf.imap_bounding_box(_box(world.id, -np.inf, np.inf))
-    assert mapped.min_coordinate[0] == pytest.approx(-0.5)
-    assert mapped.max_coordinate[0] == pytest.approx(12.5)
+    assert np.isneginf(mapped.min_coordinate[0])
+    assert np.isposinf(mapped.max_coordinate[0])
+
+
+def test_an_unbounded_side_stays_unbounded_in_both_directions(leaf, systems):
+    """Each side keeps its own infinity; the finite side still maps exactly."""
+    labels, world = systems
+    back = leaf.imap_bounding_box(_box(world.id, -np.inf, 2.0))
+    assert np.isneginf(back.min_coordinate[0])
+    assert back.max_coordinate[0] == pytest.approx(2.0)
+    forward = leaf.map_bounding_box(_box(labels.id, 2.0, np.inf), world)
+    assert forward.min_coordinate[0] == pytest.approx(2.0)
+    assert np.isposinf(forward.max_coordinate[0])
 
 
 def test_a_wrong_rank_box_raises(leaf, systems):

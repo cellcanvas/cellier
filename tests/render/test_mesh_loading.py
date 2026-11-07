@@ -650,7 +650,13 @@ async def test_a_2d_view_loads_through_the_same_path(reads):
 
 
 async def test_a_mesh_scrub_leaves_an_image_beside_it_alone(rig, reads, monkeypatch):
-    """The image's reads are the same with and without the mesh scrub."""
+    """The image loads as it does alone: at most one read per position, last wins.
+
+    Both load through the scheduler's compute lane (scheduler-only loading
+    design v2, D3), so how many positions a scrub skips depends on timing;
+    with or without the mesh, no position is read twice and the image ends
+    on the last one.
+    """
     image_reads: list[object] = []
     inner = ImageMemoryStore.get_data
 
@@ -659,10 +665,16 @@ async def test_a_mesh_scrub_leaves_an_image_beside_it_alone(rig, reads, monkeypa
         return await inner(store, request)
 
     monkeypatch.setattr(ImageMemoryStore, "get_data", get_data)
-    rig.controller.add_image(
+    image = rig.controller.add_image(
         ImageMemoryStore(data=np.zeros((N_T, 8, 8, 8), dtype=np.float32)),
         rig.scene.id,
     )
+
+    def image_t() -> int:
+        (residency,) = (
+            r for r in rig.gfx(image).residencies().values() if r.held and r.planned
+        )
+        return residency.item_of(residency.held[0][0])[1][0][0]
 
     async def scrub() -> int:
         image_reads.clear()
@@ -675,12 +687,15 @@ async def test_a_mesh_scrub_leaves_an_image_beside_it_alone(rig, reads, monkeypa
     rig.controller.reslice_all()
     await rig.settle()
     alone = await scrub()
+    assert 1 <= alone <= N_T
+    assert image_t() == N_T - 1
     series = rig.add_mesh(_series_store())
     rig.controller.reslice_all()
     await rig.settle()
     with_mesh = await scrub()
 
-    assert with_mesh == alone
+    assert 1 <= with_mesh <= N_T
+    assert image_t() == N_T - 1
     assert rig.drawn(series) == [N_T - 1]
 
 

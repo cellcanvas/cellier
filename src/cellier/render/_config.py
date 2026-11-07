@@ -2,37 +2,18 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DEFAULT_CAMERA_SETTLE_THRESHOLD_S: float = 0.3
 
 
-class SlicingConfig(BaseModel):
-    """Configuration for the async chunk-slicing pipeline.
-
-    These parameters are construction-time only. Changing them after
-    ``RenderManager`` is created has no effect.
-
-    Parameters
-    ----------
-    batch_size : int
-        Number of chunks fetched concurrently in each async batch.
-        Higher values increase throughput but raise peak memory pressure.
-    render_every : int
-        Number of completed batches between progressive redraws.
-        1 = redraw after every batch (lowest latency to first pixels);
-        higher values reduce GPU upload overhead on fast I/O.
-    """
-
-    batch_size: int = Field(default=8, gt=0)
-    render_every: int = Field(default=1, gt=0)
-
-
 class SchedulerConfig(BaseModel):
-    """Configuration for the chunk scheduler that loads multiscale visuals.
+    """Configuration for the chunk scheduler that loads every visual.
 
-    Construction-time only, like :class:`SlicingConfig`: changing it after
-    ``RenderManager`` is created has no effect.  Every value is fixed; the
+    Construction-time only: changing it after ``RenderManager`` is created
+    has no effect.  Every value is fixed; the
     scheduler never tunes itself.
 
     Parameters
@@ -333,10 +314,8 @@ class RenderManagerConfig(BaseModel):
 
     Parameters
     ----------
-    slicing : SlicingConfig
-        Async chunk-slicing pipeline settings (non-chunked visuals).
     scheduler : SchedulerConfig
-        Chunk scheduler settings (multiscale visuals).
+        Chunk scheduler settings (every visual loads through it).
     temporal : TemporalAccumulationConfig
         Temporal accumulation pass settings.
     camera : CameraConfig
@@ -363,7 +342,7 @@ class RenderManagerConfig(BaseModel):
     Construct with custom settings and serialize:
 
     >>> config = RenderManagerConfig(
-    ...     slicing=SlicingConfig(batch_size=32, render_every=4),
+    ...     scheduler=SchedulerConfig(max_in_flight=16),
     ...     temporal=TemporalAccumulationConfig(blend_weight=0.05),
     ...     camera=CameraConfig(settle_threshold_s=0.5),
     ... )
@@ -371,7 +350,6 @@ class RenderManagerConfig(BaseModel):
     >>> config2 = RenderManagerConfig.model_validate_json(json_str)
     """
 
-    slicing: SlicingConfig = Field(default_factory=SlicingConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     temporal: TemporalAccumulationConfig = Field(
         default_factory=TemporalAccumulationConfig
@@ -382,3 +360,15 @@ class RenderManagerConfig(BaseModel):
         default_factory=AmbientOcclusionConfig
     )
     draw_hold_ms: float = Field(default=50.0, ge=0.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_slicing(cls, data: Any) -> Any:
+        """Ignore ``slicing``, the settings of the retired async slicer.
+
+        A viewer file saved before every visual loaded through the chunk
+        scheduler carries it; it configures nothing now.
+        """
+        if isinstance(data, dict) and "slicing" in data:
+            data = {key: value for key, value in data.items() if key != "slicing"}
+        return data

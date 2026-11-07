@@ -5,7 +5,7 @@ values produce different colors via the random colormap.  The toolbar
 exposes brush value, brush radius, undo, commit, and abort.
 
 Run with:
-    uv run python scripts/v2/in_memory_paint_labels.py
+    .venv/bin/python scripts/v2/in_memory_paint_labels.py
 """
 
 from __future__ import annotations
@@ -29,14 +29,13 @@ from PySide6.QtWidgets import (
 from cellier.controller import CellierController
 from cellier.data.label._label_memory_store import LabelMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
-from cellier.scene.dims import CoordinateSystem
-from cellier.visuals import InMemoryLabelsAppearance, LabelMemoryVisual
+from cellier.scene.dims import spatial_axes
+from cellier.visuals import InMemoryLabelsAppearance
 from cellier.visuals._points_memory import PointsMarkerAppearance
 
 
-def main() -> None:
-    app = QApplication(sys.argv)
-
+def build(gui: str = "qt"):
+    """The controller, a 2D (y, x) scene, the labels and the anchor points."""
     # ── 1. Data ─────────────────────────────────────────────────────────
     label_data = np.zeros((256, 256), dtype=np.int32)
     label_store = LabelMemoryStore(data=label_data, name="labels")
@@ -52,23 +51,19 @@ def main() -> None:
     points_store = PointsMemoryStore(positions=point_positions, name="anchors")
 
     # ── 2. Controller and 2D scene ──────────────────────────────────────
-    controller = CellierController()
-    cs = CoordinateSystem(name="world", axis_labels=("y", "x"))
+    controller = CellierController(gui=gui)
     scene = controller.add_scene(
-        dim="2d",
-        coordinate_system=cs,
+        displayed_axes=("y", "x"),
+        coordinate_system=spatial_axes("y", "x"),
         name="paint_scene",
         render_modes={"2d"},
     )
 
-    appearance = InMemoryLabelsAppearance(colormap_mode="random")
-    label_visual_model = LabelMemoryVisual(
+    label_visual = controller.add_labels(
+        data=label_store,
+        scene_id=scene.id,
+        appearance=InMemoryLabelsAppearance(colormap_mode="random"),
         name="labels",
-        data_store_id=str(label_store.id),
-        appearance=appearance,
-    )
-    label_visual = controller.add_visual(
-        scene.id, label_visual_model, data_store=label_store
     )
 
     points_appearance = PointsMarkerAppearance(
@@ -85,6 +80,12 @@ def main() -> None:
         appearance=points_appearance,
         name="anchors",
     )
+    return controller, scene, label_visual
+
+
+def main() -> None:
+    app = QApplication(sys.argv)
+    controller, scene, label_visual = build()
 
     # ── 3. Qt window ────────────────────────────────────────────────────
     root = QWidget()
@@ -146,12 +147,12 @@ def main() -> None:
     paint_ctrl = controller.add_paint_controller(
         visual_id=label_visual.id,
         canvas_id=canvas_id,
-        brush_value=float(brush_value_spin.value()),
+        brush_value=int(brush_value_spin.value()),
         brush_radius_voxels=float(brush_radius_spin.value()),
     )
 
     def _on_brush_value_changed(value: int) -> None:
-        paint_ctrl.brush_value = float(value)
+        paint_ctrl.brush_value = int(value)
 
     def _on_brush_radius_changed(value: int) -> None:
         paint_ctrl.brush_radius_voxels = float(value)

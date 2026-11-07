@@ -1,7 +1,7 @@
 """ChunkRequest — immutable request object for a single padded brick read.
 
-Lives here as a standalone module so both ``MultiscaleZarrDataStore`` and
-``AsyncSlicer`` can import it without a circular dependency.
+Lives here as a standalone module so the data stores and the render layer
+can import it without a circular dependency.
 """
 
 from __future__ import annotations

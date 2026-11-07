@@ -2,18 +2,18 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
 
 import numpy as np
 import pygfx as gfx
 
 # Import the shader modules to trigger @register_wgpu_render_function.
 import cellier.render.shaders._label_volume  # noqa: F401
-from cellier.data.image._image_requests import ChunkRequest
 from cellier.render._clipping import ClippingPlanesMixin
+from cellier.render._level_residency import MEMORY_RASTER_POLICY, LevelResidency
 from cellier.render._node_transform import set_node_matrix
 from cellier.render._render_planes import RenderPlanesMixin
-from cellier.render._spaces import RenderSpaces, node_follows_slice, node_matrix
+from cellier.render._spaces import RenderSpaces, node_matrix
+from cellier.render.scheduling import PlanMode
 from cellier.render.shaders._label_colormap import (
     build_direct_lut_textures,
     build_label_params_buffer,
@@ -28,13 +28,21 @@ from cellier.render.visuals._image_memory import (
     _pin_footprint,
     _plan_from_region,
     _rect_wireframe_positions,
+    placed_collapsed,
+    raster_keeps_previous,
+    raster_request_key,
+    record_placement,
+    whole_slice_request,
 )
 from cellier.render.visuals._pick import memory_image_data_coordinate
 from cellier.render.visuals._slicing import image_plane_selection
 from cellier.transform import effective_transform
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from cellier._state import DimsState
+    from cellier.data.image._image_requests import ChunkRequest
     from cellier.data.label._label_memory_store import LabelMemoryStore
     from cellier.events._events import (
         AABBChangedEvent,
@@ -43,8 +51,15 @@ if TYPE_CHECKING:
         TransformChangedEvent,
         VisualVisibilityChangedEvent,
     )
+    from cellier.render._requests import ReslicingRequest
+    from cellier.render._scene_config import VisualRenderConfig
+    from cellier.render.scheduling import DesiredSet
     from cellier.transform import BaseTransform, RegionSelection
     from cellier.visuals._label_memory import LabelMemoryVisual
+
+
+def _release_nothing(level: int) -> None:
+    """A cache let go of its slice: the visibility rule hides it (D16)."""
 
 
 def _make_placeholder_label_params() -> gfx.Buffer:
@@ -55,7 +70,9 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
     """Render-layer visual for a LabelMemoryVisual backed by LabelMemoryStore.
 
     Owns gfx.Image (2D) and/or gfx.Volume (3D) nodes with custom label shaders.
-    No brick cache; every reslice uploads the full slice or volume.
+    Loads through the chunk scheduler with one whole-slice cache per mode
+    (scheduler-only loading design v2, 4.5): a plan wants the full slice or
+    volume, and a key the cache already holds reads nothing.
 
     Parameters
     ----------
@@ -67,7 +84,8 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         Which nodes to build: ``{"2d"}``, ``{"3d"}``, or ``{"2d", "3d"}``.
     """
 
-    cancellable: bool = True
+    #: Loads through the chunk scheduler (``is_chunked_visual``).
+    chunked: bool = True
     #: The one-plane slicing rule decides when a slice misses the data, so
     #: the scene manager must not skip this visual on its own extent check.
     decides_empty_slices: bool = True
@@ -104,6 +122,10 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         # The collapsed voxel index per dropped data axis, refreshed on every
         # planned request (design 3.9).
         self._collapsed_indices: dict[int, float] = {}
+        # mode -> the collapsed indices of the last upload (D15).
+        self._placed_collapsed: dict[str, dict[int, float]] = {}
+        # True while the newest plan has no selection (the slice misses).
+        self._no_selection: bool = False
         self._data_ready_2d: bool = False
         self._data_ready_3d: bool = False
 
@@ -210,6 +232,23 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
             if node is not None:
                 node.visible = appearance.visible
 
+        # One whole-slice cache per mode, so switching 2D/3D and back reads
+        # nothing (D5).
+        keeps_previous = raster_keeps_previous(None)
+        self._residency: dict[str, LevelResidency] = {
+            mode: LevelResidency(
+                1,
+                upload=self._uploader(mode),
+                release=_release_nothing,
+                on_change=self._apply_visibility,
+                keeps_previous=keeps_previous,
+                policy=MEMORY_RASTER_POLICY,
+                keeps_through_invalidation=True,
+            )
+            for mode in sorted(render_modes)
+        }
+        self._apply_visibility()
+
         # The placeholders above are one or two voxels: pin the boxes to the
         # data's footprint so a camera fit before the first slice lands (the
         # first visit to 3D fits at once) frames the data, not a corner.
@@ -225,23 +264,12 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
     def n_levels(self) -> int:
         return 1
 
-    # ------------------------------------------------------------------
-    # Cancellation stubs
-    # ------------------------------------------------------------------
-
-    def cancel_pending(self) -> None:
-        pass
-
-    def cancel_pending_2d(self) -> None:
-        pass
-
     def close(self) -> None:
         """Release the nodes and textures.  The visual is unusable afterwards.
 
-        A slice task still in flight holds ``on_data_ready`` -- and so this
-        visual -- until the event loop runs its cancellation, so the GPU
-        resources are dropped here rather than whenever the visual dies.
-        ``on_data_ready`` already ignores a batch once the nodes are gone.
+        A read still in flight holds the caches -- and so this visual --
+        until it lands, so the GPU resources are dropped here rather than
+        whenever the visual dies.  An upload after close finds no node.
         """
         for group in (self.node_2d, self.node_3d):
             if group is not None:
@@ -277,11 +305,13 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         _pin_footprint(self._inner_node_3d, retained, 3)
         _fit_aabb_line(self._aabb_line_2d, retained, 2)
         _fit_aabb_line(self._aabb_line_3d, retained, 3)
+        # In a SLICE_SHIFT view the node follows the shown slice (D15).
+        collapsed = placed_collapsed(self, displayed_axes)
         m = node_matrix(
             self._spaces,
             self._transform,
             {
-                axis: float(self._collapsed_indices.get(axis, 0.0))
+                axis: float(collapsed.get(axis, 0.0))
                 for axis in self._spaces.collapsed_axes
             },
         )
@@ -289,6 +319,7 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
             set_node_matrix(self.node_3d, m)
         if self.node_2d is not None:
             set_node_matrix(self.node_2d, m)
+        # The clip line stays at the newest plan (D15).
         self._apply_clipping_planes()
 
     def _outline_shape(self):
@@ -373,9 +404,6 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
             selection, self._transform, self._spaces, tuple(shape)
         )
         self._slice_empty = planned is None
-        for inner in (self._inner_node_2d, self._inner_node_3d):
-            if inner is not None:
-                inner.visible = not self._slice_empty
         if planned is None:
             return None
         axis_selections, collapsed = _plan_from_region(
@@ -386,117 +414,124 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         self._apply_clipping_planes()
         return axis_selections
 
-    def build_slice_request_2d(
+    def _apply_visibility(self) -> None:
+        """Show a mode's node only when it has a slice to draw (D16).
+
+        The slice is not empty, the newest plan has a selection, and the
+        mode's cache holds the planned slice or keeps an earlier one on
+        screen while it loads.  Each cache calls this when it changes.
+        """
+        residencies = getattr(self, "_residency", {})
+        for mode, inner in (("2d", self._inner_node_2d), ("3d", self._inner_node_3d)):
+            if inner is None:
+                continue
+            residency = residencies.get(mode)
+            inner.visible = (
+                not self._slice_empty
+                and not self._no_selection
+                and residency is not None
+                and residency.is_drawable(0)
+            )
+
+    def request_key(self, request: ChunkRequest) -> tuple:
+        """The cache key of *request*, as the newest plan would build it."""
+        return raster_request_key(
+            request.axis_selections, self._collapsed_indices, False
+        )
+
+    def plan(
         self,
-        camera_pos_world,
-        viewport_width_px,
-        world_width,
-        view_min_world,
-        view_max_world,
-        dims_state: DimsState,
-        lod_bias: float = 1.0,
-        force_level: int | None = None,
-        use_culling: bool = True,
-        selection: RegionSelection | None = None,
-    ) -> list[ChunkRequest]:
-        displayed = dims_state.selection.displayed_axes
-        axis_selections = self._axis_selections(dims_state, selection)
+        request: ReslicingRequest,
+        config: VisualRenderConfig | None = None,
+        mode: PlanMode = PlanMode.FULL,
+    ) -> list[DesiredSet]:
+        """One desired set: the mode's cache, for the whole slice or volume.
+
+        A whole slice has no backstop, so every plan mode plans it (design
+        v2 4.3).  Empty when the slice misses the data: the coordinator then
+        retires the caches.
+        """
+        displayed = request.dims_state.selection.displayed_axes
+        view_mode = "3d" if len(displayed) == 3 else "2d"
+        axis_selections = self._axis_selections(request.dims_state, request.selection)
         if displayed != self._last_displayed_axes:
             self._update_node_matrix(displayed)
-        if axis_selections is None:
+        self._no_selection = axis_selections is None
+        residency = self._residency.get(view_mode)
+        if axis_selections is None or residency is None:
+            self._apply_visibility()
             return []
-        return [
-            ChunkRequest(
-                chunk_request_id=uuid4(),
-                slice_request_id=uuid4(),
-                scale_index=0,
-                axis_selections=axis_selections,
-            )
-        ]
+        key = raster_request_key(axis_selections, self._collapsed_indices, False)
+        desired = residency.desired(
+            {0: key}, {0}, {0: whole_slice_request(axis_selections)}
+        )
+        self._apply_visibility()
+        return [desired]
 
-    def build_slice_request(
-        self,
-        camera_pos_world,
-        frustum_corners_world,
-        fov_y_rad: float,
-        screen_height_px: float,
-        lod_bias: float = 1.0,
-        dims_state: DimsState | None = None,
-        force_level: int | None = None,
-        selection: RegionSelection | None = None,
-    ) -> list[ChunkRequest]:
-        if dims_state is None:
-            ndim = self._data_store.ndim
-            axis_selections = tuple(
-                (0, self._data_store.shape[ax]) for ax in range(ndim)
-            )
-        else:
-            displayed = dims_state.selection.displayed_axes
-            axis_selections = self._axis_selections(dims_state, selection)
-            if displayed != self._last_displayed_axes:
-                self._update_node_matrix(displayed)
-            if axis_selections is None:
-                return []
-        return [
-            ChunkRequest(
-                chunk_request_id=uuid4(),
-                slice_request_id=uuid4(),
-                scale_index=0,
-                axis_selections=axis_selections,
-            )
-        ]
+    def residencies(self) -> dict[int, LevelResidency]:
+        """``cache_id -> adapter``: one whole-slice cache per mode."""
+        return {res.cache_id: res for res in self._residency.values()}
+
+    @property
+    def awaits_data(self) -> bool:
+        """Whether the view's mode draws nothing only because its read is pending."""
+        displayed = self._last_displayed_axes
+        if displayed is None or self._slice_empty or self._no_selection:
+            return False
+        mode = "3d" if len(displayed) == 3 else "2d"
+        group = self.node_3d if mode == "3d" else self.node_2d
+        residency = self._residency.get(mode)
+        if group is None or residency is None or not group.visible:
+            return False
+        return residency.awaiting
 
     # ------------------------------------------------------------------
-    # Data commit callbacks
+    # Upload -- the caches' callbacks
     # ------------------------------------------------------------------
 
-    def _follow_slice(self) -> None:
-        """Place the node again when a slice lands in a view it moves.
+    def _uploader(self, mode: str):
+        def upload(level: int, request_key: tuple, data: np.ndarray) -> None:
+            self.upload_slice(0, mode, request_key, data)
 
-        ``SLICE_SHIFT`` (full affine design v2, 4.3, K11): the collapsed
-        indices the node matrix holds move the drawn slab across the view,
-        so the matrix follows each slice.  Other views keep today's call
-        pattern: the matrix changes only with the displayed axes.
+        return upload
+
+    def upload_slice(
+        self, index: int, mode: str, request_key: tuple, data: np.ndarray
+    ) -> None:
+        """Put a slice (2D) or volume (3D) on the mode's node.
+
+        Called by the mode's cache from ``rebuild_draw``; a test may call it
+        directly with ``request_key(request)``.  *index* is the slot, always
+        0 for labels.  The node is placed by the key's collapsed indices
+        (D15).
         """
-        if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
-            self._update_node_matrix(self._last_displayed_axes)
-
-    def on_data_ready(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
-        """Upload a 3-D int32 array to the pygfx Volume node."""
-        self._follow_slice()
-        if not batch or self._inner_node_3d is None:
-            return
-        _request, data = batch[0]
-
-        # pygfx size_from_array for dim=3 maps numpy (D, H, W) → texture (W, H, D).
-        # Pass data as-is so texture dims match _pygfx_matrix's (X, Y, Z) scale order.
-        data_wgpu = np.ascontiguousarray(data.astype(np.int32))
-        tex = gfx.Texture(data_wgpu, dim=3, format="1xi4")
-        self._inner_node_3d.geometry = gfx.Geometry(grid=tex)
-        _pin_footprint(self._inner_node_3d, data.shape, 3)
-
-        _fit_aabb_line(self._aabb_line_3d, data.shape, 3)
-        if not self._data_ready_3d and self._aabb_line_3d is not None:
-            self._data_ready_3d = True
-            self._aabb_line_3d.visible = self._aabb_enabled
-
-    def on_data_ready_2d(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
-        """Upload a 2-D int32 slice to the pygfx Image node."""
-        self._follow_slice()
-        if not batch or self._inner_node_2d is None:
-            return
-        _request, data = batch[0]
-
-        # pygfx Image expects (H, W, 1).
-        data_wgpu = np.ascontiguousarray(data[:, :, np.newaxis].astype(np.int32))
-        tex = gfx.Texture(data_wgpu, dim=2, format="1xi4")
-        self._inner_node_2d.geometry = gfx.Geometry(grid=tex)
-        _pin_footprint(self._inner_node_2d, data.shape, 2)
-
-        _fit_aabb_line(self._aabb_line_2d, data.shape, 2)
-        if not self._data_ready_2d and self._aabb_line_2d is not None:
-            self._data_ready_2d = True
-            self._aabb_line_2d.visible = self._aabb_enabled
+        record_placement(self, mode, request_key)
+        if mode == "3d":
+            if self._inner_node_3d is None:
+                return
+            # pygfx size_from_array for dim=3 maps numpy (D, H, W) to texture
+            # (W, H, D): data goes as-is so the texture dims match the node
+            # matrix's (X, Y, Z) scale order.
+            data_wgpu = np.ascontiguousarray(data.astype(np.int32))
+            tex = gfx.Texture(data_wgpu, dim=3, format="1xi4")
+            self._inner_node_3d.geometry = gfx.Geometry(grid=tex)
+            _pin_footprint(self._inner_node_3d, data.shape, 3)
+            _fit_aabb_line(self._aabb_line_3d, data.shape, 3)
+            if not self._data_ready_3d and self._aabb_line_3d is not None:
+                self._data_ready_3d = True
+                self._aabb_line_3d.visible = self._aabb_enabled
+        else:
+            if self._inner_node_2d is None:
+                return
+            # pygfx Image expects (H, W, 1).
+            data_wgpu = np.ascontiguousarray(data[:, :, np.newaxis].astype(np.int32))
+            tex = gfx.Texture(data_wgpu, dim=2, format="1xi4")
+            self._inner_node_2d.geometry = gfx.Geometry(grid=tex)
+            _pin_footprint(self._inner_node_2d, data.shape, 2)
+            _fit_aabb_line(self._aabb_line_2d, data.shape, 2)
+            if not self._data_ready_2d and self._aabb_line_2d is not None:
+                self._data_ready_2d = True
+                self._aabb_line_2d.visible = self._aabb_enabled
 
     # ------------------------------------------------------------------
     # Uniform buffer update helpers

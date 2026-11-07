@@ -31,7 +31,7 @@ from cellier.visuals import (
 )
 from cellier.visuals._image_memory import InMemoryImageAppearance
 from cellier.visuals._label_memory import InMemoryLabelsAppearance
-from tests._planning import planned_requests_3d
+from tests._planning import land_planned, planned_requests_3d
 from tests._v2 import bound
 
 _WORLD = [("t", "time"), *spatial_axes("z", "y", "x")]
@@ -112,10 +112,18 @@ async def test_a_slice_outside_the_data_draws_nothing(kind, slice_position):
     Labels clamped to the end plane until they took the image rule."""
     controller, scene, visual = _viewer(kind)
     gfx = controller._render_manager._scenes[scene.id].get_visual(visual.id)
+    controller.update_slice_indices(scene.id, {0: 3.0})
+    assert _plan(controller, scene, visual) == [(3, (0, 20), (0, 30), (0, 40))]
+    # Shown once the planned slice is uploaded (scheduler-only v2, D16).
+    assert gfx._inner_node_3d.visible is False
+    assert land_planned(gfx, lambda key: np.zeros((20, 30, 40), np.float32)) == 1
+    assert gfx._inner_node_3d.visible is True
+
     controller.update_slice_indices(scene.id, {0: slice_position})
     assert _plan(controller, scene, visual) == []
     assert gfx._inner_node_3d.visible is False
 
+    # Back in the data at the same plane: the held slice is drawn again.
     controller.update_slice_indices(scene.id, {0: 3.0})
     assert _plan(controller, scene, visual) == [(3, (0, 20), (0, 30), (0, 40))]
     assert gfx._inner_node_3d.visible is True

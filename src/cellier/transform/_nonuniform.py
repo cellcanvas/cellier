@@ -358,7 +358,6 @@ class NonUniformAxisTransform(BaseTransform):
             lambda values: _map_index_to_world(
                 self.coordinates, values, self.interpolation
             ),
-            *self.coordinates.resolved_edges,
         )
         return AxisAlignedBoundingBox(
             coordinate_system=output_coordinate_system.id,
@@ -394,7 +393,6 @@ class NonUniformAxisTransform(BaseTransform):
             lambda values: _map_world_to_index(
                 self.coordinates, values, self.interpolation
             ),
-            *self.coordinates.index_domain,
         )
         return AxisAlignedBoundingBox(
             coordinate_system=self.input_coordinate_system,
@@ -642,23 +640,23 @@ def _map_interval(
     domain_low: float,
     domain_high: float,
     mapper,
-    image_low: float,
-    image_high: float,
 ) -> tuple[float, float]:
     """Map an interval, intersecting it with the map's domain first.
 
-    An infinite bound is not clipped to the domain but carried through to
-    the corresponding end of the image, because an unbounded axis is a
-    first-class value here: it means "this region does not constrain the
-    axis", not "this region reaches to the edge of the data".
+    An infinite bound is not clipped to the domain: it is returned as the
+    same infinity, because an unbounded axis is a first-class value here.
+    It means "this region does not constrain the axis", not "this region
+    reaches to the edge of the data", and every other transform (an affine
+    axis, a broadcast axis) keeps it infinite too.  Turning it into the
+    data's range made a free axis look like a selected one.
     """
     mapped_low = (
-        image_low
+        -np.inf
         if np.isneginf(low)
         else float(mapper(np.array([min(max(low, domain_low), domain_high)]))[0])
     )
     mapped_high = (
-        image_high
+        np.inf
         if np.isposinf(high)
         else float(mapper(np.array([min(max(high, domain_low), domain_high)]))[0])
     )
