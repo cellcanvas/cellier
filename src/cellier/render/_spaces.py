@@ -1057,7 +1057,8 @@ def _anchor_discrete_axes(
     """Re-centre a pulled-back region on the selected sample of discrete axes.
 
     For every data axis declared ``sampling="discrete"`` that the region
-    bounds on both sides with constraints along that axis alone:
+    bounds on both sides with constraints along that axis alone, and whose
+    world axis the selection itself bounds on both sides:
 
     1. the slice position is snapped to the sample the slider selects
        (:func:`snap_discrete_positions`, the rule images use);
@@ -1072,7 +1073,9 @@ def _anchor_discrete_axes(
     whenever the slider value was rounded.
 
     An axis that shares a constraint with another (a shear) is left as the
-    pull-back gave it.
+    pull-back gave it.  So is an axis the selection leaves free: its bounds
+    are only the data's range (a non-uniform axis maps an unbounded world
+    interval to its index range), not a slice to centre on.
     """
     discrete = [
         axis
@@ -1104,6 +1107,12 @@ def _anchor_discrete_axes(
             continue
         world_axis = correspondence.get(axis)
         if world_axis is None:
+            continue
+        # A bound the selection did not ask for is not a slice.  An
+        # unbounded world axis pulled back through a non-uniform axis comes
+        # back as the data's index range; centring on that pinned every
+        # view to the middle sample.
+        if world_axis not in thickness:
             continue
         if positions is None:
             positions = snap_discrete_positions(
