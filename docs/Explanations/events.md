@@ -890,7 +890,7 @@ class DataStoreContentsChangedEvent(NamedTuple):
 
 ```python
 class ResliceStartedEvent(NamedTuple):
-    """Fired before submitting async reslice tasks for a scene.
+    """Fired before a scene's plans are passed to the chunk scheduler.
 
     Parameters
     ----------
@@ -1128,8 +1128,9 @@ Timing:
 
 - Points, lines, mesh and graph events, and in-memory image and labels
   events, are synchronous: they arrive straight after the mouse event.
-- Multiscale image and labels values are read at level 0 through the
-  cancellable async slicer, so their events arrive when the read completes.
+- Multiscale image and labels values are read at level 0 as cancellable
+  pick reads (`CancellableReads`), so their events arrive when the read
+  completes.
   A newer pointer event on the canvas cancels an in-flight `move` read;
   `press` and `release` reads always complete, and removing the visual
   cancels all of its reads.  Match events by `gesture_id` and `action`, not
@@ -2154,7 +2155,7 @@ EventBus.emit()               ← dispatches to subscribers
 GFX*Visual                   Controller
 on_appearance_changed()       reslice_scene() → RenderManager
       ↓                                ↓
-pygfx renderer               AsyncSlicer
+pygfx renderer               ChunkScheduler
 deferred GPU upload           concurrent brick reads
 ```
 
@@ -2249,12 +2250,11 @@ planning parameters.
 
 ## What does not flow through the bus
 
-- **Data payloads.** Brick data from `AsyncSlicer` is delivered directly to
-  `GFX*Visual.on_data_ready()` via the `callback` argument to `slicer.submit()`.
-  Multiscale bricks and tiles go through the chunk scheduler instead, which writes
-  them with its `Residency` adapters in a commit round before a frame.
-  Only the lifecycle signals go through the bus: `ResliceCompletedEvent`, and for
-  multiscale visuals `ResliceProgressEvent` and `BackstopCompleteEvent`.
+- **Data payloads.** Every visual's data goes through the chunk scheduler, which
+  writes it with its `Residency` adapters in a commit round before a frame:
+  multiscale bricks and tiles, and the whole slices of in-memory visuals.
+  Only the lifecycle signals go through the bus: `ResliceCompletedEvent`,
+  `ResliceProgressEvent` and `BackstopCompleteEvent`.
   `CellierController.loading_progress(visual_id)` reads the same counts on demand.
 - **Structural add/remove operations.** `add_visual()`, `remove_visual()`, etc. are
   synchronous and handled atomically by the controller. `VisualAddedEvent` and

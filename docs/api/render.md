@@ -14,7 +14,6 @@ slicing requests and per-canvas state.
 
 ::: cellier.render.CameraConfig
 ::: cellier.render.RenderManagerConfig
-::: cellier.render.SlicingConfig
 ::: cellier.render.TemporalAccumulationConfig
 
 ## Requests
