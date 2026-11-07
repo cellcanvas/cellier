@@ -1,17 +1,16 @@
 """Integration tests for ResliceCompletedEvent emission.
 
 These exercise the full reslice path through the controller, render manager,
-slice coordinator, and async slicer so that ``on_reslice_completed`` fires for
-every visual once its bricks/tiles have been committed.
+slice coordinator, and chunk scheduler so that ``on_reslice_completed`` fires
+for every visual once its data has been committed.
 
 The tests are ``async`` so pytest-asyncio (mode=auto) installs a running event
-loop — the async slicer schedules its work via ``asyncio.ensure_future`` — and
+loop -- the chunk scheduler starts its reads on it -- and
 take ``qtbot`` so a ``QApplication`` exists for the offscreen canvas.
 """
 
 from __future__ import annotations
 
-import asyncio
 from uuid import uuid4
 
 import numpy as np
@@ -21,6 +20,7 @@ from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
+from tests.render.conftest import drain_loading
 
 
 async def test_on_reslice_completed_fires_for_geometry_and_image(qtbot):
@@ -55,9 +55,7 @@ async def test_on_reslice_completed_fires_for_geometry_and_image(qtbot):
 
     # reslice_all schedules one async task per visual synchronously; drive them
     # to completion so the on_complete -> ResliceCompletedEvent path runs.
-    tasks = list(controller._render_manager._slicer._tasks.values())
-    if tasks:
-        await asyncio.gather(*tasks)
+    await drain_loading(controller)
 
     fired = {event.visual_id for event in events}
     assert img_visual.id in fired, "image visual reslice never completed"

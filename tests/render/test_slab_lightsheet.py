@@ -32,6 +32,7 @@ from cellier.visuals._labels import (
 )
 from tests._displayed import trailing_axes
 from tests._gpu_budget import SMALL_BUDGETS
+from tests._planning import planned_requests_2d
 from tests.render.conftest import _write_multiscale_zarr
 
 # Unevenly spaced frames, in seconds.
@@ -169,7 +170,8 @@ def _gfx(controller, scene, visual):
 
 def _graph_request(controller, scene, graph):
     canvas_id = controller.get_canvas_ids(scene.id)[0]
-    return _gfx(controller, scene, graph).build_slice_request_2d(
+    return planned_requests_2d(
+        _gfx(controller, scene, graph),
         camera_pos_world=np.zeros(3),
         viewport_width_px=100.0,
         world_width=10.0,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import warnings
 from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
@@ -9,7 +10,9 @@ from uuid import uuid4
 
 import numpy as np
 
+import cellier._qtasyncio_compat  # noqa: F401  (PySide6 task patches, D8)
 from cellier.events._events import AABBChangedEvent, ViewRay, _CanvasRawPointerEvent
+from cellier.render._cancellable_reads import CancellableReads
 from cellier.render._clipping import expand_rendered_plane, reduce_clipping_planes
 from cellier.render._config import RenderManagerConfig
 from cellier.render._gpu_lifetime import weak_callback
@@ -31,7 +34,6 @@ from cellier.render.canvas_view import CanvasView
 from cellier.render.scene_manager import SceneManager
 from cellier.render.scheduling import ChunkScheduler
 from cellier.render.slice_coordinator import SliceCoordinator
-from cellier.slicer import AsyncSlicer
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
@@ -165,8 +167,8 @@ def _slice_check_extents(data_store: Any) -> Any:
 class RenderManager:
     """Single top-level render-layer object.
 
-    Owns the scene registry, canvas registry, shared async slicer, and
-    slice coordinator.  Exposes three reslicing entry points that cover
+    Owns the scene registry, canvas registry, chunk scheduler, pick-value
+    reader and slice coordinator.  Exposes three reslicing entry points that cover
     the common triggers: all scenes, one scene, or one visual.
 
     Construction is parameter-free; scenes, canvases, and visuals are
@@ -192,13 +194,11 @@ class RenderManager:
         # pass and the ambient occlusion pass read the same GPU table, which
         # is derived from this every frame; see ``_sync_visual_lut``.
         self._visual_flags: dict[UUID, VisualFlags] = {}
-        self._slicer = AsyncSlicer(
-            batch_size=config.slicing.batch_size,
-            render_every=config.slicing.render_every,
-        )
-        # Multiscale visuals load through the chunk scheduler, 2D and 3D
-        # (plans/progressive_loading_design_v3.md); everything else through
-        # the slicer.
+        # Pick-value reads, cancellable by id (the only reads that are).
+        self._pick_reads = CancellableReads()
+        # Every visual loads through the chunk scheduler, 2D and 3D
+        # (plans/progressive_loading_design_v3.md,
+        # plans/scheduler_only_loading_design_v2.md).
         self._scheduler = ChunkScheduler(
             config.scheduler,
             request_draw=self._request_draw_scene,
@@ -208,7 +208,6 @@ class RenderManager:
         )
         self._slice_coordinator = SliceCoordinator(
             scenes=self._scenes,
-            slicer=self._slicer,
             data_stores=self._data_stores,
             scheduler=self._scheduler,
         )
@@ -1357,10 +1356,11 @@ class RenderManager:
         callback: Callable[[list], None],
         on_complete: Callable[[], None],
     ) -> UUID | None:
-        """Read pick values through the slicer, cancellable by the returned id.
+        """Read pick values, cancellable by the returned id.
 
-        Multiscale pick values are read at level 0 through the same cancellable
-        async service as slicing (unified image design 3.7).
+        Multiscale pick values are read at level 0 (unified image design
+        3.7), concurrently, as one cancellable task (scheduler-only loading
+        design v2, 4.10).
 
         Parameters
         ----------
@@ -1378,13 +1378,28 @@ class RenderManager:
         UUID or None
             The read's id, for :meth:`cancel_pick_read`.
         """
-        return self._slicer.submit(
-            requests, fetch_fn, callback, consumer_id="pick", on_complete=on_complete
-        )
+        if not requests:
+            return None
+        read_id = requests[0].slice_request_id
+
+        async def read() -> list:
+            return list(
+                zip(
+                    requests,
+                    await asyncio.gather(*(fetch_fn(r) for r in requests)),
+                    strict=True,
+                )
+            )
+
+        def done(batch: list) -> None:
+            callback(batch)
+            on_complete()
+
+        return self._pick_reads.submit(read_id, read(), done)
 
     def cancel_pick_read(self, read_id: UUID) -> None:
         """Cancel an in-flight pick read.  A finished or unknown id is a no-op."""
-        self._slicer.cancel(read_id)
+        self._pick_reads.cancel(read_id)
 
     def set_pick_details_enabled(self, canvas_id: UUID, enabled: bool) -> None:
         """Enable or disable element-level pick extraction for one canvas.
@@ -1527,12 +1542,8 @@ class RenderManager:
             ID of the visual to remove.
         """
         scene_id = self._visual_to_scene.pop(visual_id)
-        # Cancel this visual's in-flight slices on every canvas before its
-        # slots are released, so no batch lands on a closed visual.
-        for canvas_id, canvas_scene_id in list(self._canvas_to_scene.items()):
-            if canvas_scene_id == scene_id:
-                self._slice_coordinator.cancel_visual(scene_id, canvas_id, visual_id)
-        # And drop its atlases from the chunk scheduler (design 5.4 remove).
+        # Drop its caches from the chunk scheduler (design 5.4 remove); a
+        # read still in flight lands on a forgotten cache and is dropped.
         self._slice_coordinator.forget_visual(visual_id)
         self._data_stores.pop(visual_id)
         # Drop the per-visual render flags too.  Leaving them behind leaks,
@@ -1623,8 +1634,11 @@ class RenderManager:
         Safe to call more than once.
         """
         # The scheduler first: cancel its reads and drop every atlas, so the
-        # visuals' brick caches are released with the scenes below.
+        # visuals' brick caches are released with the scenes below.  A read
+        # already running in an executor thread cannot be cancelled and is
+        # not waited for; its result is dropped.
         self._scheduler.close()
+        self._pick_reads.close()
         for canvas_id in list(self._canvases):
             self._unhook_canvas(canvas_id)
         for canvas_view in list(self._canvases.values()):

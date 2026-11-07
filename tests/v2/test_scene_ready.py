@@ -11,7 +11,6 @@ canvas, and pytest-asyncio (mode=auto) installs a running loop for the slicer.
 
 from __future__ import annotations
 
-import asyncio
 from uuid import uuid4
 
 import numpy as np
@@ -22,6 +21,7 @@ from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.events._events import ResliceCompletedEvent, ResliceStartedEvent
 from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
+from tests.render.conftest import drain_loading
 
 
 def _build_mixed_scene(controller: CellierController):
@@ -56,9 +56,7 @@ async def test_on_ready_fires_once_after_mixed_geometry_commits(qtbot):
     # Not ready yet: the async brick/tile reads have not been driven.
     assert calls == []
 
-    tasks = list(controller._render_manager._slicer._tasks.values())
-    if tasks:
-        await asyncio.gather(*tasks)
+    await drain_loading(controller)
 
     assert calls == [1], "on_ready must fire exactly once after all data commits"
 
@@ -71,9 +69,7 @@ async def test_on_scene_ready_is_equivalent(qtbot):
     calls: list[int] = []
     controller.on_scene_ready(scene.id, lambda: calls.append(1))
 
-    tasks = list(controller._render_manager._slicer._tasks.values())
-    if tasks:
-        await asyncio.gather(*tasks)
+    await drain_loading(controller)
 
     assert calls == [1]
 
@@ -111,9 +107,7 @@ async def test_reslice_events_carry_canvas_id(qtbot):
     controller.reslice_scene(scene.id)
 
     # Drive the async reads so the completion path runs too.
-    tasks = list(controller._render_manager._slicer._tasks.values())
-    if tasks:
-        await asyncio.gather(*tasks)
+    await drain_loading(controller)
 
     assert started, "expected a ResliceStartedEvent"
     assert all(ev.canvas_id == canvas_id for ev in started)

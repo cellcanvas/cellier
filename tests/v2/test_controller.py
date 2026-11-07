@@ -1239,8 +1239,12 @@ def test_showing_image_visual_reslices_it(small_zarr_store):
     assert cfg.slicing_enabled is True
 
 
-def test_hidden_non_image_visual_keeps_slicing():
-    """The hidden-visual gate only applies to image visuals."""
+def test_hidden_geometry_visual_is_not_sliced():
+    """A hidden geometry visual is retired like an image or a mesh.
+
+    Scheduler-only loading design v2, D18: its cache stops reading while it
+    is hidden, and shown again at an unchanged position it reads nothing.
+    """
     controller = CellierController()
     scene = controller.add_scene(
         displayed_axes=("z", "y", "x"), coordinate_system=_make_cs(), name="main"
@@ -1254,4 +1258,4 @@ def test_hidden_non_image_visual_keeps_slicing():
     captured = _capture_scene_configs(controller)
 
     controller.reslice_scene(scene.id)
-    assert captured[visual.id].slicing_enabled is True
+    assert captured[visual.id].slicing_enabled is False

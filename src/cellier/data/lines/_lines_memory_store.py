@@ -43,9 +43,9 @@ class LinesMemoryStore(BaseDataStore):
     column 1 is axis 1 (y), column 2 is axis 2 (x).  The render layer
     applies the ``[:, [2, 1, 0]]`` reversal before uploading to pygfx.
 
-    All reads are synchronous (data is in CPU RAM); ``get_data`` is
-    declared ``async`` to satisfy the AsyncSlicer contract and to
-    provide a single cancellation checkpoint.
+    ``get_data`` runs the filter in the event loop's default executor, so
+    a large set of segments does not stall the loop (``plans/scheduler_only_
+    loading_design_v2.md`` D4); :meth:`read` is the same filter, synchronous.
 
     Parameters
     ----------
@@ -183,20 +183,31 @@ class LinesMemoryStore(BaseDataStore):
         return DatasetInfo(sections=[RowSection(None, rows)])
 
     # ------------------------------------------------------------------
-    # Async data access — one checkpoint for cancellability
+    # Data access
     # ------------------------------------------------------------------
 
     async def get_data(self, request: LinesSliceRequest) -> LinesData:
         """Return slab-filtered segment data for *request*.
 
-        Checkpoint
-        ----------
-        A  After the per-vertex slab mask is built but before gathering
-           surviving vertices.  Fires if the slider is moved quickly
-           enough to cancel the task before the gather.
+        The filter (:meth:`read`) runs in the loop's default executor.  A
+        filter that raises because the store changed under it fails this
+        read; the change's invalidation reads again.
 
-        If CancelledError fires at the checkpoint the callback is never
-        called, preventing stale geometry from reaching the GPU.
+        Parameters
+        ----------
+        request : LinesSliceRequest
+            Planned by ``GFXLinesMemoryVisual.plan``.
+
+        Returns
+        -------
+        LinesData
+            Filtered, projected segment data ready for GPU upload.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.read, request)
+
+    def read(self, request: LinesSliceRequest) -> LinesData:
+        """The filter of :meth:`get_data`, run on the calling thread.
 
         Inclusion rule
         --------------
@@ -207,7 +218,7 @@ class LinesMemoryStore(BaseDataStore):
         Parameters
         ----------
         request : LinesSliceRequest
-            Built by GFXLinesMemoryVisual.build_slice_request[_2d].
+            Planned by ``GFXLinesMemoryVisual.plan``.
 
         Returns
         -------
@@ -239,9 +250,6 @@ class LinesMemoryStore(BaseDataStore):
         segment_mask = vertex_mask.reshape(-1, 2).all(axis=1)  # (n_segments,)
         surviving_edges = np.where(segment_mask)[0]
         vertex_mask = np.repeat(segment_mask, 2)  # (n_vertices,)
-
-        # ── Checkpoint A ─────────────────────────────────────────────
-        await asyncio.sleep(0)
 
         # ── Phase 2: gather surviving vertices ───────────────────────
         surviving_positions = positions[vertex_mask]

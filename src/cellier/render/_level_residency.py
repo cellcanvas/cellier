@@ -60,6 +60,28 @@ LEVEL_CACHE_POLICY = CachePolicy(
     retry_on_pass=False,
 )
 
+#: A whole-slice in-memory raster cache (``plans/scheduler_only_loading_design_v2.md``
+#: D17): one read in flight (D2), the compute lane (D3), one attempt and no
+#: retry on a pass (D11), and a result an invalidation makes stale is still
+#: drawn, as kept, until its re-read lands (D13).
+MEMORY_RASTER_POLICY = CachePolicy(
+    max_target_fetching=1,
+    resource="compute",
+    retry_max_attempts=1,
+    retry_on_pass=False,
+    commit_stale=True,
+)
+
+#: An in-memory geometry cache (points, lines, graph): as
+#: :data:`MEMORY_RASTER_POLICY` with two reads in flight (D2).
+MEMORY_GEOMETRY_POLICY = CachePolicy(
+    max_target_fetching=2,
+    resource="compute",
+    retry_max_attempts=1,
+    retry_on_pass=False,
+    commit_stale=True,
+)
+
 
 class LevelResidency:
     """Resident levels of one visual, and which of them may be drawn.
@@ -91,6 +113,15 @@ class LevelResidency:
         moved; clipping planes design 5.2, D31).  The level is then kept,
         and a superseded read of the same kind that lands is shown too, so
         a drag faster than the reads still updates.
+    policy : CachePolicy or None
+        How the scheduler treats the cache's reads; ``None`` (the default)
+        is the class's :attr:`policy`, :data:`LEVEL_CACHE_POLICY` (a
+        mesh).  A policy with ``commit_stale`` has its stale results handed
+        to :meth:`write_kept`.
+    keeps_through_invalidation : bool
+        Whether a held level whose planned key is invalidated stays drawn,
+        as kept, until the re-read lands (design v2 D12), instead of being
+        released at once.  For data under a change stream (painting).
 
     Attributes
     ----------
@@ -99,7 +130,7 @@ class LevelResidency:
     n_slots : int
         ``n_levels + 1``: one spare slot lets a stale arrival land.
     policy : CachePolicy
-        :data:`LEVEL_CACHE_POLICY`.
+        The policy given.
     planned : dict[int, int]
         ``level -> key`` of the newest plan.
     held : dict[int, tuple[int, int]]
@@ -117,10 +148,15 @@ class LevelResidency:
         on_change: Callable[[], Any] | None = None,
         fine_level: int = 0,
         keeps_previous: Callable[[Hashable, Hashable], bool] | None = None,
+        policy: CachePolicy | None = None,
+        keeps_through_invalidation: bool = False,
     ) -> None:
         if n_levels < 1:
             raise ValueError(f"n_levels must be at least 1, got {n_levels}.")
         self.cache_id: int = new_cache_id()
+        if policy is not None:
+            self.policy = policy
+        self.keeps_through_invalidation = keeps_through_invalidation
         self.n_slots: int = n_levels + 1
         self.fine_level = fine_level
         self._upload = upload
@@ -136,6 +172,9 @@ class LevelResidency:
         # slot -> (key, data, write serial); data is None once uploaded or
         # dropped.
         self._payloads: dict[int, tuple[int, Any, int]] = {}
+        # level -> (key, data, write serial) of a stale result to draw as
+        # kept (``write_kept``), uploaded by the next ``rebuild_draw``.
+        self._kept_payloads: dict[int, tuple[int, Any, int]] = {}
         self._writes = 0
         # The interner: (level, request key) <-> int64, and the store
         # request each live key reads with.
@@ -276,6 +315,24 @@ class LevelResidency:
         self._writes += 1
         self._payloads[int(slot)] = (int(key), data, self._writes)
 
+    def write_kept(self, key: int, data: Any) -> None:
+        """Keep a stale result of *key* to draw as kept until its re-read lands.
+
+        Called by the scheduler's commit round for a cache whose policy has
+        ``commit_stale`` (design v2 D14).  Only a result of a key the plan
+        still names is kept; a stale result of a superseded key is never
+        drawn.  A newer one replaces an older one; the next
+        :meth:`rebuild_draw` uploads it.
+        """
+        item = self._items.get(int(key))
+        if item is None:
+            return
+        level = item[0]
+        if self.planned.get(level) != int(key):
+            return
+        self._writes += 1
+        self._kept_payloads[level] = (int(key), data, self._writes)
+
     def rebuild_draw(self, view: RegistryView) -> None:
         """Bring the uploads in line with the registry and the newest plan."""
         resident = np.flatnonzero(view.state == _RESIDENT)
@@ -288,9 +345,37 @@ class LevelResidency:
             if level in self._kept:
                 # Kept on screen until the planned key replaces it.
                 continue
+            if (
+                self.keeps_through_invalidation
+                and self.planned.get(level) == self.held[level][0]
+            ):
+                # D12: the planned key was invalidated; its old result stays
+                # drawn, as kept, until the re-read lands.
+                self._kept.add(level)
+                continue
             self.held.pop(level)
             self._held_request.pop(level, None)
             self._release(level)
+
+        # 1b. A stale result of a planned key handed over by ``write_kept``
+        #     (D14), newer than what the level holds, is drawn as kept.
+        for level, (key, data, serial) in list(self._kept_payloads.items()):
+            del self._kept_payloads[level]
+            if self.planned.get(level) != key:
+                continue
+            if level in self.held and self.held[level][1] >= serial:
+                continue
+            request_key = self._items[key][1]
+            try:
+                self._upload(level, request_key, data)
+            except Exception:
+                _SCHEDULER_LOGGER.exception(
+                    "cache %s: kept upload of level %d failed", self.cache_id, level
+                )
+                continue
+            self.held[level] = (key, serial)
+            self._held_request[level] = request_key
+            self._kept.add(level)
 
         # Payloads of slots the registry gave to something else.
         live = set(slot_of.values())

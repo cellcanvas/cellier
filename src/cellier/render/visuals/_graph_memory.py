@@ -34,6 +34,7 @@ from cellier.render.visuals._aabb import (
     make_aabb_line,
     refresh_aabb_line,
 )
+from cellier.render.visuals._whole_item import WholeItemGeometryMixin
 from cellier.render.visuals._world_frame import (
     collapsed_columns,
     translation_matrix,
@@ -53,7 +54,7 @@ if TYPE_CHECKING:
         TransformChangedEvent,
         VisualVisibilityChangedEvent,
     )
-    from cellier.transform import BaseTransform, RegionSelection
+    from cellier.transform import BaseTransform
     from cellier.visuals._graph_memory import GraphAppearance, GraphVisual
 
 # Placeholder geometry -- pygfx forbids empty geometry buffers.  One
@@ -119,7 +120,7 @@ def _build_edge_material(appearance: GraphAppearance) -> AlphaLineSegmentMateria
     return material
 
 
-class GFXGraphMemoryVisual(GeometryClippingMixin):
+class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
     """Render-layer visual for one GraphVisual: a pygfx compound (D1).
 
     A ``gfx.Group`` holds a ``gfx.Points`` (nodes) and a ``gfx.Line`` with
@@ -171,9 +172,6 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
     transform : BaseTransform
         Data-to-world transform. Must cover all data axes.
     """
-
-    #: In-memory visuals are cheap to reslice and must never be cancelled.
-    cancellable: bool = False
 
     def __init__(
         self,
@@ -289,6 +287,12 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
         # makes dim-toggling a no-op for this visual.
         self.node_2d = self.node
         self.node_3d = self.node
+
+        # The whole filtered slice loads through the chunk scheduler
+        # (``plans/scheduler_only_loading_design_v2.md`` 4.4).  The trail's
+        # extents and fades are in the request key: a trail change keeps
+        # the previous result drawn while it loads.
+        self._init_whole_item()
 
     # ------------------------------------------------------------------
     # LOD
@@ -688,42 +692,6 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
             remaining, self._transform, self._spaces.world, self._spaces.data
         )
 
-    def build_slice_request(
-        self,
-        camera_pos_world: np.ndarray,
-        frustum_corners_world: np.ndarray | None,
-        fov_y_rad: float,
-        screen_height_px: float,
-        lod_bias: float = 1.0,
-        dims_state: DimsState | None = None,
-        force_level: int | None = None,
-        selection: RegionSelection | None = None,
-    ) -> list[GraphSliceRequest]:
-        """3-D planning path -- returns one GraphSliceRequest."""
-        displayed = dims_state.selection.displayed_axes
-        if displayed != self._last_displayed_axes:
-            self._update_node_matrix(displayed)
-        return [self._build_request(dims_state, selection)]
-
-    def build_slice_request_2d(
-        self,
-        camera_pos_world: np.ndarray,
-        viewport_width_px: float,
-        world_width: float,
-        view_min_world: np.ndarray | None,
-        view_max_world: np.ndarray | None,
-        dims_state: DimsState,
-        lod_bias: float = 1.0,
-        force_level: int | None = None,
-        use_culling: bool = True,
-        selection: RegionSelection | None = None,
-    ) -> list[GraphSliceRequest]:
-        """2-D planning path -- returns one GraphSliceRequest."""
-        displayed = dims_state.selection.displayed_axes
-        if displayed != self._last_displayed_axes:
-            self._update_node_matrix(displayed)
-        return [self._build_request(dims_state, selection)]
-
     # ------------------------------------------------------------------
     # Commit
     # ------------------------------------------------------------------
@@ -907,21 +875,14 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
             return np.ones(n, dtype=np.float32)
         return np.ascontiguousarray(alpha, dtype=np.float32)
 
-    def on_data_ready(self, batch: list[tuple[GraphSliceRequest, GraphData]]) -> None:
-        """3-D callback -- called on the main thread by SliceCoordinator."""
-        if not batch:
-            return
-        _, data = batch[0]
-        self._commit(data, is_2d=False)
-
-    def on_data_ready_2d(
-        self, batch: list[tuple[GraphSliceRequest, GraphData]]
-    ) -> None:
-        """2-D callback -- called on the main thread by SliceCoordinator."""
-        if not batch:
-            return
-        _, data = batch[0]
-        self._commit(data, is_2d=True)
+    def _show_empty(self) -> None:
+        """Draw nothing: the residency holds no result (``release``)."""
+        self.node_points.material = self._empty_node_material
+        self.node_edges.material = self._empty_edge_material
+        self._nodes_empty = self._edges_empty = True
+        self._original_node_rows = None
+        self._original_edge_rows = None
+        self._edge_endpoint_rows = None
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -1054,16 +1015,6 @@ class GFXGraphMemoryVisual(GeometryClippingMixin):
             self._aabb_line_width = event.new_value
             if self._aabb_line is not None:
                 self._aabb_line.material.thickness = event.new_value
-
-    # ------------------------------------------------------------------
-    # No-op cancellation stubs (no brick cache)
-    # ------------------------------------------------------------------
-
-    def cancel_pending(self) -> None:
-        """No-op -- in-memory visuals have no reserved GPU brick slots."""
-
-    def cancel_pending_2d(self) -> None:
-        """No-op -- in-memory visuals have no reserved GPU brick slots."""
 
     def tick(self) -> None:
         """Called once per rendered frame. No per-frame state to advance."""

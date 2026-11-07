@@ -44,6 +44,7 @@ from cellier.render.render_manager import (
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import InMemoryImageChannelAppearance
 from tests._displayed import trailing_axes
+from tests._planning import planned_requests_2d
 
 _MOUSE_2D = {
     "press": CanvasMousePress2DEvent,
@@ -280,7 +281,8 @@ def test_2d_composite_reports_every_drawn_channel_from_the_render_layer():
     )
     render_manager = controller._render_manager
     gfx_visual = render_manager._scenes[scene.id].get_visual(visual.id)
-    gfx_visual.build_slice_request_2d(
+    planned_requests_2d(
+        gfx_visual,
         np.zeros(3),
         100.0,
         10.0,

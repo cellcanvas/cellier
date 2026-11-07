@@ -1,4 +1,4 @@
-"""SliceCoordinator — thin orchestrator that drives the async reslicing cycle."""
+"""SliceCoordinator: plans every visual and hands it to the chunk scheduler."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from cellier.events._events import (
     ResliceProgressEvent,
     ResliceStartedEvent,
 )
-from cellier.render.scheduling import PlanMode, is_chunked_visual
+from cellier.render.scheduling import PlanMode
 
 if TYPE_CHECKING:
     from cellier.data.image import MultiscaleZarrDataStore
@@ -23,57 +23,46 @@ if TYPE_CHECKING:
     from cellier.render._scene_config import VisualRenderConfig
     from cellier.render.scene_manager import SceneManager
     from cellier.render.scheduling import ChunkScheduler, DesiredSet
-    from cellier.slicer import AsyncSlicer
 
 
 class SliceCoordinator:
     """Thin orchestrator owned by ``RenderManager``.
 
     Given a ``ReslicingRequest``, it looks up the target ``SceneManager``,
-    runs the synchronous planning phase, cancels in-flight tasks for the
-    affected visuals, and submits new async load tasks.
-
-    One ``AsyncSlicer`` task maps to one ``(scene_id, canvas_id, visual_id)``
-    triple.  A ``dict`` keyed by this triple tracks active slice IDs so that
-    per-visual cancellation can cancel only the affected task while leaving
-    other visuals — and other canvases — in the same scene running.
-
-    **Chunked visuals** (``is_chunked_visual``: the multiscale image and
-    labels, and the mesh) take a different path, 2D and 3D (``plans/progressive_loading_
-    design_v3.md`` 4.2): they are planned into desired sets and handed to the
+    plans every targeted visual into desired sets and hands them to the
     shared :class:`~cellier.render.scheduling.ChunkScheduler`, which never
-    cancels.  The coordinator keeps the scheduler's cache registrations in
-    step with each visual's atlases, retires the atlases of a visual that
-    draws nothing (and those of the mode not drawn), and turns the
-    scheduler's per-atlas completion into ``ResliceCompletedEvent``, and its
-    per-atlas progress into ``ResliceProgressEvent`` and
-    ``BackstopCompleteEvent`` per visual (design 5.13).
+    cancels (``plans/scheduler_only_loading_design_v2.md``; every visual is
+    a chunked visual).  The coordinator keeps the scheduler's cache
+    registrations in step with each visual's caches, retires the caches of
+    a visual that draws nothing (and those of the mode not drawn), and turns
+    the scheduler's per-cache completion into ``ResliceCompletedEvent``, and
+    its per-cache progress into ``ResliceProgressEvent`` and
+    ``BackstopCompleteEvent`` per visual (progressive loading design v3,
+    5.13).
+
+    With two canvases on one scene, a visual's caches follow the last plan
+    made, whichever canvas made it.
 
     Parameters
     ----------
     scenes : dict[UUID, SceneManager]
         Shared scene registry from ``RenderManager``.
-    slicer : AsyncSlicer
-        Shared async slicer instance.
     data_stores : dict[UUID, MultiscaleZarrDataStore]
         Mapping of ``visual_model_id`` to the data store for that visual.
-    scheduler : ChunkScheduler or None
-        The chunk scheduler.  ``None`` routes every visual to the slicer.
+    scheduler : ChunkScheduler
+        The chunk scheduler every visual loads through.
     """
 
     def __init__(
         self,
         scenes: dict[UUID, SceneManager],
-        slicer: AsyncSlicer,
         data_stores: dict[UUID, MultiscaleZarrDataStore],
-        scheduler: ChunkScheduler | None = None,
+        scheduler: ChunkScheduler,
     ) -> None:
         self.id: UUID = uuid4()
         self._scenes = scenes
-        self._slicer = slicer
         self._data_stores = data_stores
         self._scheduler = scheduler
-        self._active_slice_ids: dict[tuple[UUID, UUID, UUID], UUID] = {}
         # Chunked visuals: registered atlases per visual, and the reverse.
         self._visual_caches: dict[UUID, set[int]] = {}
         self._cache_owner: dict[int, UUID] = {}
@@ -99,21 +88,11 @@ class SliceCoordinator:
         request: ReslicingRequest,
         visual_configs: dict[UUID, VisualRenderConfig],
     ) -> None:
-        """Execute the full reslicing cycle for the scene in ``request.scene_id``.
+        """Plan the targeted visuals of ``request.scene_id`` and pass them on.
 
-        Cancels in-flight tasks for visuals that will be re-submitted, subject
-        to each visual's ``cancellable`` property.  Visuals with
-        ``cancellable = False`` are never cancelled; their tasks run to
-        completion so every intermediate position reaches the GPU.  This is the
-        case for the in-memory lines and points visuals.  The mesh is not
-        among them: it is a chunked visual, loaded by the scheduler.
-        The image and label visuals -- both in-memory
-        (``GFXImageMemoryVisual``, ``GFXLabelMemoryVisual``) and multiscale
-        (``GFXMultiscaleImageVisual``, ``GFXMultiscaleLabelVisual``) -- default
-        to ``cancellable = True``, so a superseding reslice cancels their
-        in-flight reads.  All render-layer visual classes must expose
-        ``cancellable`` as part of their public API; an ``AttributeError``
-        indicates a missing implementation.
+        A visual that plans nothing (hidden, no data here, a slice that
+        misses the data) has its caches retired; a visual whose plan mode is
+        ``BACKSTOP_ONLY`` is re-planned when the motion ends.
 
         Parameters
         ----------
@@ -123,42 +102,12 @@ class SliceCoordinator:
             Per-visual render configuration.
         """
         scene_manager = self._scenes[request.scene_id]
-        is_2d = len(request.dims_state.selection.displayed_axes) == 2
-
-        if request.target_visual_ids is not None:
-            to_cancel: frozenset[UUID] = request.target_visual_ids
-        else:
-            to_cancel = frozenset(scene_manager.visual_ids)
-
-        chunked = {
-            visual_id
-            for visual_id in to_cancel
-            if self._scheduler is not None
-            and visual_id in scene_manager.visual_ids
-            and is_chunked_visual(scene_manager.get_visual(visual_id))
-        }
-        for visual_id in to_cancel:
-            if visual_id in chunked:
-                continue  # the scheduler never cancels
-            try:
-                gfx_visual = scene_manager.get_visual(visual_id)
-            except KeyError:
-                # Visual not yet registered in render layer; cancel defensively.
-                self.cancel_visual(request.scene_id, request.canvas_id, visual_id)
-                continue
-            if gfx_visual.cancellable:
-                self.cancel_visual(request.scene_id, request.canvas_id, visual_id)
-
-        requests_by_visual = scene_manager.build_slice_requests(request, visual_configs)
-        planned: dict[UUID, list[DesiredSet]] = {}
-        idle: set[UUID] = set()
-        if chunked:
-            # A pass retires the visual's atlases it did not plan: the 3D
-            # ones in 2D, and the other way round.
-            planned, idle = scene_manager.plan_chunked(request, visual_configs)
+        # A pass retires the visual's caches it did not plan: the 3D ones in
+        # 2D, and the other way round.
+        planned, idle = scene_manager.plan_chunked(request, visual_configs)
 
         # Announce the start of the reslice cycle for the visuals being loaded.
-        started = frozenset(requests_by_visual) | frozenset(planned)
+        started = frozenset(planned)
         if self._event_bus is not None and started:
             self._event_bus.emit(
                 ResliceStartedEvent(
@@ -183,60 +132,6 @@ class SliceCoordinator:
         for visual_id in idle:
             self._deferred.discard(visual_id)
             self._retire_visual(request.scene_id, visual_id)
-
-        for visual_id, chunk_requests in requests_by_visual.items():
-            visual = scene_manager.get_visual(visual_id)
-            data_store = self._data_stores[visual_id]
-
-            # Use the appropriate callback for the scene dimensionality.
-            callback = visual.on_data_ready_2d if is_2d else visual.on_data_ready
-
-            brick_count = len(chunk_requests)
-
-            # Filled in from submit() below, so the completion closure can tell
-            # whether the entry it is about to drop is still its own.  Safe to
-            # assign after the fact: submit only schedules the task, so nothing
-            # can run it -- and reach _on_complete -- before submit returns.
-            own_slice_id: list[UUID] = []
-
-            # Closure fired once all bricks/tiles for this visual have committed.
-            # Bind the loop variables as defaults so each visual gets its own.
-            def _on_complete(
-                vid: UUID = visual_id,
-                sid: UUID = request.scene_id,
-                cid: UUID = request.canvas_id,
-                n: int = brick_count,
-                own: list[UUID] = own_slice_id,
-            ) -> None:
-                # Stop tracking the request that just finished, but only while
-                # the entry still names *this* task.  A non-cancellable visual
-                # is left running when a newer reslice supersedes it, so the
-                # older task can finish after the newer one was recorded here;
-                # popping blindly would untrack work that is still in flight.
-                key = (sid, cid, vid)
-                if own and self._active_slice_ids.get(key) == own[0]:
-                    del self._active_slice_ids[key]
-                self._emit_reslice_completed(sid, cid, vid, n)
-
-            slice_id = self._slicer.submit(
-                chunk_requests,
-                fetch_fn=data_store.get_data,
-                callback=callback,
-                consumer_id=str(visual_id),
-                on_complete=_on_complete,
-            )
-            if slice_id is not None:
-                own_slice_id.append(slice_id)
-                self._active_slice_ids[
-                    (request.scene_id, request.canvas_id, visual_id)
-                ] = slice_id
-            else:
-                # No bricks to load (e.g. an empty slab); the reslice for this
-                # visual is already complete, so signal it immediately — the
-                # async on_complete path never runs for an empty submission.
-                self._emit_reslice_completed(
-                    request.scene_id, request.canvas_id, visual_id, brick_count
-                )
 
     def _emit_reslice_completed(
         self, scene_id: UUID, canvas_id: UUID, visual_id: UUID, brick_count: int
@@ -268,71 +163,6 @@ class SliceCoordinator:
                 brick_count=brick_count,
             )
         )
-
-    def cancel_all(self) -> None:
-        """Cancel every in-flight slice task, across every scene.
-
-        ``cancel_scene`` can only reach what ``_active_slice_ids`` still names,
-        which at teardown is not everything: ``submit`` deliberately lets a
-        non-cancellable visual finish rather than cancelling it, then
-        overwrites that key, so the predecessor task becomes unreachable from
-        here.  Cancelling the tracked requests first keeps the per-visual GPU
-        slot release running for them; the sweep afterwards catches the rest.
-        """
-        for scene_id, canvas_id, visual_id in list(self._active_slice_ids):
-            # Pops its own key, so the loop drains _active_slice_ids.
-            self.cancel_visual(scene_id, canvas_id, visual_id)
-        self._slicer.cancel_all()
-
-    def cancel_scene(self, scene_id: UUID) -> None:
-        """Cancel all in-flight tasks for a scene.
-
-        Parameters
-        ----------
-        scene_id : UUID
-            ID of the scene whose tasks should be cancelled.
-        """
-        keys = [
-            (s_id, c_id, v_id)
-            for (s_id, c_id, v_id) in list(self._active_slice_ids.keys())
-            if s_id == scene_id
-        ]
-        for s_id, c_id, v_id in keys:
-            self.cancel_visual(s_id, c_id, v_id)
-
-    def cancel_visual(self, scene_id: UUID, canvas_id: UUID, visual_id: UUID) -> None:
-        """Cancel the in-flight task for one visual on one canvas.
-
-        Also calls ``visual.cancel_pending()`` or ``cancel_pending_2d()``
-        to release any GPU slots reserved during the last planning phase
-        that were never committed.
-
-        Parameters
-        ----------
-        scene_id : UUID
-            ID of the scene containing the visual.
-        canvas_id : UUID
-            ID of the canvas whose request should be cancelled.
-        visual_id : UUID
-            ID of the visual to cancel.
-        """
-        key = (scene_id, canvas_id, visual_id)
-        slice_id = self._active_slice_ids.pop(key, None)
-        if slice_id is not None:
-            self._slicer.cancel(slice_id)
-
-        scene = self._scenes.get(scene_id)
-        if scene is not None:
-            try:
-                visual = scene.get_visual(visual_id)
-                if is_chunked_visual(visual):
-                    return  # the scheduler never cancels
-                if "2d" in visual.render_modes:
-                    visual.cancel_pending_2d()
-                if "3d" in visual.render_modes:
-                    visual.cancel_pending()
-            except KeyError:
-                pass
 
     # ── Chunked visuals ──────────────────────────────────────────────────
 
@@ -406,8 +236,6 @@ class SliceCoordinator:
 
     def forget_visual(self, visual_id: UUID) -> None:
         """Drop a chunked visual's atlases from the scheduler (visual removal)."""
-        if self._scheduler is None:
-            return
         for cache_id in list(self._visual_caches.pop(visual_id, set())):
             self._forget_cache(cache_id)
         self._announced.pop(visual_id, None)
@@ -444,8 +272,6 @@ class SliceCoordinator:
         drawn) are left out: nothing of theirs is wanted.  ``None`` for a
         visual that has no atlas in the scheduler.
         """
-        if self._scheduler is None:
-            return None
         core = self._scheduler.core
         caches = [
             cid

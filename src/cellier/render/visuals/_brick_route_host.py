@@ -6,9 +6,10 @@ render visual owns, from its first such view on, an *inner* multiscale
 render visual (``GFXMultiscaleImageVisual`` or ``GFXMultiscaleLabelVisual``)
 built over an :class:`~cellier.data._in_memory_bricks.InMemoryBrickSource`,
 in the 3D mode only.  While the route is taken the in-memory visual hands
-the scene the inner visual's slice node, plans through it on the chunk
-scheduler, and forwards its events to it; aligned 2D views and 3D views
-keep today's whole-slice path (I4: one implementation of each piece).
+the scene the inner visual's slice node, plans through it, and forwards its
+events to it; aligned 2D views and 3D views keep the whole-slice caches
+(I4: one implementation of each piece).  Both paths load through the chunk
+scheduler (scheduler-only loading design v2, D6).
 
 :class:`BrickRouteHost` is that delegation, mixed in ahead of the in-memory
 visual's own class.  The inner visual reads the in-memory model through
@@ -111,10 +112,6 @@ class BrickRouteHost:
     before its render spaces (:meth:`set_slice_route`, design v3 C3).
     """
 
-    #: Read by ``is_chunked_visual``: on the route, the chunk scheduler
-    #: loads this visual (its :attr:`chunked_now`).
-    routes_chunked: bool = True
-
     _brick_source: InMemoryBrickSource | None = None
     _brick_inner: Any = None
     _route_axes: tuple[int, int, int] | None = None
@@ -122,8 +119,8 @@ class BrickRouteHost:
     # ── Route state ─────────────────────────────────────────────────────
 
     @property
-    def chunked_now(self) -> bool:
-        """Whether the chunk scheduler loads this visual now (on the route)."""
+    def on_brick_route(self) -> bool:
+        """Whether this visual's 2D views are drawn by the brick route now."""
         return self._route_axes is not None and self._brick_inner is not None
 
     @property
@@ -236,7 +233,7 @@ class BrickRouteHost:
             self._brick_inner.set_slice_footprint(polygon)
 
     def _routed(self, displayed_axes: tuple[int, ...] | None = None) -> bool:
-        if not self.chunked_now:
+        if not self.on_brick_route:
             return False
         return displayed_axes is None or len(displayed_axes) == 2
 
@@ -273,12 +270,16 @@ class BrickRouteHost:
     # ── Planning (the chunk scheduler's contract) ────────────────────────
 
     def plan(self, request, config, mode: PlanMode = PlanMode.FULL) -> list:
-        """The inner visual's plan, reading from the brick source.
+        """On the route, the inner visual's plan, reading from the brick source.
 
         Until the coarse level is built the plan is target-only at the
         array's own level: no backstop, and nothing that would read the
-        coarse level (U8).
+        coarse level (U8).  Off the route (an aligned 2D view, a 3D view)
+        the visual's own whole-slice plan.
         """
+        displayed = tuple(request.dims_state.selection.displayed_axes)
+        if not self._routed(displayed):
+            return super().plan(request, config, mode)
         inner = self._brick_inner
         source = self._brick_source
         if inner is None or source is None or self._route_axes is None:
@@ -293,10 +294,23 @@ class BrickRouteHost:
         return [dataclasses.replace(ds, store=source) for ds in desired]
 
     def residencies(self) -> dict:
-        """The inner visual's atlases while the route is taken."""
-        if not self.chunked_now:
-            return {}
-        return self._brick_inner.residencies()
+        """The whole-slice caches, plus the inner visual's atlases on the route.
+
+        Leaving the route drops the atlases from this mapping, so the next
+        plan's cache sync forgets them, while the whole-slice caches keep
+        what they hold (D20).
+        """
+        own = dict(super().residencies())
+        if self.on_brick_route:
+            own.update(self._brick_inner.residencies())
+        return own
+
+    @property
+    def awaits_data(self) -> bool:
+        """The inner visual's on the route, else the whole-slice caches'."""
+        if self.on_brick_route:
+            return bool(getattr(self._brick_inner, "awaits_data", False))
+        return bool(super().awaits_data)
 
     # ── Picks ───────────────────────────────────────────────────────────
 
@@ -310,24 +324,24 @@ class BrickRouteHost:
         return False
 
     def pick_data_coordinate(self, hit_object, pick_info: dict):
-        if self.chunked_now and self._inner_hit(hit_object):
+        if self.on_brick_route and self._inner_hit(hit_object):
             return self._brick_inner.pick_data_coordinate(hit_object, pick_info)
         return super().pick_data_coordinate(hit_object, pick_info)
 
     def pick_collapsed_indices(self):
-        if self.chunked_now:
+        if self.on_brick_route:
             return self._brick_inner.pick_collapsed_indices()
         return super().pick_collapsed_indices()
 
     def pick_channel_index(self, hit_object):
-        if self.chunked_now and self._inner_hit(hit_object):
+        if self.on_brick_route and self._inner_hit(hit_object):
             inner = getattr(self._brick_inner, "pick_channel_index", None)
             return None if inner is None else inner(hit_object)
         own = getattr(super(), "pick_channel_index", None)
         return None if own is None else own(hit_object)
 
     def drawn_channel_indices(self) -> tuple[int, ...]:
-        if self.chunked_now:
+        if self.on_brick_route:
             inner = getattr(self._brick_inner, "drawn_channel_indices", None)
             if inner is not None:
                 return inner()
@@ -369,7 +383,7 @@ class BrickRouteHost:
     @property
     def clipping_planes_affect_request(self) -> bool:
         """On the route clipped bricks are not fetched, as for multiscale."""
-        if self.chunked_now:
+        if self.on_brick_route:
             return True
         return super().clipping_planes_affect_request
 

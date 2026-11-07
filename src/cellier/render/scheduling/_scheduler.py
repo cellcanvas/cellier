@@ -166,6 +166,13 @@ class ChunkScheduler:
         if touched and not self._closed:
             self._pump()
             self._draw_caches(touched)
+            # A ``commit_stale`` cache may now hold a result to commit as
+            # kept: make sure a round takes it even if no frame is drawn.
+            if self.core.oldest_arrival() is not None:
+                try:
+                    self._arm_fallback()
+                except RuntimeError:
+                    pass  # no running loop: a later drain commits it
         return touched
 
     # -- fetching ------------------------------------------------------------
@@ -196,7 +203,7 @@ class ChunkScheduler:
         outcome = self.core.complete_read(ticket, data=data, error=error)
         # Refill before the commit side runs, so the window stays full.
         self._pump()
-        if outcome == ReadOutcome.ARRIVED:
+        if outcome in (ReadOutcome.ARRIVED, ReadOutcome.STALE_KEPT):
             self._draw(self.core.scene_of(ticket.cache_id))
             self._arm_fallback()
         elif outcome == ReadOutcome.GAVE_UP:

@@ -96,9 +96,10 @@ class GraphMemoryStore(BaseDataStore):
     conversion happens once, at construction.  ``node_ids`` is read only
     when building a pick payload, never on the per-frame path (D18).
 
-    All reads are synchronous (data is in CPU RAM); ``get_data`` is declared
-    ``async`` to satisfy the AsyncSlicer contract and to provide a single
-    cancellation checkpoint.
+    ``get_data`` runs the filter in the event loop's default executor, so a
+    large graph or a wide trail does not stall the loop
+    (``plans/scheduler_only_loading_design_v2.md`` D4); :meth:`read` is the
+    same filter, synchronous.
 
     Parameters
     ----------
@@ -790,18 +791,31 @@ class GraphMemoryStore(BaseDataStore):
         )
 
     # ------------------------------------------------------------------
-    # Async data access -- one checkpoint for cancellability
+    # Data access
     # ------------------------------------------------------------------
 
     async def get_data(self, request: GraphSliceRequest) -> GraphData:
         """Return slab-filtered graph data for *request*.
 
-        Checkpoint
+        The filter (:meth:`read`) runs in the loop's default executor.  A
+        filter that raises because the store changed under it fails this
+        read; the change's invalidation reads again.
+
+        Parameters
         ----------
-        A  After the node and edge masks are built but before the gathers
-           that build the GPU buffers, matching the position points and
-           lines use.  If CancelledError fires there the callback is never
-           called, so stale geometry never reaches the GPU.
+        request : GraphSliceRequest
+            Planned by ``GFXGraphMemoryVisual.plan``.
+
+        Returns
+        -------
+        GraphData
+            Filtered, projected node and edge data ready for GPU upload.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.read, request)
+
+    def read(self, request: GraphSliceRequest) -> GraphData:
+        """The filter of :meth:`get_data`, run on the calling thread.
 
         Inclusion rule
         --------------
@@ -815,7 +829,7 @@ class GraphMemoryStore(BaseDataStore):
         Parameters
         ----------
         request : GraphSliceRequest
-            Built by ``GFXGraphMemoryVisual.build_slice_request[_2d]``.
+            Planned by ``GFXGraphMemoryVisual.plan``.
 
         Returns
         -------
@@ -826,10 +840,6 @@ class GraphMemoryStore(BaseDataStore):
             node_rows, edge_endpoints, edge_rows = self._select_roi(request)
         else:
             node_rows, edge_endpoints, edge_rows = self._select_mask(request)
-
-        # -- Checkpoint A ---------------------------------------------
-        await asyncio.sleep(0)
-
         return self._gather(request, node_rows, edge_endpoints, edge_rows)
 
     # ------------------------------------------------------------------

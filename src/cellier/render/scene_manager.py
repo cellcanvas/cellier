@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Mapping, Sequence
     from uuid import UUID
 
-    from cellier.data.image import ChunkRequest
     from cellier.render._requests import ReslicingRequest
     from cellier.render.scheduling import DesiredSet
     from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
@@ -99,7 +98,7 @@ class SceneManager:
         self._outline_kinds: dict[UUID, frozenset[str]] = {}
         self._outlines_changed_listener: Callable[[], None] | None = None
         # Per-visual store extents, for the out-of-domain check in
-        # build_slice_requests.  Absent means "not known", which never skips.
+        # plan_chunked.  Absent means "not known", which never skips.
         self._axis_extents: dict[UUID, Sequence[tuple[float, float]] | None] = {}
 
         self._has_lighting = lighting == "default"
@@ -453,32 +452,6 @@ class SceneManager:
         """
         return self._visuals[visual_id]
 
-    def build_slice_requests(
-        self,
-        request: ReslicingRequest,
-        visual_configs: dict[UUID, VisualRenderConfig],
-    ) -> dict[UUID, list[ChunkRequest]]:
-        """Collect ChunkRequests from all (or targeted) registered visuals.
-
-        Dispatches to the 2D or 3D planning path based on scene
-        dimensionality.
-
-        Parameters
-        ----------
-        request : ReslicingRequest
-            The reslicing request.
-        visual_configs : dict[UUID, VisualRenderConfig]
-            Per-visual render configuration.
-
-        Returns
-        -------
-        dict[UUID, list[ChunkRequest]]
-            Mapping of ``visual_model_id`` to that visual's ChunkRequests.
-        """
-        if len(request.dims_state.selection.displayed_axes) == 2:
-            return self._build_slice_requests_2d(request, visual_configs)
-        return self._build_slice_requests_3d(request, visual_configs)
-
     def _has_data_here(self, visual_id: UUID, request: ReslicingRequest) -> bool:
         """Whether a visual has any data at this request's slice positions.
 
@@ -558,102 +531,3 @@ class SceneManager:
             else:
                 idle.add(visual_id)
         return planned, idle
-
-    def _build_slice_requests_3d(
-        self,
-        request: ReslicingRequest,
-        visual_configs: dict[UUID, VisualRenderConfig],
-    ) -> dict[UUID, list[ChunkRequest]]:
-        """3D planning path for visuals on the async slicer.
-
-        Chunked visuals are planned by :meth:`plan_chunked` instead.
-        """
-        result: dict[UUID, list[ChunkRequest]] = {}
-        _, screen_height_px = request.screen_size_px
-        for visual_id, visual in self._visuals.items():
-            if is_chunked_visual(visual):
-                continue
-            if (
-                request.target_visual_ids is not None
-                and visual_id not in request.target_visual_ids
-            ):
-                continue
-            if not self._has_data_here(visual_id, request):
-                continue
-
-            cfg = visual_configs.get(visual_id, VisualRenderConfig())
-            if not cfg.slicing_enabled:
-                continue
-
-            frustum_corners_world = (
-                request.frustum_corners if cfg.frustum_cull else None
-            )
-
-            chunk_requests = visual.build_slice_request(
-                camera_pos_world=request.camera_pos,
-                frustum_corners_world=frustum_corners_world,
-                fov_y_rad=request.fov_y_rad,
-                screen_height_px=screen_height_px,
-                lod_bias=cfg.settled_lod_bias,
-                dims_state=request.dims_state,
-                force_level=cfg.force_level,
-                selection=request.selection,
-            )
-            if chunk_requests:
-                result[visual_id] = chunk_requests
-
-        return result
-
-    def _build_slice_requests_2d(
-        self,
-        request: ReslicingRequest,
-        visual_configs: dict[UUID, VisualRenderConfig],
-    ) -> dict[UUID, list[ChunkRequest]]:
-        """2D planning path using orthographic camera and viewport culling.
-
-        Chunked visuals are planned by :meth:`plan_chunked` instead.
-        """
-        result: dict[UUID, list[ChunkRequest]] = {}
-
-        world_width, world_height = request.world_extent
-        viewport_width_px, _viewport_height_px = request.screen_size_px
-
-        # Compute viewport AABB from camera position and world extent.
-        cx = float(request.camera_pos[0])
-        cy = float(request.camera_pos[1])
-        half_w = world_width / 2.0
-        half_h = world_height / 2.0
-        view_min = np.array([cx - half_w, cy - half_h], dtype=np.float64)
-        view_max = np.array([cx + half_w, cy + half_h], dtype=np.float64)
-
-        for visual_id, visual in self._visuals.items():
-            if is_chunked_visual(visual):
-                continue
-            if (
-                request.target_visual_ids is not None
-                and visual_id not in request.target_visual_ids
-            ):
-                continue
-            if not self._has_data_here(visual_id, request):
-                continue
-
-            cfg = visual_configs.get(visual_id, VisualRenderConfig())
-            if not cfg.slicing_enabled:
-                continue
-
-            chunk_requests = visual.build_slice_request_2d(
-                camera_pos_world=request.camera_pos,
-                viewport_width_px=viewport_width_px,
-                world_width=world_width,
-                view_min_world=view_min if cfg.frustum_cull else None,
-                view_max_world=view_max if cfg.frustum_cull else None,
-                dims_state=request.dims_state,
-                lod_bias=cfg.settled_lod_bias,
-                force_level=cfg.force_level,
-                use_culling=cfg.frustum_cull,
-                selection=request.selection,
-            )
-            if chunk_requests:
-                result[visual_id] = chunk_requests
-
-        return result

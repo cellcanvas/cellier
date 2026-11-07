@@ -183,7 +183,7 @@ def _close_cellier_objects(monkeypatch):
       itself in a **process-global** table at construction, and only
       ``Widget.close()`` removes it.  Unclosed, a full run ends holding several
       hundred, each keeping its traits and everything it subscribed to alive.
-    * A ``CellierController`` owns an ``AsyncSlicer`` holding live
+    * A ``CellierController`` owns a chunk scheduler holding live
       ``asyncio.Task`` objects.  Dropped rather than closed, those tasks are
       finalised by the garbage collector at an arbitrary later moment, and
       pytest's ``unraisableexception`` plugin reports the resulting
@@ -192,7 +192,7 @@ def _close_cellier_objects(monkeypatch):
       starts failing because a different module grew.
 
     Controllers are closed first: ``CellierController.close`` cancels pending
-    slices and closes the canvases it owns, so the canvas pass afterwards only
+    reads and closes the canvases it owns, so the canvas pass afterwards only
     has to catch canvases built without a controller.  Widgets go last, because
     a cellier widget's ``close`` emits ``closed`` for the controller to act on.
     All three ``close`` methods are safe to call twice.

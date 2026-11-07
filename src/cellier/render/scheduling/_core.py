@@ -90,6 +90,10 @@ class ReadOutcome:
     GAVE_UP = "gave_up"
     #: The result was dropped: stale, unwanted and failed, or its cache is gone.
     DROPPED = "dropped"
+    #: The read was invalidated in flight; its result waits for a commit round
+    #: to be drawn as kept (``CachePolicy.commit_stale``), and the record is
+    #: queued again.
+    STALE_KEPT = "stale_kept"
 
 
 def store_key(store: Any) -> Any:
@@ -130,6 +134,9 @@ class _Cache:
     served: int = -1
     n_fetching: int = 0
     arrived: dict[int, Any] = field(default_factory=dict)
+    # key -> a stale result committed as kept at the next round
+    # (``CachePolicy.commit_stale``); takes no slot and no registry record.
+    stale: dict[int, Any] = field(default_factory=dict)
     arrived_since: float | None = None
     last_pass: tuple[int, int] = (0, 0)
 
@@ -301,8 +308,12 @@ class SchedulerCore:
         Queued records are deleted and everything else becomes ``RECENT``;
         residents stay until the ``RECENT`` order evicts them.
         """
-        if cache_id in self._caches:
+        cache = self._caches.get(cache_id)
+        if cache is not None:
             self._pending[cache_id] = None
+            cache.stale.clear()
+            if not cache.arrived:
+                cache.arrived_since = None
 
     @property
     def has_pending(self) -> bool:
@@ -590,12 +601,21 @@ class SchedulerCore:
                 f"that is not FETCHING"
             )
         if reg.stale[row]:
-            # Invalidated in flight (5.14): never commit pre-invalidation data.
+            # Invalidated in flight (5.14): never commit pre-invalidation data
+            # as the record's own.  A ``commit_stale`` cache still shows it,
+            # as kept, from the next commit round.
             reg.stale[row] = False
             reg.attempts[row] = 0
             if reg.tier[row] == _VISIBLE:
                 reg.state[row] = _QUEUED
                 cache.queue_dirty = True
+                if error is None and cache.policy.commit_stale:
+                    cache.stale[int(ticket.key)] = data
+                    if cache.arrived_since is None:
+                        cache.arrived_since = self.now()
+                    if self.trace is not None:
+                        self.trace("arrive_stale", (cache.cache_id, ticket.key))
+                    return ReadOutcome.STALE_KEPT
             else:
                 reg.kill(row)
             return ReadOutcome.DROPPED
@@ -679,7 +699,7 @@ class SchedulerCore:
     # -- commit rounds (5.7) -----------------------------------------------------
 
     def oldest_arrival(self) -> float | None:
-        """When the longest-waiting arrival landed, or ``None``."""
+        """When the longest-waiting arrival (or stale result) landed, or ``None``."""
         times = [
             c.arrived_since
             for c in self._caches.values()
@@ -704,12 +724,43 @@ class SchedulerCore:
         """
         touched: list[int] = []
         for cache in list(self._caches.values()):
-            if not cache.arrived or not (scene is ALL_SCENES or cache.scene == scene):
+            if not (cache.arrived or cache.stale):
                 continue
-            if self._commit_cache(cache):
+            if not (scene is ALL_SCENES or cache.scene == scene):
+                continue
+            committed = self._commit_cache(cache) if cache.arrived else 0
+            if cache.stale:
+                committed += self._commit_stale(cache)
+            cache.arrived_since = None
+            if committed:
                 touched.append(cache.cache_id)
             self._settle(cache)
         return touched
+
+    def _commit_stale(self, cache: _Cache) -> int:
+        """Hand a ``commit_stale`` cache's stale results to ``write_kept``.
+
+        They take no slot and change no record: the adapter draws each as
+        kept until the record's re-read lands.  Returns how many were handed
+        over.
+        """
+        stale, cache.stale = cache.stale, {}
+        write_kept = getattr(cache.residency, "write_kept", None)
+        n = 0
+        for key, data in stale.items():
+            if write_kept is None:
+                continue
+            try:
+                write_kept(key, data)
+            except Exception:
+                _LOGGER.exception(
+                    "cache %s: write_kept of key %d failed", cache.cache_id, key
+                )
+                continue
+            n += 1
+            if self.trace is not None:
+                self.trace("commit_stale", (cache.cache_id, key))
+        return n
 
     def _commit_cache(self, cache: _Cache) -> int:
         """One cache's share of a round.  Returns records committed."""
@@ -842,6 +893,10 @@ class SchedulerCore:
         and slot.  Each is requeued if ``VISIBLE`` and deleted if ``RECENT``.
         ``QUEUED`` records have read nothing and are left alone.
 
+        For a ``commit_stale`` cache, a stale read lands as kept instead of
+        being dropped, and a ``VISIBLE`` ``ARRIVED`` result is moved to the
+        cache's stale results, committed as kept at the next round.
+
         Parameters
         ----------
         store_id : Any
@@ -888,9 +943,17 @@ class SchedulerCore:
             )
             for row in np.flatnonzero(lose & (reg.state == _RESIDENT)).tolist():
                 cache.free.append(int(reg.slot[row]))
-            for key in reg.key[lose & (reg.state == _ARRIVED)].tolist():
-                cache.arrived.pop(int(key), None)
-            if not cache.arrived:
+            keep = cache.policy.commit_stale
+            arrived_hit = lose & (reg.state == _ARRIVED)
+            for key, tier in zip(
+                reg.key[arrived_hit].tolist(),
+                reg.tier[arrived_hit].tolist(),
+                strict=True,
+            ):
+                data = cache.arrived.pop(int(key), None)
+                if keep and tier == _VISIBLE:
+                    cache.stale[int(key)] = data
+            if not cache.arrived and not cache.stale:
                 cache.arrived_since = None
             reg.slot[lose] = -1
             requeue = lose & (reg.tier == _VISIBLE)
@@ -1019,7 +1082,7 @@ class SchedulerCore:
         if self._pending or any(self.in_flight):
             return False
         for cache in self._caches.values():
-            if cache.arrived:
+            if cache.arrived or cache.stale:
                 return False
             reg = cache.registry
             if (reg.state == _QUEUED).any():

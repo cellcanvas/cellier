@@ -184,7 +184,7 @@ def test_a_tilted_in_memory_view_is_on_the_brick_route(tmp_path, family):
         load(viewer, slice_z=float(P0[0]))
         gfx_visual = _gfx(viewer, visual)
         assert gfx_visual.slice_axes == (0, 1, 2)
-        assert gfx_visual.chunked_now
+        assert gfx_visual.on_brick_route
         assert _active_node(viewer, visual) is gfx_visual.slice_node
         assert viewer.controller.draw_status(visual.id).drawable
         assert render(viewer)[0][..., :3].max() > 0
@@ -307,22 +307,26 @@ def test_a_transform_jump_moves_an_in_memory_visual_both_ways(tmp_path, family):
         load(viewer, slice_z=float(P0[0]))
         gfx_visual = _gfx(viewer, visual)
         coordinator = viewer.controller._render_manager._slice_coordinator
-        assert not gfx_visual.chunked_now
+        assert not gfx_visual.on_brick_route
         assert gfx_visual.brick_inner is None
 
         async def _assign(matrix) -> None:
             visual.transform = bind(viewer, _store_of(viewer, visual), matrix)
             await _load_data(viewer)
 
+        whole_slice = set(gfx_visual.residencies())
         asyncio.run(_assign(world_matrix(LINEARS["rot_zx"])))
         assert _active_node(viewer, visual) is gfx_visual.slice_node
-        assert coordinator._visual_caches.get(visual.id)
+        atlases = set(gfx_visual.brick_inner.residencies())
+        assert atlases
+        assert coordinator._visual_caches.get(visual.id) >= atlases
         assert render(viewer)[0][..., :3].max() > 0
         asyncio.run(_assign(world_matrix(np.eye(3))))
-        assert not gfx_visual.chunked_now
+        assert not gfx_visual.on_brick_route
         assert _active_node(viewer, visual) is gfx_visual.node_2d
-        # Off the route its atlas is no longer the scheduler's.
-        assert not coordinator._visual_caches.get(visual.id)
+        # Off the route its atlas is no longer the scheduler's; its
+        # whole-slice caches still are (scheduler-only loading v2, D20).
+        assert coordinator._visual_caches.get(visual.id) == whole_slice
         assert render(viewer)[0][..., :3].max() > 0
         # And back again: the kept inner visual draws.
         asyncio.run(_assign(world_matrix(LINEARS["rot_zx"])))
@@ -382,9 +386,9 @@ def test_an_in_memory_drag_through_aligned_stays_on_the_route(tmp_path):
                     visual.transform = bind(
                         viewer, store, world_matrix(rot(0, 2, degrees))
                     )
-                    seen.append(gfx_visual.chunked_now)
+                    seen.append(gfx_visual.on_brick_route)
             await _load_data(viewer)
-            seen.append(gfx_visual.chunked_now)
+            seen.append(gfx_visual.on_brick_route)
 
         asyncio.run(_drag())
         assert seen == [True, True, False]
@@ -468,15 +472,18 @@ def test_a_pan_replans_a_tilted_in_memory_view_and_not_an_aligned_one(tmp_path, 
         assert not controller._camera_sensitive(aligned)
         plans.clear()
 
+        planned: set = set()
+
         async def _pan() -> None:
             camera = canvas_view(viewer).camera
             x, y, z = camera.local.position
             camera.local.position = (x + 5.0, y, z)
             controller._run_camera_reslice(viewer.scene.id)
+            # The camera's plans only: loading below reslices every visual.
+            planned.update(vid for vid, _, _ in plans)
             await _load_data(viewer)
 
         asyncio.run(_pan())
-        planned = {vid for vid, _, _ in plans}
         assert tilted.id in planned
         assert aligned.id not in planned
     finally:
@@ -733,7 +740,7 @@ def test_the_orthoviewer_on_a_tilted_in_memory_volume(tmp_path):
             ].get_visual(visual.id)
             for panel, visual in visuals.items()
         }
-        on_route = [panel for panel, g in gfx.items() if g.chunked_now]
+        on_route = [panel for panel, g in gfx.items() if g.on_brick_route]
         assert sorted(on_route) == ["xy", "xz", "yz"]
         # Each panel's copy has its own source and atlas.
         sources = {id(g.brick_source) for g in gfx.values()}

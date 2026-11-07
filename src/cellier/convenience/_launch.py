@@ -153,7 +153,7 @@ class DisplayHandle:
         self._closed = False
 
     def close(self) -> None:
-        """Tear down the controls, cancel pending slices, close the sidecar."""
+        """Tear down the controls and close the sidecar."""
         if self._closed:
             return
         self._closed = True
@@ -163,10 +163,6 @@ class DisplayHandle:
         close_presented = getattr(self._host, "close_presented", None)
         if close_presented is not None:
             close_presented()
-        scenes = getattr(self._viewer, "scenes", None)
-        scene_list = scenes.values() if scenes is not None else [self._viewer.scene]
-        for scene in scene_list:
-            self._viewer.controller.cancel_pending_slices(scene.id)
         if self._sidecar is not None:
             self._sidecar.close()
 

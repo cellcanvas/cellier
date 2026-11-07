@@ -19,20 +19,19 @@ class GraphSliceRequest(NamedTuple):
     becomes a per-axis asymmetric extent, so a trail window on any sliced
     axis is expressible without a second request type.
 
-    The first three fields satisfy the AsyncSlicer logging contract:
-    ``slice_request_id`` is the task key; ``chunk_request_id`` and
-    ``scale_index`` appear in INFO/DEBUG log lines.
+    The first three fields are the request fields every store request
+    carries: ids that are fresh per plan (never in a cache key) and the
+    level, always 0 here.
 
     Parameters
     ----------
     slice_request_id : UUID
-        Shared ID for all requests in one planning event.  Used by
-        AsyncSlicer as the dict key for the running task -- REQUIRED.
+        Shared ID for all requests in one planning event.
     chunk_request_id : UUID
         Per-request ID.  For graphs (never tiled) this equals
         ``slice_request_id``.
     scale_index : int
-        Always 0 -- no LOD levels.  Present for slicer logging compat.
+        Always 0 -- no LOD levels.  Present for parity with the image requests.
     displayed_axes : tuple[int, ...]
         Axis indices rendered in the canvas (2 for 2D, 3 for 3D).
     slice_positions : dict[int, float]
@@ -197,7 +196,7 @@ class GraphData:
 
     @property
     def shape(self) -> str:
-        """Summary string consumed by AsyncSlicer DEBUG logging."""
+        """A one-line summary of the result, for logging."""
         return (
             f"nodes={self.node_positions.shape} "
             f"edges={self.edge_positions.shape[0] // 2}"

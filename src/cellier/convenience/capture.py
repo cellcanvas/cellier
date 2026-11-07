@@ -142,30 +142,29 @@ def _camera_states(controller: object) -> dict:
 async def _wait_for_slicer(controller: object) -> None:
     """Await in-flight loading until none is left.
 
-    Two loaders: the slicer's tasks (in-memory visuals; at most 50 rounds)
-    and the chunk scheduler (multiscale visuals), drained with a commit
+    Every visual loads through the chunk scheduler, drained with a commit
     round per poll, as a drawing canvas would run them.  Reslices still to
     come (a scrub or camera motion ending, a rate-capped store change) are
-    awaited first, since they start new loading.
+    awaited first, since they start new loading; pick-value reads in flight
+    are awaited too.
     """
     render_manager = controller._render_manager
-    slicer = render_manager._slicer
     deferred = getattr(controller, "_deferred_reslice_tasks", list)
     # A drain can queue a reslice of its own (a MaskedImage's surface target
     # re-plans once its backstop lands), so go round until none is left.
     for _ in range(10):
+        # Let a pass scheduled with call_soon run before looking.
+        await asyncio.sleep(0)
         for _ in range(50):
             pending = deferred()
             if not pending:
                 break
             await asyncio.gather(*pending, return_exceptions=True)
-        for _ in range(50):
-            tasks = list(slicer._tasks.values())
-            if not tasks:
-                break
-            await asyncio.gather(*tasks)
+        picks = render_manager._pick_reads.in_flight()
+        if picks:
+            await asyncio.gather(*picks, return_exceptions=True)
         await render_manager.scheduler.drain(commit=True)
-        if not deferred():
+        if not deferred() and not render_manager._pick_reads.in_flight():
             break
 
 
@@ -181,7 +180,7 @@ async def _load_data(viewer: object) -> None:
     and 3D bricks from the view and frustum, so reslicing an unfitted camera
     loads only what that camera happens to see -- one corner tile in 2D,
     nothing in 3D -- and fitting afterwards moves the camera onto data that
-    was never requested.  In-memory images load a whole texture and cannot
+    was never requested.  In-memory images load a whole slice and cannot
     show this.
 
     A fit before the load can do nothing: ``fit_camera`` skips a scene that

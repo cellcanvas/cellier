@@ -1,7 +1,7 @@
 # src/cellier/v2/render/visuals/_image_memory.py
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -9,9 +9,11 @@ import pygfx as gfx
 
 from cellier.data.image._image_requests import ChunkRequest
 from cellier.render._clipping import ClippingPlanesMixin
+from cellier.render._level_residency import MEMORY_RASTER_POLICY, LevelResidency
 from cellier.render._node_transform import set_node_matrix
 from cellier.render._render_planes import RenderPlanesMixin
 from cellier.render._spaces import RenderSpaces, node_follows_slice, node_matrix
+from cellier.render.scheduling import PlanMode
 from cellier.render.shaders._image_volume import IMAGE_VOLUME_MATERIALS
 from cellier.render.visuals._brick_route_host import BrickRouteHost
 from cellier.render.visuals._pick import memory_image_data_coordinate
@@ -24,20 +26,22 @@ from cellier.visuals._image_memory import effective_transparency_mode
 from cellier.visuals._render_plane import PLANE_RENDER_MODE
 
 if TYPE_CHECKING:
-    from cellier._state import DimsState
+    from collections.abc import Hashable
+
     from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.events._events import (
         AABBChangedEvent,
         AppearanceChangedEvent,
         ChannelAppearanceChangedEvent,
-        DataStoreContentsChangedEvent,
-        DataStoreMetadataChangedEvent,
         ImageCompositeChangedEvent,
         PickWriteChangedEvent,
         SingleAppearanceChangedEvent,
         TransformChangedEvent,
         VisualVisibilityChangedEvent,
     )
+    from cellier.render._requests import ReslicingRequest
+    from cellier.render._scene_config import VisualRenderConfig
+    from cellier.render.scheduling import DesiredSet
     from cellier.transform import (
         AffineTransform,
         BaseTransform,
@@ -120,7 +124,7 @@ def _pin_bounding_box(node, box_min: list[float], box_max: list[float]) -> None:
     """Override *node*'s ``get_bounding_box`` to report a fixed local box.
 
     The in-memory image/volume nodes start with a tiny placeholder texture
-    (replaced on first ``on_data_ready[_2d]``), so the standard pygfx bounding
+    (replaced on the first upload), so the standard pygfx bounding
     box -- derived from the texture size -- would be 1- or 2-voxel and break
     camera fitting before any data is loaded.  Pinning the box to the full data
     footprint in local voxel space (``[-0.5, N-0.5]`` per axis) lets
@@ -296,17 +300,112 @@ def _plan_from_region(
 
 
 # ---------------------------------------------------------------------------
+# Whole-slice raster caches (scheduler-only loading design v2, 4.5)
+# ---------------------------------------------------------------------------
+
+# Positions in a raster request key.
+_SELECTIONS = 0
+_COLLAPSED = 1
+_COMPOSITE = 2
+
+
+def raster_request_key(
+    axis_selections, collapsed: dict[int, float], composite: bool
+) -> tuple:
+    """``(axis selections, collapsed indices, composite)`` of one whole slice.
+
+    Everything the read depends on except the store's contents, plus what
+    the upload is placed by (D15): the collapsed index of every dropped data
+    axis, as a sorted tuple.  The channel index is in the selections.
+    """
+    return (
+        tuple(axis_selections),
+        tuple(sorted((int(axis), float(value)) for axis, value in collapsed.items())),
+        bool(composite),
+    )
+
+
+def _retained_positions(selections) -> tuple[int, ...]:
+    """The data axes a selection keeps (a ``(start, stop)`` range)."""
+    return tuple(i for i, value in enumerate(selections) if isinstance(value, tuple))
+
+
+def raster_keeps_previous(channel_axis: int | None):
+    """The ``keeps_previous`` rule of a whole-slice raster cache (D1, D19).
+
+    The previous slice stays drawn while the planned one loads when both
+    keep the same data axes (the texture has the same layout).  In single
+    mode a channel scrub keeps it (slot 0 follows the slider's channel); in
+    composite mode only the same channel does, so a slot given another
+    channel never shows the old one (D16).
+    """
+
+    def keeps_previous(held: Hashable, planned: Hashable) -> bool:
+        held_sel, planned_sel = held[_SELECTIONS], planned[_SELECTIONS]
+        if _retained_positions(held_sel) != _retained_positions(planned_sel):
+            return False
+        if not planned[_COMPOSITE] or channel_axis is None:
+            return True
+        return held_sel[channel_axis] == planned_sel[channel_axis]
+
+    return keeps_previous
+
+
+def whole_slice_request(axis_selections) -> ChunkRequest:
+    """The store request that reads one whole slice or volume."""
+    return ChunkRequest(
+        chunk_request_id=uuid4(),
+        slice_request_id=uuid4(),
+        scale_index=0,
+        axis_selections=tuple(axis_selections),
+    )
+
+
+def placed_collapsed(visual: Any, displayed_axes: tuple[int, ...]) -> dict:
+    """The collapsed indices the nodes of *displayed_axes* are placed with.
+
+    D15: in a view whose node follows the slice (``SLICE_SHIFT``) the node
+    sits where the shown slice belongs: the indices of the last upload for
+    that mode, from its request key.  Until something is uploaded, and in
+    every other view, the newest plan's.
+    """
+    mode = "3d" if len(displayed_axes) == 3 else "2d"
+    placed = visual._placed_collapsed.get(mode)
+    if placed is None or not node_follows_slice(visual._spaces):
+        return visual._collapsed_indices
+    return placed
+
+
+def record_placement(visual: Any, mode: str, request_key: tuple) -> None:
+    """Remember where an upload belongs, and move the node there (D15)."""
+    visual._placed_collapsed[mode] = dict(request_key[_COLLAPSED])
+    displayed = visual._last_displayed_axes
+    if (
+        node_follows_slice(visual._spaces)
+        and displayed is not None
+        and (len(displayed) == 3) == (mode == "3d")
+    ):
+        visual._update_node_matrix(displayed)
+
+
+# ---------------------------------------------------------------------------
 # GFXImageMemoryVisual
 # ---------------------------------------------------------------------------
+
+
+def _release_nothing(level: int) -> None:
+    """A slot cache let go of its slice: the visibility rule hides it (D16)."""
 
 
 class _ImageMemorySlot:
     """One channel's pygfx nodes on an in-memory image visual.
 
     A slot holds a 2D ``gfx.Image`` and a 3D ``gfx.Volume`` (whichever render
-    modes the visual builds), the channel index it currently carries, and the
-    per-mode selection its texture holds, so a plan that asks for the same
-    plane again does not refetch it (unified image design 3.8).
+    modes the visual builds), the channel index it currently carries, and
+    one whole-slice cache per mode (``residency``, set by the visual), so a
+    plan that asks for the same plane again reads nothing, and switching
+    2D/3D and back reads nothing either (scheduler-only loading design v2,
+    D5).
 
     Parameters
     ----------
@@ -326,7 +425,8 @@ class _ImageMemorySlot:
     ) -> None:
         self.key: int | None = None
         self.last_drawn: int = 0
-        self.loaded: dict[str, tuple | None] = {"2d": None, "3d": None}
+        #: ``mode -> LevelResidency``: the slot's whole-slice caches.
+        self.residency: dict[str, LevelResidency] = {}
         self._color_map_source: object = None
         self._colormap: gfx.TextureMap | None = None
 
@@ -449,10 +549,13 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
     ``k``'s slot, and a full pool reassigns the least recently drawn slot the
     current mode does not need.
 
-    Each plan fetches one full slice or volume per drawn channel, and nothing
-    for a channel whose slot already holds that selection.  The whole visual
-    shares one node matrix, one AABB wireframe per mode and one visibility
-    switch.
+    Loads through the chunk scheduler (scheduler-only loading design v2,
+    4.5): every slot has one whole-slice cache per mode, and each plan wants
+    one full slice or volume per drawn channel.  A key a cache already
+    holds reads nothing.  In single mode slot 0 always draws the slider's
+    channel (D19), so a channel scrub keeps the previous slice drawn while
+    the next one loads.  The whole visual shares one node matrix, one AABB
+    wireframe per mode and one visibility switch.
 
     Parameters
     ----------
@@ -467,7 +570,8 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         The ``data -> world`` transform.
     """
 
-    cancellable: bool = True
+    #: Loads through the chunk scheduler (``is_chunked_visual``).
+    chunked: bool = True
     #: Applies the image slicing rule (design 3.2) itself, so the scene
     #: manager's data-coverage pre-check does not skip it.
     decides_empty_slices: bool = True
@@ -502,6 +606,8 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         self._collapsed_indices: dict[int, float] = {}
         # True while a sliced axis selects no sample (design 3.2).
         self._slice_empty: bool = False
+        # mode -> the collapsed indices of the last upload (D15).
+        self._placed_collapsed: dict[str, dict[int, float]] = {}
 
         self._pick_write: bool = visual_model.pick_write
         self._aabb_enabled: bool = visual_model.aabb.enabled
@@ -520,10 +626,20 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         # Channel index -> slot index for the channels the current plan draws.
         self._drawn: dict[int, int] = {}
         self._clock = 0
-        self._pending: dict[str, dict[UUID, tuple[int, tuple | None]]] = {
-            "2d": {},
-            "3d": {},
-        }
+        keeps_previous = raster_keeps_previous(self._channel_axis)
+        for index, slot in enumerate(self._slots):
+            slot.residency = {
+                mode: LevelResidency(
+                    1,
+                    upload=self._slot_uploader(index, mode),
+                    release=_release_nothing,
+                    on_change=self._apply_slot_visibility,
+                    keeps_previous=keeps_previous,
+                    policy=MEMORY_RASTER_POLICY,
+                    keeps_through_invalidation=True,
+                )
+                for mode in sorted(render_modes)
+            }
 
         self.node_2d: gfx.Group | None = None
         self.node_3d: gfx.Group | None = None
@@ -591,16 +707,6 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         """The first slot's 3D node: the one a plain image draws with."""
         return self._slots[0].node_3d
 
-    # ------------------------------------------------------------------
-    # Cancellation stubs (no brick cache to release for in-memory data)
-    # ------------------------------------------------------------------
-
-    def cancel_pending(self) -> None:
-        """No-op -- in-memory visuals have no reserved GPU brick slots."""
-
-    def cancel_pending_2d(self) -> None:
-        """No-op -- in-memory visuals have no reserved GPU brick slots."""
-
     def close(self) -> None:
         """Release the slots and nodes.  The visual is unusable afterwards."""
         for group in (self.node_2d, self.node_3d):
@@ -609,7 +715,6 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         self._slots = []
         self._slot_for_key = {}
         self._drawn = {}
-        self._pending = {"2d": {}, "3d": {}}
         self._visual_model = None
 
     # ------------------------------------------------------------------
@@ -657,7 +762,6 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
                     self._slot_for_key.pop(self._slots[index].key, None)
                 slot = self._slots[index]
                 slot.key = key
-                slot.loaded = {"2d": None, "3d": None}
                 self._slot_for_key[key] = index
             taken.add(index)
             self._slots[index].last_drawn = self._clock
@@ -697,11 +801,23 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         self._apply_clipping_planes()
 
     def _apply_slot_visibility(self) -> None:
+        """Show a slot's node for a mode only when it has a slice to draw (D16).
+
+        The slot is drawn by the newest plan, the slice is not empty, and
+        the slot's cache for that mode holds the planned slice or keeps an
+        earlier one on screen while it loads.  Each cache calls this when it
+        changes.
+        """
         drawn = set(self._drawn.values())
         for index, slot in enumerate(self._slots):
-            visible = index in drawn and not self._slice_empty
-            for node in slot.nodes():
-                node.visible = visible
+            base = index in drawn and not self._slice_empty
+            for mode, node in (("2d", slot.node_2d), ("3d", slot.node_3d)):
+                if node is None:
+                    continue
+                residency = slot.residency.get(mode)
+                node.visible = (
+                    base and residency is not None and residency.is_drawable(0)
+                )
 
     def _prune_undrawn(self) -> None:
         """Stop drawing channels the model no longer draws, without a plan."""
@@ -726,7 +842,8 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         """Place both groups with the composition of design 3.9.
 
         One matrix for every slot: the slots differ in which channel they
-        carry, not in where they sit.
+        carry, not in where they sit.  In a ``SLICE_SHIFT`` view the node
+        follows the shown slice, not the newest plan (D15).
         """
         self._last_displayed_axes = displayed_axes
         if self._spaces is None or self._transform is None:
@@ -738,11 +855,12 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
             _pin_footprint(slot.node_3d, retained, 3)
         _fit_aabb_line(self._aabb_line_2d, retained, 2)
         _fit_aabb_line(self._aabb_line_3d, retained, 3)
+        collapsed = placed_collapsed(self, displayed_axes)
         m = node_matrix(
             self._spaces,
             self._transform,
             {
-                axis: float(self._collapsed_indices.get(axis, 0.0))
+                axis: float(collapsed.get(axis, 0.0))
                 for axis in self._spaces.collapsed_axes
             },
         )
@@ -750,6 +868,7 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
             set_node_matrix(self.node_3d, m)
         if self.node_2d is not None:
             set_node_matrix(self.node_2d, m)
+        # The clip line stays at the newest plan (D15).
         self._apply_clipping_planes()
 
     def _outline_shape(self):
@@ -864,159 +983,141 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
             for key in self._visual_model.drawn_channels(self._channel_size())
         ]
 
-    def _requests_for(
-        self, mode: str, wanted: list[tuple[int, tuple]]
-    ) -> list[ChunkRequest]:
-        """Assign slots, restyle, and request what the slots do not hold."""
+    def _single_slot(self, key: int) -> list[int]:
+        """D19: single mode draws from slot 0; its key follows the channel.
+
+        The request key carries the channel, so a channel scrub is a key
+        change on one cache (kept on screen while it loads, D1), not a move
+        to another slot that has to load before anything is drawn.
+        """
+        self._clock += 1
+        for other in self._slots[1:]:
+            other.key = None
+        slot = self._slots[0]
+        slot.key = key
+        slot.last_drawn = self._clock
+        self._slot_for_key = {key: 0}
+        if self._clipping_planes:
+            self._apply_clipping_planes()
+        return [0]
+
+    def request_key(self, request: ChunkRequest) -> tuple:
+        """The cache key of *request*, as the newest plan would build it."""
+        return raster_request_key(
+            request.axis_selections, self._collapsed_indices, self._composite()
+        )
+
+    def plan(
+        self,
+        request: ReslicingRequest,
+        config: VisualRenderConfig | None = None,
+        mode: PlanMode = PlanMode.FULL,
+    ) -> list[DesiredSet]:
+        """One desired set per drawn channel: its slot's cache for the view.
+
+        A whole slice has no backstop, so every plan mode plans it (design
+        v2 4.3).  Empty when the slice misses the data or a composite draws
+        no channel: the coordinator then retires the caches.
+        """
+        displayed = request.dims_state.selection.displayed_axes
+        view_mode = "3d" if len(displayed) == 3 else "2d"
+        wanted = self._plan(request.selection)
+        if displayed != self._last_displayed_axes:
+            self._update_node_matrix(displayed)
+        if not wanted:
+            self._apply_slot_visibility()
+            return []
         keys = [key for key, _ in wanted]
-        indices = self._assign_slots(keys)
+        composite = self._composite()
+        indices = self._assign_slots(keys) if composite else self._single_slot(keys[0])
         self._drawn = dict(zip(keys, indices, strict=True))
         self._apply_materials()
-        self._apply_slot_visibility()
-
-        slice_request_id = uuid4()
-        pending: dict[UUID, tuple[int, tuple]] = {}
-        requests: list[ChunkRequest] = []
+        desired: list[DesiredSet] = []
         for (_key, selections), index in zip(wanted, indices, strict=True):
-            if self._slots[index].loaded[mode] == selections:
+            residency = self._slots[index].residency.get(view_mode)
+            if residency is None:
                 continue
-            request = ChunkRequest(
-                chunk_request_id=uuid4(),
-                slice_request_id=slice_request_id,
-                scale_index=0,
-                axis_selections=selections,
+            key = raster_request_key(selections, self._collapsed_indices, composite)
+            desired.append(
+                residency.desired({0: key}, {0}, {0: whole_slice_request(selections)})
             )
-            pending[request.chunk_request_id] = (index, selections)
-            requests.append(request)
-        self._pending[mode] = pending
-        return requests
+        self._apply_slot_visibility()
+        return desired
 
-    def build_slice_request_2d(
-        self,
-        camera_pos_world: np.ndarray,
-        viewport_width_px: float,
-        world_width: float,
-        view_min_world: np.ndarray | None,
-        view_max_world: np.ndarray | None,
-        dims_state: DimsState,
-        lod_bias: float = 1.0,
-        force_level: int | None = None,
-        use_culling: bool = True,
-        selection: RegionSelection | None = None,
-    ) -> list[ChunkRequest]:
-        """One ``ChunkRequest`` per drawn channel for the 2D slice.
+    def residencies(self) -> dict[int, LevelResidency]:
+        """``cache_id -> adapter``: every slot's caches, both modes."""
+        return {
+            residency.cache_id: residency
+            for slot in self._slots
+            for residency in slot.residency.values()
+        }
 
-        The camera and viewport parameters are accepted for interface
-        compatibility and unused: the whole slice is always loaded.
+    @property
+    def awaits_data(self) -> bool:
+        """Whether a drawn slot shows nothing only because its read is pending.
 
-        Returns
-        -------
-        list[ChunkRequest]
-            One per drawn channel whose slot does not already hold the slice.
+        True before the first slice of the view's mode lands, and after a
+        change no kept slice covers (a new layout, a composite slot given
+        another channel).
         """
-        displayed = dims_state.selection.displayed_axes
-        wanted = self._plan(selection)
-        if displayed != self._last_displayed_axes:
-            self._update_node_matrix(displayed)
-        return self._requests_for("2d", wanted)
-
-    def build_slice_request(
-        self,
-        camera_pos_world: np.ndarray,
-        frustum_corners_world: np.ndarray | None,
-        fov_y_rad: float,
-        screen_height_px: float,
-        lod_bias: float = 1.0,
-        dims_state: DimsState | None = None,
-        force_level: int | None = None,
-        selection: RegionSelection | None = None,
-    ) -> list[ChunkRequest]:
-        """One ``ChunkRequest`` per drawn channel for the 3D sub-volume.
-
-        The camera parameters are accepted for interface compatibility and
-        unused.  With no ``dims_state`` (a headless test) every axis is
-        treated as displayed.
-
-        Returns
-        -------
-        list[ChunkRequest]
-            One per drawn channel whose slot does not already hold the volume.
-        """
-        if dims_state is None:
-            shape = self._data_store.shape
-            full = tuple((0, shape[ax]) for ax in range(len(shape)))
-            return self._requests_for("3d", [(0, full)])
-        displayed = dims_state.selection.displayed_axes
-        wanted = self._plan(selection)
-        if displayed != self._last_displayed_axes:
-            self._update_node_matrix(displayed)
-        return self._requests_for("3d", wanted)
+        displayed = self._last_displayed_axes
+        if displayed is None or self._slice_empty:
+            return False
+        mode = "3d" if len(displayed) == 3 else "2d"
+        group = self.node_3d if mode == "3d" else self.node_2d
+        if group is None or not group.visible:
+            return False
+        drawn = set(self._drawn.values())
+        return any(
+            slot.residency[mode].awaiting
+            for index, slot in enumerate(self._slots)
+            if index in drawn and mode in slot.residency
+        )
 
     # ------------------------------------------------------------------
-    # Commit -- receive data from AsyncSlicer and upload to GPU
+    # Upload -- the slot caches' callbacks
     # ------------------------------------------------------------------
 
-    def _follow_slice(self) -> None:
-        """Place the node again when a slice lands in a view it moves.
+    def _slot_uploader(self, index: int, mode: str):
+        def upload(level: int, request_key: tuple, data: np.ndarray) -> None:
+            self.upload_slice(index, mode, request_key, data)
 
-        ``SLICE_SHIFT`` (full affine design v2, 4.3, K11): the collapsed
-        indices the node matrix holds move the drawn slab across the view,
-        so the matrix follows each slice.  Other views keep today's call
-        pattern: the matrix changes only with the displayed axes.
+        return upload
+
+    def upload_slice(
+        self, index: int, mode: str, request_key: tuple, data: np.ndarray
+    ) -> None:
+        """Put one slice (2D) or volume (3D) on slot *index*'s node.
+
+        Called by the slot's cache from ``rebuild_draw``; a test may call it
+        directly with ``request_key(request)``.  The node is placed by the
+        key's collapsed indices (D15).
         """
-        if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
-            self._update_node_matrix(self._last_displayed_axes)
-
-    def on_data_ready(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
-        """Upload 3D volumes to the slots the pending plan named."""
-        self._follow_slice()
-        pending = self._pending["3d"]
-        for request, data in batch:
-            entry = pending.get(request.chunk_request_id)
-            if entry is None:
-                if self._channel_axis is not None or not self._slots:
-                    continue
-                # A plain image has one slot, so a batch it did not plan --
-                # a headless caller driving it directly -- still has a home.
-                entry = (0, tuple(request.axis_selections))
-            index, selections = entry
-            slot = self._slots[index]
+        if index >= len(self._slots):
+            return
+        slot = self._slots[index]
+        record_placement(self, mode, request_key)
+        if mode == "3d":
             if slot.node_3d is None:
-                continue
+                return
             # No transpose: pygfx maps a numpy texture's *last* axis to
             # texture-x, so (D, H, W) = (z, y, x) already lands as local
             # (x=W, y=H, z=D).
             texture = gfx.Texture(np.ascontiguousarray(data), dim=3, format="1xf4")
             slot.node_3d.geometry = gfx.Geometry(grid=texture)
             _pin_footprint(slot.node_3d, data.shape, 3)
-            slot.loaded["3d"] = selections
             _fit_aabb_line(self._aabb_line_3d, data.shape, 3)
             if not self._data_ready_3d and self._aabb_line_3d is not None:
                 self._data_ready_3d = True
                 self._aabb_line_3d.visible = self._aabb_enabled
-
-    def on_data_ready_2d(self, batch: list[tuple[ChunkRequest, np.ndarray]]) -> None:
-        """Upload 2D slices to the slots the pending plan named."""
-        self._follow_slice()
-        pending = self._pending["2d"]
-        for request, data in batch:
-            entry = pending.get(request.chunk_request_id)
-            if entry is None:
-                if self._channel_axis is not None or not self._slots:
-                    continue
-                # A plain image has one slot, so a batch it did not plan --
-                # a headless caller driving it directly -- still has a home.
-                entry = (0, tuple(request.axis_selections))
-            index, selections = entry
-            slot = self._slots[index]
+        else:
             if slot.node_2d is None:
-                continue
+                return
             texture = gfx.Texture(
                 np.ascontiguousarray(data[:, :, np.newaxis]), dim=2, format="1xf4"
             )
             slot.node_2d.geometry = gfx.Geometry(grid=texture)
             _pin_footprint(slot.node_2d, data.shape, 2)
-            slot.loaded["2d"] = selections
             _fit_aabb_line(self._aabb_line_2d, data.shape, 2)
             if not self._data_ready_2d and self._aabb_line_2d is not None:
                 self._data_ready_2d = True
@@ -1025,32 +1126,6 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
-
-    def _forget_loaded(self) -> None:
-        """Forget what every slot's textures hold, so the next plan refetches.
-
-        A slot skips the fetch for a selection it already holds, which is
-        only right while the store's values are the ones it read.  A read
-        still in flight may carry the old values too: it is uploaded when it
-        lands, but not recorded as held.
-        """
-        for slot in self._slots:
-            slot.loaded = {"2d": None, "3d": None}
-        for pending in self._pending.values():
-            for request_id, (index, _selections) in pending.items():
-                pending[request_id] = (index, None)
-
-    def on_data_store_contents_changed(
-        self, event: DataStoreContentsChangedEvent
-    ) -> None:
-        """The store's values changed: every slot's texture is stale."""
-        self._forget_loaded()
-
-    def on_data_store_metadata_changed(
-        self, event: DataStoreMetadataChangedEvent
-    ) -> None:
-        """The store's data changed shape: every slot's texture is stale."""
-        self._forget_loaded()
 
     def on_transform_changed(self, event: TransformChangedEvent) -> None:
         """Update the stored transform and the node matrix."""

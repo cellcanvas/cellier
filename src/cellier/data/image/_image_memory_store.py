@@ -1,6 +1,7 @@
 # src/cellier/v2/data/image/_image_memory_store.py
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
@@ -22,9 +23,9 @@ if TYPE_CHECKING:
 class ImageMemoryStore(BaseDataStore):
     """In-memory image data store backed by a numpy array.
 
-    Serves axis-aligned slices or full sub-volumes to the AsyncSlicer.
-    All reads are synchronous (the array is in CPU RAM); the method is
-    still declared ``async`` to satisfy the AsyncSlicer contract.
+    Serves axis-aligned slices or full sub-volumes to the chunk scheduler.
+    The read itself is synchronous (:meth:`read_padded`); ``get_data`` runs
+    it in the event loop's default executor.
 
     Parameters
     ----------
@@ -143,11 +144,21 @@ class ImageMemoryStore(BaseDataStore):
         return DatasetInfo(sections=[RowSection(None, rows)])
 
     # ------------------------------------------------------------------
-    # Async data access (called by AsyncSlicer)
+    # Data access
     # ------------------------------------------------------------------
 
     async def get_data(self, request: ChunkRequest) -> np.ndarray:
         """Return the requested sub-region as a float32 array.
+
+        Runs :meth:`read_padded` in the event loop's default executor, so a
+        large slice never blocks the loop (scheduler-only loading design v2,
+        D4).
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.read_padded, request)
+
+    def read_padded(self, request: ChunkRequest) -> np.ndarray:
+        """Return the requested sub-region as a float32 array, synchronously.
 
         Interprets ``request.axis_selections`` generically:
 
@@ -163,7 +174,7 @@ class ImageMemoryStore(BaseDataStore):
         Parameters
         ----------
         request : ChunkRequest
-            Built by ``GFXImageMemoryVisual.build_slice_request[_2d]``.
+            Built by ``GFXImageMemoryVisual.plan`` (or the brick route).
             ``request.scale_index`` is always 0 (ignored).
             ``request.axis_selections`` has one entry per data axis.
 

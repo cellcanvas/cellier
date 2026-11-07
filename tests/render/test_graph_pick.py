@@ -19,6 +19,7 @@ from cellier.data.graph import GraphMemoryStore, GraphSliceRequest
 from cellier.events._events import GraphEdgePickInfo, GraphNodePickInfo
 from cellier.render.visuals._graph_memory import GFXGraphMemoryVisual
 from cellier.visuals import GraphAppearance, GraphVisual
+from tests._planning import commit_whole_item
 from tests._v2 import identity
 
 try:  # pragma: no cover - import probe
@@ -59,7 +60,7 @@ def _commit(visual, store, displayed=(0, 1, 2), sliced=None, extents=None):
         fades={},
     )
     data = asyncio.run(store.get_data(request))
-    visual.on_data_ready([(request, data)])
+    commit_whole_item(visual, request, data)
     return data
 
 

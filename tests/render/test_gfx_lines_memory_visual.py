@@ -20,6 +20,7 @@ from cellier.events._events import (
 )
 from cellier.render.visuals._lines_memory import GFXLinesMemoryVisual
 from cellier.visuals import LinesMemoryAppearance, LinesVisual
+from tests._planning import commit_whole_item, planned_requests_2d, planned_requests_3d
 from tests._v2 import Context, data_region, identity
 
 
@@ -91,6 +92,22 @@ def _make_batch(store, displayed=(0, 1, 2), sliced=None):
     return [(req, data)]
 
 
+def _commit(visual, batch, displayed=(0, 1, 2)):
+    """Upload the batch's one result, as the residency would (design v2 4.11)."""
+    request, data = batch[0]
+    if request is None:
+        sid = uuid4()
+        request = LinesSliceRequest(
+            slice_request_id=sid,
+            chunk_request_id=sid,
+            scale_index=0,
+            displayed_axes=displayed,
+            retained_axes=tuple(sorted(displayed)),
+            region=data_region(len(displayed), {}),
+        )
+    commit_whole_item(visual, request, data)
+
+
 # ── Construction ──────────────────────────────────────────────────────────────
 
 
@@ -155,20 +172,20 @@ def test_get_node_for_dims_no_matrix_update_on_repeat():
     np.testing.assert_array_equal(v.node.local.matrix, original_matrix)
 
 
-# ── on_data_ready ─────────────────────────────────────────────────────────────
+# ── upload (commit) ──────────────────────────────────────────────────────────
 
 
-def test_on_data_ready_applies_real_material():
+def test_upload_applies_real_material():
     s = _store()
     v = _visual(s)
-    v.on_data_ready(_make_batch(s, displayed=(0, 1, 2)))
+    _commit(v, _make_batch(s, displayed=(0, 1, 2)))
     assert v.node.material is v._material
 
 
 def test_empty_slab_applies_empty_material():
     s = _store()
     v = _visual(s)
-    v.on_data_ready_2d(_make_batch(s, displayed=(1, 2), sliced={0: 1000}))
+    _commit(v, _make_batch(s, displayed=(1, 2), sliced={0: 1000}))
     assert v.node.material is v._empty_material
 
 
@@ -186,7 +203,7 @@ def test_3d_positions_reordered_zyx_to_xyz():
         render_modes={"3d"},
         transform=identity(store.ndim),
     )
-    v.on_data_ready(_make_batch(store, displayed=(0, 1, 2)))
+    _commit(v, _make_batch(store, displayed=(0, 1, 2)))
     gpu_pos = v.node.geometry.positions.data
     # After reversal: first vertex should be (x=3, y=2, z=1).
     np.testing.assert_allclose(gpu_pos[0], [3.0, 2.0, 1.0])
@@ -205,7 +222,7 @@ def test_2d_positions_padded_with_zero():
         render_modes={"2d"},
         transform=identity(store.ndim),
     )
-    v.on_data_ready_2d(_make_batch(store, displayed=(1, 2), sliced={0: 0}))
+    _commit(v, _make_batch(store, displayed=(1, 2), sliced={0: 0}))
     if not v._is_empty:
         gpu_pos = v.node.geometry.positions.data
         np.testing.assert_allclose(gpu_pos[:, 2], 0.0)
@@ -223,13 +240,6 @@ def test_invalid_render_modes_raises():
             render_modes={"4d"},
             transform=identity(store.ndim),
         )
-
-
-def test_empty_batch_is_noop():
-    v = _visual(_store())
-    v.on_data_ready([])
-    v.on_data_ready_2d([])
-    assert v.node.material is v._empty_material
 
 
 def test_edge_index_for_vertex_maps_through_original_indices():
@@ -252,12 +262,13 @@ def test_protocol_node_accessors():
     assert v.rebuild_node_geometry("3d", (0, 1, 2), None, None) is v.node
 
 
-def test_build_slice_request_updates_matrix_on_axis_change():
+def test_plan_updates_matrix_on_axis_change():
     store = _store()
     ctx = Context(3, displayed_axes=(0, 1, 2))
     v = _visual(store, transform=ctx.transform)
     ctx.place(v)
-    reqs = v.build_slice_request(
+    reqs = planned_requests_3d(
+        v,
         camera_pos_world=np.zeros(3),
         frustum_corners_world=None,
         fov_y_rad=0.0,
@@ -269,12 +280,13 @@ def test_build_slice_request_updates_matrix_on_axis_change():
     assert v._last_displayed_axes == (0, 1, 2)
 
 
-def test_build_slice_request_2d_updates_matrix_on_axis_change():
+def test_plan_2d_updates_matrix_on_axis_change():
     store = _store()
     ctx = Context(3, displayed_axes=(1, 2), slice_indices={0: 0.0})
     v = _visual(store, transform=ctx.transform)
     ctx.place(v)
-    reqs = v.build_slice_request_2d(
+    reqs = planned_requests_2d(
+        v,
         camera_pos_world=np.zeros(3),
         viewport_width_px=100.0,
         world_width=10.0,
@@ -310,7 +322,7 @@ def test_commit_uploads_colors_without_touching_color_mode():
     ``"uniform"`` on the live material.
     """
     v = _visual(_store(), appearance=LinesMemoryAppearance(color_mode="vertex"))
-    v.on_data_ready([(None, _colored_lines_data())])
+    _commit(v, [(None, _colored_lines_data())])
     assert v.node.geometry.colors is not None
     assert v._material.color_mode == "vertex"
 
@@ -318,7 +330,7 @@ def test_commit_uploads_colors_without_touching_color_mode():
 def test_declared_uniform_survives_store_colors():
     """Store carries colours, appearance says uniform -> stays uniform (D20)."""
     v = _visual(_store(), appearance=LinesMemoryAppearance(color_mode="uniform"))
-    v.on_data_ready([(None, _colored_lines_data())])
+    _commit(v, [(None, _colored_lines_data())])
     assert v._material.color_mode == "uniform"
     assert v._color_mode == "uniform"
 
@@ -334,7 +346,7 @@ def test_declared_vertex_without_colors_raises():
         is_empty=False,
     )
     with pytest.raises(ValueError, match="color_mode='vertex'"):
-        v.on_data_ready([(None, data)])
+        _commit(v, [(None, data)])
 
 
 def test_thickness_space_appearance_change_reaches_the_material():
@@ -354,7 +366,7 @@ def test_lines_alpha_buffer_is_ones():
         colors=None,
         is_empty=False,
     )
-    v.on_data_ready([(None, data)])
+    _commit(v, [(None, data)])
     alphas = v.node.geometry.alphas.data
     assert alphas.shape == (2,)
     assert np.all(alphas == 1.0)
@@ -455,11 +467,9 @@ def test_on_aabb_changed_applies_to_line_when_present():
     assert v._aabb_line.material.thickness == pytest.approx(4.0)
 
 
-def test_tick_and_cancel_are_noops():
+def test_tick_is_a_noop():
     v = _visual(_store())
     v.tick()
-    v.cancel_pending()
-    v.cancel_pending_2d()
 
 
 # ── Rendered output (controller-driven) ────────────────────────────────────────

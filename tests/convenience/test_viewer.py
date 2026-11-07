@@ -5,7 +5,7 @@ import pytest
 
 from cellier.convenience import Viewer
 from cellier.data.image._image_memory_store import ImageMemoryStore
-from cellier.render._config import RenderManagerConfig, SlicingConfig
+from cellier.render._config import RenderManagerConfig, SchedulerConfig
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import (
     InMemoryImageChannelAppearance,
@@ -26,7 +26,7 @@ def test_serialization_roundtrip(tmp_path, image_store):
     viewer = Viewer(
         spatial_axes("z", "y", "x"),
         displayed_axes=("y", "x"),
-        render_config=RenderManagerConfig(slicing=SlicingConfig(batch_size=16)),
+        render_config=RenderManagerConfig(scheduler=SchedulerConfig(max_in_flight=16)),
     )
     viewer.add_image(
         image_store,
@@ -109,3 +109,27 @@ def test_serialization_roundtrip_unified_multiscale_image(
     (visual,) = loaded.scene.visuals
     assert (visual.channel_axis, visual.composite) == (0, composite)
     assert sorted(visual.channels) == [0, 1]
+
+
+def test_a_viewer_file_with_the_old_slicing_config_loads(tmp_path, image_store):
+    """A file saved before the async slicer was retired carries
+    ``render_config.slicing``; it loads, and the field is dropped."""
+    import json
+
+    viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"))
+    viewer.add_image(
+        image_store,
+        appearance=InMemoryImageAppearance(),
+        name="test_image",
+        single=InMemoryImageSingleAppearance(color_map="grays", clim=(0.0, 1.0)),
+    )
+    path = tmp_path / "viewer.json"
+    viewer.to_file(path)
+    saved = json.loads(path.read_text())
+    saved["render_config"]["slicing"] = {"batch_size": 16, "render_every": 1}
+    path.write_text(json.dumps(saved))
+
+    loaded = Viewer.from_file(path)
+
+    assert viewer.controller._model == loaded.controller._model
+    assert "slicing" not in loaded.controller._model.render_config.model_dump()

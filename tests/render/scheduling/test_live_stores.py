@@ -154,6 +154,11 @@ def _min_gap(interval: float) -> float:
 async def test_a_burst_of_changes_reslices_once_now_and_once_after(
     controller, image_volume, monkeypatch
 ):
+    """An ``"extent"`` change replans the readers, rate-capped.
+
+    (A ``"contents"`` change replans no in-memory reader: see
+    :func:`test_a_contents_burst_reads_an_in_memory_reader_again`.)
+    """
     scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(image_volume, scene.id)
     controller.add_canvas(scene_id=scene.id)
@@ -161,7 +166,7 @@ async def test_a_burst_of_changes_reslices_once_now_and_once_after(
     times = _count_reslices(monkeypatch, controller)
 
     for _ in range(20):
-        image_volume.notify_changed("contents")
+        image_volume.notify_changed("extent")
     assert len(times) == 1  # the first change, at once
     assert controller._deferred_reslice_tasks()  # the rest, folded
 
@@ -185,7 +190,7 @@ async def test_a_steady_stream_is_capped_and_the_last_change_is_resliced(
     start = loop.time()
     last_change = start
     while loop.time() - start < 0.3:  # about 150 Hz of changes
-        image_volume.notify_changed("contents")
+        image_volume.notify_changed("extent")
         last_change = loop.time()
         await asyncio.sleep(0.005)
     await drain_loading(controller)
@@ -208,8 +213,8 @@ async def test_each_store_has_its_own_cap(
     await drain_loading(controller)
     times = _count_reslices(monkeypatch, controller)
 
-    image_volume.notify_changed("contents")
-    labels_volume.notify_changed("contents")
+    image_volume.notify_changed("extent")
+    labels_volume.notify_changed("extent")
     assert len(times) == 2  # neither waits for the other
     await drain_loading(controller)
 
@@ -218,11 +223,44 @@ async def test_close_cancels_a_pending_reslice(controller, image_volume):
     scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     controller.add_image(image_volume, scene.id)
     controller.add_canvas(scene_id=scene.id)
-    image_volume.notify_changed("contents")
-    image_volume.notify_changed("contents")
+    image_volume.notify_changed("extent")
+    image_volume.notify_changed("extent")
     [task] = controller._deferred_reslice_tasks()
 
     controller.close()
     await asyncio.sleep(0)
     assert task.cancelled()
     assert not controller._deferred_reslice_tasks()
+
+
+@pytest.mark.parametrize("kind", ["image", "labels"])
+async def test_a_contents_burst_reads_an_in_memory_reader_again(
+    controller, image_volume, labels_volume, monkeypatch, kind
+):
+    """No reslice; one or two reads; the last read holds the final values.
+
+    Scheduler-only loading design v2, 4.8: invalidation requeues the
+    planned slice and the scheduler reads it again; a read that lands stale
+    is drawn as kept until the re-read replaces it.
+    """
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
+    if kind == "image":
+        store = image_volume
+        controller.add_image(store, scene.id)
+    else:
+        store = labels_volume
+        controller.add_labels(store, scene.id)
+    controller.add_canvas(scene_id=scene.id)
+    controller.reslice_all()
+    await drain_loading(controller)
+    times = _count_reslices(monkeypatch, controller)
+    reads = _record_reads(monkeypatch, store)
+
+    for value in range(1, 21):
+        store.data[...] = value
+        store.notify_changed("contents")
+    await drain_loading(controller)
+
+    assert times == []
+    assert 1 <= len(reads) <= 2
+    assert np.all(reads[-1] == 20)

@@ -12,7 +12,7 @@ per-visual render tests (Phase 3) build on:
 - ``render_scene`` -- fits the canvas camera to the scene, then renders the
   controller's live pygfx scene into an offscreen ``rendercanvas`` and returns
   an RGBA ``uint8`` array for pixel assertions.
-- ``drive_reslice`` -- drives the async slicer to quiescence so brick/tile
+- ``drive_reslice`` -- drives the chunk scheduler to quiescence so its
   reads commit to the GPU before a frame is drawn.
 - Small reusable data fixtures: an in-memory image volume, a labels volume, and
   a 2-level multiscale zarr store (``small_zarr_store`` is copied here because
@@ -178,39 +178,38 @@ def render_scene(
 
 
 async def drain_loading(controller: CellierController) -> None:
-    """Drive the slicer and the chunk scheduler until nothing is loading.
+    """Drive the chunk scheduler until nothing is loading.
 
-    The slicer runs one task per visual (multiscale 2D, in-memory, geometry);
-    the chunk scheduler loads multiscale 3D and commits on drawn frames, which
-    a test does not produce, so commit rounds run here as reads land.
+    Every visual loads through the scheduler, which commits on drawn frames,
+    which a test does not produce, so commit rounds run here as reads land
+    (``plans/scheduler_only_loading_design_v2.md`` 4.11).  A reslice still
+    to come (a rate-capped store change, the end of a dims scrub or a camera
+    motion) is awaited first: it starts loading of its own.  Pick-value
+    reads in flight are awaited too.
     """
     render_manager = controller._render_manager
-    slicer = render_manager._slicer
     for _ in range(20):
         # Let a pass scheduled with call_soon run before looking.
         await asyncio.sleep(0)
-        # A reslice still to come (a rate-capped store change, the end of a
-        # dims scrub or a camera motion) starts loading of its own.
         deferred = controller._deferred_reslice_tasks()
         if deferred:
             await asyncio.gather(*deferred, return_exceptions=True)
             await asyncio.sleep(0)
-        tasks = list(slicer._tasks.values())
-        if tasks:
-            await asyncio.gather(*tasks)
+        # Pick-value reads (the only reads off the scheduler).
+        picks = render_manager._pick_reads.in_flight()
+        if picks:
+            await asyncio.gather(*picks, return_exceptions=True)
         await render_manager.scheduler.drain(commit=True)
-        if not slicer._tasks or all(t.done() for t in slicer._tasks.values()):
+        if (
+            not controller._deferred_reslice_tasks()
+            and not render_manager._pick_reads.in_flight()
+        ):
             return
 
 
 @pytest.fixture
 def drive_reslice() -> Callable[[CellierController], Awaitable[None]]:
-    """Return an async helper that drives the slicer to quiescence.
-
-    ``reslice_all`` / ``reslice_scene`` schedule one async task per visual; a
-    single visual may spawn follow-up tasks (multiscale LOD rounds), so we loop
-    until no tasks remain before the caller renders a frame.
-    """
+    """Return an async helper that drives loading to quiescence."""
 
     async def _drive(controller: CellierController) -> None:
         await drain_loading(controller)

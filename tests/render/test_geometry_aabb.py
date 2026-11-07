@@ -176,10 +176,9 @@ async def test_the_box_stays_hidden_before_any_data(controller, kind):
     The image visuals gate on ``_data_ready_2d`` / ``_data_ready_3d`` for the
     same reason; the geometry ones gate on having found real bounds.
 
-    Async only so that adding the visual happens inside pytest-asyncio's loop:
-    ``AsyncSlicer.submit`` calls ``asyncio.ensure_future``, and outside a
-    running loop that silently creates one nobody closes (see the module
-    docstring of ``tests/render/test_multiscale_paint_textures.py``).
+    Async only so that adding the visual happens inside pytest-asyncio's loop,
+    where the chunk scheduler starts its reads (see the module docstring of
+    ``tests/render/test_multiscale_paint_textures.py``).
     """
     scene, visual = _scene_with(controller, kind)
     controller.update_aabb_field(visual.id, "enabled", True)

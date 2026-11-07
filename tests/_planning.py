@@ -185,3 +185,47 @@ def planned_requests_2d(
     )
     desired = visual.plan(request, VisualRenderConfig())
     return [r for ds in desired for r in ds.build_request(ds.keys)]
+
+
+def commit_whole_item(
+    visual: Any, request: Any, data: Any, *, mode: str = "2d", slot: int = 0
+) -> None:
+    """Upload *data* as the result of *request*, as ``rebuild_draw`` would.
+
+    A pure commit test (``plans/scheduler_only_loading_design_v2.md`` 4.11):
+    no plan and no scheduler.  A geometry visual (points, lines, graph)
+    uploads through ``visual.upload(0, key, data)``; an in-memory image or
+    labels visual through ``visual.upload_slice(slot, mode, key, data)``.
+    *mode* and *slot* are read for the raster visuals only.
+    """
+    key = visual.request_key(request)
+    if hasattr(visual, "upload_slice"):
+        visual.upload_slice(slot, mode, key, data)
+    else:
+        visual.upload(0, key, data)
+
+
+def land_planned(visual: Any, data_for: Any) -> int:
+    """Land every planned whole-slice read of *visual*, as a commit round would.
+
+    For each of the visual's caches whose newest plan names a key it does
+    not hold, upload ``data_for(request_key)`` and mark the key held, the
+    way ``LevelResidency.rebuild_draw`` does when the read is resident.  No
+    scheduler: for tests that plan by hand and then need the slice drawn
+    (the visibility rule, design v2 D16).  Returns the number landed.
+    """
+    landed = 0
+    for residency in visual.residencies().values():
+        key = residency.planned.get(0)
+        if key is None or residency.held.get(0, (None,))[0] == key:
+            continue
+        request_key = residency.item_of(key)[1]
+        residency._writes += 1
+        residency._upload(0, request_key, data_for(request_key))
+        residency.held[0] = (key, residency._writes)
+        residency._held_request[0] = request_key
+        residency._kept.discard(0)
+        if residency._on_change is not None:
+            residency._on_change()
+        landed += 1
+    return landed

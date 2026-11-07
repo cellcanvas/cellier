@@ -14,7 +14,7 @@ class VisualRenderConfig:
 
     Passed through the call stack at reslice time.  When a visual's ID is
     absent from the ``visual_configs`` dict supplied to
-    ``SceneManager.build_slice_requests``, a default instance is used.
+    ``SceneManager.plan_chunked``, a default instance is used.
 
     Parameters
     ----------

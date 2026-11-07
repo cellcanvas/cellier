@@ -367,16 +367,29 @@ def _projection_key(visual: Any, scene: Any) -> Any:
 
 
 #: Visuals that load nothing while they draw nothing; showing one reslices it.
-#: The scheduled ones are retired while hidden: their reads stop.
-_SKIP_WHEN_HIDDEN = (BaseImageVisual, BaseMeshVisual)
+#: They are retired while hidden: their reads stop, and shown again at an
+#: unchanged position they read nothing (scheduler-only loading design v2,
+#: D18).
+_SKIP_WHEN_HIDDEN = (
+    BaseImageVisual,
+    LabelMemoryVisual,
+    BaseMeshVisual,
+    PointsVisual,
+    LinesVisual,
+    GraphVisual,
+)
+
+
+def _draws_nothing(visual: BaseVisual) -> bool:
+    """Whether *visual* draws nothing now (hidden, or no drawn channel)."""
+    own = getattr(visual, "draws_nothing", None)
+    if own is not None:
+        return bool(own())
+    return not visual.appearance.visible
+
 
 #: Visuals with a ``"plane"`` render mode and ``render_planes``.
 _PLANE_VISUALS = (BaseImageVisual, BaseLabelsVisual)
-
-#: Visuals the chunk scheduler loads.  A ``"contents"`` store change needs no
-#: new plan for them: invalidation already requeued what they want.
-_SCHEDULED_VISUALS = (MultiscaleImageVisual, MultiscaleLabelVisual, BaseMeshVisual)
-
 
 _DRAW_STATUS_LOGGER = logging.getLogger("cellier.draw_status")
 
@@ -706,7 +719,7 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
         image design 3.3).
     """
     slicing_enabled = not (
-        isinstance(visual, _SKIP_WHEN_HIDDEN) and visual.draws_nothing()
+        isinstance(visual, _SKIP_WHEN_HIDDEN) and _draws_nothing(visual)
     )
     if isinstance(visual, (MultiscaleImageVisual, MultiscaleLabelVisual)):
         return VisualRenderConfig(
@@ -1824,9 +1837,10 @@ class CellierController:
         out-of-domain slice check) and the scene overlays of every scene
         showing the store.  Then announce the change on the bus and
         invalidate the GPU bricks the chunk scheduler read from the store,
-        both at once.  Finally reslice the visuals reading the store, so a
-        caller that changes a store no longer has to reslice by hand
-        (``plans/store_change_events.md``), at most
+        both at once: the scheduler reads what is still wanted again.
+        Finally, for an ``"extent"`` change, reslice the visuals reading the
+        store, so a caller that changes a store no longer has to reslice by
+        hand (``plans/store_change_events.md``), at most
         ``SchedulerConfig.store_change_max_hz`` times a second per store
         (:meth:`_request_store_reslice`).
         """
@@ -1851,7 +1865,14 @@ class CellierController:
         # ones it touches (all of them without regions) so the reslice below
         # fetches them again rather than finding them resident (design 5.14).
         self._render_manager.invalidate_store(store_id, change.regions)
-        self._request_store_reslice(store_id, extent=change.kind == "extent")
+        extent = change.kind == "extent"
+        if extent or any(
+            self._surface_reads_mask(visual, store_id)
+            for _, visual in self._store_readers(store_id)
+        ):
+            # A contents change replans nothing else, so it schedules no
+            # reslice at all (scheduler-only loading design v2, 8.5).
+            self._request_store_reslice(store_id, extent=extent)
 
     def _request_store_reslice(self, store_id: UUID, *, extent: bool) -> None:
         """Reslice *store_id*'s readers, rate-capped (design v3 5.14).
@@ -1896,12 +1917,13 @@ class CellierController:
     def _reslice_store_readers(self, store_id: UUID) -> None:
         """Reslice the visuals reading *store_id* after a change.
 
-        A visual the chunk scheduler loads (multiscale image and labels, the
-        mesh) needs no new plan for a ``"contents"`` change: invalidation
-        already requeued what it wants, and the scheduler reads it again.
-        Only an ``"extent"`` change, which can change what should be planned,
-        replans it.  Every other visual loads whole slices and is resliced
-        for either kind.
+        Every visual loads through the chunk scheduler, so a ``"contents"``
+        change needs no new plan: invalidation already requeued what each
+        visual wants, and the scheduler reads it again
+        (``plans/scheduler_only_loading_design_v2.md`` 4.7).  Only an
+        ``"extent"`` change, which can change what should be planned,
+        replans the readers -- and a ``MaskedImage`` whose surface target is
+        planned from the changed mask store, for either kind.
         """
         extent = self._store_reslice_extent.pop(store_id, False)
         try:
@@ -1914,9 +1936,8 @@ class CellierController:
             "extent" if extent else "contents",
         )
         for _scene_id, visual in self._store_readers(store_id):
-            if isinstance(visual, _SCHEDULED_VISUALS) and not extent:
-                if not self._surface_reads_mask(visual, store_id):
-                    continue
+            if not extent and not self._surface_reads_mask(visual, store_id):
+                continue
             self.reslice_visual(visual.id)
 
     # -- target_bricks="surface" (masked image design 8.3) ---------------------
@@ -6068,10 +6089,9 @@ class CellierController:
             return
         axes = self._brick_route_axes(visual_id)
         if setter(axes):
-            if axes is None and isinstance(gfx_visual, BrickRouteHost):
-                # Off the route an in-memory visual is no longer a chunked
-                # visual, so nothing would retire its atlas: forget it now.
-                self._render_manager._slice_coordinator.forget_visual(visual_id)
+            # Off the route the visual's atlases leave its ``residencies()``,
+            # so the next plan's cache sync forgets them; its whole-slice
+            # caches keep what they hold (scheduler-only loading v2, D20).
             scene_id = self._visual_to_scene[visual_id]
             displayed = tuple(
                 self._model.scenes[scene_id].dims.selection.displayed_axes
@@ -12415,8 +12435,8 @@ class CellierController:
         Points, lines, mesh and graph details are complete as decoded.  Image
         and labels picks are promoted to full-rank data coordinates first, and
         carry the values under them: read now from an in-memory store's array,
-        or at level 0 through the slicer for any other store, in which case the
-        event is emitted when the read completes.
+        or at level 0 through the pick reader for any other store, in which
+        case the event is emitted when the read completes.
         """
         from cellier.render.render_manager import (
             _ImageDisplayedDataCoord,
@@ -12583,11 +12603,10 @@ class CellierController:
     ) -> None:
         """Read the voxels in *reads* from *store* and call ``on_values(values)``.
 
-        An in-memory store holds a plain array (its ``get_data`` is a
-        coroutine only for the slicer's sake), so the read and the call happen
-        here.  Any other store is read at level 0 through the render layer's
-        cancellable slicer, and *on_values* is called when every value has
-        arrived -- never, if the read is cancelled.
+        An in-memory store holds a plain array, so the read and the call
+        happen here.  Any other store is read at level 0 through the render
+        layer's cancellable pick reader, and *on_values* is called when every
+        value has arrived -- never, if the read is cancelled.
         """
         array = getattr(store, "data", None)
         if not reads or isinstance(array, np.ndarray):
@@ -13482,27 +13501,19 @@ class CellierController:
             weak=weak,
         )
 
-    def cancel_pending_slices(self, scene_id: UUID) -> None:
-        """Cancel all in-flight slice requests for *scene_id*.
-
-        Parameters
-        ----------
-        scene_id :
-            ID of the scene whose pending slices to cancel.
-        """
-        self._render_manager._slice_coordinator.cancel_scene(scene_id)
-
     def close(self) -> None:
-        """Cancel in-flight slices and close every canvas this viewer owns.
+        """Stop loading and close every canvas this viewer owns.
 
         Releases the render surfaces and GPU resources held by the controller.
         Closing is explicit because the canvases are owned by the GUI backend,
         not by Python refcounting, so dropping the controller alone leaks them
         (see :meth:`CanvasView.close`).
 
-        Cancels the interaction timers, the queued camera reslices and every
-        in-flight slice task -- including the ones the slice coordinator no
-        longer tracks -- so a closed controller holds no live ``asyncio.Task``.
+        Cancels the interaction timers, the queued camera reslices, the chunk
+        scheduler's read tasks and timers and every pick read, so a closed
+        controller holds no live ``asyncio.Task``.  A read already running
+        in an executor thread cannot be cancelled; close does not wait for
+        it, and its result is dropped.
 
         Also disconnects the psygnal bridges from the model and clears the
         event buses.  Those hold the
@@ -13538,10 +13549,6 @@ class CellierController:
             task.cancel()
         self._surface_replan_tasks.clear()
         self._surface_replan_at.clear()
-        # cancel_all rather than a cancel_pending_slices walk per scene: a
-        # superseded non-cancellable reslice is no longer named by any scene's
-        # bookkeeping, so the per-scene walk cannot reach it.
-        self._render_manager._slice_coordinator.cancel_all()
         self._render_manager.close()
         self._scene_to_canvases.clear()
         self._canvases_awaiting_fit.clear()

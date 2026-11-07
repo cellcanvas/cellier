@@ -1,7 +1,7 @@
 """Unit tests for the RenderManager architecture components.
 
 Tests are structured to avoid GPU dependencies where possible by mocking
-pygfx visuals and the AsyncSlicer.
+pygfx visuals and the chunk scheduler.
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ import numpy as np
 import pytest
 
 from cellier._state import AxisAlignedSelectionState
-from cellier.data.image import ChunkRequest
 from cellier.render import SliceCoordinator, VisualRenderConfig
 from cellier.render._requests import DimsState, ReslicingRequest
 from cellier.render.scene_manager import SceneManager
+from cellier.render.scheduling import DesiredSet
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,47 +55,62 @@ def _make_reslicing_request(
     )
 
 
+class _ChunkedMock(MagicMock):
+    """A mock visual the scene manager treats as chunked (it plans)."""
+
+    chunked = True
+
+
+_next_cache_id = iter(range(10_000, 20_000))
+
+
+def _desired(cache_id: int) -> DesiredSet:
+    return DesiredSet(
+        cache_id=cache_id,
+        keys=np.array([1]),
+        cls=np.array([0]),
+        slice_ids=np.array([0]),
+        build_request=lambda keys: [],
+        store=None,
+    )
+
+
 def _make_mock_visual(visual_id: UUID | None = None) -> MagicMock:
-    """Build a mock GFXMultiscaleImageVisual that looks real enough for tests."""
-    visual = MagicMock()
+    """A mock chunked visual: one cache, which its plan always names."""
+    visual = _ChunkedMock()
     visual.visual_model_id = visual_id or uuid4()
     visual.node_3d = MagicMock()
     visual.node_2d = None
     visual.render_modes = {"3d"}
-    visual._volume_geometry.n_levels = 3
-    visual.build_slice_request.return_value = []
+    visual.decides_empty_slices = True
+    visual.target_deferred = False
+    cache_id = next(_next_cache_id)
+    visual.cache_id = cache_id
+    visual.residencies.return_value = {cache_id: MagicMock()}
+    visual.plan.return_value = [_desired(cache_id)]
     return visual
 
 
-class _StubSlicer:
-    """Minimal AsyncSlicer stub that records submitted requests."""
+class _StubScheduler:
+    """Records what the coordinator registers, passes and retires."""
 
     def __init__(self) -> None:
-        self.submitted: list[tuple[list[ChunkRequest], str | None]] = []
-        self.cancelled: list[UUID] = []
-        self.on_complete_callbacks: list = []
-        self._next_id = 0
+        self.registered: list[int] = []
+        self.passes: list[list[DesiredSet]] = []
+        self.retired: list[int] = []
+        self.removed: list[int] = []
 
-    def submit(
-        self,
-        requests,
-        fetch_fn,
-        callback,
-        consumer_id=None,
-        on_complete=None,
-    ) -> UUID | None:
-        if not requests:
-            return None
-        self.submitted.append((requests, consumer_id))
-        self.on_complete_callbacks.append(on_complete)
-        result = uuid4()
-        return result
+    def register(self, cache_id, residency, scene=None) -> None:
+        self.registered.append(cache_id)
 
-    def cancel(self, slice_request_id) -> bool:
-        if slice_request_id is not None:
-            self.cancelled.append(slice_request_id)
-            return True
-        return False
+    def remove(self, cache_id) -> None:
+        self.removed.append(cache_id)
+
+    def retire(self, cache_id) -> None:
+        self.retired.append(cache_id)
+
+    def pass_(self, desired_sets) -> None:
+        self.passes.append(list(desired_sets))
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +174,7 @@ def test_reslicing_request_with_target_visual_ids() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SceneManager — build_slice_requests filtering
+# SceneManager -- plan_chunked filtering
 # ---------------------------------------------------------------------------
 
 
@@ -177,49 +192,29 @@ def test_scene_manager_get_visual_missing_raises() -> None:
         sm.get_visual(uuid4())
 
 
-def test_scene_manager_build_slice_requests_all_visuals() -> None:
-    """With target_visual_ids=None all visuals are processed."""
+def test_scene_manager_plan_chunked_all_visuals() -> None:
+    """With target_visual_ids=None every visual is planned; one that plans
+    nothing is idle (its caches are retired)."""
     scene_id = uuid4()
     sm = SceneManager(scene_id=scene_id)
-
-    chunk = ChunkRequest(
-        chunk_request_id=uuid4(),
-        slice_request_id=uuid4(),
-        scale_index=0,
-        axis_selections=((0, 32), (0, 32), (0, 32)),
-    )
     v1 = _make_mock_visual()
-    v1.build_slice_request.return_value = [chunk]
     v2 = _make_mock_visual()
-    v2.build_slice_request.return_value = []
-
+    v2.plan.return_value = []
     sm.add_visual(v1, (0, 1, 2))
     sm.add_visual(v2, (0, 1, 2))
 
-    req = _make_reslicing_request(scene_id=scene_id)
-    result = sm.build_slice_requests(req, {})
+    planned, idle = sm.plan_chunked(_make_reslicing_request(scene_id=scene_id), {})
 
-    assert v1.visual_model_id in result
-    assert v2.visual_model_id not in result
-    assert result[v1.visual_model_id] == [chunk]
+    assert planned == {v1.visual_model_id: v1.plan.return_value}
+    assert idle == {v2.visual_model_id}
 
 
-def test_scene_manager_build_slice_requests_target_filtering() -> None:
-    """With target_visual_ids set, only targeted visuals are processed."""
+def test_scene_manager_plan_chunked_target_filtering() -> None:
+    """With target_visual_ids set, only targeted visuals are planned."""
     scene_id = uuid4()
     sm = SceneManager(scene_id=scene_id)
-
-    chunk = ChunkRequest(
-        chunk_request_id=uuid4(),
-        slice_request_id=uuid4(),
-        scale_index=0,
-        axis_selections=((0, 32), (0, 32), (0, 32)),
-    )
     v1 = _make_mock_visual()
-    v1.build_slice_request.return_value = [chunk]
     v2 = _make_mock_visual()
-    v2.build_slice_request.return_value = [chunk]
-
     sm.add_visual(v1, (0, 1, 2))
     sm.add_visual(v2, (0, 1, 2))
 
@@ -227,12 +222,12 @@ def test_scene_manager_build_slice_requests_target_filtering() -> None:
         scene_id=scene_id,
         target_visual_ids=frozenset({v1.visual_model_id}),
     )
-    result = sm.build_slice_requests(req, {})
+    planned, idle = sm.plan_chunked(req, {})
 
-    assert v1.visual_model_id in result
-    assert v2.visual_model_id not in result
-    v1.build_slice_request.assert_called_once()
-    v2.build_slice_request.assert_not_called()
+    assert set(planned) == {v1.visual_model_id}
+    assert idle == set()
+    v1.plan.assert_called_once()
+    v2.plan.assert_not_called()
 
 
 def test_scene_manager_visual_ids_property() -> None:
@@ -247,119 +242,97 @@ def test_scene_manager_visual_ids_property() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SliceCoordinator — cancellation before re-submit
+# SliceCoordinator -- plan, pass and retire
 # ---------------------------------------------------------------------------
 
 
 def _make_coordinator_with_scene(
     n_visuals: int = 1,
-) -> tuple[SliceCoordinator, _StubSlicer, SceneManager, list[MagicMock], UUID, UUID]:
-    """Build a SliceCoordinator with one scene, one canvas, and n_visuals."""
+) -> tuple[SliceCoordinator, _StubScheduler, SceneManager, list[MagicMock], UUID]:
+    """Build a SliceCoordinator with one scene and n_visuals."""
     scene_id = uuid4()
-    canvas_id = uuid4()
-    stub_slicer = _StubSlicer()
+    scheduler = _StubScheduler()
     scenes: dict[UUID, SceneManager] = {}
     data_stores: dict[UUID, MagicMock] = {}
-
     coordinator = SliceCoordinator(
-        scenes=scenes,
-        slicer=stub_slicer,
-        data_stores=data_stores,
+        scenes=scenes, data_stores=data_stores, scheduler=scheduler
     )
-
     sm = SceneManager(scene_id=scene_id)
     scenes[scene_id] = sm
-
-    chunk = ChunkRequest(
-        chunk_request_id=uuid4(),
-        slice_request_id=uuid4(),
-        scale_index=0,
-        axis_selections=((0, 32), (0, 32), (0, 32)),
-    )
-
     visuals = []
     for _ in range(n_visuals):
         v = _make_mock_visual()
-        v.build_slice_request.return_value = [chunk]
         sm.add_visual(v, (0, 1, 2))
         data_stores[v.visual_model_id] = MagicMock()
         visuals.append(v)
-
-    return coordinator, stub_slicer, sm, visuals, scene_id, canvas_id
-
-
-def test_slice_coordinator_submit_once_no_prior_task() -> None:
-    coordinator, stub_slicer, _sm, _visuals, scene_id, canvas_id = (
-        _make_coordinator_with_scene()
-    )
-    req = _make_reslicing_request(scene_id=scene_id, canvas_id=canvas_id)
-    coordinator.submit(req, {})
-
-    assert len(stub_slicer.submitted) == 1
-    assert len(stub_slicer.cancelled) == 0
+    return coordinator, scheduler, sm, visuals, scene_id
 
 
-def test_slice_coordinator_second_submit_cancels_first() -> None:
-    """Second submit from the same canvas must cancel the first task."""
-    coordinator, stub_slicer, _sm, _visuals, scene_id, canvas_id = (
-        _make_coordinator_with_scene()
-    )
+def test_slice_coordinator_submit_registers_and_passes() -> None:
+    coordinator, scheduler, _sm, (visual,), scene_id = _make_coordinator_with_scene()
+    coordinator.submit(_make_reslicing_request(scene_id=scene_id), {})
 
+    assert scheduler.registered == [visual.cache_id]
+    (desired_sets,) = scheduler.passes
+    assert [ds.cache_id for ds in desired_sets] == [visual.cache_id]
+    # The visual's store is filled in for a set that names none.
+    assert desired_sets[0].store is coordinator._data_stores[visual.visual_model_id]
+    assert scheduler.retired == []
+
+
+def test_slice_coordinator_last_plan_wins_across_canvases() -> None:
+    """Two canvases of one scene: each submit passes its plan, the later one
+    replaces the earlier for the shared cache, and one completion answers
+    both canvases' started events (design v2, 4.9)."""
+    coordinator, scheduler, _sm, (visual,), scene_id = _make_coordinator_with_scene()
+    canvas_a, canvas_b = uuid4(), uuid4()
+    first = _desired(visual.cache_id)
+    second = _desired(visual.cache_id)
+
+    visual.plan.return_value = [first]
     coordinator.submit(
-        _make_reslicing_request(scene_id=scene_id, canvas_id=canvas_id), {}
+        _make_reslicing_request(scene_id=scene_id, canvas_id=canvas_a), {}
     )
+    visual.plan.return_value = [second]
     coordinator.submit(
-        _make_reslicing_request(scene_id=scene_id, canvas_id=canvas_id), {}
+        _make_reslicing_request(scene_id=scene_id, canvas_id=canvas_b), {}
     )
 
-    assert len(stub_slicer.submitted) == 2
-    assert len(stub_slicer.cancelled) == 1
+    # Registered once, passed twice, nothing cancelled or merged.
+    assert scheduler.registered == [visual.cache_id]
+    (first_pass,), (second_pass,) = scheduler.passes
+    assert first_pass.keys is first.keys
+    assert second_pass.keys is second.keys
+    assert scheduler.retired == []
+    assert coordinator._announced[visual.visual_model_id] == [
+        (scene_id, canvas_a),
+        (scene_id, canvas_b),
+    ]
 
 
-def test_slice_coordinator_cancel_visual_releases_pending() -> None:
-    """cancel_visual must call visual.cancel_pending()."""
-    coordinator, _stub_slicer, _sm, visuals, scene_id, canvas_id = (
-        _make_coordinator_with_scene()
+def test_slice_coordinator_idle_visual_is_retired() -> None:
+    """A visual that plans nothing has its registered caches retired."""
+    coordinator, scheduler, _sm, (v1, v2), scene_id = _make_coordinator_with_scene(
+        n_visuals=2
     )
-    visual = visuals[0]
+    coordinator.submit(_make_reslicing_request(scene_id=scene_id), {})
+    assert scheduler.retired == []
 
-    coordinator.submit(
-        _make_reslicing_request(scene_id=scene_id, canvas_id=canvas_id), {}
-    )
+    v2.plan.return_value = []
+    coordinator.submit(_make_reslicing_request(scene_id=scene_id), {})
 
-    visual.cancel_pending.reset_mock()
-    coordinator.cancel_visual(scene_id, canvas_id, visual.visual_model_id)
-    visual.cancel_pending.assert_called_once()
-
-
-def test_slice_coordinator_cancel_visual_only_affects_one() -> None:
-    """Cancelling one visual must not cancel the other visual's task."""
-    coordinator, stub_slicer, _sm, visuals, scene_id, canvas_id = (
-        _make_coordinator_with_scene(n_visuals=2)
-    )
-    v1, v2 = visuals
-
-    coordinator.submit(
-        _make_reslicing_request(scene_id=scene_id, canvas_id=canvas_id), {}
-    )
-
-    n_cancelled_before = len(stub_slicer.cancelled)
-    coordinator.cancel_visual(scene_id, canvas_id, v1.visual_model_id)
-    assert len(stub_slicer.cancelled) == n_cancelled_before + 1
-    # v2's entry should still be in active_slice_ids under the 3-tuple key
-    assert (scene_id, canvas_id, v2.visual_model_id) in coordinator._active_slice_ids
+    assert scheduler.retired == [v2.cache_id]
+    assert [ds.cache_id for ds in scheduler.passes[-1]] == [v1.cache_id]
 
 
-def test_slice_coordinator_cancel_scene_cancels_all() -> None:
-    coordinator, _stub_slicer, _sm, _visuals, scene_id, canvas_id = (
-        _make_coordinator_with_scene(n_visuals=2)
-    )
-    coordinator.submit(
-        _make_reslicing_request(scene_id=scene_id, canvas_id=canvas_id), {}
-    )
+def test_slice_coordinator_forget_visual_removes_its_caches() -> None:
+    coordinator, scheduler, _sm, (visual,), scene_id = _make_coordinator_with_scene()
+    coordinator.submit(_make_reslicing_request(scene_id=scene_id), {})
 
-    coordinator.cancel_scene(scene_id)
-    assert len(coordinator._active_slice_ids) == 0
+    coordinator.forget_visual(visual.visual_model_id)
+
+    assert scheduler.removed == [visual.cache_id]
+    assert visual.visual_model_id not in coordinator._announced
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +351,7 @@ def test_reslice_visual_uses_reverse_map() -> None:
     rm._scenes[scene_id] = MagicMock()
     rm._scenes[scene_id].scene = MagicMock()
     rm._scenes[scene_id].visual_ids = []
-    rm._scenes[scene_id].build_slice_requests.return_value = {}
+    rm._scenes[scene_id].plan_chunked.return_value = ({}, set())
 
     visual = _make_mock_visual()
     rm._visual_to_scene[visual.visual_model_id] = scene_id
@@ -461,95 +434,49 @@ def test_visual_render_config_defaults() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SceneManager — per-visual config delivery
+# SceneManager -- per-visual config delivery
 # ---------------------------------------------------------------------------
 
 
-def test_lod_bias_forwarded_to_visual() -> None:
-    """The config's settled_lod_bias must be passed to build_slice_request."""
+@pytest.mark.parametrize(
+    "config",
+    [
+        VisualRenderConfig(settled_lod_bias=2.0),
+        VisualRenderConfig(force_level=2),
+        VisualRenderConfig(force_level=None),
+        VisualRenderConfig(frustum_cull=False),
+        VisualRenderConfig(frustum_cull=True),
+    ],
+    ids=["lod_bias", "force_level", "force_level_none", "no_cull", "cull"],
+)
+def test_the_visual_config_is_forwarded_to_plan(config) -> None:
+    """The visual's own config reaches its plan, with its plan mode; LOD bias,
+    forced level and frustum culling are the visual's to apply."""
     scene_id = uuid4()
     sm = SceneManager(scene_id=scene_id)
     visual = _make_mock_visual()
-    visual.build_slice_request.return_value = []
     sm.add_visual(visual, (0, 1, 2))
 
     req = _make_reslicing_request(scene_id=scene_id)
-    sm.build_slice_requests(
-        req, {visual.visual_model_id: VisualRenderConfig(settled_lod_bias=2.0)}
-    )
+    sm.plan_chunked(req, {visual.visual_model_id: config})
 
-    _, kwargs = visual.build_slice_request.call_args
-    assert kwargs.get("lod_bias") == 2.0
+    visual.plan.assert_called_once_with(req, config, config.plan_mode)
 
 
-def test_force_level_forwarded_to_visual() -> None:
-    """SceneManager must pass force_level from visual_configs to build_slice_request."""
+def test_a_visual_with_no_config_plans_with_the_defaults() -> None:
     scene_id = uuid4()
     sm = SceneManager(scene_id=scene_id)
     visual = _make_mock_visual()
-    visual.build_slice_request.return_value = []
     sm.add_visual(visual, (0, 1, 2))
 
-    req = _make_reslicing_request(scene_id=scene_id)
-    sm.build_slice_requests(
-        req, {visual.visual_model_id: VisualRenderConfig(force_level=2)}
-    )
+    sm.plan_chunked(_make_reslicing_request(scene_id=scene_id), {})
 
-    _, kwargs = visual.build_slice_request.call_args
-    assert kwargs.get("force_level") == 2
-
-
-def test_force_level_none_forwarded_to_visual() -> None:
-    """force_level=None (default) must also be forwarded."""
-    scene_id = uuid4()
-    sm = SceneManager(scene_id=scene_id)
-    visual = _make_mock_visual()
-    visual.build_slice_request.return_value = []
-    sm.add_visual(visual, (0, 1, 2))
-
-    req = _make_reslicing_request(scene_id=scene_id)
-    sm.build_slice_requests(req, {})
-
-    _, kwargs = visual.build_slice_request.call_args
-    assert kwargs.get("force_level") is None
-
-
-def test_frustum_cull_false_passes_none_corners() -> None:
-    """frustum_cull=False must pass None for frustum_corners_world."""
-    scene_id = uuid4()
-    sm = SceneManager(scene_id=scene_id)
-    visual = _make_mock_visual()
-    visual.build_slice_request.return_value = []
-    sm.add_visual(visual, (0, 1, 2))
-
-    req = _make_reslicing_request(scene_id=scene_id)
-    sm.build_slice_requests(
-        req, {visual.visual_model_id: VisualRenderConfig(frustum_cull=False)}
-    )
-
-    _, kwargs = visual.build_slice_request.call_args
-    assert kwargs.get("frustum_corners_world") is None
-
-
-def test_frustum_cull_true_passes_corners() -> None:
-    """frustum_cull=True (default) must pass frustum corners to the visual."""
-    scene_id = uuid4()
-    sm = SceneManager(scene_id=scene_id)
-    visual = _make_mock_visual()
-    visual.build_slice_request.return_value = []
-    sm.add_visual(visual, (0, 1, 2))
-
-    req = _make_reslicing_request(scene_id=scene_id)
-    sm.build_slice_requests(req, {})
-
-    _, kwargs = visual.build_slice_request.call_args
-    np.testing.assert_array_equal(
-        kwargs.get("frustum_corners_world"), req.frustum_corners
-    )
+    (_request, config, _mode), _ = visual.plan.call_args
+    assert config == VisualRenderConfig()
 
 
 # ---------------------------------------------------------------------------
-# SceneManager — slicing_enabled gate
+# SceneManager -- slicing_enabled gate
 # ---------------------------------------------------------------------------
 
 
@@ -558,19 +485,20 @@ def test_visual_render_config_slicing_enabled_by_default() -> None:
 
 
 def test_slicing_disabled_visual_is_not_planned_3d() -> None:
-    """A visual whose config disables slicing gets no build_slice_request call."""
+    """A visual whose config disables slicing is not planned; it is idle."""
     scene_id = uuid4()
     sm = SceneManager(scene_id=scene_id)
     visual = _make_mock_visual()
     sm.add_visual(visual, (0, 1, 2))
 
-    result = sm.build_slice_requests(
+    planned, idle = sm.plan_chunked(
         _make_reslicing_request(scene_id=scene_id),
         {visual.visual_model_id: VisualRenderConfig(slicing_enabled=False)},
     )
 
-    visual.build_slice_request.assert_not_called()
-    assert result == {}
+    visual.plan.assert_not_called()
+    assert planned == {}
+    assert idle == {visual.visual_model_id}
 
 
 def test_slicing_disabled_visual_is_not_planned_2d() -> None:
@@ -598,9 +526,10 @@ def test_slicing_disabled_visual_is_not_planned_2d() -> None:
         canvas_id=uuid4(),
         target_visual_ids=None,
     )
-    result = sm.build_slice_requests(
+    planned, idle = sm.plan_chunked(
         request, {visual.visual_model_id: VisualRenderConfig(slicing_enabled=False)}
     )
 
-    visual.build_slice_request_2d.assert_not_called()
-    assert result == {}
+    visual.plan.assert_not_called()
+    assert planned == {}
+    assert idle == {visual.visual_model_id}
