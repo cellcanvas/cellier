@@ -1073,9 +1073,8 @@ def _anchor_discrete_axes(
     whenever the slider value was rounded.
 
     An axis that shares a constraint with another (a shear) is left as the
-    pull-back gave it.  So is an axis the selection leaves free: its bounds
-    are only the data's range (a non-uniform axis maps an unbounded world
-    interval to its index range), not a slice to centre on.
+    pull-back gave it.  So is an axis the selection leaves free: whatever
+    bounds the pull-back gave it are not a slice to centre on.
     """
     discrete = [
         axis
@@ -1108,10 +1107,10 @@ def _anchor_discrete_axes(
         world_axis = correspondence.get(axis)
         if world_axis is None:
             continue
-        # A bound the selection did not ask for is not a slice.  An
-        # unbounded world axis pulled back through a non-uniform axis comes
-        # back as the data's index range; centring on that pinned every
-        # view to the middle sample.
+        # A bound the selection did not ask for is not a slice.  Free axes
+        # pull back unbounded today, but centring on any finite range the
+        # pull-back might give one (a non-uniform axis once returned its
+        # index range) pinned every view to the middle sample.
         if world_axis not in thickness:
             continue
         if positions is None:
