@@ -12,7 +12,7 @@ from pygfx.renderers.wgpu.engine.shared import get_shared
 from cellier.logging import _PERF_LOGGER
 from cellier.render._clipping import ClippingPlanesMixin, drawn_materials
 from cellier.render._frustum import (
-    bricks_in_frustum_arr,
+    bricks_in_frustum,
     frustum_planes_from_corners,
 )
 from cellier.render._gpu_lifetime import destroy_textures
@@ -20,10 +20,10 @@ from cellier.render._level_mapping import base_cell_range
 from cellier.render._level_of_detail import (
     cull_masks,
     orthographic_voxels_per_pixel,
+    select_forced_level,
     select_level_orthographic,
-    select_levels_arr_forced,
     select_levels_from_cache,
-    sort_arr_by_distance,
+    sort_bricks_by_distance,
 )
 from cellier.render._level_of_detail_2d import (
     half_plane_cull_2d,
@@ -1243,7 +1243,7 @@ class GFXMultiscaleLabelVisual(
         keep = cull_masks(geo._level_grids, clip_rows)
 
         if force_level is not None:
-            brick_arr = select_levels_arr_forced(
+            brick_arr = select_forced_level(
                 geo.base_layout, force_level, geo._level_grids, keep=keep
             )
         else:
@@ -1258,7 +1258,7 @@ class GFXMultiscaleLabelVisual(
         lod_select_ms = (time.perf_counter() - t0) * 1000
 
         t0 = time.perf_counter()
-        brick_arr = sort_arr_by_distance(
+        brick_arr = sort_bricks_by_distance(
             brick_arr,
             camera_pos_data,
             geo.block_size,
@@ -1282,7 +1282,7 @@ class GFXMultiscaleLabelVisual(
             )
         if frustum_planes is not None:
             t0 = time.perf_counter()
-            brick_arr, cull_timings = bricks_in_frustum_arr(
+            brick_arr, cull_timings = bricks_in_frustum(
                 brick_arr,
                 geo.block_size,
                 frustum_planes,

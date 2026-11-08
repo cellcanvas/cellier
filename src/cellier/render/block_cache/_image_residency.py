@@ -60,16 +60,16 @@ if TYPE_CHECKING:
 
 _LEVEL_SHIFT = 52
 _SID_SHIFT = 36
-_G0_SHIFT = 24
-_G1_SHIFT = 12
+_GRID0_SHIFT = 24
+_GRID1_SHIFT = 12
 _LEVEL_MASK = 0xF
 _SID_MASK = 0xFFFF
-_G_MASK = 0xFFF
+_GRID_MASK = 0xFFF
 
 #: Largest level, slice id and grid index a key can hold.
 MAX_LEVEL = _LEVEL_MASK
 MAX_SLICE_IDS = _SID_MASK + 1
-MAX_GRID = _G_MASK + 1
+MAX_GRID = _GRID_MASK + 1
 
 #: A slice selection: one entry per data axis, ``None`` on the displayed
 #: (retained) axes and the fetched plane or ``(start, stop)`` slab on the
@@ -117,8 +117,8 @@ def pack_keys(
     return (
         (levels << _LEVEL_SHIFT)
         | (slice_ids << _SID_SHIFT)
-        | (grids[:, 0] << _G0_SHIFT)
-        | (grids[:, 1] << _G1_SHIFT)
+        | (grids[:, 0] << _GRID0_SHIFT)
+        | (grids[:, 1] << _GRID1_SHIFT)
         | grids[:, 2]
     )
 
@@ -129,7 +129,11 @@ def unpack_keys(keys: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     levels = (keys >> _LEVEL_SHIFT) & _LEVEL_MASK
     slice_ids = (keys >> _SID_SHIFT) & _SID_MASK
     grids = np.column_stack(
-        [(keys >> _G0_SHIFT) & _G_MASK, (keys >> _G1_SHIFT) & _G_MASK, keys & _G_MASK]
+        [
+            (keys >> _GRID0_SHIFT) & _GRID_MASK,
+            (keys >> _GRID1_SHIFT) & _GRID_MASK,
+            keys & _GRID_MASK,
+        ]
     )
     return levels, slice_ids, grids
 

@@ -382,7 +382,7 @@ def _errors_voxels(frame, matrix, spheres, data_axes, kind="offset"):
 
 
 async def _render_all(viewer, image, labels, kind="offset"):
-    from cellier.convenience.capture import _load_data, _wait_for_slicer
+    from cellier.convenience.capture import _load_data, _wait_until_loaded
 
     controller = viewer.controller
     scene_id = viewer.scene.id
@@ -400,7 +400,7 @@ async def _render_all(viewer, image, labels, kind="offset"):
                 # A hidden visual skips slicing, so reslice after showing it.
                 image.appearance.visible, labels.appearance.visible = vis
                 controller.reslice_all()
-                await _wait_for_slicer(controller)
+                await _wait_until_loaded(controller)
                 frame = viewer.screenshot(size=SIZE)
                 matrix = np.array(canvas._camera.camera_matrix)
                 frames[(key_prefix, which, level)] = (frame, matrix, spheres)

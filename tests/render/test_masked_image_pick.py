@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 from cellier._masked_image import MaskedPick
-from cellier.convenience.capture import _wait_for_slicer
+from cellier.convenience.capture import _wait_until_loaded
 from cellier.events import ImagePickEvent, MaskedImagePickEvent, ViewRay
 from cellier.events._events import _CanvasRawPointerEvent
 from cellier.transform import Plane
@@ -257,7 +257,7 @@ def _picks(viewer, camera, hits, action="press") -> tuple[list, list]:
     async def _run() -> None:
         for details in hits:
             controller._on_raw_pointer_event(_raw(viewer, details, camera, action))
-        await _wait_for_slicer(controller)
+        await _wait_until_loaded(controller)
 
     asyncio.run(_run())
     return masked, image
@@ -291,7 +291,7 @@ def picks_3d(tmp_path_factory):
             try:
                 for op, _band in OP_BANDS:
                     model.single.surface_projection = op
-                    asyncio.run(_wait_for_slicer(viewer.controller))
+                    asyncio.run(_wait_until_loaded(viewer.controller))
                     hits = _hits(viewer)
                     events, image_events = _picks(viewer, "3d", hits)
                     # Copies: the handlers stay subscribed for the next op.

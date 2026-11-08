@@ -30,12 +30,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from cellier.render._frustum import bricks_in_frustum_arr
+from cellier.render._frustum import bricks_in_frustum
 from cellier.render._level_of_detail import (
     cull_mask,
-    select_levels_arr_forced,
+    select_forced_level,
     select_levels_from_cache,
-    sort_arr_by_distance,
+    sort_bricks_by_distance,
 )
 from cellier.render.lut_indirection._cell_brick_rule import (
     level_brick_counts,
@@ -349,7 +349,7 @@ def plane_level_orthographic(
     Returns
     -------
     int or None
-        1-indexed, as ``select_levels_arr_forced`` takes it; ``None`` for a
+        1-indexed, as ``select_forced_level`` takes it; ``None`` for a
         degenerate view.
     """
     if view_height_world <= 0 or screen_height_px <= 0:
@@ -442,7 +442,7 @@ def plan_plane_bricks(
         rows = clip_rows if rows is None else np.concatenate([rows, clip_rows])
 
     def finish(arr: np.ndarray) -> tuple[np.ndarray, int]:
-        arr = sort_arr_by_distance(
+        arr = sort_bricks_by_distance(
             arr,
             camera_pos_data,
             geo.block_size,
@@ -454,7 +454,7 @@ def plan_plane_bricks(
         )
         selected = len(arr)
         if rows is not None:
-            arr, _ = bricks_in_frustum_arr(
+            arr, _ = bricks_in_frustum(
                 arr,
                 geo.block_size,
                 rows,
@@ -464,9 +464,7 @@ def plan_plane_bricks(
         return arr, selected
 
     def at_level(level: int) -> tuple[np.ndarray, int]:
-        return finish(
-            select_levels_arr_forced(geo.base_layout, level, grids, keep=keep)
-        )
+        return finish(select_forced_level(geo.base_layout, level, grids, keep=keep))
 
     stats = {"n_ranked": 0, "n_selected": 0, "level": None, "levels_stepped": 0}
     orthographic = force_level is None and fov_y_rad <= 0

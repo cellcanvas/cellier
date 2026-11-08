@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from cellier.render._frustum import bricks_in_frustum_arr
-from cellier.render._level_of_detail import sort_arr_by_distance
+from cellier.render._frustum import bricks_in_frustum
+from cellier.render._level_of_detail import sort_bricks_by_distance
 from cellier.render._level_of_detail_2d import (
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
@@ -182,7 +182,7 @@ def backstop_bricks_3d(
     arr = level_grids[level - 1]["arr"]
     if keep is not None:
         arr = arr[keep]
-    arr = sort_arr_by_distance(
+    arr = sort_bricks_by_distance(
         arr,
         camera_pos_data,
         block_size,
@@ -190,7 +190,7 @@ def backstop_bricks_3d(
         translation_vecs_shader=translation_arr_shader,
     )
     if frustum_planes is not None:
-        arr, _ = bricks_in_frustum_arr(
+        arr, _ = bricks_in_frustum(
             arr,
             block_size,
             frustum_planes,

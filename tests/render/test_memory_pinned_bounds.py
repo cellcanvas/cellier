@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 
 from cellier.controller import CellierController
-from cellier.convenience.capture import _wait_for_slicer
+from cellier.convenience.capture import _wait_until_loaded
 from cellier.data import LabelMemoryStore
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.scene.dims import spatial_axes, world_coordinate_system
@@ -108,7 +108,7 @@ async def test_the_first_3d_fit_frames_the_whole_volume(family, kind):
     try:
         controller.fit_camera(scene.id)
         controller.reslice_all()
-        await _wait_for_slicer(controller)
+        await _wait_until_loaded(controller)
 
         # The first visit to 3D fits here, before the 3D slice has loaded.
         controller.update_displayed_axes(scene.id, (0, 1, 2))
@@ -120,7 +120,7 @@ async def test_the_first_3d_fit_frames_the_whole_volume(family, kind):
         first_fit = np.array(view.camera.world.position)
 
         # Refitting once the data has landed changes nothing.
-        await _wait_for_slicer(controller)
+        await _wait_until_loaded(controller)
         controller.fit_camera(scene.id)
         np.testing.assert_allclose(view.camera.world.position, first_fit, atol=1e-4)
     finally:
@@ -134,7 +134,7 @@ async def test_a_zx_view_box_is_z_by_x(family):
     try:
         np.testing.assert_allclose(_scene_box(controller, scene), _ZX_BOX)
         controller.reslice_all()
-        await _wait_for_slicer(controller)
+        await _wait_until_loaded(controller)
         np.testing.assert_allclose(_scene_box(controller, scene), _ZX_BOX)
     finally:
         controller.close()
@@ -146,10 +146,10 @@ async def test_the_box_follows_a_switch_of_displayed_axes(family):
     controller, scene = _viewer(family, ("y", "x"))
     try:
         controller.reslice_all()
-        await _wait_for_slicer(controller)
+        await _wait_until_loaded(controller)
         controller.update_displayed_axes(scene.id, (0, 2))
         np.testing.assert_allclose(_scene_box(controller, scene), _ZX_BOX)
-        await _wait_for_slicer(controller)
+        await _wait_until_loaded(controller)
         np.testing.assert_allclose(_scene_box(controller, scene), _ZX_BOX)
     finally:
         controller.close()
@@ -173,7 +173,7 @@ async def test_a_composite_image_box_leaves_out_the_channel_axis():
         )
         controller.add_image(store, scene.id, channel_axis=0, composite=True)
         controller.reslice_all()
-        await _wait_for_slicer(controller)
+        await _wait_until_loaded(controller)
         np.testing.assert_allclose(_scene_box(controller, scene), _ZX_BOX)
     finally:
         controller.close()

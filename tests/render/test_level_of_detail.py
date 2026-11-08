@@ -2,7 +2,7 @@
 
 Pure NumPy.  These lock down the DHW/XYZ axis conventions and the
 per-level anisotropic scale/translation handling shared between
-``build_level_grids`` and ``sort_arr_by_distance``.
+``build_level_grids`` and ``sort_bricks_by_distance``.
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ import pytest
 from cellier.render._level_of_detail import (
     build_level_grids,
     orthographic_voxels_per_pixel,
+    select_forced_level,
     select_level_orthographic,
-    select_levels_arr_forced,
     select_levels_from_cache,
-    sort_arr_by_distance,
+    sort_bricks_by_distance,
 )
 from cellier.render.lut_indirection import BlockLayout3D
 
@@ -243,7 +243,7 @@ def test_select_levels_empty_when_no_band_matches(
 
 
 # ---------------------------------------------------------------------------
-# select_levels_arr_forced
+# select_forced_level
 # ---------------------------------------------------------------------------
 
 
@@ -251,7 +251,7 @@ def test_select_levels_forced_cache_is_zero_copy(
     base_layout, scale_vecs, translation_vecs
 ):
     grids = build_level_grids(base_layout, 2, scale_vecs, translation_vecs)
-    out = select_levels_arr_forced(base_layout, force_level=2, level_grids=grids)
+    out = select_forced_level(base_layout, force_level=2, level_grids=grids)
     # returns the cached array object directly (zero-copy)
     assert out is grids[1]["arr"]
 
@@ -262,10 +262,10 @@ def test_select_levels_forced_no_cache_matches_cache(
     # power-of-2 grids so the recompute matches the cached grid dims
     grids = build_level_grids(base_layout, 2, scale_vecs, translation_vecs)
     for force_level in (1, 2):
-        cached = select_levels_arr_forced(
+        cached = select_forced_level(
             base_layout, force_level=force_level, level_grids=grids
         )
-        recomputed = select_levels_arr_forced(base_layout, force_level=force_level)
+        recomputed = select_forced_level(base_layout, force_level=force_level)
         np.testing.assert_array_equal(cached, recomputed)
 
 
@@ -279,32 +279,32 @@ def test_select_levels_forced_clamps(base_layout, scale_vecs, translation_vecs):
     grids = build_level_grids(base_layout, 2, scale_vecs, translation_vecs)
 
     # force below 1 clamps to 1 (finest), not to level_grids[-1] (coarsest)
-    low = select_levels_arr_forced(base_layout, force_level=0, level_grids=grids)
+    low = select_forced_level(base_layout, force_level=0, level_grids=grids)
     assert np.all(low[:, 0] == 1)
 
     # force above n_levels clamps to n_levels
-    high = select_levels_arr_forced(base_layout, force_level=5, level_grids=grids)
+    high = select_forced_level(base_layout, force_level=5, level_grids=grids)
     assert np.all(high[:, 0] == 2)
 
 
 def test_select_levels_forced_no_cache_clamps(base_layout):
     """The uncached branch clamps too -- it used to raise on ``1 << -1``."""
-    recomputed = select_levels_arr_forced(base_layout, force_level=0)
+    recomputed = select_forced_level(base_layout, force_level=0)
     assert np.all(recomputed[:, 0] == 1)
 
 
 # ---------------------------------------------------------------------------
-# sort_arr_by_distance
+# sort_bricks_by_distance
 # ---------------------------------------------------------------------------
 
 
-def test_sort_arr_empty_returns_empty():
+def test_sort_bricks_empty_returns_empty():
     arr = np.empty((0, 4), dtype=np.int32)
-    out = sort_arr_by_distance(arr, np.zeros(3), BLOCK_SIZE)
+    out = sort_bricks_by_distance(arr, np.zeros(3), BLOCK_SIZE)
     assert out.shape == (0, 4)
 
 
-def test_sort_arr_nearest_first_isotropic():
+def test_sort_bricks_nearest_first_isotropic():
     # bricks at increasing distance from origin along x
     arr = np.array(
         [
@@ -314,12 +314,12 @@ def test_sort_arr_nearest_first_isotropic():
         ],
         dtype=np.int32,
     )
-    out = sort_arr_by_distance(arr, np.zeros(3), BLOCK_SIZE)
+    out = sort_bricks_by_distance(arr, np.zeros(3), BLOCK_SIZE)
     # gx column ascending -> nearest first
     np.testing.assert_array_equal(out[:, 3], [0, 1, 3])
 
 
-def test_sort_arr_centres_match_build_level_grids(
+def test_sort_bricks_centres_match_build_level_grids(
     base_layout, scale_vecs, translation_vecs, level_shapes
 ):
     grids = build_level_grids(
@@ -329,7 +329,7 @@ def test_sort_arr_centres_match_build_level_grids(
     centres = grids[0]["centres"]
     cam = np.array([13.0, 27.0, 5.0])
 
-    out = sort_arr_by_distance(
+    out = sort_bricks_by_distance(
         arr,
         cam,
         BLOCK_SIZE,
@@ -342,7 +342,7 @@ def test_sort_arr_centres_match_build_level_grids(
     np.testing.assert_array_equal(out, arr[expected_order])
 
 
-def test_sort_arr_anisotropic_differs_from_isotropic():
+def test_sort_bricks_anisotropic_differs_from_isotropic():
     # a strongly anisotropic z scale changes the ordering vs the isotropic
     # power-of-2 fallback
     arr = np.array(
@@ -353,10 +353,10 @@ def test_sort_arr_anisotropic_differs_from_isotropic():
         dtype=np.int32,
     )
     cam = np.zeros(3)
-    iso = sort_arr_by_distance(arr, cam, BLOCK_SIZE)
+    iso = sort_bricks_by_distance(arr, cam, BLOCK_SIZE)
     scale = [np.array([1.0, 1.0, 0.1])]  # squash z
     translation = [np.zeros(3)]
-    aniso = sort_arr_by_distance(
+    aniso = sort_bricks_by_distance(
         arr,
         cam,
         BLOCK_SIZE,
@@ -368,7 +368,7 @@ def test_sort_arr_anisotropic_differs_from_isotropic():
     assert not np.array_equal(iso[0], aniso[0])
 
 
-def test_sort_arr_stable_for_equidistant():
+def test_sort_bricks_stable_for_equidistant():
     # two bricks equidistant from camera keep input order (stable sort)
     arr = np.array(
         [
@@ -379,7 +379,7 @@ def test_sort_arr_stable_for_equidistant():
     )
     # tag them apart via level column to detect reordering
     arr[1, 0] = 1
-    out = sort_arr_by_distance(arr, np.array([4.0, 4.0, 4.0]), BLOCK_SIZE)
+    out = sort_bricks_by_distance(arr, np.array([4.0, 4.0, 4.0]), BLOCK_SIZE)
     np.testing.assert_array_equal(out, arr)
 
 

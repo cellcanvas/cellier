@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 from cellier.convenience import OrthoViewer
-from cellier.convenience.capture import _wait_for_slicer
+from cellier.convenience.capture import _wait_until_loaded
 from cellier.data import ImageMemoryStore, LabelMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.scene.dims import spatial_axes
@@ -145,7 +145,7 @@ def test_a_rotated_slide_zoomed_onto_a_corner_is_sharp(tmp_path):
 
         async def _reload():
             viewer.controller.reslice_all()
-            await _wait_for_slicer(viewer.controller)
+            await _wait_until_loaded(viewer.controller)
 
         asyncio.run(_reload())
         frame, _, camera = render(viewer)

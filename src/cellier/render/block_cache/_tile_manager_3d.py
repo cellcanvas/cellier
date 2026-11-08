@@ -62,15 +62,12 @@ class TileSlot:
         Flat slot index (0 = reserved, never used for data).
     grid_pos : tuple[int, int, int]
         ``(sz, sy, sx)`` in the cache grid.
-    timestamp : int
-        Unused; kept for callers that construct slots by keyword.
     brick_max : float
         Maximum value in the brick, for the MIP early-out.
     """
 
     index: int
     grid_pos: tuple[int, int, int]
-    timestamp: int = 0
     brick_max: float = 0.0
 
 

@@ -33,20 +33,11 @@ class AxisAlignedSelectionState(NamedTuple):
     thickness: Mapping[int, float] = NO_THICKNESS
 
 
-class PlaneSelectionState(NamedTuple):
-    """Stub — not yet implemented."""
-
-    pass
-
-
-SelectionState = AxisAlignedSelectionState | PlaneSelectionState
-
-
 class DimsState(NamedTuple):
     """Current dimension display state for a scene."""
 
     axis_labels: tuple[str, ...]
-    selection: SelectionState
+    selection: AxisAlignedSelectionState
 
 
 class CameraState(NamedTuple):

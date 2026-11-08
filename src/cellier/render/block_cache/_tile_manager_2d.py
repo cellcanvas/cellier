@@ -58,13 +58,10 @@ class TileSlot:
         Flat slot index (0 = reserved, never used for data).
     grid_pos : tuple[int, int]
         ``(sy, sx)`` in the cache grid.
-    timestamp : int
-        Unused; kept for callers that construct slots by keyword.
     """
 
     index: int
     grid_pos: tuple[int, int]
-    timestamp: int = 0
 
 
 class TileManager2D:

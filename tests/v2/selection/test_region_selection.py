@@ -13,7 +13,6 @@ import pytest
 
 from cellier.controller import CellierController
 from cellier.scene.dims import (
-    DimsManager,
     spatial_axes,
     world_coordinate_system,
 )
@@ -142,19 +141,6 @@ def test_a_selection_whose_slice_misses_its_region_is_rejected():
     region = ConvexRegion.from_axis_slabs(world, {world.axes[0].id: (9.0, 0.0)})
     with pytest.raises(ValueError, match="would select nothing"):
         RegionSelection(transform=embedding, region=region)
-
-
-def test_a_plane_selection_cannot_emit_one_yet():
-    from cellier.scene.dims import PlaneSelection
-
-    # model_construct rather than the constructor: the axis-coverage
-    # validator has nothing to check a PlaneSelection against.
-    dims_plane = DimsManager.model_construct(
-        world_coordinate_system=world_coordinate_system(spatial_axes("z", "y", "x")),
-        selection=PlaneSelection(),
-    )
-    with pytest.raises(NotImplementedError, match="RegionSelection"):
-        dims_plane.to_selection(None, None)
 
 
 # ---------------------------------------------------------------------------

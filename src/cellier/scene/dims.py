@@ -12,7 +12,6 @@ from pydantic import UUID4, AfterValidator, Field, model_validator
 from cellier._state import (
     AxisAlignedSelectionState,
     DimsState,
-    PlaneSelectionState,
 )
 from cellier.transform import (
     Axis,
@@ -227,7 +226,8 @@ class AxisAlignedSelection(EventedModel):
     Parameters
     ----------
     selector_type : Literal["axis_aligned"]
-        Discriminator field.
+        Always ``"axis_aligned"``.  Kept so saved viewer files, which carry
+        it, still load.
     displayed_axes : tuple[int, ...]
         Indices into the coordinate system that are rendered.
         Length 2 -> 2D; length 3 -> 3D.
@@ -282,28 +282,6 @@ class AxisAlignedSelection(EventedModel):
         )
 
 
-class PlaneSelection(EventedModel):
-    """Stub -- not yet implemented.
-
-    Parameters
-    ----------
-    selector_type : Literal["plane"]
-        Discriminator field.
-    """
-
-    selector_type: Literal["plane"] = "plane"
-
-    def to_state(self) -> PlaneSelectionState:
-        """Return an immutable snapshot of this selection."""
-        raise NotImplementedError("PlaneSelection is not yet implemented.")
-
-
-SelectionType = Annotated[
-    Union[AxisAlignedSelection, PlaneSelection],
-    Field(discriminator="selector_type"),
-]
-
-
 class DimsManager(EventedModel):
     """Tracks which axes are displayed and the slice index for non-displayed axes.
 
@@ -319,8 +297,8 @@ class DimsManager(EventedModel):
     world_coordinate_system : WorldCoordinateSystem
         The scene's world axes.  Frozen: changing the axes means assigning a
         replacement (D7), which is why there is no event relay onto it.
-    selection : SelectionType
-        The current axis selection (axis-aligned or plane).
+    selection : AxisAlignedSelection
+        The current axis selection.
     slider_overrides : dict[int, bool]
         Per world axis, whether to force its slider shown (``True``) or
         hidden (``False``).  An axis absent from the mapping is automatic:
@@ -333,7 +311,7 @@ class DimsManager(EventedModel):
         Field(frozen=True, default_factory=lambda: uuid4())
     )
     world_coordinate_system: WorldCoordinateSystem
-    selection: SelectionType
+    selection: AxisAlignedSelection
     slider_overrides: dict[int, bool] = Field(default_factory=dict)
 
     @property
@@ -355,20 +333,19 @@ class DimsManager(EventedModel):
         """
         ndim = self.world_coordinate_system.ndim
         expected = set(range(ndim))
-        if isinstance(self.selection, AxisAlignedSelection):
-            covered = set(self.selection.slice_indices.keys())
-            if covered != expected:
-                raise ValueError(
-                    f"Axis coverage mismatch: slice_indices.keys() = "
-                    f"{sorted(covered)}, expected every world axis "
-                    f"{sorted(expected)} for ndim={ndim}.  A displayed axis "
-                    f"keeps a slice position too."
-                )
-            if not set(self.selection.displayed_axes) <= expected:
-                raise ValueError(
-                    f"displayed_axes {self.selection.displayed_axes} names an "
-                    f"axis outside the world (ndim={ndim})."
-                )
+        covered = set(self.selection.slice_indices.keys())
+        if covered != expected:
+            raise ValueError(
+                f"Axis coverage mismatch: slice_indices.keys() = "
+                f"{sorted(covered)}, expected every world axis "
+                f"{sorted(expected)} for ndim={ndim}.  A displayed axis "
+                f"keeps a slice position too."
+            )
+        if not set(self.selection.displayed_axes) <= expected:
+            raise ValueError(
+                f"displayed_axes {self.selection.displayed_axes} names an "
+                f"axis outside the world (ndim={ndim})."
+            )
         unknown = set(self.slider_overrides) - expected
         if unknown:
             raise ValueError(
@@ -434,17 +411,7 @@ class DimsManager(EventedModel):
         -------
         RegionSelection
             The transform and the region, in world coordinates.
-
-        Raises
-        ------
-        NotImplementedError
-            If the selection is not axis aligned.
         """
-        if not isinstance(self.selection, AxisAlignedSelection):
-            raise NotImplementedError(
-                f"{type(self.selection).__name__} cannot emit a RegionSelection "
-                f"yet; only AxisAlignedSelection can."
-            )
         world = self.world_coordinate_system
         slabs = {
             world.axes[axis].id: (

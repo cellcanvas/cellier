@@ -23,7 +23,7 @@ import pylinalg as la
 import pytest
 from scipy import ndimage as ndi
 
-from cellier.convenience.capture import _wait_for_slicer
+from cellier.convenience.capture import _wait_until_loaded
 from cellier.render.shaders._masked_volume_brick import MaskedVolumeBrickMaterial
 from cellier.visuals import MaskedImageAppearance, MaskedImageSingleAppearance
 from tests.render._affine import render
@@ -114,7 +114,7 @@ def _drag(
 
         def settled(degrees: float) -> np.ndarray:
             controller.set_camera_state(canvas_id, yawed(degrees))
-            asyncio.run(_wait_for_slicer(controller))
+            asyncio.run(_wait_until_loaded(controller))
             return render(viewer, DRAG_SIZE)[0]
 
         def drawn(frame: np.ndarray) -> np.ndarray:

@@ -15,14 +15,14 @@ import numpy as np
 import pytest
 
 from cellier.render import _level_of_detail as lod
-from cellier.render._frustum import bricks_in_frustum_arr
+from cellier.render._frustum import bricks_in_frustum
 from cellier.render._level_of_detail import (
     build_level_grids,
     cull_mask,
     cull_masks,
-    select_levels_arr_forced,
+    select_forced_level,
     select_levels_from_cache,
-    sort_arr_by_distance,
+    sort_bricks_by_distance,
 )
 from cellier.render.lut_indirection import BlockLayout3D
 from cellier.render.visuals import _image, _label_multiscale
@@ -68,20 +68,20 @@ def _plan(geometry, camera, clip_rows, *, thresholds, force_level, cull_first):
     layout, grids, scales, translations = geometry
     keep = cull_masks(grids, clip_rows) if cull_first else None
     if force_level is not None:
-        arr = select_levels_arr_forced(layout, force_level, grids, keep=keep)
+        arr = select_forced_level(layout, force_level, grids, keep=keep)
     else:
         arr = select_levels_from_cache(
             grids, 4, camera, thresholds=thresholds, base_layout=layout, keep=keep
         )
     ranked = len(arr)
-    arr = sort_arr_by_distance(
+    arr = sort_bricks_by_distance(
         arr,
         camera,
         BLOCK_SIZE,
         scale_vecs_shader=scales,
         translation_vecs_shader=translations,
     )
-    arr, _ = bricks_in_frustum_arr(
+    arr, _ = bricks_in_frustum(
         arr,
         BLOCK_SIZE,
         clip_rows,
@@ -201,13 +201,13 @@ def _build(controller, pyramid_root, *, labels, clipped):
 def _plan_counting(controller, scene, visual, monkeypatch, module):
     """Plan once; return ``(bricks ranked, bricks the cull kept, all bricks)``."""
     ranked = []
-    original = lod.sort_arr_by_distance
+    original = lod.sort_bricks_by_distance
 
     def spy(arr, *args, **kwargs):
         ranked.append(len(arr))
         return original(arr, *args, **kwargs)
 
-    monkeypatch.setattr(module, "sort_arr_by_distance", spy)
+    monkeypatch.setattr(module, "sort_bricks_by_distance", spy)
     canvas_id = controller.get_canvas_ids(scene.id)[0]
     view = controller._render_manager._canvases[canvas_id]
     selection = controller._selections_for_scene(scene.id)[canvas_id]

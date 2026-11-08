@@ -34,11 +34,11 @@ class ChunkState(enum.IntEnum):
 class Tier(enum.IntEnum):
     """How much the latest pass wants a record; higher is more.
 
-    ``PREFETCH`` is reserved for the prefetch follow-up and is never set.
+    The values are part of the scheduler's recorded traces
+    (``tests/render/scheduling/trace_baseline.json``), so they stay fixed.
     """
 
     RECENT = 0
-    PREFETCH = 1
     VISIBLE = 2
 
 

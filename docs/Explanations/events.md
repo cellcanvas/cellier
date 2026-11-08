@@ -192,14 +192,9 @@ the render layer so neither needs to import the other to reach shared types.
 ### `DimsState`
 
 `DimsState` is a two-level structure. The top level carries `axis_labels` alongside a
-`selection` object. The selection is typed as `SelectionState`, which is currently
-either an `AxisAlignedSelectionState` (the only concrete implementation) or the stub
-`PlaneSelectionState`.
+`selection` object, an `AxisAlignedSelectionState`.
 
 ```python
-SelectionState = AxisAlignedSelectionState | PlaneSelectionState
-
-
 class AxisAlignedSelectionState(NamedTuple):
     """Immutable snapshot of an axis-aligned slice selection.
 
@@ -241,7 +236,7 @@ class DimsState(NamedTuple):
     """
 
     axis_labels: tuple[str, ...]
-    selection: SelectionState
+    selection: AxisAlignedSelectionState
 ```
 
 Access patterns — accessing displayed axes and slice indices from a `DimsState`:

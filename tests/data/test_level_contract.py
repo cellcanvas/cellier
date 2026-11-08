@@ -1,4 +1,4 @@
-"""The level-transform contract (C1-C4) and where it is enforced.
+"""The level-transform contract and where it is enforced.
 
 ``plans/multiscale_level_transform_v2.md``, "The contract".  The renderer
 places pyramid levels that are axis-aligned, coarser with level, offset by
@@ -35,7 +35,7 @@ def _levels(scales, translations):
 
 def _checks(scales, translations, shapes=None):
     issues = level_contract_issues(_levels(scales, translations), shapes)
-    return sorted({(i.level, i.axis, i.check.split()[0]) for i in issues})
+    return sorted({(i.level, i.axis, i.check) for i in issues})
 
 
 SHAPES_2 = [(16, 16), (8, 8)]
@@ -69,26 +69,26 @@ def test_the_lightsheet_metadata_passes():
     assert _checks(scales, translations, shapes) == []
 
 
-def test_c1_off_diagonal():
+def test_off_diagonal_term():
     levels = _levels([(1, 1), (2, 2)], [(0, 0), (0.5, 0.5)])
     levels[1].linear = np.array([[2.0, 0.1], [0.0, 2.0]])
     issues = level_contract_issues(levels)
-    assert [(i.level, i.axis, i.check[:2]) for i in issues] == [(1, None, "C1")]
+    assert [(i.level, i.axis, i.check) for i in issues] == [(1, None, "diagonal")]
 
 
-def test_c2_finer_than_level_zero_or_than_the_previous_level():
-    assert _checks([(1, 1), (0.5, 1)], [(0, 0), (0, 0)]) == [(1, 0, "C2")]
-    assert _checks([(1,), (4,), (2,)], [(0,), (0,), (0,)]) == [(2, 0, "C2")]
+def test_scale_finer_than_level_zero_or_than_the_previous_level():
+    assert _checks([(1, 1), (0.5, 1)], [(0, 0), (0, 0)]) == [(1, 0, "scale")]
+    assert _checks([(1,), (4,), (2,)], [(0,), (0,), (0,)]) == [(2, 0, "scale")]
 
 
-def test_c3_translation_of_a_voxel_or_more():
-    assert _checks([(1,), (2,)], [(0,), (1.6,)]) == [(1, 0, "C3")]
-    assert _checks([(1,), (2,)], [(0,), (-0.6,)]) == [(1, 0, "C3")]
+def test_offset_of_a_voxel_or_more():
+    assert _checks([(1,), (2,)], [(0,), (1.6,)]) == [(1, 0, "offset")]
+    assert _checks([(1,), (2,)], [(0,), (-0.6,)]) == [(1, 0, "offset")]
 
 
-def test_c4_cropped_level():
+def test_coverage_cropped_level():
     """Level 1 holds only half of level 0's extent."""
-    assert _checks([(1,), (2,)], [(0,), (0.5,)], [(16,), (4,)]) == [(1, 0, "C4")]
+    assert _checks([(1,), (2,)], [(0,), (0.5,)], [(16,), (4,)]) == [(1, 0, "coverage")]
 
 
 def test_trivial_axes_pass():
@@ -108,7 +108,7 @@ def test_message_names_store_level_axis_value_and_range():
         )
     message = str(info.value)
     assert "pyramid-x" in message
-    assert "level 1, axis 1: C3 translation is 3, allowed [-0.5, 1.5]" in message
+    assert "level 1, axis 1: translation is 3, allowed [-0.5, 1.5]" in message
     assert "offset by less than one of its own voxels" in message
 
 
@@ -146,7 +146,7 @@ def _store(path, translation, **kwargs) -> MultiscaleZarrDataStore:
 
 
 def test_a_store_with_its_own_systems_is_checked_at_construction(pyramid_path):
-    with pytest.raises(ValueError, match="C3 translation"):
+    with pytest.raises(ValueError, match="translation is"):
         _store(
             pyramid_path,
             (0.5, 0.5, 4.0),
@@ -160,7 +160,7 @@ def test_a_store_placed_by_a_scene_is_checked_when_added(pyramid_path):
     controller = CellierController()
     try:
         scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="contract")
-        with pytest.raises(ValueError, match="C3 translation"):
+        with pytest.raises(ValueError, match="translation is"):
             controller.add_image_multiscale(data=store, scene_id=scene.id)
     finally:
         controller.close()
@@ -188,7 +188,7 @@ def test_transforms_set_directly_are_checked_when_added(pyramid_path):
     controller = CellierController()
     try:
         scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="contract")
-        with pytest.raises(ValueError, match="C3 translation"):
+        with pytest.raises(ValueError, match="translation is"):
             controller.add_image_multiscale(data=store, scene_id=scene.id)
     finally:
         controller.close()

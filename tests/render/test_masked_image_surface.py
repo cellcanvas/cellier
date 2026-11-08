@@ -21,7 +21,7 @@ import asyncio
 import numpy as np
 import pytest
 
-from cellier.convenience.capture import _wait_for_slicer
+from cellier.convenience.capture import _wait_until_loaded
 from cellier.render.shaders._masked_volume_brick import (
     instantiate_by_text,
     value_access_source,
@@ -131,7 +131,7 @@ def _surface_counts(root, kind: str, value_scale: int) -> dict[tuple, np.ndarray
         for single in _surface_cases(kind, value_scale):
             for name in SURFACE_FIELDS:
                 setattr(model.single, name, single.get(name, defaults[name].default))
-            asyncio.run(_wait_for_slicer(viewer.controller))
+            asyncio.run(_wait_until_loaded(viewer.controller))
             out[_key(single)] = band_counts(render(viewer, SIZE)[0])
     finally:
         viewer.controller.close()

@@ -848,4 +848,4 @@ def test_remove_forgets_a_pending_pass() -> None:
 def test_class_values() -> None:
     """The packed class values the planners emit."""
     assert int(ChunkClass.BACKSTOP) > int(ChunkClass.TARGET)
-    assert int(Tier.VISIBLE) > int(Tier.PREFETCH) > int(Tier.RECENT)
+    assert int(Tier.VISIBLE) > int(Tier.RECENT)

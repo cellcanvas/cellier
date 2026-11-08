@@ -4179,13 +4179,7 @@ class CellierController:
         ]
         if not entries:
             return
-        selection = scene.dims.selection
-        if not isinstance(selection, AxisAlignedSelection):
-            raise NotImplementedError(
-                f"Scene overlays need an axis-aligned selection; scene "
-                f"{scene.name!r} uses {type(selection).__name__}."
-            )
-        displayed_axes = tuple(selection.displayed_axes)
+        displayed_axes = tuple(scene.dims.selection.displayed_axes)
         bounds = scene_world_bounds(scene, self.get_data_store)
         key = (
             displayed_axes,

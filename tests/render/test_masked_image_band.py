@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from scipy import ndimage as ndi
 
-from cellier.convenience.capture import _wait_for_slicer
+from cellier.convenience.capture import _wait_until_loaded
 from cellier.data import ImageMemoryStore
 from cellier.render.block_cache._cell_ranges import CellRanges
 from cellier.render.block_cache._image_residency import pack_keys
@@ -61,7 +61,7 @@ def _set_band(viewer, model, name: str) -> None:
     interval = band.BANDS[name]
     model.single.surface_thickness = interval[1] - interval[0]
     model.single.surface_placement = band.placement(interval)
-    asyncio.run(_wait_for_slicer(viewer.controller))
+    asyncio.run(_wait_until_loaded(viewer.controller))
 
 
 # -- one viewer a scene -------------------------------------------------------------

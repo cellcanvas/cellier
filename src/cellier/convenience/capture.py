@@ -139,7 +139,7 @@ def _camera_states(controller: object) -> dict:
     }
 
 
-async def _wait_for_slicer(controller: object) -> None:
+async def _wait_until_loaded(controller: object) -> None:
     """Await in-flight loading until none is left.
 
     Every visual loads through the chunk scheduler, drained with a commit
@@ -191,13 +191,13 @@ async def _load_data(viewer: object) -> None:
     controller = viewer.controller
     _fit_cameras(controller)
     controller.reslice_all()
-    await _wait_for_slicer(controller)
+    await _wait_until_loaded(controller)
 
     before = _camera_states(controller)
     _fit_cameras(controller)
     if _camera_states(controller) != before:
         controller.reslice_all()
-        await _wait_for_slicer(controller)
+        await _wait_until_loaded(controller)
 
 
 def main(argv: list[str] | None = None) -> int:

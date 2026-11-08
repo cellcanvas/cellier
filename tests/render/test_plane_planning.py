@@ -13,11 +13,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cellier.render._frustum import bricks_in_frustum_arr, frustum_planes_from_corners
+from cellier.render._frustum import bricks_in_frustum, frustum_planes_from_corners
 from cellier.render._level_of_detail import (
     cull_mask,
     select_levels_from_cache,
-    sort_arr_by_distance,
+    sort_bricks_by_distance,
 )
 from cellier.render._plane_planning import (
     PLANE_REACH_VOXELS,
@@ -398,7 +398,7 @@ async def test_the_cull_first_plane_plan_equals_ranking_every_brick_then_culling
         base_layout=geo.base_layout,
         metric=planning.metric,
     )
-    everything = sort_arr_by_distance(
+    everything = sort_bricks_by_distance(
         everything,
         camera,
         geo.block_size,
@@ -419,7 +419,7 @@ async def test_the_cull_first_plane_plan_equals_ranking_every_brick_then_culling
     )
     if clip_rows is not None:
         rows = np.concatenate([rows, clip_rows])
-    brute, _ = bricks_in_frustum_arr(
+    brute, _ = bricks_in_frustum(
         brute,
         geo.block_size,
         rows,

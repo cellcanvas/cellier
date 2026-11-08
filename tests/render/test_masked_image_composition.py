@@ -331,12 +331,12 @@ def test_neither_lut_names_the_old_time_point_after_a_step(
         seen: list[set[int]] = []
 
         async def _step() -> None:
-            from cellier.convenience.capture import _wait_for_slicer
+            from cellier.convenience.capture import _wait_until_loaded
 
             viewer.set_slice_positions({0: 1.0})
             controller.reslice_all()
             await asyncio.sleep(0)
-            waiter = asyncio.ensure_future(_wait_for_slicer(controller))
+            waiter = asyncio.ensure_future(_wait_until_loaded(controller))
             start = time.perf_counter()
             while not waiter.done() and time.perf_counter() - start < 20.0:
                 controller._render_manager.scheduler.commit_round(viewer.scene.id)

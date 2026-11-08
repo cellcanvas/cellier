@@ -856,10 +856,9 @@ class ByDimensionTransform(BaseTransform):
 
         **The refusal is a permanent, documented restriction, not a TODO.**
         A half-space whose normal mixes a non-affine block's axis with
-        another has no exact preimage, and no approximation is offered.
-        Nothing produces that case today -- ``PlaneSelection`` is an
-        unimplemented stub -- but an oblique selection over a non-uniform
-        axis would.
+        another has no exact preimage, and no approximation is offered.  An
+        oblique selection over a non-uniform axis is the case that produces
+        one.
 
         Parameters
         ----------

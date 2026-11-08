@@ -27,7 +27,7 @@ import pytest
 from pygfx.renderers.wgpu import get_shared
 from rendercanvas.offscreen import RenderCanvas
 
-from cellier.convenience.capture import _wait_for_slicer
+from cellier.convenience.capture import _wait_until_loaded
 from cellier.render._cellier_blender import NORMAL_TARGET, install_cellier_blender
 from cellier.render.scheduling import ChunkClass
 from cellier.render.visuals._masked_image import value_clipping_planes
@@ -188,7 +188,7 @@ def face_counts(tmp_path_factory):
             try:
                 for op in CUT_OPS:
                     model.single.surface_projection = op
-                    asyncio.run(_wait_for_slicer(viewer.controller))
+                    asyncio.run(_wait_until_loaded(viewer.controller))
                     out[op] = _face_counts(viewer, model)
             finally:
                 viewer.controller.close()
