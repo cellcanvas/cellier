@@ -1,4 +1,4 @@
-"""The ``np.ndarray`` field contract shared by every model here (D44).
+"""The ``np.ndarray`` field contract shared by every model here.
 
 Three things go wrong with the obvious spelling of a numpy field on a
 pydantic model, none of them visible from reading the model:

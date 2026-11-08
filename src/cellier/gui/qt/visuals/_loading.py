@@ -21,11 +21,10 @@ class QtLoadingIndicator(VisualIdGroup):
     """How far a multiscale visual's data has loaded.
 
     A bar of target chunks resident over needed, and a status line: the
-    coarse overview (the backstop) first, then the detail, then
-    ``"Loaded"``.  Both sit in a group titled :data:`DEFAULT_TITLE`, like the
-    image and bounding-box controls.  Read-only: it listens to
-    ``ResliceProgressEvent`` and emits nothing
-    (``plans/progressive_loading_design_v3.md`` 5.13).
+    coarse overview (the backstop) first, then the detail, then ``"Loaded"``.
+    Both sit in a group titled :data:`DEFAULT_TITLE`, like the image and
+    bounding-box controls.  Read-only: it listens to ``ResliceProgressEvent``
+    and emits nothing.
 
     Wire to the controller after construction::
 

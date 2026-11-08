@@ -1,10 +1,9 @@
 """Image visual models shared by both storage types, and the in-memory family.
 
-One image visual per storage type (unified image design D1).  Single-channel
-and composite viewing are two modes of the same visual: ``composite`` switches
-between them, ``single`` holds the one appearance single mode draws with, and
-``channels`` holds the per-channel appearances composite mode draws with
-(sections 3.1 and 3.3).
+One image visual per storage type.  Single-channel and composite viewing are
+two modes of the same visual: ``composite`` switches between them, ``single``
+holds the one appearance single mode draws with, and ``channels`` holds the
+per-channel appearances composite mode draws with.
 """
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ class BaseImageAppearance(BaseDrawAppearance):
     ----------
     visible : bool
         The master switch.  In single mode it is the only visibility; in
-        composite mode each channel's ``visible`` is gated by it (D12).
+        composite mode each channel's ``visible`` is gated by it.
     transparency_mode : str or None
         The pygfx alpha mode for every drawn channel.  ``None`` (the default)
         is automatic: ``"blend"`` in single mode and ``"add"`` in composite
@@ -65,7 +64,7 @@ class BaseImageAppearance(BaseDrawAppearance):
         ``dims.selection.thickness``); a zero thickness draws the plane.
         Each channel projects on its own, then composites; the contrast
         limits and colormap apply to the projected value.  Ignored by a 3D
-        view (oblique 2D design v3, 4.2).
+        view.
     projection_axes : tuple[str, ...]
         The world axis to project along, by name, e.g. ``("z",)``.  It must
         be sliced in the view: a displayed axis, more than one axis or an
@@ -86,7 +85,7 @@ class BaseImageAppearance(BaseDrawAppearance):
 
 
 class BaseImageSingleAppearance(EventedModel):
-    """The mode-dependent fields both image families share (D11).
+    """The mode-dependent fields both image families share.
 
     Parameters
     ----------
@@ -116,8 +115,8 @@ class InMemoryImageAppearance(BaseImageAppearance):
 
     The level-of-detail and motion fields apply to a 2D view on the brick
     route only -- a tilted view, or a projecting image -- which draws the
-    array from 3D bricks with a coarse level (oblique 2D design v3, U1).
-    Aligned 2D views and 3D views load the whole slice and ignore them.
+    array from 3D bricks with a coarse level. Aligned 2D views and 3D
+    views load the whole slice and ignore them.
 
     Parameters
     ----------
@@ -167,17 +166,16 @@ class InMemoryImageChannelAppearance(InMemoryImageSingleAppearance):
 
 
 class BaseImageVisual(BaseVisual):
-    """The fields and rules both image families share (design 3.1).
+    """The fields and rules both image families share.
 
     Parameters
     ----------
     channel_axis : int or None
         The data axis a composite draws channels along.  Fixed at
-        construction (D20).  ``None`` means the image has no channels:
-        composite is unavailable and the visual keeps one slot (D34).  The
-        axis must map to a world axis through ``transform``; the controller
-        checks that, since the model has no transform to check against when it
-        is built.
+        construction.  ``None`` means the image has no channels: composite is
+        unavailable and the visual keeps one slot.  The axis must map to a
+        world axis through ``transform``; the controller checks that, since
+        the model has no transform to check against when it is built.
     composite : bool
         ``False`` (single mode) draws the one sample the world sliders select,
         with ``single``.  ``True`` (composite mode) draws every visible entry
@@ -185,12 +183,12 @@ class BaseImageVisual(BaseVisual):
         position along the channel axis.
 
         **Assign it through ``CellierController.set_image_composite``.**  That
-        refuses to composite an axis the scene displays (design 3.4).  A
-        direct assignment is not checked, because the check needs the scene's
+        refuses to composite an axis the scene displays.  A direct assignment
+        is not checked, because the check needs the scene's
         ``displayed_axes``; the reslice and the events still happen.
     channels : dict[int, channel appearance]
         Per-channel appearances, keyed by index along ``channel_axis``.  Empty
-        is valid and draws nothing in composite mode (D16).
+        is valid and draws nothing in composite mode.
 
         **Every channel has the same ``render_mode``**, hidden ones
         included: the dict is refused otherwise, here and on assignment.
@@ -198,7 +196,7 @@ class BaseImageVisual(BaseVisual):
         sets every channel together; assigning it to one channel of several
         is refused.  ``single.render_mode`` is separate.
     max_channels : int
-        The most channels ``channels`` may hold, in 2D and 3D alike (D15).
+        The most channels ``channels`` may hold, in 2D and 3D alike.
         Default 4.
     render_planes : tuple[RenderPlane, ...]
         The planes the visual draws its data on in a 3D view while its
@@ -260,7 +258,7 @@ class BaseImageVisual(BaseVisual):
         """The channel indices composite mode draws, ascending.
 
         ``D = {k in channels : appearance.visible and channels[k].visible and
-        0 <= k < size}`` (design 3.3).  Empty when the visual is hidden.
+        0 <= k < size}``.  Empty when the visual is hidden.
 
         Parameters
         ----------
@@ -296,7 +294,7 @@ class BaseImageVisual(BaseVisual):
         )
 
     def draws_nothing(self, size: int | None = None) -> bool:
-        """Whether the visual draws nothing and so needs no slicing (3.3).
+        """Whether the visual draws nothing and so needs no slicing.
 
         Hidden, or in composite mode with no drawn channel.
         """
@@ -415,7 +413,7 @@ class ImageVisual(BaseImageVisual):
     )
 
     def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:
-        """The 2D moving setting in a 2D view; ``False`` in 3D (design v3, U1).
+        """The 2D moving setting in a 2D view; ``False`` in 3D.
 
         Only a view on the brick route plans by level, so only it is
         affected.

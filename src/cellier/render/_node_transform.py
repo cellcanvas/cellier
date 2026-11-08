@@ -1,4 +1,4 @@
-"""Place a pygfx node with a matrix that may carry shear (design v2, D2).
+"""Place a pygfx node with a matrix that may carry shear.
 
 pygfx's ``WorldObject.local`` defaults to ``state_basis="components"``:
 assigning ``local.matrix`` decomposes the matrix into position, rotation and

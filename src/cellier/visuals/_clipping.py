@@ -1,4 +1,4 @@
-"""Clipping planes: the model a visual carries (clipping planes design v2)."""
+"""Clipping planes: the model a visual carries."""
 
 from __future__ import annotations
 

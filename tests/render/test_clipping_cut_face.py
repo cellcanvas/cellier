@@ -1,4 +1,4 @@
-"""The cut face of a clipped volume (clipping planes design 4.3, D21).
+"""The cut face of a clipped volume.
 
 A clipped ray starts inside the object, so an ISO or label volume draws a
 solid face on the plane.  That face sits on the plane and is lit, and
@@ -176,7 +176,7 @@ async def test_the_cut_face_is_on_the_plane_with_its_normal(
         if kind.endswith("smooth_geometry") and _near_a_label_edge(point):
             # The smooth surface rounds a label's edges, so within a voxel or
             # two of one the hit is the label's own surface, a little inside
-            # the plane, with its own normal.  That is intended (design 4.3).
+            # the plane, with its own normal.  That is intended.
             continue
         written = normals[row, col, :3]
         if float(np.linalg.norm(written)) < 0.5:

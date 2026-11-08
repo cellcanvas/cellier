@@ -1,4 +1,4 @@
-"""Geometric value objects: axis-aligned boxes and planes (D29)."""
+"""Geometric value objects: axis-aligned boxes and planes."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class AxisAlignedBoundingBox(BaseModel):
     """An axis-aligned box, in one named coordinate system.
 
     Bounds may be infinite: an unbounded axis is a first-class value
-    here (D31), and it is the answer a region gives for a displayed axis
+    here, and it is the answer a region gives for a displayed axis
     nothing constrains.  ``nan`` is rejected.
 
     The coordinate system id is carried so that handing a world-space box
@@ -62,12 +62,12 @@ class AxisAlignedBoundingBox(BaseModel):
     @field_validator("min_coordinate", "max_coordinate", mode="before")
     @classmethod
     def _coerce_bounds(cls, value: Any) -> np.ndarray:
-        """Coerce to a float array, accepting the infinity sentinels (D44)."""
+        """Coerce to a float array, accepting the infinity sentinels."""
         return reject_nan(coerce_float_array(value), "A bounding box bound")
 
     @field_serializer("min_coordinate", "max_coordinate")
     def _serialize_bounds(self, value: np.ndarray) -> list[float | str]:
-        """Emit infinities as sentinel strings so JSON round-trips (D44)."""
+        """Emit infinities as sentinel strings so JSON round-trips."""
         return serialize_bounds(value)
 
     @model_validator(mode="after")
@@ -95,7 +95,7 @@ class AxisAlignedBoundingBox(BaseModel):
         return int(self.min_coordinate.shape[0])
 
     def __eq__(self, other: object) -> bool:
-        """Compare by coordinate system and bounds (D44)."""
+        """Compare by coordinate system and bounds."""
         if not isinstance(other, AxisAlignedBoundingBox):
             return NotImplemented
         return (
@@ -105,7 +105,7 @@ class AxisAlignedBoundingBox(BaseModel):
         )
 
     def __hash__(self) -> int:
-        """Hash by coordinate system and bounds (D44)."""
+        """Hash by coordinate system and bounds."""
         return hash(
             (
                 self.coordinate_system,
@@ -122,9 +122,8 @@ class Plane(BaseModel):
     design section 4.1 are stated directly on ``(normal, offset)``, and a
     stored point would have to be re-derived on every map anyway.
 
-    The normal is **not** required to be unit length (D28).  It is
-    required to be finite and non-zero: a zero normal does not describe a
-    plane.
+    The normal is **not** required to be unit length.  It is required to
+    be finite and non-zero: a zero normal does not describe a plane.
 
     Parameters
     ----------
@@ -134,7 +133,7 @@ class Plane(BaseModel):
         The plane normal.  Finite, non-zero, any magnitude.  Read-only: a
         plane is changed by building a new one.
     offset : float
-        The plane offset.  Finite (D44).
+        The plane offset.  Finite.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -146,13 +145,13 @@ class Plane(BaseModel):
     @field_validator("normal", mode="before")
     @classmethod
     def _coerce_normal(cls, value: Any) -> np.ndarray:
-        """Coerce to a finite float array (D44)."""
+        """Coerce to a finite float array."""
         return reject_non_finite(coerce_float_array(value), "Plane.normal")
 
     @field_validator("offset")
     @classmethod
     def _validate_offset(cls, value: float) -> float:
-        """Reject a non-finite offset (D44)."""
+        """Reject a non-finite offset."""
         if not np.isfinite(value):
             raise ValueError(f"Plane.offset must be finite; got {value}.")
         return value
@@ -280,7 +279,7 @@ class Plane(BaseModel):
         return int(self.normal.shape[0])
 
     def __eq__(self, other: object) -> bool:
-        """Compare by coordinate system, normal and offset (D44)."""
+        """Compare by coordinate system, normal and offset."""
         if not isinstance(other, Plane):
             return NotImplemented
         return (
@@ -290,5 +289,5 @@ class Plane(BaseModel):
         )
 
     def __hash__(self) -> int:
-        """Hash by coordinate system, normal and offset (D44)."""
+        """Hash by coordinate system, normal and offset."""
         return hash((self.coordinate_system, self.normal.tobytes(), self.offset))

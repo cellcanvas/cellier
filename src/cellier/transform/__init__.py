@@ -7,8 +7,8 @@ compose without a downsampling assumption, and what a region needs in order
 to be pulled back through anything at all.
 
 Built alongside an earlier, unnamed transform layer under this same path --
-the two were deliberately independent, neither importing from the other (D1)
--- and took the name over when that layer was retired in Phase 8 of the
+the two were deliberately independent, neither importing from the other --
+and took the name over when that layer was retired in Phase 8 of the
 integration.
 """
 

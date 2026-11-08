@@ -1,4 +1,4 @@
-"""Multiscale image visual models (unified image design 3.1)."""
+"""Multiscale image visual models."""
 
 from typing import Any, Literal
 

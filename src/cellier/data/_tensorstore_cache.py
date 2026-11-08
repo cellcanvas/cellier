@@ -65,10 +65,9 @@ field) while rechecks are off gets a **one-shot** revalidation instead: the
 handles are reopened on the same context with ``recheck_cached_data="open"``
 (and the same for metadata), so every chunk cached before the change is
 revalidated once when next read -- a ``304`` if it is unchanged, a refetch
-if it changed -- and trusted again afterwards
-(``plans/progressive_loading_design_v3.md`` 5.14).  This is what makes a
-live store that another process appends to show its new data without
-turning rechecks on for good.
+if it changed -- and trusted again afterwards.  This is what makes a live
+store that another process appends to show its new data without turning
+rechecks on for good.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""The per-axis bounds index (``plans/mesh_refactor_v3.md`` S4).
+"""The per-axis bounds index.
 
 Its queries are checked against a pass over every item, on random items:
 points (``min == max``), short segments, and a few long outliers.

@@ -1,4 +1,3 @@
-# src/cellier/v2/data/points/_points_requests.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -40,19 +39,19 @@ class PointsSliceRequest(NamedTuple):
         world axes raises on the first and silently uploads the wrong columns
         on the second.
     region : ConvexRegion
-        The selected region, already pulled back into **data** coordinates
-        (design 3.12).  It is the whole filter -- one ``contains`` call
+        The selected region, already pulled back into **data**
+        coordinates.  It is the whole filter -- one ``contains`` call
         instead of a per-axis mask loop.
 
         Until v1 was retired this was optional, and a request without one
         fell back to comparing a **world** position from ``slice_indices``
         against **data** coordinates -- the latent bug D4 exists to fix: on a
         2 um z spacing it could show a point 24 um off the slice plane and
-        hide the three that are on it.  There is no second path now (R8.3).
+        hide the three that are on it.  There is no second path now.
     fold_axes : tuple[int, ...]
         Collapsed data axes whose columns the store also returns, for the
-        render layer's per-element fold (full affine design v2, D11).  Empty
-        in every view where no collapsed axis reaches a displayed one.
+        render layer's per-element fold.  Empty in every view where no
+        collapsed axis reaches a displayed one.
     """
 
     slice_request_id: UUID

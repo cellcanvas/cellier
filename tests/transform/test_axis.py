@@ -1,4 +1,4 @@
-"""Tests for cellier.transform._axis (D2-D5)."""
+"""Tests for cellier.transform._axis."""
 
 from uuid import uuid4
 
@@ -21,13 +21,13 @@ def test_every_rfc5_axis_type_is_accepted(axis_type):
     assert Axis(name="z", axis_type=axis_type).axis_type == axis_type
 
 
-def test_axis_type_is_required_d3():
-    """D3: no default, because a wrongly typed axis fails far from its cause."""
+def test_axis_type_is_required():
+    """No default, because a wrongly typed axis fails far from its cause."""
     with pytest.raises(ValidationError):
         Axis(name="z")
 
 
-def test_both_spellings_parse_and_by_alias_emits_type_d2():
+def test_both_spellings_parse_and_by_alias_emits_type():
     from_python = Axis(name="z", axis_type="space")
     from_wire = Axis.model_validate({"name": "z", "type": "space"})
     assert from_python.axis_type == from_wire.axis_type == "space"
@@ -44,21 +44,21 @@ def test_round_trips_through_both_dump_flavours():
     assert Axis.model_validate(axis.model_dump(by_alias=True)) == axis
 
 
-def test_axis_is_frozen_d5():
+def test_axis_is_frozen():
     axis = Axis(name="z", axis_type="space")
     with pytest.raises(ValidationError):
         axis.name = "y"
 
 
-def test_two_axes_with_the_same_name_have_different_ids_d5():
+def test_two_axes_with_the_same_name_have_different_ids():
     first = Axis(name="z", axis_type="space")
     second = Axis(name="z", axis_type="space")
     assert first.name == second.name
     assert first.id != second.id
 
 
-def test_unit_is_free_form_and_unvalidated_d4():
-    """D4: RFC-5 says UDUNITS-2; nothing here parses it."""
+def test_unit_is_free_form_and_unvalidated():
+    """RFC-5 says UDUNITS-2; nothing here parses it."""
     nonsense = "furlongs per " + "fortnight"
     assert Axis(name="z", axis_type="space", unit=nonsense).unit == nonsense
     assert Axis(name="z", axis_type="space").unit is None

@@ -1,4 +1,4 @@
-"""The graph trail's endpoint pull-back (implementation plan, Phase 7).
+"""The graph trail's endpoint pull-back.
 
 The trail window used to be converted from world units to data units by
 dividing its width by the axis scale.  It is now converted by pulling the

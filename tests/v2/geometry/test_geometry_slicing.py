@@ -1,4 +1,4 @@
-"""Geometry visuals slice against the pulled-back region (design 3.12, 3.13).
+"""Geometry visuals slice against the pulled-back region.
 
 The only phase that is deliberately **not** behaviour-preserving.  Today the
 stores compare a **world** slice position directly against **data**
@@ -68,7 +68,7 @@ def _selection(world, displayed, slabs):
 
 
 # ---------------------------------------------------------------------------
-# Design 3.12: zyx data in a ZYX world
+# Zyx data in a ZYX world
 # ---------------------------------------------------------------------------
 
 
@@ -176,9 +176,9 @@ def test_a_thickness_the_user_asked_for_is_the_band(points_3_12):
 
 
 def test_oblique_needs_no_further_work(points_3_12):
-    """Design 3.12: points are the one family where oblique selection is free
-    once the region is the transport -- no chunk grid to intersect and no
-    rounding rule to generalise."""
+    """Points are the one family where oblique selection is free once the
+    region is the transport -- no chunk grid to intersect and no rounding
+    rule to generalise."""
     _data, world, transform, positions = points_3_12
     normal = np.array([1.0, 0.6, 0.0])
     normal = normal / np.linalg.norm(normal)
@@ -190,7 +190,7 @@ def test_oblique_needs_no_further_work(points_3_12):
 
 
 # ---------------------------------------------------------------------------
-# Design 3.13: tzyx data in a TCZYX world -- the broadcast case
+# Tzyx data in a TCZYX world -- the broadcast case
 # ---------------------------------------------------------------------------
 
 
@@ -244,13 +244,13 @@ def test_the_transform_has_an_all_zero_broadcast_row(points_3_13):
     assert transform.broadcast_axes == frozenset({world.axes[1].id})
 
 
-def test_without_d8_the_points_would_disappear(points_3_13):
+def test_without_the_broadcast_drop_the_points_would_disappear(points_3_13):
     """The failure D8 exists to prevent, stated as a fact about the region.
 
     The forward map places every point at world ``C = 0``, which is the
     matrix's answer and not the truth -- the truth is "these points exist at
-    every C", which no matrix can express (D25).  Pulled back without the
-    drop rule, ``C = 2`` becomes ``0 <= -1.5`` and the region is empty: the
+    every C", which no matrix can express.  Pulled back without the drop
+    rule, ``C = 2`` becomes ``0 <= -1.5`` and the region is empty: the
     points visual vanishes the moment the channel slider leaves zero, while
     the image next to it renders normally.
     """
@@ -266,7 +266,7 @@ def test_without_d8_the_points_would_disappear(points_3_13):
     assert not naive.contains(positions).any()
 
 
-def test_with_d8_the_channel_constraint_is_dropped(points_3_13):
+def test_with_the_broadcast_drop_the_channel_constraint_is_dropped(points_3_13):
     """Design 3.13's answer: p0, p1 and p2 are at world T of 0.75, 1.00 and
     1.25, all inside ``1.0 +- 0.5``, and their channel is irrelevant because
     they have none."""

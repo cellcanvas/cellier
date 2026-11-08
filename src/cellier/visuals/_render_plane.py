@@ -1,10 +1,10 @@
 """Render planes: the planes a visual in ``"plane"`` render mode draws on.
 
-Plane rendering design v3, section 4.  A render plane is a pose in the
-scene's world space (an origin and two in-plane axes) with an extent along
-each in-plane axis.  It is unlike a ``ClippingPlane``, which is a half-space
-in the visual's data coordinates: a frame and a rectangle do not survive an
-anisotropic data transform, so they live in world units.
+A render plane is a pose in the scene's world space (an origin and two
+in-plane axes) with an extent along each in-plane axis.  It is unlike a
+``ClippingPlane``, which is a half-space in the visual's data coordinates: a
+frame and a rectangle do not survive an anisotropic data transform, so they
+live in world units.
 """
 
 from __future__ import annotations

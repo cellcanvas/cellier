@@ -1,4 +1,4 @@
-"""World-frame placement for geometry in ``OBLIQUE`` views (design v2, Phase 6).
+"""World-frame placement for geometry in ``OBLIQUE`` views.
 
 A 2D view whose slice is tilted through a geometry visual's data -- a
 rotation about an axis that is not the view's normal -- selects a tilted
@@ -12,7 +12,7 @@ node matrix is a translation only (the upload is relative to a rounded
 origin, so float32 keeps its precision far from zero).
 
 Selection is unchanged: ``geometry_data_region`` pulls the tilted world
-slab back exactly (K12).  Clipping planes are applied by the read on the
+slab back exactly.  Clipping planes are applied by the read on the
 elements' true positions, since the node frame is no longer the data's.
 """
 

@@ -1,4 +1,4 @@
-"""The property test with cache policies (``plans/mesh_refactor_v3.md`` 5.2).
+"""The property test with cache policies.
 
 The environment of ``test_property.py`` with each cache given, at random, a
 resource (``"io"`` or ``"compute"``), a cap on target reads (``None``, 1, 2
@@ -22,14 +22,12 @@ invariant of ``test_property.py`` is kept; these change or are new:
      without an invalidation;
 5    liveness, unchanged, now with caps and holds.
 
-Plans here also draw intermediate stages
-(``plans/progressive_intermediate_level_design_v2.md`` 9.8): bricks between
-the backstop and the target whose class is their offset.  They are drawn
-here and not in ``test_property.py``, whose random stream is the trace
-baseline's.  The draw is made for every plan, so the stream does not depend
-on the policy, and used only on a cache with no cap on target reads: a
-capped cache holds every read that is not a backstop read, and plans no
-stage (meshes).
+Plans here also draw intermediate stages: bricks between the backstop and
+the target whose class is their offset.  They are drawn here and not in
+``test_property.py``, whose random stream is the trace baseline's.  The
+draw is made for every plan, so the stream does not depend on the policy,
+and used only on a cache with no cap on target reads: a capped cache holds
+every read that is not a backstop read, and plans no stage (meshes).
 
 Each mutant is a deliberate bug in the core; the invariants must catch it.
 """

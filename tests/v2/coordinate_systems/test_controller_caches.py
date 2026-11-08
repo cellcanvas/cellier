@@ -85,7 +85,7 @@ def test_the_rendered_system_is_in_cellier_displayed_order(controller_with_canva
 async def test_the_embedding_records_the_slice_position_as_a_constant(
     controller_with_canvas,
 ):
-    """D35: a world axis the canvas does not display sits at a definite
+    """A world axis the canvas does not display sits at a definite
     position, carried in the translation column."""
     controller, scene, canvas_id, _visual, _store = controller_with_canvas
     controller.update_slice_indices(scene.id, {0: 1.5})
@@ -152,8 +152,8 @@ async def test_changing_the_displayed_set_rebuilds_the_rendered_system(
 async def test_a_pure_reorder_still_rebuilds_the_rendered_system(
     controller_with_canvas,
 ):
-    """Design 3.14: a transpose fetches identical data but is a different
-    rendered system, and the node matrices derived from it change."""
+    """A transpose fetches identical data but is a different rendered
+    system, and the node matrices derived from it change."""
     controller, scene, canvas_id, _visual, _store = controller_with_canvas
     before, _ = controller._rendered[canvas_id]
     assert before.axis_names() == ("z", "y", "x")
@@ -201,7 +201,7 @@ async def test_the_visual_system_drops_the_collapsed_axes(controller_with_canvas
 
 
 def test_two_visuals_over_one_store_get_distinct_spaces(controller_with_canvas):
-    """D45: the system is per visual, so two visuals never share axis ids."""
+    """The system is per visual, so two visuals never share axis ids."""
     controller, scene, _canvas_id, first, store = controller_with_canvas
     second = controller.add_image(
         data=store,

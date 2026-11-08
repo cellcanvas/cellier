@@ -1,4 +1,4 @@
-"""The Qt dims control's press and release scopes (tracker design 4.8).
+"""The Qt dims control's press and release scopes.
 
 A slider press opens a dims interaction scope and its release closes it, so
 a scrub ends on release.  The release flushes the throttle first: the end

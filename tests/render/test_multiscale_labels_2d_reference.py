@@ -1,13 +1,13 @@
 """2D multiscale labels, pixel by pixel, against the reference sampler.
 
-``plans/multiscale_level_transform_v2.md``, R2 and R3.  The centroid harness
-(``test_multiscale_level_alignment.py``) needs integer level ratios, so it
-cannot see tile seams on a non-integer pyramid, which is where the ghost
-border and the cell -> tile rule matter.  2D labels are nearest-sampled, so
-the reference sampler (``_level_reference.sample_nearest``) predicts every
-pixel: map each pixel centre to data coordinates through the camera, take
-the level voxel ``floor(u + 0.5)``, and compare its label with the colour
-drawn there.  Only pixels on a label boundary are ignored.
+The centroid harness (``test_multiscale_level_alignment.py``) needs integer
+level ratios, so it cannot see tile seams on a non-integer pyramid, which is
+where the ghost border and the cell -> tile rule matter.  2D labels are
+nearest-sampled, so the reference sampler
+(``_level_reference.sample_nearest``) predicts every pixel: map each pixel
+centre to data coordinates through the camera, take the level voxel
+``floor(u + 0.5)``, and compare its label with the colour drawn there.  Only
+pixels on a label boundary are ignored.
 
 The pyramid has non-integer ratios in y (98 -> 49 -> 24: 2 and 4.083), a
 translation inside the contract on every coarse level, an 8-voxel block so
@@ -17,7 +17,7 @@ centres, so a correctly placed level agrees with the pattern everywhere
 except where a coarse voxel straddles a pattern boundary -- and the oracle
 reads the level's own array, so even those pixels must match.
 
-R3: at level 0, a pick one pixel inside a label edge returns the label drawn
+At level 0, a pick one pixel inside a label edge returns the label drawn
 under that pixel.
 """
 
@@ -37,7 +37,8 @@ from tests.render._level_reference import sample_nearest
 #: (z, y, x) per level; z is never downsampled.
 SHAPES = [(4, 98, 60), (4, 49, 30), (4, 24, 15)]
 SCALES = [tuple(s0 / sk for s0, sk in zip(SHAPES[0], shape)) for shape in SHAPES]
-#: Level translations inside C3 (``-0.5 <= t <= s - 0.5``), level-0 voxels.
+#: Level translations inside the level contract's offset bound
+#: (``-0.5 <= t <= s - 0.5``), level-0 voxels.
 TRANSLATIONS = [
     (0.0, 0.4 * s[1] if s[1] > 1 else 0.0, 0.2 * s[2] if s[2] > 1 else 0.0)
     for s in SCALES
@@ -197,7 +198,7 @@ async def test_every_pixel_matches_the_reference(
 async def test_a_pick_just_inside_a_label_edge_returns_the_drawn_label(
     controller, render_scene, reslice, tmp_path
 ):
-    """R3: picking agrees with drawing, one pixel inside each label edge."""
+    """Picking agrees with drawing, one pixel inside each label edge."""
     import pygfx as gfx
     from rendercanvas.offscreen import RenderCanvas
 

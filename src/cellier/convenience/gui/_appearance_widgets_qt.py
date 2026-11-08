@@ -6,8 +6,7 @@ decision of *which* controls, in what order, seeded with what, is made once in
 ``convenience.layout._shared.appearance_specs`` and shared by both.
 
 It lived inside ``layout/_qt_renderer.py`` until the two halves were put side
-by side, which is what made their symmetry visible
-(``plans/gui_backend_seam.md``).
+by side, which is what made their symmetry visible.
 
 Builders take no ``parent``: every widget built here is added to a layout
 immediately, and Qt reparents it then.
@@ -17,8 +16,7 @@ from __future__ import annotations
 
 # Each builder takes ``visual_ids`` -- one id on a ``Viewer``, the four panel
 # siblings on an ``OrthoViewer``.  Every widget below accepts either shape via
-# ``VisualIdGroup`` (design section 8.3 step 1), so the fan-out costs the
-# builders nothing.
+# ``VisualIdGroup``, so the fan-out costs the builders nothing.
 
 
 def _qt_image(spec, visual_ids, controller):

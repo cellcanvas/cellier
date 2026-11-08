@@ -1,4 +1,4 @@
-"""The unified image control on both toolkits (unified image design 3.10).
+"""The unified image control on both toolkits.
 
 One control per image visual: the shared section, a composite switch shown
 only when the visual has a channel axis, and a page per mode.  These tests

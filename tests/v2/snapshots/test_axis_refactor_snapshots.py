@@ -152,7 +152,7 @@ def _capture_image_geometry_2d(geom: ImageGeometry3D) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Scenario S1: orthoviewer_3d
+# Scenario: orthoviewer_3d
 # ---------------------------------------------------------------------------
 
 
@@ -196,7 +196,7 @@ def test_snapshot_orthoviewer_3d():
 
 
 # ---------------------------------------------------------------------------
-# Scenario S2: multiscale_paint_2d
+# Scenario: multiscale_paint_2d
 # ---------------------------------------------------------------------------
 
 
@@ -237,7 +237,7 @@ def test_snapshot_multiscale_paint_2d():
 
 
 # ---------------------------------------------------------------------------
-# Scenario S3: orthoviewer 2D-mode-on-3D-data (the [-2:] fallback)
+# Scenario: orthoviewer_2d_in_3d, 2D mode on 3D data (the [-2:] fallback)
 # ---------------------------------------------------------------------------
 
 

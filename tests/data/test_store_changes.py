@@ -1,4 +1,4 @@
-"""Stores announce their own changes (``plans/store_change_events.md``)."""
+"""Stores announce their own changes."""
 
 from __future__ import annotations
 

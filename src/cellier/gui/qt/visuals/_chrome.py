@@ -1,10 +1,10 @@
 """How a Qt appearance control shows its own name.
 
-A control names itself; whatever lays it out only stacks
-(``plans/label_ownership_unification.md``).  The two shapes a name takes are
-here so that both the single-field base (``_base.QtAppearanceField``) and the
-hand-written multi-control widgets draw them the same way, and so the anywidget
-front end has one thing to mirror rather than five:
+A control names itself; whatever lays it out only stacks.  The two shapes a
+name takes are here so that both the single-field base
+(``_base.QtAppearanceField``) and the hand-written multi-control widgets draw
+them the same way, and so the anywidget front end has one thing to mirror
+rather than five:
 
 * :func:`labelled_row` -- a single control, named by a label beside it.  The
   Qt twin of the anywidget ``.cellier-app-row``.

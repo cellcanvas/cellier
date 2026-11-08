@@ -1,4 +1,4 @@
-"""The mesh section kernel (``plans/mesh_refactor_v3.md`` 5.5, X1-X5).
+"""The mesh section kernel.
 
 Two kinds of check:
 
@@ -433,7 +433,7 @@ def test_no_colours_in_means_no_colours_out():
     assert parts.outline_colors is None
 
 
-# -- slab mode (X3) -----------------------------------------------------------
+# -- slab mode ----------------------------------------------------------------
 
 
 def test_a_slab_through_a_cube_has_the_analytic_area():
@@ -496,7 +496,7 @@ def test_a_slab_on_an_oblique_plane_stays_inside_it():
     assert parts.n_closed_loops == 2
 
 
-# -- closure report (X5) ------------------------------------------------------
+# -- closure report -----------------------------------------------------------
 
 
 def test_a_closed_mesh_reports_closed():

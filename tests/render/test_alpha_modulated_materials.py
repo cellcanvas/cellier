@@ -75,9 +75,8 @@ def _point_peaks(image, positions, channel):
 def test_pygfx_shader_anchors_still_valid():
     """Build both shaders' wgsl and assert every anchor was found.
 
-    This is the cheap unit-level version of
-    ``scripts/v2/graph_alpha_spike.py`` and the thing that catches a pygfx
-    bump moving a substitution site.  It runs without a wgpu adapter, so it
+    This is the check that catches a pygfx bump moving a substitution
+    site.  It runs without a wgpu adapter, so it
     executes everywhere the suite does.
     """
     points, _ = _points_object([0.0, 1.0])

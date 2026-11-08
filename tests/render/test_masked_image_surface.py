@@ -1,4 +1,4 @@
-"""The MaskedImage's 3D surface (masked image design v2, Phase 4; 6.2, 6.4).
+"""The MaskedImage's 3D surface.
 
 The pair is the synthetic example's (``tests/render/_masked.py``): the mask
 is an ellipsoid's distance map and the value its bands of ``BAND_WIDTH``
@@ -8,10 +8,10 @@ and the placement.  Each band is one primary of a nearest colormap, read as
 a pixel's brightest channel (Phong shading scales a colour and adds a grey
 highlight).
 
-The extent clamp (MI-P16) is checked here on a mask forced to a coarse level
-that covers less than the finest; its control switches the clamp off
-through the material, the switch the template variable has for this purpose
-only.  The clamp under a camera drag is in ``test_masked_image_drag.py``.
+The extent clamp is checked here on a mask forced to a coarse level that
+covers less than the finest; its control switches the clamp off through the
+material, the switch the template variable has for this purpose only.  The
+clamp under a camera drag is in ``test_masked_image_drag.py``.
 """
 
 from __future__ import annotations
@@ -157,7 +157,7 @@ def surface_counts(tmp_path_factory):
     return get
 
 
-# -- the value at the surface (6.2) ----------------------------------------------
+# -- the value at the surface ----------------------------------------------------
 
 
 @pytest.mark.parametrize("kind", ["memory", "lazy"])
@@ -173,7 +173,7 @@ def test_the_surface_shows_its_band(surface_counts, kind, value_scale, iso, band
     assert counts[band - 1] == counts.sum(), counts
 
 
-# -- the projection along the normal (6.2) ---------------------------------------
+# -- the projection along the normal ---------------------------------------------
 
 
 @pytest.mark.parametrize(("op", "placement", "iso", "thickness", "bands"), PROJECTIONS)
@@ -233,7 +233,7 @@ def test_instantiate_by_text_refuses_a_missing_accessor():
         instantiate_by_text("fn get_lod_scale() {}")
 
 
-# -- the extent clamp (MI-P16, 6.4) -----------------------------------------------
+# -- the extent clamp -------------------------------------------------------------
 
 
 def _strip_viewer(tmp_path, clamp: bool):

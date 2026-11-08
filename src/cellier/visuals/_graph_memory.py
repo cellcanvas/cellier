@@ -1,4 +1,3 @@
-# src/cellier/visuals/_graph_memory.py
 from __future__ import annotations
 
 from typing import Literal
@@ -62,8 +61,8 @@ class TrailConfig(EventedModel):
     min_alpha : float
         Floor applied to in-window elements, so a trail need not vanish
         before the window ends.  Out-of-window elements are forced to
-        exactly 0.0 regardless, so a dangling edge (D13) fades to nothing
-        at the boundary rather than being cut square.
+        exactly 0.0 regardless, so a dangling edge fades to nothing at
+        the boundary rather than being cut square.
     """
 
     before: float = 0.5
@@ -92,7 +91,7 @@ class GraphAppearance(BaseAppearance):
     event group, and ``Controller._wire_appearance`` subscribes only to
     ``visual.appearance.events`` -- so composing this from
     ``PointsMarkerAppearance`` and ``LinesMemoryAppearance`` would silently
-    drop every node and edge appearance change (D9).  The cost is a dozen
+    drop every node and edge appearance change.  The cost is a dozen
     duplicated field declarations; the benefit is that the appearance event
     bridge, the GUI control generation and serialization all work unchanged.
 
@@ -112,7 +111,7 @@ class GraphAppearance(BaseAppearance):
     node_size_space : str
         ``"screen"`` (pixels) or ``"world"``.
     node_color_mode : str
-        Declares **where node RGB comes from** (D20): ``"uniform"`` is this
+        Declares **where node RGB comes from**: ``"uniform"`` is this
         model's ``node_color``, ``"vertex"`` is the store's per-node
         colours.  A caller declaration, never inferred from the data and
         never overwritten at commit time.
@@ -128,8 +127,8 @@ class GraphAppearance(BaseAppearance):
         Write nodes into the pick buffer.
     node_depth_compare : str
         Defaults to ``"<="``, not ``BaseAppearance``'s ``"<"``, so a node
-        coplanar with an edge wins the tie and reads on top (D22).  This is
-        the mechanism -- ``render_order`` was measured and does nothing for
+        coplanar with an edge wins the tie and reads on top.  This is the
+        mechanism -- ``render_order`` was measured and does nothing for
         coplanar children.  User-overridable like any other field.
     edge_color : tuple[float, float, float, float]
         RGBA uniform edge colour.  A dimmer grey than the node default so
@@ -170,7 +169,7 @@ class GraphVisual(BaseVisual):
     """Model-layer visual for a spatial graph backed by ``GraphMemoryStore``.
 
     Rendered as a pygfx compound: one group holding a points node and a
-    line-segment node (D1).
+    line-segment node.
 
     ``trail`` lives on the visual rather than on the appearance because it
     selects *which data is fetched*, so every change to it must trigger a
@@ -181,7 +180,7 @@ class GraphVisual(BaseVisual):
     An out-of-range trail axis raises ``ValueError``; a valid-but-currently-
     displayed one warns once per (visual, axis).  Both live in the
     controller, because the visual holds only ``data_store_id`` while
-    ``ndim`` is on the store (D21).
+    ``ndim`` is on the store.
 
     Parameters
     ----------

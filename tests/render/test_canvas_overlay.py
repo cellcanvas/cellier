@@ -1,4 +1,4 @@
-"""Tests for the render-layer canvas overlay ``GFXCenteredAxes2D`` (Phase 3).
+"""Tests for the render-layer canvas overlay ``GFXCenteredAxes2D``.
 
 The overlay owns its own ``gfx.Scene`` + ``ScreenCoordsCamera`` and rebuilds
 its two axis-line segments from the live camera each frame, so it can be tested

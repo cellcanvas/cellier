@@ -74,12 +74,12 @@ def test_replay_matches_baseline(case: Case, baselines: dict[str, dict]):
             f"{result[field]!r}\n"
             + (
                 "This case is a registered behaviour change "
-                f"({recorded.get('xfail_reason')}). If the owning phase is "
-                "flipping it deliberately, re-record the baseline for this "
-                "family and update its readout."
+                f"({recorded.get('xfail_reason')}). If a change flips it "
+                "deliberately, re-record the baseline for this family and "
+                "update its readout."
                 if recorded.get("xfail_reason")
-                else "This case is NOT a registered behaviour change -- design "
-                "3.6 marks only three sites as behaviour-changing and "
+                else "This case is NOT a registered behaviour change -- only "
+                "the groups in _harness.XFAIL_GROUPS change behaviour, and "
                 "everything else must match bit for bit."
             )
         )
@@ -101,8 +101,8 @@ def test_known_behaviour_changes_are_registered():
         assert case.xfail_reason  # a human-readable why
 
     # points, lines, graph and mesh each contribute non-identity cases
-    # (design 3.6) and, since the thickness floor went, identity ones too;
-    # in-memory labels changed when they took the one-plane slicing rule.
+    # and, since the thickness floor went, identity ones too; in-memory
+    # labels changed when they took the one-plane slicing rule.
     assert set(by_family) == {
         "GFXPointsMemoryVisual",
         "GFXLinesMemoryVisual",

@@ -1,4 +1,4 @@
-"""Discriminated union of all visual model types for cellier v2."""
+"""Discriminated union of all visual model types."""
 
 from typing import Union
 

@@ -1,4 +1,4 @@
-"""Label outlines: the per-label key and the selection layer (Stage 7b/7c).
+"""Label outlines: the per-label key and the selection layer.
 
 Covers the two demo checklist items Phase 1 could not reach:
 

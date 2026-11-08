@@ -1,6 +1,5 @@
 """Intermediate loading stages: the ancestors of a target plan.
 
-``plans/progressive_intermediate_level_design_v2.md``, sections 3 and 6.
 The expected ancestors are stored in ``intermediate_bricks_cases.json``
 (reviewed with the design; never regenerated), not recomputed here.
 """

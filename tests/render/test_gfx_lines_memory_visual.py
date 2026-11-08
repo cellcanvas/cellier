@@ -93,7 +93,7 @@ def _make_batch(store, displayed=(0, 1, 2), sliced=None):
 
 
 def _commit(visual, batch, displayed=(0, 1, 2)):
-    """Upload the batch's one result, as the residency would (design v2 4.11)."""
+    """Upload the batch's one result, as the residency would."""
     request, data = batch[0]
     if request is None:
         sid = uuid4()
@@ -328,7 +328,7 @@ def test_commit_uploads_colors_without_touching_color_mode():
 
 
 def test_declared_uniform_survives_store_colors():
-    """Store carries colours, appearance says uniform -> stays uniform (D20)."""
+    """Store carries colours, appearance says uniform -> stays uniform."""
     v = _visual(_store(), appearance=LinesMemoryAppearance(color_mode="uniform"))
     _commit(v, [(None, _colored_lines_data())])
     assert v._material.color_mode == "uniform"
@@ -336,7 +336,7 @@ def test_declared_uniform_survives_store_colors():
 
 
 def test_declared_vertex_without_colors_raises():
-    """The mismatch is a misconfiguration, not a silent fallback (D20)."""
+    """The mismatch is a misconfiguration, not a silent fallback."""
     v = _visual(_store(), appearance=LinesMemoryAppearance(color_mode="vertex"))
     data = LinesData(
         request_id=uuid4(),

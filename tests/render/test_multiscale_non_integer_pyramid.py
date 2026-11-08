@@ -107,7 +107,7 @@ def bands_root(tmp_path):
 
 
 #: Pixels kept clear of the silhouette in 3D, where the coarse level's
-#: outermost half texel still lands differently (plan v2 Phase 6).
+#: outermost half texel still lands differently.
 EROSION_3D = 4
 
 

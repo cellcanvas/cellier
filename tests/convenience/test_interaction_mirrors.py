@@ -1,4 +1,4 @@
-"""``Viewer`` and ``OrthoViewer`` mirrors of the interaction API (design 4.8)."""
+"""``Viewer`` and ``OrthoViewer`` mirrors of the interaction API."""
 
 from __future__ import annotations
 

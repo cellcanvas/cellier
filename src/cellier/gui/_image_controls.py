@@ -1,4 +1,4 @@
-"""Toolkit-neutral half of the unified image control (unified image design 3.10).
+"""Toolkit-neutral half of the unified image control.
 
 Both front ends draw the same control -- a shared section, a mode switch, a
 single-mode page and a composite page -- and have to answer the same questions
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 #: Shared-section fields, in display order.  The projection rows are shown
-#: only when the field list names them (oblique 2D design v3, 4.2).
+#: only when the field list names them.
 SHARED_FIELDS: tuple[str, ...] = (
     "visible",
     "transparency_mode",
@@ -47,16 +47,16 @@ NO_PROJECTION_AXIS: str = "(none)"
 #: The projection operators, in display order.
 PROJECTION_OPS: tuple[str, ...] = ("none", "mip", "minip", "mean")
 
-#: A MaskedImage's surface rows (masked image design 10): the thickness and
-#: placement in 2D and 3D, the projection along the normal in 3D only.
+#: A MaskedImage's surface rows: the thickness and placement in 2D and 3D,
+#: the projection along the normal in 3D only.
 SURFACE_FIELDS: tuple[str, ...] = (
     "surface_thickness",
     "surface_placement",
     "surface_projection",
 )
 
-#: A MaskedImage's 2D band rows (design 4.1, 7.2): the minimum width and the
-#: contour search's rays and cap.
+#: A MaskedImage's 2D band rows: the minimum width and the contour search's
+#: rays and cap.
 BAND_FIELDS: tuple[str, ...] = ("surface_min_width_px", "band_rays", "band_cap")
 
 #: Fields each mode page shows, in display order.  A channel row adds
@@ -110,8 +110,7 @@ THREE_D_FIELDS: tuple[str, ...] = ("render_mode", "iso_threshold", "attenuation"
 TWO_D_FIELDS: tuple[str, ...] = PROJECTION_FIELDS
 
 #: A MaskedImage's rows shown only in 3D: a 2D pixel shows its own value, so
-#: nothing is projected (MI-D8), and only a 3D plan filters its target bricks
-#: (design 4.1, 8.3).
+#: nothing is projected, and only a 3D plan filters its target bricks.
 MASKED_THREE_D_FIELDS: tuple[str, ...] = ("surface_projection", "target_bricks")
 
 #: A MaskedImage's rows shown only in 2D: the band's.
@@ -126,7 +125,7 @@ HIDEABLE_FIELDS: tuple[str, ...] = (
 )
 
 #: The integer fields' bounds on the control, ``(min, max)``.  The model's
-#: own lower bound with an upper one the prototype found enough (P0-18).
+#: own lower bound with an upper one the prototype found enough.
 INT_FIELD_RANGES: dict[str, tuple[int, int]] = {
     "band_rays": (1, 64),
     "band_cap": (1, 128),
@@ -136,7 +135,7 @@ INT_FIELD_RANGES: dict[str, tuple[int, int]] = {
 MIN_WIDTH_RANGE: tuple[float, float, float] = (0.0, 8.0, 0.5)
 
 #: A MaskedImage's label overrides: the contrast limits and the threshold are
-#: in different images' units, so the labels say which (design 10).
+#: in different images' units, so the labels say which.
 MASKED_FIELD_LABELS: dict[str, str] = {
     "clim": "Contrast (value)",
     "iso_threshold": "Threshold (mask)",
@@ -233,7 +232,7 @@ def row_visible(
     masked : bool
         Whether the control drives a MaskedImage, whose threshold applies in
         2D as well (it places the contour band), whose projection along the
-        normal is 3D only and whose band rows are 2D only (design 10).
+        normal is 3D only and whose band rows are 2D only.
 
     Returns
     -------
@@ -465,8 +464,8 @@ def image_control_values(
     from cellier.gui._appearance_fields import literal_choices
 
     appearance = visual.appearance
-    # In-memory appearances carry the brick route's LOD fields too (oblique
-    # 2D design v3, U1); only the multiscale family has ``attenuation``.
+    # In-memory appearances carry the brick route's LOD fields too; only
+    # the multiscale family has ``attenuation``.
     multiscale = hasattr(appearance, "attenuation")
     shared = {
         "visible": bool(appearance.visible),
@@ -574,7 +573,7 @@ def _masked_values(
     threshold_range: tuple[float, float] | None,
     thickness_range: tuple[float, float] | None,
 ) -> dict[str, Any]:
-    """The seed's MaskedImage keys (masked image design 10).
+    """The seed's MaskedImage keys.
 
     ``masked`` switches the row rule, ``labels`` names each slider's units,
     and the ranges and choices build the surface and band rows.

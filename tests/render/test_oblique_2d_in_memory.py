@@ -1,7 +1,6 @@
-"""Oblique 2D design v3, Phase 4: in-memory images and labels on the brick route.
+"""In-memory images and labels on the brick route.
 
-``plans/oblique_2d_raster_design_v3.md`` 5.1 (U1), 5.4 (I-iii+, U8, U3) and
-D6.  A tilted 2D view of an in-memory visual is drawn by an inner multiscale
+A tilted 2D view of an in-memory visual is drawn by an inner multiscale
 visual over a two-level brick pyramid (``InMemoryBrickSource``): the array,
 and a coarse level built on a worker at add.
 
@@ -325,7 +324,7 @@ def test_a_transform_jump_moves_an_in_memory_visual_both_ways(tmp_path, family):
         assert not gfx_visual.on_brick_route
         assert _active_node(viewer, visual) is gfx_visual.node_2d
         # Off the route its atlas is no longer the scheduler's; its
-        # whole-slice caches still are (scheduler-only loading v2, D20).
+        # whole-slice caches still are.
         assert coordinator._visual_caches.get(visual.id) == whole_slice
         assert render(viewer)[0][..., :3].max() > 0
         # And back again: the kept inner visual draws.
@@ -397,7 +396,7 @@ def test_an_in_memory_drag_through_aligned_stays_on_the_route(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Preparation, the build and target-only planning (5.1, U8)
+# Preparation, the build and target-only planning
 # ---------------------------------------------------------------------------
 
 
@@ -457,7 +456,7 @@ def test_before_the_build_lands_the_plan_is_target_only(tmp_path, plans, monkeyp
 
 
 # ---------------------------------------------------------------------------
-# Camera reslice per view (D6)
+# Camera reslice per view
 # ---------------------------------------------------------------------------
 
 
@@ -512,7 +511,7 @@ def test_a_scrub_ending_while_the_camera_moves_holds_back_a_tilted_target(
 
 
 # ---------------------------------------------------------------------------
-# Contents changes (U3)
+# Contents changes
 # ---------------------------------------------------------------------------
 
 
@@ -615,7 +614,7 @@ def test_a_stale_coarse_block_is_never_served(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The coarse level (D9)
+# The coarse level
 # ---------------------------------------------------------------------------
 
 
@@ -702,7 +701,7 @@ def test_time_and_discrete_axes_are_not_downsampled(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The orthoviewer (0b item 7) and the model (U1)
+# The orthoviewer (0b item 7) and the model
 # ---------------------------------------------------------------------------
 
 
@@ -796,7 +795,7 @@ def test_the_new_model_fields_round_trip(cls):
 
 
 def test_an_extent_change_rebuilds_the_brick_pyramid(tmp_path):
-    """5.4.4: a new shape rebuilds the source, and the tilted view draws it."""
+    """A new shape rebuilds the source, and the tilted view draws it."""
     matrix = world_matrix(LINEARS["rot_zx"])
     viewer = new_viewer("2d")
     try:

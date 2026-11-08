@@ -83,16 +83,16 @@ class SceneManager:
         self._visuals: dict[UUID, _GFXVisual] = {}
         self._active_nodes: dict[UUID, gfx.WorldObject | None] = {}
         # Visuals whose nodes are out of the graph: the scene's view cannot
-        # draw them (full affine design v2, D3).
+        # draw them.
         self._suppressed: set[UUID] = set()
         # Scene overlays, keyed by overlay model id.  Their nodes live in the
         # same gfx.Scene as the visuals but are not visuals: they are never
         # sliced and never picked.
         self._overlays: dict[UUID, GFXSceneOverlay] = {}
-        # The outlines of the visuals' planes (plane outline design 6.1):
-        # lines in the scene that belong to no one visual, because a plane
-        # shared by two visuals has one outline.  ``_outline_kinds`` is
-        # which planes each visual shows now, as the controller last said.
+        # The outlines of the visuals' planes: lines in the scene that
+        # belong to no one visual, because a plane shared by two visuals
+        # has one outline.  ``_outline_kinds`` is which planes each visual
+        # shows now, as the controller last said.
         self._plane_outlines = GFXPlaneOutlines()
         self._scene.add(self._plane_outlines.node)
         self._outline_kinds: dict[UUID, frozenset[str]] = {}
@@ -257,11 +257,11 @@ class SceneManager:
     def set_visual_suppressed(self, visual_id: UUID, suppressed: bool) -> None:
         """Take a visual's node out of the scene graph, or put it back.
 
-        For a visual the scene's current view cannot draw (full affine design
-        v2, D3): out of the graph it neither draws nor picks, whatever it last
-        loaded, and its own visibility is left alone.  The active node is
-        still tracked, so :meth:`swap_node` keeps working while suppressed,
-        and lifting the suppression adds back whichever node is active then.
+        For a visual the scene's current view cannot draw: out of the graph it
+        neither draws nor picks, whatever it last loaded, and its own
+        visibility is left alone.  The active node is still tracked, so
+        :meth:`swap_node` keeps working while suppressed, and lifting the
+        suppression adds back whichever node is active then.
 
         Parameters
         ----------
@@ -346,7 +346,7 @@ class SceneManager:
         self._refresh_plane_outlines()
 
     def _refresh_plane_outlines(self, *, notify: bool = True) -> bool:
-        """Compute every outline of the scene again (design 6.4).
+        """Compute every outline of the scene again.
 
         The visuals are asked in the order they were added, which is what
         decides whose style a shared plane's outline takes.
@@ -389,7 +389,7 @@ class SceneManager:
         self._outline_kinds.pop(visual_id, None)
         self._refresh_plane_outlines()
         # Explicit release for visuals that hold slots, caches or model
-        # connections (unified image design 3.8), rather than trusting GC.
+        # connections, rather than trusting GC.
         close = getattr(visual, "close", None)
         if close is not None:
             close()
@@ -465,9 +465,9 @@ class SceneManager:
         never skipped.
 
         A visual that sets ``decides_empty_slices`` is never skipped either.
-        The image visuals apply their own slicing rule (design 3.2) and must
-        see the request to hide their data node when the slice misses the
-        data; skipped, they would keep drawing the last plane they loaded.
+        The image visuals apply their own slicing rule and must see the
+        request to hide their data node when the slice misses the data;
+        skipped, they would keep drawing the last plane they loaded.
         """
         visual = self._visuals[visual_id]
         if getattr(visual, "decides_empty_slices", False):
@@ -493,7 +493,7 @@ class SceneManager:
         request: ReslicingRequest,
         visual_configs: dict[UUID, VisualRenderConfig],
     ) -> tuple[dict[UUID, list[DesiredSet]], set[UUID]]:
-        """Plan every targeted chunked visual (design 5.3), 2D or 3D.
+        """Plan every targeted chunked visual, 2D or 3D.
 
         Parameters
         ----------

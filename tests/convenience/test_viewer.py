@@ -60,7 +60,7 @@ def _channels(cls, count: int) -> dict:
     ids=["single", "composite", "empty_composite"],
 )
 def test_serialization_roundtrip_unified_image(tmp_path, composite, n_channels):
-    """Unified image design 3.11: mode, channels and the single page survive."""
+    """Mode, channels and the single page survive."""
     store = ImageMemoryStore(data=np.zeros((2, 4, 8, 8), dtype=np.float32), name="c")
     viewer = Viewer(_CZYX, displayed_axes=("y", "x"))
     viewer.add_image(

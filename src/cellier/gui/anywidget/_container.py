@@ -2,8 +2,7 @@
 
 Jupyter has no native multi-pane layout without a container that renders child
 widget views.  To keep stock ipywidgets controls out, the container is itself a
-tiny anywidget that asks the widget manager to mount its children (design doc
-section 10).
+tiny anywidget that asks the widget manager to mount its children.
 
 This is the one place the anywidget path touches the ipywidgets layer
 (``widget_manager.create_view``, ``ipywidgets.widget_serialization``,

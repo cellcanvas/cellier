@@ -1,4 +1,4 @@
-"""The render side of a plane gizmo (clipping plane gizmo design v2, 5.1).
+"""The render side of a plane gizmo.
 
 A pygfx ``TransformGizmo`` on a proxy object whose position is a point on a
 plane and whose local ``+x`` is the plane's normal.  ``CanvasView`` owns it,
@@ -35,8 +35,8 @@ class PlaneTransformGizmo(gfx.TransformGizmo):
       and a click on it changes the frame.
     - The scale handles are hidden except those of ``scale_axes``.  A
       clipping plane has no size; a render plane has one along each
-      in-plane axis that is bounded on both sides (plane rendering design
-      v3, 8.3).  Axis 0, the normal, never has one.
+      in-plane axis that is bounded on both sides.  Axis 0, the normal,
+      never has one.
     - The frame stays ``"object"``: axis 0 is the normal.
     - The handles point along the object's own axes, whatever the camera
       angle: the arrow of axis 0 is the plane's normal (see

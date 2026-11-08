@@ -1,7 +1,7 @@
 """The mesh section kernel: where a plane, or a slab, cuts a triangle mesh.
 
-``plans/mesh_refactor_v3.md`` 5.5 (X1-X5).  Pure numpy and scipy, with no
-store or render imports; it does not care which level it is given.
+Pure numpy and scipy, with no store or render imports; it does not care
+which level it is given.
 
 Everything here works on **three-column positions** and one plane
 ``normal . p = offset`` (cut mode) or two (slab mode).  The caller picks the
@@ -26,7 +26,7 @@ Conventions:
   is filled again.  Open and non-manifold components are outline only.
 
 Nothing here calls ``np.unique`` without ``return_inverse`` on a large
-array, nor ``np.bincount`` with weights: both can hold the GIL (D15).
+array, nor ``np.bincount`` with weights: both can hold the GIL.
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ def cut_plane(
     tol: float,
     candidates: np.ndarray | None = None,
 ) -> Cut:
-    """Cut a mesh with the plane ``normal . p = offset`` (X2 steps 2-4).
+    """Cut a mesh with the plane ``normal . p = offset``.
 
     Parameters
     ----------
@@ -256,7 +256,7 @@ def cut_plane(
 
 @dataclass(frozen=True)
 class Stitched:
-    """The segments of a cut, joined into loops (X2 step 6).
+    """The segments of a cut, joined into loops.
 
     A node is one distinct edge key: one point of the cut.
 
@@ -463,7 +463,7 @@ def loop_sides(
 def fill_loops(
     loops: list[np.ndarray], sides: np.ndarray | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Triangulate closed 2D loops (X2 step 7).
+    """Triangulate closed 2D loops.
 
     Parameters
     ----------
@@ -633,7 +633,7 @@ class _Soup:
 def _cut_outline(
     cut: Cut, positions: np.ndarray, vertex_colors, face_colors
 ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
-    """The outline of one cut (X2 step 8): two vertices per segment.
+    """The outline of one cut: two vertices per segment.
 
     Zero-length segments (a face touching the plane at one vertex) are left
     out; the boundary edges of in-plane faces are added.
@@ -841,7 +841,7 @@ def section_slab(
     outline: bool = True,
     fill: bool = True,
 ) -> SectionParts:
-    """The section of a mesh by the slab ``low <= normal . p <= high`` (X3).
+    """The section of a mesh by the slab ``low <= normal . p <= high``.
 
     The fill is the surface inside the slab (faces inside it kept, faces
     crossing either plane clipped) plus a cap at each plane; the outline is
@@ -956,8 +956,7 @@ def clip_parts(parts: SectionParts, planes) -> SectionParts:
 
     The fill triangles are clipped as polygons and the outline segments are
     cut; colours are interpolated to the cuts.  The cut edge is exact: this
-    runs after the slab filter, which keeps or drops whole faces (clipping
-    planes design 5.2).
+    runs after the slab filter, which keeps or drops whole faces.
 
     Parameters
     ----------
@@ -1044,7 +1043,7 @@ def clip_parts(parts: SectionParts, planes) -> SectionParts:
 
 @dataclass(frozen=True)
 class ClosureReport:
-    """Whether a mesh is closed (X5, D14).
+    """Whether a mesh is closed.
 
     Attributes
     ----------

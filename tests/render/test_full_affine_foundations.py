@@ -1,8 +1,8 @@
-"""Full affine design v2, Phase 2: foundations with no axis-aligned change.
+"""Foundations with no axis-aligned change.
 
-* the mirror fix in the in-memory image volume shader (K14);
-* ``norm_size`` and the 2D multiscale LOD off the axis-aligned branch
-  (K9, K10), which equal today's values for scaled permutations.
+* the mirror fix in the in-memory image volume shader;
+* ``norm_size`` and the 2D multiscale LOD off the axis-aligned branch,
+  which equal today's values for scaled permutations.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _affine(linear: np.ndarray) -> AffineTransform:
 
 
 # ---------------------------------------------------------------------------
-# K14: a mirrored in-memory image volume draws in 3D
+# A mirrored in-memory image volume draws in 3D
 # ---------------------------------------------------------------------------
 
 
@@ -69,7 +69,7 @@ def test_the_inside_camera_really_is_inside_the_box():
 
 
 # ---------------------------------------------------------------------------
-# K9: norm_size
+# norm_size
 # ---------------------------------------------------------------------------
 
 DATASET_XYZ = np.array([40.0, 32.0, 24.0])
@@ -109,7 +109,7 @@ def test_norm_size_under_rotation_is_the_unrotated_one():
 
 
 # ---------------------------------------------------------------------------
-# K10: the 2D multiscale LOD
+# The 2D multiscale LOD
 # ---------------------------------------------------------------------------
 
 

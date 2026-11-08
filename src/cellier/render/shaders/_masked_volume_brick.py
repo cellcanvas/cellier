@@ -1,4 +1,4 @@
-"""The MaskedImage's mask material and shader (masked image design v2, 6.1).
+"""The MaskedImage's mask material and shader.
 
 One shader: the multiscale brick shader with its ``masked`` template variable
 set.  The value image's lookup (``get_lod_scale``, the brick rule, the level
@@ -65,7 +65,7 @@ RESOURCES = {
     "t_cache": "t_value_cache",
     "s_cache": "s_value_cache",
 }
-#: ``sample_atlas``'s masked read past a level's end (6.4), and the line it
+#: ``sample_atlas``'s masked read past a level's end, and the line it
 #: stands for: the value side keeps the plain read (G2 clamps it already).
 _EXTENT_CLAMP = re.compile(
     r"    \$\$ if masked and extent_clamp and render_mode != 'plane'\n.*?\n"
@@ -87,7 +87,7 @@ def value_access_source() -> str:
 
     ``sample_atlas`` is taken with its masked branch resolved to the plain
     read: the copy is for the value, whose reads are clamped to its level's
-    voxel centres (G2) before they reach it.
+    voxel centres before they reach it.
     """
     wgsl_dir = _WGSL_PATH.parent
     sample = _function_text(_WGSL_SOURCE, "sample_atlas")
@@ -212,7 +212,7 @@ class MaskedVolumeBrickMaterial(MultiscaleVolumeBrickMaterial):
 
     @property
     def mask_ranges(self) -> gfx.Texture:
-        """The per-cell range table of the mask's atlas (design 7.4)."""
+        """The per-cell range table of the mask's atlas."""
         return self._store.mask_ranges
 
     def set_mask_ranges(self, texture: gfx.Texture) -> None:
@@ -222,7 +222,7 @@ class MaskedVolumeBrickMaterial(MultiscaleVolumeBrickMaterial):
 
     @property
     def extent_clamp(self) -> bool:
-        """Whether the mask's 3D read repeats a level's last voxel (6.4, MI-P16).
+        """Whether the mask's 3D read repeats a level's last voxel.
 
         Always on in use; a switch for the tests' control only.
         """
@@ -293,7 +293,7 @@ class MaskedVolumeBrickMaterial(MultiscaleVolumeBrickMaterial):
         )
 
     def set_band(self, min_width_px: float, rays: int, cap: int) -> None:
-        """The 2D band's minimum width and its contour search (MI-P15)."""
+        """The 2D band's minimum width and its contour search."""
         self._set_floats(
             surface_min_width_px=min_width_px, band_rays=rays, band_cap=cap
         )
@@ -302,8 +302,8 @@ class MaskedVolumeBrickMaterial(MultiscaleVolumeBrickMaterial):
         """The sliced axis of each side in a 2D view, shader order, or ``None``.
 
         ``None`` is a tilted plane, read at its true depth; an axis is
-        snapped as a 2D tile reads it (MI-D14).  The mask then also takes
-        the tile's fade at the data's edge.
+        snapped as a 2D tile reads it.  The mask then also takes the
+        tile's fade at the data's edge.
         """
         data = self.uniform_buffer.data
         for name, axis in (("mask_snap", mask_axis), ("value_snap", value_axis)):

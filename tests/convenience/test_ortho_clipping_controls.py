@@ -1,7 +1,4 @@
-"""The ortho clipping widget, its dock node, and the flag / dock node check.
-
-``plans/clipping_planes_linking_design.md`` section 6.
-"""
+"""The ortho clipping widget, its dock node, and the flag / dock node check."""
 
 from __future__ import annotations
 

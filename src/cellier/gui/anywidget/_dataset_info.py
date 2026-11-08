@@ -92,9 +92,8 @@ class AnywidgetDatasetInfo(anywidget.AnyWidget):
     title = traitlets.Unicode(DEFAULT_TITLE).tag(sync=True)
     """What this control calls itself, drawn by its own front end.
 
-    A control names itself rather than being named by whatever lays it out
-    (``plans/label_ownership_unification.md``), which is what lets the dock
-    stack controls and stop.
+    A control names itself rather than being named by whatever lays it out,
+    which is what lets the dock stack controls and stop.
     """
 
     rows = traitlets.List().tag(sync=True)

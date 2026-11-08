@@ -130,7 +130,7 @@ def compute_brick_aabb_corners(
         tv = np.asarray(level_translation_arr_shader[k], dtype=np.float64)
     else:
         sv, tv = implied_power_of_two(brick_key.level)
-    # Centre convention (plan v2, D1), shader order (x=W, y=H, z=D).
+    # Centre convention, shader order (x=W, y=H, z=D).
     low, high = brick_box_data(
         [brick_key.g2, brick_key.g1, brick_key.g0], block_size, sv, tv
     )
@@ -193,7 +193,7 @@ def bricks_in_frustum(
     else:
         s_, t_ = implied_power_of_two(levels)
         scale, translation = s_[:, None], t_[:, None]
-    # Centre convention (plan v2, D1): (M, 3) boxes in shader order (W, H, D).
+    # Centre convention: (M, 3) boxes in shader order (W, H, D).
     brick_mins, brick_maxs = brick_box_data(
         arr[:, [3, 2, 1]], block_size, scale, translation
     )

@@ -16,10 +16,10 @@ and no GPU device:
 Nothing here imports from the v1 transform package.  Phase 0 changes no
 behaviour; it only records it.
 
-The three sites where the design (section 3.6) predicts a *deliberate*
-behaviour change in a later phase are marked ``XFAIL_CASES`` with the
-phase that owns the flip, so that phase turning them green is an
-``xfail -> xpass`` and not a silent divergence.
+The three sites where the design predicts a *deliberate* behaviour
+change in a later phase are marked ``XFAIL_CASES`` with the phase that
+owns the flip, so that phase turning them green is an ``xfail -> xpass``
+and not a silent divergence.
 """
 
 from __future__ import annotations
@@ -184,8 +184,8 @@ def _v2_context(
     per-level coordinate systems and their level-k -> level-0 transforms on
     ``RenderSpaces``.  Without them ``spaces.level_transforms`` is empty and
     ``_level_box`` has nothing to pull the region back to -- which is how
-    every multiscale case in this baseline was recorded until Phase 8
-    (F8.2): through the pre-migration fallback, not through the region.
+    every multiscale case in this baseline was recorded until Phase 8:
+    through the pre-migration fallback, not through the region.
     """
     labels = dspec.axis_labels
     data = DataCoordinateSystem(name="data", axes=_axes(labels), datastore_id=uuid4())
@@ -290,8 +290,8 @@ TRANSFORMS_3D: dict[str, TransformSpec] = {
     "scale_trans": TransformSpec("scale_trans", 3, (2.0, 0.5, 0.5), (10.0, 1.0, -3.0)),
 }
 
-# design 3.7: a 4-D tzyx with an awkward, non-integer time scale so the
-# rounding step in the world -> voxel map has something to do.
+# A 4-D tzyx with an awkward, non-integer time scale so the rounding
+# step in the world -> voxel map has something to do.
 TRANSFORMS_4D: dict[str, TransformSpec] = {
     "identity4": TransformSpec(
         "identity4", 4, (1.0, 1.0, 1.0, 1.0), (0.0, 0.0, 0.0, 0.0)
@@ -356,33 +356,30 @@ DIMS_4D: dict[str, DimsSpec] = {
 # JSON and drop the marker.
 XFAIL_GROUPS: dict[str, str] = {
     "geometry_slicing": (
-        "design 3.12 / D4 -- geometry visuals slice against the pulled-back "
-        "region in phase 6; a non-identity transform then selects different "
-        "elements"
+        "geometry visuals slice against the pulled-back region; a "
+        "non-identity transform then selects different elements"
     ),
     "geometry_thickness": (
-        "design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit "
-        "half-thickness in phase 6"
+        "the hardcoded thickness 0.5 became a world-unit half-thickness"
     ),
     "explicit_thickness": (
-        "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an "
+        "the +/-0.5 thickness floor is gone: an "
         "axis with no thickness is a plane, and a discrete axis selects the "
         "sample the slider is on"
     ),
     "mesh_section": (
-        "mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: "
+        "a 2D view cuts a mesh with the slice plane: "
         "the constraint along a spatial, continuous axis leaves the filter "
         "region and becomes the request's section, and the read returns the "
         "faces the plane crosses or that lie in it"
     ),
     "labels_one_plane": (
-        "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and "
+        "labels draw one plane within a slab, and "
         "nothing when the slice misses the data (they clamped before)"
     ),
     "node_matrix_non_block_diagonal": (
-        "design 3.6 site E -- the node matrix stops being select_axes in "
-        "phase 3; identical for block-diagonal transforms, changes for "
-        "non-block-diagonal ones"
+        "the node matrix is no longer select_axes: identical for "
+        "block-diagonal transforms, changes for non-block-diagonal ones"
     ),
 }
 
@@ -425,11 +422,11 @@ def _drive_slice_requests(
     geometry families (which do not resolve to voxel windows).
 
     The geometry entry recorded ``slice_indices`` and ``thickness`` until
-    Phase 8 deleted both from the request (R8.3).  What replaces them is the
-    thing that actually decides which vertices survive: the pulled-back
-    region, as its per-axis bounds.  Wider than what it replaced -- a region
-    says where the slab is *and* how thick -- and in **data** coordinates,
-    which is the space the filter runs in.
+    Phase 8 deleted both from the request.  What replaces them is the thing
+    that actually decides which vertices survive: the pulled-back region, as
+    its per-axis bounds.  Wider than what it replaced -- a region says where
+    the slab is *and* how thick -- and in **data** coordinates, which is the
+    space the filter runs in.
     """
     if is_3d:
         reqs = planned_requests_3d(
@@ -485,8 +482,8 @@ def _drive_slice_requests(
 def _region_bounds(req: Any) -> Any:
     """A geometry request's filter, as per-axis ``[lo, hi]`` in data space.
 
-    The graph keeps its own slab rather than a region (D6.2), so it reports
-    the slab instead: its centre and the asymmetric extents around it.
+    The graph keeps its own slab rather than a region, so it reports the
+    slab instead: its centre and the asymmetric extents around it.
     """
     if hasattr(req, "slice_positions"):
         return {
@@ -792,8 +789,8 @@ PYRAMIDS: dict[str, PyramidSpec] = {
         ((8, 16, 16, 16), (8, 8, 8, 8), (8, 4, 4, 4)),
         ((1, 1, 1, 1), (1, 2, 2, 2), (1, 4, 4, 4)),
     ),
-    # design 3.11: z is not downsampled -- the case this repo has paid for
-    # once already (the LUT anisotropic fix).
+    # z is not downsampled -- the case this repo has paid for once already
+    # (the LUT anisotropic fix).
     "z_not_ds": PyramidSpec(
         "z_not_ds",
         ((8, 16, 16, 16), (8, 16, 8, 8), (8, 16, 4, 4)),

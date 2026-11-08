@@ -1,4 +1,4 @@
-"""The render side of the plane gizmo (clipping plane gizmo design v2, 5.1).
+"""The render side of the plane gizmo.
 
 Headless: offscreen canvases, synthetic input through ``canvas.submit_event``
 as ``tests/render/test_camera_interaction.py`` does.  The gizmo sits inside
@@ -463,7 +463,7 @@ async def test_the_centre_sphere_and_scale_handles_cannot_be_grabbed(make_rig):
 
 
 def test_the_private_pygfx_names_the_gizmo_relies_on_exist():
-    """Fails loudly on a pygfx upgrade that renames them (R3)."""
+    """Fails loudly on a pygfx upgrade that renames them."""
     inner = gfx.TransformGizmo(gfx.Group())
     for name in (
         "_ref",

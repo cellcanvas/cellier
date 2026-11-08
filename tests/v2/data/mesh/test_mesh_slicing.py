@@ -1,9 +1,8 @@
 """Mesh slicing: the fast paths give what the full pass gives.
 
-``plans/mesh_refactor_v3.md`` 5.4 (S1-S4).  The reference is the rule
-itself, written the slow way: a face survives when ``region.contains`` holds
-for all three of its vertices, the survivors are reindexed, and the normals
-are computed from the survivors.
+The reference is the rule itself, written the slow way: a face survives when
+``region.contains`` holds for all three of its vertices, the survivors are
+reindexed, and the normals are computed from the survivors.
 """
 
 from __future__ import annotations
@@ -238,7 +237,7 @@ def test_a_plane_through_exact_coordinates_keeps_the_faces_on_it():
     assert data.original_face_indices.tolist() == [1]
 
 
-# -- S3: the identity path ----------------------------------------------------
+# -- The identity path --------------------------------------------------------
 
 
 def test_every_face_passing_returns_the_level_itself():
@@ -282,7 +281,7 @@ def test_an_empty_mesh_is_empty():
     assert slice_mesh(arrays, request, LevelCache()).is_empty
 
 
-# -- S2: cached normals -------------------------------------------------------
+# -- Cached normals -----------------------------------------------------------
 
 
 def _series(n_t=5, faces_per_t=40, seed=8):
@@ -354,7 +353,7 @@ def test_a_vertex_no_face_uses_gets_the_default_normal():
     np.testing.assert_array_equal(normals[3], [0.0, 0.0, 1.0])
 
 
-# -- S4: the inline build -----------------------------------------------------
+# -- The inline build ---------------------------------------------------------
 
 
 def test_concurrent_first_reads_build_one_entry_per_axis():

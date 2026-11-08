@@ -265,9 +265,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         canvas of this viewer shows it.  Its fields are live: set ``visible``
         to hide it, or change its colour and size.  It lists the visuals
         whose :meth:`CellierController.draw_status` is not drawable -- a 2D
-        view that cuts a rotated image at an angle, say (full affine design
-        v2, D3 and D8).  ``None`` when the viewer was built without it.  It
-        is not one of :attr:`overlays`.
+        view that cuts a rotated image at an angle, say.  ``None`` when the
+        viewer was built without it.  It is not one of :attr:`overlays`.
         """
         return self._draw_status_overlay
 
@@ -1418,8 +1417,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             ``controller.set_render_planes``.  Default none.
         render_config : InMemoryImageRenderConfig or None
             The GPU configuration of the brick route, which draws a tilted
-            2D view of the image (oblique 2D design v3).  ``None`` uses the
-            defaults.
+            2D view of the image.  ``None`` uses the defaults.
 
         Returns
         -------
@@ -1537,8 +1535,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         render_config : InMemoryLabelRenderConfig or None
             The GPU configuration of the brick route, which draws a tilted
-            2D view of the labels (oblique 2D design v3).  ``None`` uses the
-            defaults.
+            2D view of the labels.  ``None`` uses the defaults.
 
         Returns
         -------

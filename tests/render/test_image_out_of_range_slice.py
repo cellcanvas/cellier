@@ -1,4 +1,4 @@
-"""An image whose slice misses the data draws nothing (design 3.2).
+"""An image whose slice misses the data draws nothing.
 
 Rendered end to end, in memory and multiscale, 2D and 3D.  Each case slices
 inside the data first (pixels drawn), moves the slider past the last plane

@@ -1,4 +1,4 @@
-"""The unified image control for Qt (unified image design 3.10).
+"""The unified image control for Qt.
 
 One control per image visual: a shared section (visibility, blending,
 interpolation), a composite switch shown only when the visual has a channel
@@ -12,8 +12,7 @@ the single page and once, below the channels, on the composite page.
 
 A MaskedImage's control adds the surface rows (thickness, placement, the
 projection along the normal) and the 2D band's rows (minimum width, rays,
-cap) to the single page, and shows its threshold in 2D as well (masked image
-design 10).
+cap) to the single page, and shows its threshold in 2D as well.
 """
 
 from __future__ import annotations
@@ -105,7 +104,7 @@ class QtImageControls(VisualIdGroup):
         self._init_visual_ids(visual_id)
         self._values = values
         self._fields = set(values["fields"])
-        # A MaskedImage's rows follow their own 2D/3D rule (design 10).
+        # A MaskedImage's rows follow their own 2D/3D rule.
         self._masked = bool(values.get("masked", False))
         self._labels = {**FIELD_LABELS, **(values.get("labels") or {})}
         # (page, channel, field) -> apply a value with the control's signals
@@ -254,8 +253,8 @@ class QtImageControls(VisualIdGroup):
             self._controls[("shared", None, field)] = combo
             layout.addRow(FIELD_LABELS[field], combo)
 
-        # The slab projection of a 2D view (oblique 2D design v3, 4.2),
-        # when the field list asks for it; hidden in 3D.
+        # The slab projection of a 2D view, when the field list asks for
+        # it; hidden in 3D.
         projection = values.get("projection") or {}
         for field, choices in (
             ("slab_projection", projection.get("ops", ())),
@@ -274,8 +273,8 @@ class QtImageControls(VisualIdGroup):
             self._rows[("shared", None, field)] = (layout, combo)
             layout.addRow(FIELD_LABELS[field], combo)
 
-        # A MaskedImage's target loading (design 8.3), when the field list
-        # asks for it; hidden in 2D.
+        # A MaskedImage's target loading, when the field list asks for it;
+        # hidden in 2D.
         if "target_bricks" in self._fields and "target_bricks" in shared:
             field = "target_bricks"
             combo = QComboBox()
@@ -356,7 +355,7 @@ class QtImageControls(VisualIdGroup):
                 control.addColormaps(values["colormap_names"])
                 # The model's own colormap, not its name: superqt adds and
                 # selects a Colormap object it does not hold, but cannot
-                # resolve the name of one built inline (design 3.10).
+                # resolve the name of one built inline.
                 control.setCurrentColormap(_mode_colormap(values, page, channel, mode))
                 control.currentColormapChanged.connect(
                     lambda cm, f=field: self._emit(page, f, _colormap_name(cm), channel)

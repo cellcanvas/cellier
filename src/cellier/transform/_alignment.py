@@ -1,4 +1,4 @@
-"""How a transform lines data up with one view (full affine design v2, 3.1 and 4.1).
+"""How a transform lines data up with one view.
 
 Whether a ``data -> world`` transform is easy to draw is a question about a
 **view**: which world axes are displayed and which are sliced.  The same
@@ -27,12 +27,11 @@ by the ``R`` axes exactly when ``|R| = n_data - rank(L[S, :])``.  Then:
                    placement of the fetched slab changes.
 =================  =========================================================
 
-The slice pulls back to a flat set of dimension
-``pullback_dim = n_data - rank(L[S, :])``; the data axes it moves along --
-those with a non-zero component in the null space of ``L[S, :]`` -- are the
-**varying** data axes ``V`` (oblique 2D design v3, 4.1).  ``V`` is ``R``
-unless the view is ``OBLIQUE``, where it has more axes than the pullback has
-dimensions.
+The slice pulls back to a flat set of dimension ``pullback_dim = n_data -
+rank(L[S, :])``; the data axes it moves along -- those with a non-zero
+component in the null space of ``L[S, :]`` -- are the **varying** data axes
+``V``.  ``V`` is ``R`` unless the view is ``OBLIQUE``, where it has more
+axes than the pullback has dimensions.
 
 **"Non-zero" follows decision D7**: an entry counts as zero when
 ``|L_ij| <= tau * min(max|L[i, :]|, max|L[:, j]|)`` with
@@ -72,7 +71,7 @@ __all__ = [
     "null_space_support",
 ]
 
-#: D7: the relative size below which a matrix entry counts as zero.  Float32
+#: The relative size below which a matrix entry counts as zero.  Float32
 #: pipelines need at least ``1e-6``; a snapped genuine coupling moves a world
 #: axis by at most ``tau * extent`` voxels (0.1 voxel across 100k voxels).
 COUPLING_TOLERANCE = 1e-6

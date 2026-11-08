@@ -1,4 +1,4 @@
-"""Background appearance model for cellier v2 scenes."""
+"""Background appearance model for scenes."""
 
 from __future__ import annotations
 

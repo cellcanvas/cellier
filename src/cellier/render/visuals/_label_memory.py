@@ -1,4 +1,3 @@
-# src/cellier/v2/render/visuals/_label_memory.py
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -59,7 +58,7 @@ if TYPE_CHECKING:
 
 
 def _release_nothing(level: int) -> None:
-    """A cache let go of its slice: the visibility rule hides it (D16)."""
+    """A cache let go of its slice: the visibility rule hides it."""
 
 
 def _make_placeholder_label_params() -> gfx.Buffer:
@@ -70,9 +69,9 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
     """Render-layer visual for a LabelMemoryVisual backed by LabelMemoryStore.
 
     Owns gfx.Image (2D) and/or gfx.Volume (3D) nodes with custom label shaders.
-    Loads through the chunk scheduler with one whole-slice cache per mode
-    (scheduler-only loading design v2, 4.5): a plan wants the full slice or
-    volume, and a key the cache already holds reads nothing.
+    Loads through the chunk scheduler with one whole-slice cache per mode: a
+    plan wants the full slice or volume, and a key the cache already holds
+    reads nothing.
 
     Parameters
     ----------
@@ -108,11 +107,11 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
         self.visual_model_id: UUID = visual_model.id
         self.render_modes: set[str] = render_modes
         self._data_store = data_store
-        # Read by the brick route's inner visual (oblique 2D design v3, 5.4).
+        # Read by the brick route's inner visual.
         self._visual_model = visual_model
 
         # The data -> world transform.  There is no coordinate-system-less
-        # identity to fall back on (D18); the controller supplies one.
+        # identity to fall back on; the controller supplies one.
         self._transform: BaseTransform | None = effective_transform(transform)
 
         # The systems this visual's geometry is placed with, pushed by the
@@ -120,9 +119,9 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
         self._spaces: RenderSpaces | None = None
         self._last_displayed_axes: tuple[int, ...] | None = None
         # The collapsed voxel index per dropped data axis, refreshed on every
-        # planned request (design 3.9).
+        # planned request.
         self._collapsed_indices: dict[int, float] = {}
-        # mode -> the collapsed indices of the last upload (D15).
+        # mode -> the collapsed indices of the last upload.
         self._placed_collapsed: dict[str, dict[int, float]] = {}
         # True while the newest plan has no selection (the slice misses).
         self._no_selection: bool = False
@@ -233,7 +232,7 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
                 node.visible = appearance.visible
 
         # One whole-slice cache per mode, so switching 2D/3D and back reads
-        # nothing (D5).
+        # nothing.
         keeps_previous = raster_keeps_previous(None)
         self._residency: dict[str, LevelResidency] = {
             mode: LevelResidency(
@@ -305,7 +304,7 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
         _pin_footprint(self._inner_node_3d, retained, 3)
         _fit_aabb_line(self._aabb_line_2d, retained, 2)
         _fit_aabb_line(self._aabb_line_3d, retained, 3)
-        # In a SLICE_SHIFT view the node follows the shown slice (D15).
+        # In a SLICE_SHIFT view the node follows the shown slice.
         collapsed = placed_collapsed(self, displayed_axes)
         m = node_matrix(
             self._spaces,
@@ -319,7 +318,7 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
             set_node_matrix(self.node_3d, m)
         if self.node_2d is not None:
             set_node_matrix(self.node_2d, m)
-        # The clip line stays at the newest plan (D15).
+        # The clip line stays at the newest plan.
         self._apply_clipping_planes()
 
     def _outline_shape(self):
@@ -327,7 +326,7 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
         return tuple(self._data_store.shape)
 
     def _clip_targets(self):
-        """Both materials, at the slice the nodes are drawn at (design 4.6)."""
+        """Both materials, at the slice the nodes are drawn at."""
         if self._spaces is None:
             constants: dict[int, float] = {}
         else:
@@ -386,8 +385,8 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
     ) -> tuple[int | tuple[int, int], ...] | None:
         """Plan one request's per-axis selection, and record where it collapsed.
 
-        The ``RegionSelection`` the controller built is the only path
-        (design 3.7).  Labels draw one plane within a slab, as images do
+        The ``RegionSelection`` the controller built is the only path.
+        Labels draw one plane within a slab, as images do
         (``image_plane_selection``): a thickness never becomes a range of
         planes.  ``None`` when a sliced axis has no sample in its slab; the
         data nodes are hidden until a later plan lands in the data.
@@ -397,8 +396,7 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
             raise RuntimeError(
                 "This visual has no region to plan from: either it has not "
                 "been placed in a world or the reslicing request carried no "
-                "selection.  Until v1 was retired this fell back to reading "
-                "``dims_state.slice_indices`` as world positions."
+                "selection."
             )
         planned = image_plane_selection(
             selection, self._transform, self._spaces, tuple(shape)
@@ -410,12 +408,12 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
             planned, self._transform, self._spaces.world, shape
         )
         self._collapsed_indices = collapsed
-        # The clip line follows the slice (clipping planes design 4.1).
+        # The clip line follows the slice.
         self._apply_clipping_planes()
         return axis_selections
 
     def _apply_visibility(self) -> None:
-        """Show a mode's node only when it has a slice to draw (D16).
+        """Show a mode's node only when it has a slice to draw.
 
         The slice is not empty, the newest plan has a selection, and the
         mode's cache holds the planned slice or keeps an earlier one on
@@ -447,9 +445,9 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
     ) -> list[DesiredSet]:
         """One desired set: the mode's cache, for the whole slice or volume.
 
-        A whole slice has no backstop, so every plan mode plans it (design
-        v2 4.3).  Empty when the slice misses the data: the coordinator then
-        retires the caches.
+        A whole slice has no backstop, so every plan mode plans it.  Empty
+        when the slice misses the data: the coordinator then retires the
+        caches.
         """
         displayed = request.dims_state.selection.displayed_axes
         view_mode = "3d" if len(displayed) == 3 else "2d"
@@ -502,8 +500,7 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
 
         Called by the mode's cache from ``rebuild_draw``; a test may call it
         directly with ``request_key(request)``.  *index* is the slot, always
-        0 for labels.  The node is placed by the key's collapsed indices
-        (D15).
+        0 for labels.  The node is placed by the key's collapsed indices.
         """
         record_placement(self, mode, request_key)
         if mode == "3d":

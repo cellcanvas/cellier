@@ -1,9 +1,8 @@
 """A controls dock serves every configured visual and follows its viewer.
 
-``plans/multi_visual_controls.md``: an ``AppearanceControls()`` dock used to build
-controls for the *first* configured visual and nothing else, once, at render time.  It
-now offers a selector over every configured visual and rebuilds as visuals are added and
-removed.
+An ``AppearanceControls()`` dock used to build controls for the *first* configured
+visual and nothing else, once, at render time.  It now offers a selector over every
+configured visual and rebuilds as visuals are added and removed.
 """
 
 from __future__ import annotations

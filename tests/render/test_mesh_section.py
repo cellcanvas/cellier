@@ -1,8 +1,7 @@
 """A mesh in a 2D view: its cross-section, through the controller.
 
-``plans/mesh_refactor_v3.md`` Phase 5.  The slice plane cuts the mesh; the
-2D child draws the outline and the fill.  Frames are real frames of an
-offscreen canvas.
+The slice plane cuts the mesh; the 2D child draws the outline and the
+fill.  Frames are real frames of an offscreen canvas.
 """
 
 from __future__ import annotations
@@ -221,7 +220,7 @@ async def test_a_mesh_at_a_fixed_z_shows_only_on_its_plane(rig, reads):
     assert not rig.red().any()
 
 
-# -- the request key (L1) -----------------------------------------------------
+# -- the request key ----------------------------------------------------------
 
 
 async def test_toggling_a_part_reads_again_and_hides_until_loaded(rig, reads):
@@ -370,7 +369,7 @@ async def test_vertex_colours_reach_the_section(rig, reads):
     assert not rig.red().any()
 
 
-# -- picks (5.10) -------------------------------------------------------------
+# -- picks --------------------------------------------------------------------
 
 
 async def test_picks_name_the_part_that_was_drawn(rig, reads):

@@ -1,4 +1,4 @@
-"""A controls dock that follows its viewer (``plans/multi_visual_controls.md``).
+"""A controls dock that follows its viewer.
 
 An ``AppearanceControls()`` dock shows the controls for
 one configured visual at a time.  When the viewer has several, a selector above

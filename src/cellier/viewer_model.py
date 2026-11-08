@@ -1,4 +1,4 @@
-"""Top-level viewer model for cellier v2."""
+"""Top-level viewer model."""
 
 from __future__ import annotations
 

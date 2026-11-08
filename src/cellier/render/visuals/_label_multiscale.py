@@ -145,9 +145,9 @@ if TYPE_CHECKING:
 import cellier.render.shaders._label_multiscale as _label_reg  # noqa: F401
 
 #: How far past a sample position each labels path reads, in level-k voxels,
-#: at the default ``ray_steps_per_voxel`` (plan v2, "Padding budgets"): the
-#: brick-rule padding warning subtracts it from the ghost border.  3D: one
-#: bisection step (1 at K = 1); 2D: nearest sampling reads nothing extra.
+#: at the default ``ray_steps_per_voxel``: the brick-rule padding warning
+#: subtracts it from the ghost border.  3D: one bisection step (1 at K = 1);
+#: 2D: nearest sampling reads nothing extra.
 _LABELS_SAMPLING_MARGIN_3D = 1.0
 _LABELS_SAMPLING_MARGIN_2D = 0.0
 
@@ -190,7 +190,7 @@ class GFXMultiscaleLabelVisual(
     """
 
     #: Clipped bricks and tiles are not fetched, so a change of planes
-    #: changes the plan (clipping planes design 5.1).
+    #: changes the plan.
     clipping_planes_affect_request: bool = True
 
     #: 3D loads go through the chunk scheduler (``plan`` / ``residencies``).
@@ -238,16 +238,16 @@ class GFXMultiscaleLabelVisual(
             self._ndim = 3
 
         # The data -> world transform.  There is no coordinate-system-less
-        # identity to fall back on (D18); the controller supplies one.
+        # identity to fall back on; the controller supplies one.
         self._transform: BaseTransform | None = effective_transform(transform)
         # The systems this visual's geometry is placed with, pushed by the
         # controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
         # The collapsed voxel index per dropped data axis, refreshed on every
-        # planned request (design 3.9).
+        # planned request.
         self._collapsed_indices: dict[int, float] = {}
         # The node matrix's collapsed constants in a view the slice moves the
-        # data in (full affine design v2, 4.3); see ``_follow_slice``.
+        # data in; see ``_follow_slice``.
         self._node_collapsed_world: dict[int, float] = {}
         self.render_modes = render_modes
         self._volume_geometry = volume_geometry
@@ -272,14 +272,14 @@ class GFXMultiscaleLabelVisual(
             self._full_level_shapes = []
 
         self._last_displayed_axes: tuple[int, ...] | None = displayed_axes
-        # The brick route (oblique 2D design v3, 5.3): the three world axes
-        # a 2D view's slice node draws, the slice normal first, or ``None``
-        # on the planar path.  Set by the controller (``set_slice_route``).
+        # The brick route: the three world axes a 2D view's slice node
+        # draws, the slice normal first, or ``None`` on the planar path.
+        # Set by the controller (``set_slice_route``).
         self._slice_axes: tuple[int, int, int] | None = None
         # On the route the scene draws ``_slice_group``: an unplaced group
         # holding the placed 3D node and the slice footprint's outline, and
-        # bounded by the footprint (5.5).  The 3D node keeps its own matrix,
-        # so the footprint cannot live on it.
+        # bounded by the footprint.  The 3D node keeps its own matrix, so
+        # the footprint cannot live on it.
         self._slice_group: _SliceBoundsGroup | None = None
         self._footprint_line: gfx.Line | None = None
         self._gpu_budget_bytes = gpu_budget_bytes_3d
@@ -582,7 +582,7 @@ class GFXMultiscaleLabelVisual(
         """The world axes the node for *displayed_axes* draws.
 
         A 2D view on the brick route draws the slice node: the 3D node over
-        the slice's three world axes (oblique 2D design v3, 5.3.2).
+        the slice's three world axes.
         """
         if self._slice_axes is not None and len(displayed_axes) == 2:
             return self._slice_axes
@@ -634,9 +634,9 @@ class GFXMultiscaleLabelVisual(
     def set_slice_route(self, axes: tuple[int, int, int] | None) -> bool:
         """Put the 2D views of this visual on the brick route, or take them off.
 
-        Called by the controller before it pushes the render spaces (design
-        v3, 5.2.2, C3).  The 3D node is the slice node (D4: one atlas), so a
-        scene built for 2D only gains the 3D mode here.
+        Called by the controller before it pushes the render spaces.  The 3D
+        node is the slice node (D4: one atlas), so a scene built for 2D only
+        gains the 3D mode here.
 
         Parameters
         ----------
@@ -1102,7 +1102,7 @@ class GFXMultiscaleLabelVisual(
         return tuple(self._full_level_shapes[0])
 
     def _clip_targets(self):
-        """Both materials, at the planes last planned (design 4.1, 4.6)."""
+        """Both materials, at the planes last planned."""
         collapsed = () if self._spaces is None else self._spaces.collapsed_axes
         # Without collapsed axes (a 3D node, or a slice node) the planned
         # positions are not read, and the level-0 box they come from costs
@@ -1129,8 +1129,8 @@ class GFXMultiscaleLabelVisual(
     ) -> np.ndarray:
         """LOD selection, distance sort and frustum cull.
 
-        Pure with respect to the GPU (design 5.3): adopts the region, then
-        returns the planned ``[level, g0, g1, g2]`` rows, nearest first.
+        Pure with respect to the GPU: adopts the region, then returns the
+        planned ``[level, g0, g1, g2]`` rows, nearest first.
 
         An orthographic view (``fov_y_rad`` of 0) takes one level for the
         whole visual, from ``view_height_world``, its visible height in world
@@ -1138,9 +1138,9 @@ class GFXMultiscaleLabelVisual(
 
         With *render_planes* (the ``"plane"`` render mode) only the bricks
         the planes cross are planned, at levels picked by the plane's own
-        rule (plane rendering design 6); *max_bricks* is the atlas's room
-        for the target, which an orthographic plane plan steps to a coarser
-        level rather than overrun.
+        rule; *max_bricks* is the atlas's room for the target, which an
+        orthographic plane plan steps to a coarser level rather than
+        overrun.
         """
         t_plan_start = time.perf_counter()
         self._frame_number += 1
@@ -1293,7 +1293,7 @@ class GFXMultiscaleLabelVisual(
             n_culled = n_total - len(brick_arr)
 
         # Truncation to the atlas's budget happens in the planner tail,
-        # after the backstop has taken its share (design 5.3).
+        # after the backstop has taken its share.
         n_needed = len(brick_arr)
         plan_total_ms = (time.perf_counter() - t_plan_start) * 1000
         self._last_plan_stats = {
@@ -1375,7 +1375,7 @@ class GFXMultiscaleLabelVisual(
         config: VisualRenderConfig,
         mode: PlanMode = PlanMode.FULL,
     ) -> list[DesiredSet]:
-        """The chunk scheduler's planner contract (design 5.3).
+        """The chunk scheduler's planner contract.
 
         Returns
         -------
@@ -1387,8 +1387,8 @@ class GFXMultiscaleLabelVisual(
         slice_node = self._slice_axes is not None and displayed == self._slice_axes
         if len(displayed) != len(request.dims_state.selection.displayed_axes):
             # A 2D request for the slice node: planned by the 3D brick
-            # planner, culled by the viewport as a prism unbounded in depth
-            # (oblique 2D design v3, 5.3.4).
+            # planner, culled by the viewport as a prism unbounded in
+            # depth.
             request = request._replace(frustum_corners=viewport_prism(request))
         # One plane within a slab, as images draw; a slice that misses the
         # data draws nothing.
@@ -1401,7 +1401,7 @@ class GFXMultiscaleLabelVisual(
             return []
         brick_arr = None
         planes = self._plane_planning()
-        # A slice node's backstop is the bricks its plane reaches (D3).
+        # A slice node's backstop is the bricks its plane reaches.
         backstop_planes = planes if slice_node else None
         if mode == PlanMode.FULL:
             max_bricks = None
@@ -1450,7 +1450,7 @@ class GFXMultiscaleLabelVisual(
         """The render planes as the brick planner takes them, in plane mode.
 
         ``None`` in a volume mode.  A 2D view's slice node always plans its
-        slice plane (oblique 2D design v3, D2), whatever the render mode.
+        slice plane, whatever the render mode.
         """
         if self._drawn_render_mode() != PLANE_RENDER_MODE:
             return None
@@ -1468,7 +1468,7 @@ class GFXMultiscaleLabelVisual(
         plane).
         """
         self._begin_plane_planning(selection)
-        # The clip follows the slice (clipping planes design 4.1).
+        # The clip follows the slice.
         self._apply_clipping_planes()
 
     def _finish_plan(self, residency, arr, backstop, loading) -> list[DesiredSet]:
@@ -1692,7 +1692,7 @@ class GFXMultiscaleLabelVisual(
             n_culled += n_clipped
 
         # Truncation to the atlas's budget happens in the planner tail,
-        # after the backstop has taken its share (design 5.3).
+        # after the backstop has taken its share.
         n_needed = len(tile_arr)
         self._last_plan_stats = stats = {
             "total_required": n_total,

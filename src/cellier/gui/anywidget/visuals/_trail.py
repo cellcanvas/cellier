@@ -1,4 +1,4 @@
-"""Trail-window controls for a graph visual, wired to the cellier v2 bus (anywidget)."""
+"""Trail-window controls for a graph visual, wired to the event bus (anywidget)."""
 
 from __future__ import annotations
 

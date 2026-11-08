@@ -1,11 +1,11 @@
 """In-memory image and labels on the chunk scheduler (Phase 3 acceptance).
 
-``plans/scheduler_only_loading_design_v2.md`` 4.5 and Phase 3.  Each slot of
-an in-memory image (the labels visual has one) owns a whole-slice cache per
-mode (``LevelResidency``): a plan wants the full slice or volume of every
-drawn channel, a key a cache holds reads nothing, and what is drawn follows
-the visibility rule (D16).  Driven through a real controller with an
-offscreen canvas; frames are drawn by hand, as a canvas would draw them.
+Each slot of an in-memory image (the labels visual has one) owns a
+whole-slice cache per mode (``LevelResidency``): a plan wants the full slice
+or volume of every drawn channel, a key a cache holds reads nothing, and
+what is drawn follows the visibility rule.  Driven through a real controller
+with an offscreen canvas; frames are drawn by hand, as a canvas would draw
+them.
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def _volume(shape, dtype=np.float32) -> np.ndarray:
     return data
 
 
-# -- modes (D5) ----------------------------------------------------------------
+# -- modes ---------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("kind", ["image", "composite", "labels"])
@@ -151,7 +151,7 @@ async def test_switching_2d_3d_and_back_reads_nothing(kind):
         rig.close()
 
 
-# -- channels (D16, D19) -----------------------------------------------------------
+# -- channels ----------------------------------------------------------------------
 
 
 async def test_a_slot_given_another_channel_never_shows_the_old_one():
@@ -192,7 +192,7 @@ async def test_a_slot_given_another_channel_never_shows_the_old_one():
 
 
 async def test_a_channel_scrub_in_single_mode_draws_no_blank_frame():
-    """D19: slot 0 follows the slider and keeps its slice while the next loads."""
+    """Slot 0 follows the slider and keeps its slice while the next loads."""
     rig = Rig(_CYX, ("y", "x"))
     store = ImageMemoryStore(data=_volume((8, 32, 32)))
     visual = rig.controller.add_image(store, rig.scene.id, channel_axis=0)
@@ -224,7 +224,7 @@ async def test_a_channel_scrub_in_single_mode_draws_no_blank_frame():
         rig.close()
 
 
-# -- placement (D15) -------------------------------------------------------------
+# -- placement -------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("family", ["image", "labels"])
@@ -294,12 +294,12 @@ async def test_a_slice_shift_view_places_the_node_by_the_shown_slice(family):
         controller.close()
 
 
-# -- the brick route (D20) -----------------------------------------------------------
+# -- the brick route -----------------------------------------------------------------
 
 
 @pytest.mark.parametrize("family", ["image", "labels"])
 async def test_a_return_from_the_brick_route_reads_nothing(family):
-    """Leaving the route keeps the whole-slice caches (D20); one route at a time."""
+    """Leaving the route keeps the whole-slice caches; one route at a time."""
     from cellier.convenience.capture import _ensure_canvases
     from tests.render._affine import LINEARS, P0, bind, new_viewer, world_matrix
     from tests.render.test_oblique_2d_in_memory import _add
@@ -346,7 +346,7 @@ def _in_scene(node) -> bool:
     return False
 
 
-# -- painting (4.8) ------------------------------------------------------------------
+# -- painting ------------------------------------------------------------------------
 
 
 async def test_a_paint_stroke_never_blanks_and_ends_with_every_dab():
@@ -376,7 +376,7 @@ async def test_a_paint_stroke_never_blanks_and_ends_with_every_dab():
         rig.close()
 
 
-# -- idle visuals (D18) ------------------------------------------------------------
+# -- idle visuals ------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("kind", ["image", "labels"])

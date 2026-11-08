@@ -125,8 +125,8 @@ def test_echoed_event_is_ignored(qtbot):
 
 
 # ---------------------------------------------------------------------------
-# D14: parity with the anywidget dims panel, which had twice this coverage --
-# in the area that produced D16-D18 (``plans/gui_backend_unification.md``).
+# Parity with the anywidget dims panel, which had twice this coverage --
+# in the area that produced D16-D18.
 # ---------------------------------------------------------------------------
 
 

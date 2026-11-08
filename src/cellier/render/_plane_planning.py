@@ -1,21 +1,21 @@
-"""Brick planning for the ``"plane"`` render mode (plane rendering design v3, 6).
+"""Brick planning for the ``"plane"`` render mode.
 
 A multiscale visual in plane mode reads only the bricks its render planes
 cross, at levels picked by a rule of the planes' own:
 
-- **Culling rows** (6.2).  Each plane becomes half-spaces in level-0 data
+- **Culling rows**.  Each plane becomes half-spaces in level-0 data
   coordinates, the space the frustum and clipping rows are in: a thin slab
-  either side of the plane, and one row per bounded side of its extent.
-  A brick is kept when a plane reaches the part of the volume the brick
+  either side of the plane, and one row per bounded side of its extent.  A
+  brick is kept when a plane reaches the part of the volume the brick
   *owns* in the lookup table, which is the brick a sample there reads
   (``owned_cell_boxes``).  The planes are a union, so they are applied as
   a mask before the level bands, not appended to the row list.
-- **The level rule** (6.3).  A level's voxel is measured in the plane: its
+- **The level rule**.  A level's voxel is measured in the plane: its
   largest world size over every in-plane direction.  A brick draws level
   ``k`` where a screen pixel at its distance, times the bias, is between
   the voxels of levels ``k - 1`` and ``k``: the 2D rule's transition,
   applied per brick.
-- **Orthographic** (6.3): the whole visual takes one level by the same
+- **Orthographic**: the whole visual takes one level by the same
   measure, and a plan that does not fit the atlas takes the next coarser
   level until it does.
 
@@ -230,7 +230,7 @@ def plane_row_sets(
     reach_voxels: float = PLANE_REACH_VOXELS,
     reach_world: float = 0.0,
 ) -> list[np.ndarray]:
-    """Each plane as culling rows (design 6.2).
+    """Each plane as culling rows.
 
     A world half-space ``n . w + c >= 0`` is, with ``w = A d + b``, the
     data half-space ``(A^T n) . d + (n . b + c) >= 0``: the normal maps as a
@@ -247,8 +247,7 @@ def plane_row_sets(
         planned, in level-0 voxels along the plane's normal.  The default is
         a plane's.
     reach_world : float
-        Further reach in world units: a slab's half-thickness (oblique 2D
-        design v3, 5.3.4).
+        Further reach in world units: a slab's half-thickness.
 
     Returns
     -------
@@ -318,7 +317,7 @@ def build_plane_planning(
 def plane_thresholds(
     voxel_size: np.ndarray, fov_y_rad: float, screen_height_px: float, bias: float
 ) -> list[float]:
-    """World distances at which a plane's bricks change level (design 6.3).
+    """World distances at which a plane's bricks change level.
 
     A screen pixel at distance ``d`` covers ``d / focal`` world units.
     Level ``k + 1`` takes over where that, times the bias, reaches the
@@ -344,7 +343,7 @@ def plane_level_orthographic(
     screen_height_px: float,
     bias: float,
 ) -> int | None:
-    """The one level an orthographic view draws a plane at (design 6.3).
+    """The one level an orthographic view draws a plane at.
 
     Returns
     -------
@@ -399,7 +398,7 @@ def plan_plane_bricks(
 
     Cull to the planes and the clipping rows, then the plane's level bands
     (or the forced or orthographic level), the distance sort and the
-    frustum test (design 6.1).
+    frustum test.
 
     Parameters
     ----------

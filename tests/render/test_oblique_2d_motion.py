@@ -1,4 +1,4 @@
-"""Oblique 2D design v3, Phase 3: motion on the brick route.
+"""Motion on the brick route.
 
 ``plans/oblique_2d_raster_design_v3.md`` 5.1 (preparation), 5.2.3 (sticky
 routes, no handoff), 5.3.7 (the 2D rule) and D7 (``transform_interaction``).
@@ -148,7 +148,7 @@ def _rotated(viewer: Viewer, visual, degrees: float) -> AffineTransform:
 
 
 # ---------------------------------------------------------------------------
-# transform_interaction (D7)
+# transform_interaction
 # ---------------------------------------------------------------------------
 
 
@@ -197,7 +197,7 @@ def test_a_transform_drag_is_announced_once_at_each_end(tmp_path):
 
 @pytest.mark.parametrize("moving_2d", [True, False])
 def test_a_transform_drag_follows_the_2d_rule(tmp_path, plan_modes, moving_2d):
-    """5.3.7: with the 2D flag on, each tick plans the backstop only and the
+    """With the 2D flag on, each tick plans the backstop only and the
     release plans the target once; with it off, every tick plans in full."""
     viewer = _viewer()
     try:
@@ -265,7 +265,7 @@ def test_a_dims_scrub_of_a_tilted_view_follows_the_2d_rule(tmp_path, plan_modes)
 
 
 def test_the_plane_drag_hold_never_applies_in_a_2d_scene(tmp_path):
-    """K11: a 2D scene never holds a multiscale plan for a plane drag."""
+    """A 2D scene never holds a multiscale plan for a plane drag."""
     viewer = _viewer()
     try:
         visual = _add_image(
@@ -281,7 +281,7 @@ def test_the_plane_drag_hold_never_applies_in_a_2d_scene(tmp_path):
 
 
 def test_a_3d_view_keeps_its_plan_through_a_transform_drag(tmp_path, plan_modes):
-    """D7: a 3D view of a multiscale visual with the 3D flag on plans nothing
+    """A 3D view of a multiscale visual with the 3D flag on plans nothing
     during the drag (its bricks move with the node), and in full after."""
     viewer = _viewer(displayed=("z", "y", "x"))
     try:
@@ -310,7 +310,7 @@ def test_a_3d_view_keeps_its_plan_through_a_transform_drag(tmp_path, plan_modes)
 
 
 # ---------------------------------------------------------------------------
-# Sticky routes, no handoff (5.2.3, D8)
+# Sticky routes, no handoff
 # ---------------------------------------------------------------------------
 
 
@@ -380,7 +380,7 @@ def test_a_drag_through_aligned_stays_on_the_brick_route(tmp_path, plan_modes, f
 
 
 def test_a_jump_through_aligned_switches_at_once(tmp_path):
-    """Outside a scope there is no stickiness (5.2.3)."""
+    """Outside a scope there is no stickiness."""
     viewer = _viewer()
     try:
         visual = _add_image(
@@ -402,7 +402,7 @@ def test_a_jump_through_aligned_switches_at_once(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Atlas preparation (5.1, U12)
+# Atlas preparation
 # ---------------------------------------------------------------------------
 
 
@@ -615,7 +615,7 @@ def _coverage(frame, camera, polygon) -> float:
 
 def test_mid_drag_coverage_with_z_never_downsampled(tmp_path):
     """U11 / 8.4 at test scale: every tick of a transform drag from 0 degrees
-    draws at least 95% of the footprint, on a pyramid that keeps z (K11)."""
+    draws at least 95% of the footprint, on a pyramid that keeps z."""
     viewer = _viewer()
     try:
         data = np.tile(_random_volume(4), (2, 4, 4))[:40, :128, :160]
@@ -686,7 +686,7 @@ def test_a_non_pow2_pyramid_draws_its_coarse_level_on_the_slice(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The orthoviewer forwards the scope (5.2.4)
+# The orthoviewer forwards the scope
 # ---------------------------------------------------------------------------
 
 

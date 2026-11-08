@@ -1,4 +1,4 @@
-"""Canvas model for cellier v2."""
+"""Canvas model."""
 
 from __future__ import annotations
 

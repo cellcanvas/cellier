@@ -1,4 +1,4 @@
-"""The scheduler core, rule by rule (design v3, sections 5.2-5.7, 5.13-5.14).
+"""The scheduler core, rule by rule.
 
 Driven synchronously: the test issues reads with ``next_reads``, answers
 them with ``complete_read`` and runs ``commit_round`` itself, on a manual
@@ -114,7 +114,7 @@ def test_desired_set_arrays_must_line_up() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The pass (5.4)
+# The pass
 # ---------------------------------------------------------------------------
 
 
@@ -209,7 +209,7 @@ def test_a_pass_redraws_its_cache() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fetching: budget, lane, class first, round robin (5.5, 5.6)
+# Fetching: budget, lane, class first, round robin
 # ---------------------------------------------------------------------------
 
 
@@ -267,7 +267,7 @@ def test_round_robin_between_caches() -> None:
 
 
 def test_a_small_cache_is_not_paced_by_a_big_one() -> None:
-    """D8: round robin finishes a small layer early."""
+    """Round robin finishes a small layer early."""
     core, _ = _core(max_in_flight=2, backstop_reserved=0)
     core.register(1, FakeResidency(256))
     core.register(2, FakeResidency(8))
@@ -318,7 +318,7 @@ def test_a_failing_request_builder_fails_the_reads() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Commit rounds and eviction (5.7)
+# Commit rounds and eviction
 # ---------------------------------------------------------------------------
 
 
@@ -481,7 +481,7 @@ def test_a_failing_write_gives_the_record_up() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Completion and progress (5.13)
+# Completion and progress
 # ---------------------------------------------------------------------------
 
 
@@ -545,7 +545,7 @@ def test_background_is_drawn_until_complete() -> None:
 
 
 def test_newest_background_slice_is_on_top() -> None:
-    """D7: a newer slice's backstop covers an older slice's fine tiles."""
+    """A newer slice's backstop covers an older slice's fine tiles."""
     core, _ = _core(max_in_flight=100)
     residency = FakeResidency(32)
     core.register(1, residency)
@@ -674,7 +674,7 @@ def test_progress_adds_stages_by_offset() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Retry (5.2)
+# Retry
 # ---------------------------------------------------------------------------
 
 
@@ -726,7 +726,7 @@ def test_a_failed_read_no_longer_wanted_is_deleted() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Invalidation (5.14)
+# Invalidation
 # ---------------------------------------------------------------------------
 
 
@@ -788,7 +788,7 @@ def test_invalidation_is_limited_to_the_region_and_the_store() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Retire and remove (5.4)
+# Retire and remove
 # ---------------------------------------------------------------------------
 
 

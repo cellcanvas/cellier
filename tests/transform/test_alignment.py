@@ -1,4 +1,4 @@
-"""The per-view classifier (full affine design v2, Phase 1).
+"""The per-view classifier.
 
 ``plans/full_affine_transforms_design_v2.md`` sections 3.1 and 4.1, with
 decision D7's relative tolerance.  Every case is a ``data -> world``
@@ -242,12 +242,12 @@ def test_drift(drift, view, case):
     assert classify_view(drift, view).alignment is case
 
 
-# -- D7: the tolerance -----------------------------------------------------------
+# -- The tolerance ---------------------------------------------------------------
 
 
 def test_a_trig_built_quarter_turn_is_axis_aligned():
     """``cos(pi / 2)`` is 6e-17, not 0.  Exactly compared, this view would be
-    OBLIQUE and draw nothing (design v2, 6.1)."""
+    OBLIQUE and draw nothing."""
     noisy = _rot(0, 2, 90.0)
     assert noisy[0, 0] != 0.0
     transform = _affine(noisy)

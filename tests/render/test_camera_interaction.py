@@ -1,4 +1,4 @@
-"""Camera motion: the per-canvas interaction tracker (design 4.5, 4.6).
+"""Camera motion: the per-canvas interaction tracker.
 
 Headless: an offscreen canvas, synthetic input through
 ``canvas.submit_event``, and a fake clock in pygfx's controllers so a drag's
@@ -378,7 +378,7 @@ async def test_a_drag_starts_in_the_first_moved_frame_and_ends_on_release(
 
 
 async def test_the_motion_ends_one_frame_after_the_camera_stops(make_rig):
-    """The scope covers the damped tail, not just the button (design C3)."""
+    """The scope covers the damped tail, not just the button."""
     rig = make_rig()
     await rig.settle_first_frames()
     await rig.press()

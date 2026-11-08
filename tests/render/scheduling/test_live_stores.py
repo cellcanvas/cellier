@@ -1,11 +1,11 @@
-"""Live stores: an announced change reaches the screen, rate-capped (Phase 7).
+"""Live stores: an announced change reaches the screen, rate-capped.
 
-Design v3 5.14.  A store another process writes to announces the change
-(``notify_changed``).  The store revalidates its chunk cache once, the
-scheduler drops the GPU bricks read from it, and the readers are resliced at
-most ``SchedulerConfig.store_change_max_hz`` times a second.  A multiscale
-reader needs no new plan for a contents change: invalidation requeues what
-it wants.
+A store another process writes to announces the change (``notify_changed``).
+The store revalidates its chunk cache once, the scheduler drops the GPU
+bricks read from it, and the readers are resliced at most
+``SchedulerConfig.store_change_max_hz`` times a second.  A multiscale reader
+needs no new plan for a contents change: invalidation requeues what it
+wants.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ async def test_an_external_write_reaches_the_gpu_without_a_new_plan(
 async def test_without_an_announcement_the_write_stays_hidden(
     controller, multiscale_image_store, tmp_path, monkeypatch
 ):
-    """Rechecks stay off: the promise the default makes (design 5.12)."""
+    """Rechecks stay off: the promise the default makes."""
     scene, _visual, _gfx = _add(controller, multiscale_image_store)
     controller.fit_camera(scene.id)
     controller.reslice_all()
@@ -239,9 +239,9 @@ async def test_a_contents_burst_reads_an_in_memory_reader_again(
 ):
     """No reslice; one or two reads; the last read holds the final values.
 
-    Scheduler-only loading design v2, 4.8: invalidation requeues the
-    planned slice and the scheduler reads it again; a read that lands stale
-    is drawn as kept until the re-read replaces it.
+    Invalidation requeues the planned slice and the scheduler reads it
+    again; a read that lands stale is drawn as kept until the re-read
+    replaces it.
     """
     scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
     if kind == "image":

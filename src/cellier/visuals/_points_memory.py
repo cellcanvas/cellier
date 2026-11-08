@@ -1,4 +1,3 @@
-# src/cellier/v2/visuals/_points_memory.py
 from __future__ import annotations
 
 from typing import Any, Literal

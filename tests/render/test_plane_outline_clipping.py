@@ -1,4 +1,4 @@
-"""The outline of a clipping plane: its cut face (plane outline design 3.2).
+"""The outline of a clipping plane: its cut face.
 
 The plane, cut by the visual's data box and by the visual's other
 clipping planes.  Most tests read the lines the scene holds; the last few

@@ -7,7 +7,7 @@ the displayed set, and on an unequal-rank transform it does not even raise --
 it reads the homogeneous row and returns a plausible wrong matrix (design 3.8
 finding 2).
 
-The correct derivation composes three transforms (design 3.9):
+The correct derivation composes three transforms:
 
     visual -> data   the collapsed voxel indices and the window origin
     data -> world    the visual's own transform
@@ -55,11 +55,11 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 #
 # These operate on shape tuples, scale vectors and translation vectors -- not
-# on transforms.  They lived in v1's ``_axis_order`` module and shared
-# their names with the ``AffineTransform`` methods of the same name, which was
-# a coincidence: rank-reducing a transform and subsetting a shape tuple are
+# on transforms.  They lived in v1's ``_axis_order`` module and shared their
+# names with the ``AffineTransform`` methods of the same name, which was a
+# coincidence: rank-reducing a transform and subsetting a shape tuple are
 # different operations.  The methods went with v1; these moved here, next to
-# the fetch-order invariant they serve (R8.1).
+# the fetch-order invariant they serve.
 #
 # ``select_axes`` picks a subset of entries from a per-data-axis sequence.
 # The result preserves the order in ``axes`` and is therefore still in *data
@@ -132,7 +132,7 @@ class RenderSpaces:
 
     Rebuilt when ``displayed_axes`` changes -- including a pure reorder, which
     changes the rendered system's axis order and therefore the node matrix,
-    while changing nothing about what is fetched (design 3.14).
+    while changing nothing about what is fetched.
 
     Parameters
     ----------
@@ -147,10 +147,10 @@ class RenderSpaces:
         ``data_levels``.  Index 0 is the identity.  These are what a region
         is pulled back through, level by level (design 3.11 A), replacing a
         precomputed ``inv_level_k @ inv_visual`` list -- and unlike that list
-        they need no inverse at all (D39).
+        they need no inverse at all.
     visual : VisualCoordinateSystem
         The space this visual's GPU geometry is indexed in, for one render
-        mode (D45).
+        mode.
     world : WorldCoordinateSystem
         The scene's world.
     rendered : RenderedCoordinateSystem
@@ -177,8 +177,7 @@ class RenderSpaces:
         The transform's coupling pattern (``axis_coupling``), ``(n_world,
         n_data)`` booleans: every data axis each world axis reads.
     classification : ViewClassification or None
-        How the transform lines up with the view these spaces serve (full
-        affine design v2, 3.1).
+        How the transform lines up with the view these spaces serve.
     """
 
     data: DataCoordinateSystem
@@ -396,7 +395,7 @@ def node_transform(
     This is design 3.9's chain.  It is square by construction -- the visual
     and rendered systems have the same rank whenever the visual retains
     exactly the displayed axes -- and is handed to ``_pygfx_matrix``, which
-    reverses the axis order and narrows to float32 (D6).
+    reverses the axis order and narrows to float32.
 
     Parameters
     ----------
@@ -642,8 +641,8 @@ def node_follows_slice(spaces: RenderSpaces | None) -> bool:
     True in a view whose sliced data axes reach a displayed world axis
     (``SLICE_SHIFT``, and ``OBLIQUE`` for the families that draw it): the
     collapsed constants the node matrix holds then move the drawn slab
-    across the view (full affine design v2, 4.3, K11).  False otherwise, so
-    an ``AXIS_ALIGNED`` or ``IN_PLANE`` view keeps today's call pattern.
+    across the view.  False otherwise, so an ``AXIS_ALIGNED`` or
+    ``IN_PLANE`` view keeps today's call pattern.
     """
     if spaces is None or spaces.classification is None:
         return False
@@ -657,7 +656,7 @@ def node_follows_slice(spaces: RenderSpaces | None) -> bool:
 
 @dataclass(frozen=True)
 class ElementFold:
-    """Per-element placement in the node's own frame (design v2 4.3, D11).
+    """Per-element placement in the node's own frame.
 
     In a view whose collapsed data axes reach a displayed world axis, a slab
     of geometry holds elements at several collapsed positions, and one node
@@ -1156,11 +1155,11 @@ def geometry_data_region(
 ) -> ConvexRegion:
     """The selected region in **data** coordinates.
 
-    Design 3.12.  ``imap_region`` is ``A^T`` on the normals and needs no
-    inverse (D39), so a geometry visual whose transform is a non-invertible
-    embedding still slices -- which is the ``tzyx`` points in a ``TCZYX``
-    world of 3.13, where D8 additionally drops the channel constraint the
-    dataset has no extent along.
+    ``imap_region`` is ``A^T`` on the normals and needs no inverse, so a
+    geometry visual whose transform is a non-invertible embedding still
+    slices -- which is the ``tzyx`` points in a ``TCZYX`` world of 3.13,
+    where D8 additionally drops the channel constraint the dataset has no
+    extent along.
 
     **The scene's thickness is the only thickness.**  An axis the user gave
     no thickness is a plane, and a continuous axis keeps pure containment:
@@ -1198,9 +1197,9 @@ def geometry_data_region(
 class SectionPlanes:
     """Where a 2D view cuts a visual's geometry, in **data** coordinates.
 
-    ``plans/mesh_refactor_v3.md`` X1.  The planes are ``normal . p = c`` for
-    ``c`` in ``position`` (the slice plane itself) and ``low`` / ``high``
-    (the faces of the scene's slab around it).
+    The planes are ``normal . p = c`` for ``c`` in ``position`` (the slice
+    plane itself) and ``low`` / ``high`` (the faces of the scene's slab
+    around it).
 
     Attributes
     ----------
@@ -1437,11 +1436,11 @@ def data_slice_positions(
     Notes
     -----
     A slab tilted through the data -- a 2D view that is ``OBLIQUE`` for the
-    visual (full affine design v2) -- bounds no single data axis: it is
-    unbounded on every axis it tilts across (``polytope_bounds`` reads it
-    correctly since K13), or bounded on one side where other constraints
-    cut it.  Neither is a position, so neither is reported; the geometry
-    families place such a slab's elements one by one instead.
+    visual -- bounds no single data axis: it is unbounded on every axis it
+    tilts across (``polytope_bounds`` reads it correctly since K13), or
+    bounded on one side where other constraints cut it.  Neither is a
+    position, so neither is reported; the geometry families place such a
+    slab's elements one by one instead.
     """
     box = data_to_world.imap_region(region, world).simplify().bounding_box()
     positions: dict[int, float] = {}

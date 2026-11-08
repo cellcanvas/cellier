@@ -1,4 +1,4 @@
-"""MaskedImage picks (masked image design v2, Phase 7; 9.3).
+"""MaskedImage picks.
 
 A pick reports, at level 0 and the nearest voxel, the mask and the value at
 the hit and the value projected along the inward normal as the surface is
@@ -155,7 +155,7 @@ def test_a_flat_mask_projects_nothing():
 
 
 def test_a_cut_face_projects_along_the_planes_normal():
-    """Inside the mask on a plane keeping ``x <= 10``: inward is -x (MI-P10)."""
+    """Inside the mask on a plane keeping ``x <= 10``: inward is -x."""
     plane = Plane(coordinate_system=uuid4(), normal=(0.0, 0.0, -1.0), offset=-10.0)
     pick = _pick(planes=(plane,))
     # The mask is inside (above 0.5) and rises along +x: the stencil says +x.
@@ -327,7 +327,7 @@ def test_3d_picks_report_both_images(picks_3d, kind, op, band):
 
 @pytest.mark.parametrize("kind", ["memory", "lazy"])
 def test_2d_picks_report_the_value_under_the_pixel(tmp_path, kind):
-    """In the band, a pick's projected value is its own value (MI-D8)."""
+    """In the band, a pick's projected value is its own value."""
     viewer, _model, mask_data, value_data = _viewer(
         tmp_path, kind, "2d", iso_threshold=4.0, surface_thickness=8.0
     )
@@ -397,7 +397,7 @@ def test_a_cut_face_pick_projects_into_the_kept_side(tmp_path):
     would read 32 and 29.5 or below.  Face picks within a voxel of the
     contour are left out: there the nearest voxel can read the mask below
     the threshold where the drawn (linear) read is above it, and the pick
-    then takes the surface's normal, a pick's known approximation (9.3).
+    then takes the surface's normal, a pick's known approximation.
     """
     mask_data, _ = band_pair(SIDE)
     ramp = np.broadcast_to(

@@ -1,4 +1,4 @@
-"""Qt visual-acceptance helpers (``plans/convenience_cleanup.md`` section 6.3).
+"""Qt visual-acceptance helpers.
 
 ``QWidget.grab()`` works under ``QT_QPA_PLATFORM=offscreen`` and returns real
 pixels, so a rendered Qt dock can be checked by test rather than by eye.  These
@@ -37,7 +37,7 @@ def control_labels(container: QWidget) -> list[str]:
 
     The toolkit-neutral question "which controls does this panel contain, and
     what does it call them?" has two Qt answers, because a control is named in
-    one of two ways (``plans/label_ownership_unification.md``):
+    one of two ways:
 
     * a **single-control widget** carries its own label row, stamped with
       ``LABELLED_ROW_OBJECT_NAME``.  The row's first item is that label, and

@@ -1,4 +1,4 @@
-"""The MaskedImage's 2D band (masked image design v2, Phase 5; 7, 12.3).
+"""The MaskedImage's 2D band.
 
 The band is compared with the exact in-plane truth stored in
 ``masked_band_truth.json`` (``tests/render/_masked_band.py`` has the scenes;
@@ -126,7 +126,7 @@ def scene(tmp_path_factory):
     return get
 
 
-# -- the band against the truth (7.2, 7.3; P0-18) ---------------------------------
+# -- the band against the truth ---------------------------------------------------
 
 
 @pytest.mark.parametrize(("mask", "view", "name"), CASES)
@@ -146,8 +146,8 @@ def test_the_band_matches_the_in_plane_truth(scene, mask, view, name):
     covered = frame[..., :3].max(axis=-1) > 0
     assert band.score(covered, d, band.BANDS[name], px)["extra"] == 0
     if name == "hairline":
-        # Thickness 0 is one closed ring (P0-7).  Any coverage counts: where
-        # the contour lies on a pixel boundary two rows share it at half.
+        # Thickness 0 is one closed ring.  Any coverage counts: where the
+        # contour lies on a pixel boundary two rows share it at half.
         labels, _n = ndi.label(~covered)
         rows, cols = np.nonzero(covered)
         middle = (int(np.median(rows)), int(np.median(cols)))
@@ -155,7 +155,7 @@ def test_the_band_matches_the_in_plane_truth(scene, mask, view, name):
 
 
 def test_a_flat_mask_at_its_value_draws_nothing(tmp_path):
-    """The example's zero outside at threshold 0: no contour anywhere (7.2.8)."""
+    """The example's zero outside at threshold 0: no contour anywhere."""
     data, _iso = MASKS["edt_clamped"]
     viewer, _model = band.build(tmp_path, data, 0.0, "L0_aligned", (0.0, 3.4))
     try:
@@ -164,7 +164,7 @@ def test_a_flat_mask_at_its_value_draws_nothing(tmp_path):
         viewer.controller.close()
 
 
-# -- the per-cell skip (7.4; P0-19) ------------------------------------------------
+# -- the per-cell skip -------------------------------------------------------------
 
 
 @pytest.mark.parametrize("mask", band.MASK_KINDS)
@@ -205,7 +205,7 @@ def test_a_uniformly_inside_slice_casts_no_ray(tmp_path):
         viewer.controller.close()
 
 
-# -- unloaded cells (MI-D18) ------------------------------------------------------
+# -- unloaded cells ---------------------------------------------------------------
 
 
 #: The bands the unloaded-cell case draws.
@@ -264,7 +264,7 @@ def test_an_unloaded_cell_invents_no_contour(unloaded, name):
     np.testing.assert_array_equal(frame, plain)
 
 
-# -- the reading per side (MI-D14, MI-D17) ----------------------------------------
+# -- the reading per side ---------------------------------------------------------
 
 
 def _memory_or_lazy(tmp_path, kind: str, view: str) -> np.ndarray:
@@ -314,7 +314,7 @@ def _memory_or_lazy(tmp_path, kind: str, view: str) -> np.ndarray:
 
 @pytest.mark.parametrize("view", ["L0_aligned", "L0_tilted30"])
 def test_an_in_memory_side_reads_as_a_one_level_store(tmp_path, view):
-    """MI-D17: the same arrays in memory and as one-level zarr stores."""
+    """The same arrays in memory and as one-level zarr stores."""
     memory = _memory_or_lazy(tmp_path / "m", "memory", view)
     lazy = _memory_or_lazy(tmp_path / "l", "lazy", view)
     assert band.drawn(memory).sum() > 1000
@@ -326,7 +326,7 @@ def test_an_in_memory_side_reads_as_a_one_level_store(tmp_path, view):
 
 
 def test_the_data_edge_follows_the_tile_rule(tmp_path):
-    """The mask's outer half voxel, read as a 2D tile reads it (6.3).
+    """The mask's outer half voxel, read as a 2D tile reads it.
 
     A mask inside everywhere fades over the outer half voxel before voxel 0
     and not past the last one at level 1, so at threshold 0.75 the contour
@@ -353,7 +353,7 @@ def test_the_data_edge_follows_the_tile_rule(tmp_path):
 
 
 def test_the_extent_clamp_leaves_2d_frames_alone(tmp_path):
-    """The clamp is 3D only (6.4): every 2D frame is identical without it."""
+    """The clamp is 3D only: every 2D frame is identical without it."""
     data, iso = MASKS["signed_distance"]
     viewer, model = band.build(tmp_path, data, iso, "L1_aligned", (0.0, 8.0))
     try:
@@ -378,7 +378,7 @@ def test_each_side_reads_its_own_sliced_axis(scene, view, expected):
     assert uniforms["mask_edge_fade"] == float(any(expected))
 
 
-# -- the range table (7.4) --------------------------------------------------------
+# -- the range table --------------------------------------------------------------
 
 
 def _table(level_shapes=((32, 32, 32),), lut_shape=(2, 2, 2)) -> CellRanges:
@@ -451,7 +451,7 @@ def test_a_threshold_change_zeroes_the_clearance_until_refreshed():
 
 
 def test_the_clearance_of_an_aligned_plane_is_measured_in_its_layer():
-    """The layers above and below a 2D slice are not loaded (7.4)."""
+    """The layers above and below a 2D slice are not loaded."""
     table = _table(lut_shape=(3, 3, 3))
     key = int(pack_keys(np.array([1]), np.array([0]), np.array([[0, 0, 0]]))[0])
     table.record(0, key, _brick(1.0))

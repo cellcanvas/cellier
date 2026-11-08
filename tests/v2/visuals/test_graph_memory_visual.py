@@ -1,4 +1,4 @@
-"""GraphVisual, GraphAppearance and TrailConfig (D9, D11)."""
+"""GraphVisual, GraphAppearance and TrailConfig."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def test_graph_appearance_is_flat():
 
 
 def test_node_depth_compare_defaults_to_le():
-    """Nodes win coplanar ties against edges via the depth test (D22).
+    """Nodes win coplanar ties against edges via the depth test.
 
     A deliberate divergence from ``BaseAppearance``'s ``"<"``:
     ``render_order`` was measured and does nothing for coplanar children.

@@ -1,8 +1,8 @@
 """The chunk scheduler: progressive loading for multiscale visuals.
 
-Design: ``plans/progressive_loading_design_v3.md``.  The core is visual-kind
-agnostic: a visual plans a :class:`DesiredSet` per cache, and each cache is
-a :class:`Residency` that stores arrived data and decides what to draw.
+The core is visual-kind agnostic: a visual plans a :class:`DesiredSet` per
+cache, and each cache is a :class:`Residency` that stores arrived data and
+decides what to draw.
 """
 
 from cellier.render.scheduling._core import (

@@ -1,8 +1,8 @@
 """In-memory plane rendering: the right voxel at the right pixel.
 
-Plane rendering design v3, section 5 and 14.7 (Phase 6).  Each test draws an
-in-memory image or labels visual in ``"plane"`` render mode and compares the
-frame with the CPU reference of ``tests/render/_planes.py``.
+Each test draws an in-memory image or labels visual in ``"plane"`` render
+mode and compares the frame with the CPU reference of
+``tests/render/_planes.py``.
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ async def _image(
 async def test_an_image_plane_shows_the_voxel_the_ray_meets(
     controller, reslice, transform, pose
 ):
-    """Right voxel (14.7): every sure pixel shows the voxel under it."""
+    """Right voxel: every sure pixel shows the voxel under it."""
     scene, _visual, _gfx, planes = await _image(
         controller,
         reslice,
@@ -293,7 +293,7 @@ async def test_a_disabled_plane_is_not_drawn(controller, reslice):
 async def test_moving_and_spinning_a_bounded_plane_is_a_uniform_write(
     controller, reslice, monkeypatch
 ):
-    """C7: an in-plane move and a spin with finite extents; nothing is read."""
+    """An in-plane move and a spin with finite extents; nothing is read."""
     scene, visual, _gfx, planes = await _image(
         controller,
         reslice,
@@ -334,7 +334,7 @@ async def test_moving_and_spinning_a_bounded_plane_is_a_uniform_write(
 async def test_a_plane_is_not_drawn_when_its_axes_are_not_displayed(
     controller, reslice
 ):
-    """Design 4.4: a 2D view shows the slice; the mode and planes are ignored."""
+    """A 2D view shows the slice; the mode and planes are ignored."""
     scene, visual, gfx_visual, _planes = await _image(
         controller,
         reslice,
@@ -418,7 +418,7 @@ async def test_plane_mode_with_no_plane_draws_nothing_until_one_is_added(
 
 
 def test_a_volume_mode_shader_holds_no_plane_code():
-    """V8: the branch is compiled in for the plane mode only.
+    """The branch is compiled in for the plane mode only.
 
     The byte-for-byte check of every volume mode's generated shader is
     ``test_plane_golden_replay.py``; this guards the mechanism.
@@ -456,7 +456,7 @@ def _crossing(world, centre):
 async def test_a_translucent_plane_is_blended_once(
     controller, reslice, mode, depth_write
 ):
-    """Depth and alpha (5.4): a pixel is one sample, whatever lies behind it.
+    """Depth and alpha: a pixel is one sample, whatever lies behind it.
 
     Two planes cross, so many rays meet both.  A pixel that showed both
     blended would differ from a pixel of the same voxel value with nothing
@@ -591,7 +591,7 @@ async def test_a_plane_and_an_opaque_mesh_occlude_each_other(
 async def test_a_translucent_mesh_behind_a_plane_follows_its_depth_write(
     controller, reslice, depth_write
 ):
-    """C11: a mesh drawn after the plane is tested against the plane's depth
+    """A mesh drawn after the plane is tested against the plane's depth
     where the visual writes depth, and shows through where it does not."""
     from cellier.visuals import InMemoryImageAppearance
 
@@ -703,7 +703,7 @@ def _view_normals(shot, plane) -> np.ndarray:
 
 @pytest.mark.parametrize("kind", ["image", "labels"])
 async def test_the_plane_writes_its_normal_facing_the_viewer(controller, reslice, kind):
-    """Normal (5.5, P15): the plane's own, the same from both of its sides."""
+    """Normal: the plane's own, the same from both of its sides."""
     from cellier.render._cellier_blender import NORMAL_TARGET
 
     add = _image if kind == "image" else _labels
@@ -767,7 +767,7 @@ async def test_the_plane_writes_its_normal_facing_the_viewer(controller, reslice
 async def test_a_label_plane_writes_the_outline_key_of_the_label_drawn(
     controller, reslice
 ):
-    """Outline (5.5): one key per label, none on background or off the plane."""
+    """Outline: one key per label, none on background or off the plane."""
     from cellier.render._cellier_blender import OUTLINE_ID_TARGET
 
     scene, _visual, _gfx, planes = await _labels(
@@ -792,7 +792,7 @@ async def test_a_label_plane_writes_the_outline_key_of_the_label_drawn(
     assert len(set(key_of.values())) == h.N_VALUES - 1
 
 
-# -- nD data (R9) -------------------------------------------------------------
+# -- nD data ------------------------------------------------------------------
 
 
 async def test_a_plane_on_three_axes_of_a_4d_scene_shows_the_current_time_point(

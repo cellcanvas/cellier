@@ -1,7 +1,6 @@
 """Render planes on the controller: checks, API, events, planning.
 
-Plane rendering design v3, sections 4, 7.4 and 8.  What a plane draws is
-tested in ``test_plane_rendering_memory.py`` and
+What a plane draws is tested in ``test_plane_rendering_memory.py`` and
 ``test_plane_rendering_multiscale.py``.
 """
 
@@ -211,7 +210,7 @@ def test_a_visual_without_render_planes_is_refused(controller):
         controller.get_render_plane(points.id, uuid4())
 
 
-# -- the rules (4.3) --------------------------------------------------------------
+# -- the rules --------------------------------------------------------------------
 
 
 def test_bad_tuples_are_refused_and_the_last_good_one_put_back(
@@ -248,7 +247,7 @@ def test_bad_tuples_are_refused_and_the_last_good_one_put_back(
 
 
 def test_a_plane_on_an_axis_the_data_does_not_span_is_refused(controller, image_volume):
-    """P16: each plane axis must be one data axis, scaled and shifted."""
+    """Each plane axis must be one data axis, scaled and shifted."""
     scene = controller.add_scene(
         coordinate_system=[("t", "time"), *spatial_axes("z", "y", "x")],
         displayed_axes=("z", "y", "x"),
@@ -508,7 +507,7 @@ def test_set_render_plane_replaces_one_plane_and_keeps_its_id(controller, image_
         controller.set_render_plane(visual.id, uuid4(), replacement)
 
 
-# -- 8.2: a change while not in plane mode is stored, announced, inert -------------
+# -- A change while not in plane mode is stored, announced, inert ------------------
 
 
 async def test_a_change_outside_plane_mode_is_inert(
@@ -552,7 +551,7 @@ async def test_plane_mode_is_ignored_in_a_2d_view(
     await drain_loading(controller)
 
 
-# -- 4.2 (P17): plane mode with nothing to draw draws nothing ----------------------
+# -- Plane mode with nothing to draw draws nothing ---------------------------------
 
 
 async def test_plane_mode_with_no_plane_is_not_sliced_until_one_appears(
@@ -635,7 +634,7 @@ async def test_an_in_memory_visual_is_sliced_when_its_first_plane_appears(
     assert reslices == [visual.id]
 
 
-# -- C10 and 4.4: a plane whose axes are not displayed -----------------------------
+# -- A plane whose axes are not displayed ------------------------------------------
 
 
 async def test_a_plane_off_the_displayed_axes_is_not_drawn_and_warns_once(
@@ -692,7 +691,7 @@ async def test_a_plane_off_the_displayed_axes_is_not_drawn_and_warns_once(
     await drain_loading(controller)
 
 
-# -- 7.4: a render plane change is a tick, and holds the plan ----------------------
+# -- A render plane change is a tick, and holds the plan ---------------------------
 
 
 async def test_a_render_plane_drag_holds_the_plan(
@@ -817,7 +816,7 @@ def test_an_in_memory_plane_drag_is_announced_and_reads_nothing(
 
 
 def test_the_gui_combos_offer_plane(controller, image_volume, labels_volume):
-    """Design 9.1: "plane" is a choice of every render-mode combo."""
+    """Every render-mode combo offers "plane"."""
     from cellier.gui._appearance_fields import literal_choices
     from cellier.gui._image_controls import image_control_values
 

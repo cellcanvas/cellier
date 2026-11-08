@@ -237,8 +237,8 @@ def level_transforms(scales, translations=None, labels=None):
 def data_region(ndim: int, slabs=None, labels=None) -> ConvexRegion:
     """A region in a store's own **data** space, from per-axis slabs.
 
-    What a geometry slice request carries since Phase 8 (R8.3): the store's
-    whole filter, already pulled back, replacing the ``slice_indices`` plus
+    What a geometry slice request carries since Phase 8: the store's whole
+    filter, already pulled back, replacing the ``slice_indices`` plus
     ``thickness`` pair that compared a world position against data
     coordinates.
 
@@ -336,12 +336,12 @@ class Context:
 
         Every image and label family plans from this and nothing else: Phase 8
         deleted the ``dims_state.slice_indices`` fallback each of them used to
-        have (R8.3), so a render-layer test that builds a slice request has to
-        supply the region as well as the systems.
+        have, so a render-layer test that builds a slice request has to supply
+        the region as well as the systems.
 
         Each collapsed axis gets a zero-thickness slab -- a plane -- which is
         what ``DimsManager.to_selection`` emits for an axis nobody gave a
-        thickness (D4.2).
+        thickness.
         """
         return RegionSelection(
             transform=self.rendered_to_world,

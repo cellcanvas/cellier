@@ -1,10 +1,9 @@
 """A multiscale mesh while the camera moves.
 
-``plans/mesh_refactor_v3.md`` Phase 8 (I2).  In a 3D view the canvas whose
-camera is moving draws the coarse level; both levels stay loaded, so nothing
-is read or uploaded, and the finest is back in the frame after the motion
-ends.  Headless, with the camera rig of ``test_camera_interaction.py``:
-synthetic input and a fake clock.
+In a 3D view the canvas whose camera is moving draws the coarse level; both
+levels stay loaded, so nothing is read or uploaded, and the finest is back
+in the frame after the motion ends.  Headless, with the camera rig of
+``test_camera_interaction.py``: synthetic input and a fake clock.
 """
 
 from __future__ import annotations

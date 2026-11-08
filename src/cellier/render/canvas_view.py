@@ -302,9 +302,9 @@ class CanvasView:
 
         self._last_camera_state: CameraState = self.capture_camera_state()
         self._overlays: list[GFXCanvasOverlay] = []
-        # Plane gizmos (gizmo design v2, 5.1), and the ones whose proxy moved
-        # since the last frame.  The handlers are kept as attributes because
-        # the canvas removes a handler by identity.
+        # Plane gizmos, and the ones whose proxy moved since the last frame.
+        # The handlers are kept as attributes because the canvas removes a
+        # handler by identity.
         self._plane_gizmos: dict[UUID, GFXPlaneGizmo] = {}
         self._gizmo_moves_pending: set[UUID] = set()
         self._gizmo_before_draw_handler = self._report_gizmo_moves
@@ -896,7 +896,7 @@ class CanvasView:
         if overlay in self._overlays:
             self._overlays.remove(overlay)
 
-    # -- plane gizmos (gizmo design v2, 5.1) ----------------------------------
+    # -- plane gizmos ---------------------------------------------------------
 
     def add_plane_gizmo(
         self, gizmo_id: UUID, point, normal, *, screen_size: float = 100.0
@@ -986,7 +986,7 @@ class CanvasView:
 
         ``None`` in 2D.  With no custom target, pygfx's
         ``OrbitController.target`` is the offset from the camera, so the
-        camera's position is added (gizmo design v2, V5).
+        camera's position is added.
         """
         if self._dim != "3d":
             return None

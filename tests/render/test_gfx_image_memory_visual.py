@@ -326,7 +326,7 @@ def test_identity_transform_preserves_slice_index(mock_gfx):
 
 @patch("cellier.render.visuals._image_memory.gfx")
 def test_slice_index_outside_store_bounds_draws_nothing(mock_gfx):
-    """A transformed slice index outside the data plans nothing (design 3.2)."""
+    """A transformed slice index outside the data plans nothing."""
     from cellier.render.visuals import GFXImageMemoryVisual
 
     store = _make_store(shape=(10, 20, 30))

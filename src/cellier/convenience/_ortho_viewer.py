@@ -227,7 +227,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     (e.g. channel or time).  By default every axis's slice position, thickness
     and slider override is mirrored across the four panels by an
     :class:`~cellier.convenience._ortho_dims.OrthoDimsController`, so the
-    panels share one world point (design 3.6).
+    panels share one world point.
 
     Every panel starts with a uniform black background
     (:func:`~cellier.scene._background.viewer_background`); see
@@ -335,8 +335,8 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         On by default (``OrthoViewer(..., draw_status_overlay=True)``); every
         panel canvas shows it.  Under a rotation not about one view axis, a
         2D panel whose slice cuts an image at an angle draws nothing of it
-        and lists it here (full affine design v2, D1, D3, D8).  Its fields
-        are live.  ``None`` when the viewer was built without it.
+        and lists it here.  Its fields are live.  ``None`` when the viewer
+        was built without it.
         """
         return self._draw_status_overlay
 
@@ -364,7 +364,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         for key in _PANEL_KEYS:
             displayed = displayed_by_key[key]
             render_modes = {"3d"} if key == "vol" else {"2d"}
-            # Every axis gets a position, displayed ones included (D36).
+            # Every axis gets a position, displayed ones included.
             slice_indices = dict.fromkeys(range(self._ndim), 0.0)
             scene = Scene(
                 name=key,
@@ -971,9 +971,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         from cellier.convenience._geometry import axis_values_from_ortho
 
         ranges = axis_values_from_ortho(self)
-        # A slice position is a float world coordinate (D3), so the midpoint
-        # is not rounded.  Every panel keeps a position for every axis (D36),
-        # so the displayed ones are centred too.
+        # A slice position is a float world coordinate, so the midpoint is
+        # not rounded.  Every panel keeps a position for every axis, so the
+        # displayed ones are centred too.
         midpoints = {
             axis: (ranges[axis].min + ranges[axis].max) / 2.0
             for axis in self._spatial_axes
@@ -1037,7 +1037,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         copy of the visual, so each panel plans coarse while the transform
         changes (when its view's moving setting is on) and in full when the
         block exits, and a tilted 2D panel switches onto the brick route with
-        about a one-frame gap (oblique 2D design v3, 5.2.4)::
+        about a one-frame gap::
 
             with viewer.transform_interaction(visuals):
                 for angle in angles:
@@ -1173,9 +1173,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         The panels' visuals read one store and share its data coordinate
         system, so one tuple of clipping planes means the same cut in each
-        of them, and each panel reduces it with its own displayed axes
-        (clipping planes design D20).  They are registered with
-        :attr:`clipping_controller`, which links them as its mode says.
+        of them, and each panel reduces it with its own displayed axes.
+        They are registered with :attr:`clipping_controller`, which links
+        them as its mode says.
         """
         visuals = {key: add_one(key, scene) for key, scene in self._scenes.items()}
         copies = tuple(visual.id for visual in visuals.values())
@@ -1216,8 +1216,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         :meth:`update_image_channel_field` set all four panels at once.  The
         image controls instead drive the 2D panels and the 3D panel
         separately, so the two can differ.  A composited axis cannot be one
-        of the spatial axes, since some panel always displays it (unified
-        image design 3.4).
+        of the spatial axes, since some panel always displays it.
 
         Parameters
         ----------
@@ -1273,8 +1272,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             ``None`` (default) is the identity.
         render_config : InMemoryImageRenderConfig or None
             The GPU configuration of the brick route, which draws a tilted
-            2D view of the image (oblique 2D design v3).  ``None`` uses the
-            defaults.
+            2D view of the image.  ``None`` uses the defaults.
 
         Returns
         -------
@@ -1374,8 +1372,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         render_config : InMemoryLabelRenderConfig or None
             The GPU configuration of the brick route, which draws a tilted
-            2D view of the labels (oblique 2D design v3).  ``None`` uses the
-            defaults.
+            2D view of the labels.  ``None`` uses the defaults.
 
         Returns
         -------

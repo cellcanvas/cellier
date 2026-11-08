@@ -297,7 +297,7 @@ def test_every_visual_model_has_an_aabb_field():
 
 # ---------------------------------------------------------------------------
 # ``appearance=True`` (stage 5's "default panel") is gone: ``controls=`` is an
-# explicit list (ordered controls design D5).
+# explicit list.
 # ---------------------------------------------------------------------------
 
 

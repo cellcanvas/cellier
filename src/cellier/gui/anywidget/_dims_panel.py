@@ -247,8 +247,8 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         self._model_displayed_during_toggle = tuple(selection.displayed_axes)
         # Slider values are skipped on our own echo: a drag has moved on
         # since it sent them.  The positions ride on the event rather than on
-        # ``dims_state``: the render layer takes the region instead (D5), but
-        # a slider that something else moved still has to resync.
+        # ``dims_state``: the render layer takes the region instead, but a
+        # slider that something else moved still has to resync.
         if event.source_id != self._id:
             new_slices = dict(self.slice_indices)
             for axis, value in event.slice_indices.items():
@@ -375,7 +375,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
             self._end_scope()
 
     def _on_thickness_step(self, content: dict) -> None:
-        """A thickness box was stepped: an interactive tick (design v3, D13).
+        """A thickness box was stepped: an interactive tick.
 
         ``{"type": "thickness", "axis": a, "value": v}`` from the spinner,
         an arrow key or the wheel.  Applied to the trait without submitting
@@ -429,10 +429,9 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         target_displayed = self._axes_memory.toggle_target(previous)
 
         # Only ``displayed_axes`` is sent: every axis keeps its slice position
-        # in the model whatever is displayed (D36).  The panel moves itself
-        # *before* the emit: the controller echoes the change stamped with our
-        # own source_id, and a handler downstream of the change can fail
-        # (``plans/gui_backend_seam.md`` D17).
+        # in the model whatever is displayed.  The panel moves itself *before*
+        # the emit: the controller echoes the change stamped with our own
+        # source_id, and a handler downstream of the change can fail.
         self._apply_displayed(tuple(target_displayed))
         self._model_displayed_during_toggle = None
         try:

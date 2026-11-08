@@ -1,4 +1,3 @@
-# src/cellier/data/graph/_graph_memory_store.py
 from __future__ import annotations
 
 import asyncio
@@ -77,15 +76,15 @@ class GraphMemoryStore(BaseDataStore):
 
     One store backs one graph visual and returns nodes and edges together in
     a single ``GraphData`` per slice, so the two can never be committed to
-    the GPU out of sync (D2).
+    the GPU out of sync.
 
     Field layout
     ------------
     The flat numpy arrays are the **source of truth** and are what
     serializes; the ``spatial_graph`` index is a derived, lazily built
-    private attribute reachable through :attr:`graph` (D3).  A store used
-    only with ``slice_strategy="mask"`` never builds an index at all, which
-    is what makes ``spatial-graph`` optional at *runtime* and not merely at
+    private attribute reachable through :attr:`graph`.  A store used only
+    with ``slice_strategy="mask"`` never builds an index at all, which is
+    what makes ``spatial-graph`` optional at *runtime* and not merely at
     import time.
 
     Positions are stored in *data-axis order*: column 0 is axis 0 (t or z),
@@ -94,12 +93,11 @@ class GraphMemoryStore(BaseDataStore):
 
     ``edges`` holds endpoint **row indices**, not original node ids; the
     conversion happens once, at construction.  ``node_ids`` is read only
-    when building a pick payload, never on the per-frame path (D18).
+    when building a pick payload, never on the per-frame path.
 
     ``get_data`` runs the filter in the event loop's default executor, so a
-    large graph or a wide trail does not stall the loop
-    (``plans/scheduler_only_loading_design_v2.md`` D4); :meth:`read` is the
-    same filter, synchronous.
+    large graph or a wide trail does not stall the loop; :meth:`read` is
+    the same filter, synchronous.
 
     Parameters
     ----------
@@ -118,12 +116,12 @@ class GraphMemoryStore(BaseDataStore):
         (n_edges, 4) float32 RGBA, row-matched to edges.  Expanded to two
         vertices per edge at slice time.
     axis_scales : tuple[float, ...] | None
-        A geff file's per-axis ``scale`` (D23).  ``None`` for a store built
-        from raw arrays.  ``Controller.add_graph`` turns these into the
-        visual's default ``data -> world`` transform when its own
-        ``transform`` argument is None -- raw numbers here rather than a
-        transform, because a transform names the two coordinate systems it
-        maps between and the store does not know the scene's world.
+        A geff file's per-axis ``scale``.  ``None`` for a store built from
+        raw arrays.  ``Controller.add_graph`` turns these into the visual's
+        default ``data -> world`` transform when its own ``transform``
+        argument is None -- raw numbers here rather than a transform,
+        because a transform names the two coordinate systems it maps
+        between and the store does not know the scene's world.
     axis_offsets : tuple[float, ...] | None
         The per-axis ``offset`` companion.
     directed : bool
@@ -131,10 +129,10 @@ class GraphMemoryStore(BaseDataStore):
         class the lazy index builds, and nothing else: the slice path is
         direction-agnostic.
     slice_strategy : str
-        ``"mask"`` (default) or ``"roi"``, chosen explicitly by the caller
-        (D17).  The store never inspects the data to pick one.  ``"roi"``
-        without ``spatial-graph`` importable is an error at validation, not
-        a silent fallback.
+        ``"mask"`` (default) or ``"roi"``, chosen explicitly by the caller.
+        The store never inspects the data to pick one.  ``"roi"`` without
+        ``spatial-graph`` importable is an error at validation, not a
+        silent fallback.
     name : str
         Human-readable label.
     id : UUID4
@@ -157,8 +155,8 @@ class GraphMemoryStore(BaseDataStore):
     """
 
     store_type: Literal["graph_memory"] = "graph_memory"
-    # Reassigning these announces a change on ``data_changed``
-    # (plans/store_change_events.md): positions move the extent.
+    # Reassigning these announces a change on ``data_changed``:
+    # positions move the extent.
     _EXTENT_FIELDS: ClassVar[frozenset[str]] = frozenset({"positions"})
     _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -312,7 +310,7 @@ class GraphMemoryStore(BaseDataStore):
         directed : bool
             Whether the graph is directed.
         slice_strategy : str
-            ``"mask"`` or ``"roi"`` (D17).
+            ``"mask"`` or ``"roi"``.
         data_coordinate_system : DataCoordinateSystem | None
             The store's coordinate system, one axis per ``positions`` column.
             The store adopts its ``datastore_id`` as its ``id``.  ``None``
@@ -356,8 +354,8 @@ class GraphMemoryStore(BaseDataStore):
     ) -> GraphMemoryStore:
         """Build a store from a geff file.
 
-        There is deliberately **no** ``transform`` parameter (D23): the
-        file's axes are the sole source of the store's scale and offset at
+        There is deliberately **no** ``transform`` parameter: the file's
+        axes are the sole source of the store's scale and offset at
         construction.  ``Controller.add_graph(transform=...)`` still wins
         when passed explicitly, as it does for every other visual.
 
@@ -376,7 +374,7 @@ class GraphMemoryStore(BaseDataStore):
         directed : bool | None
             Overrides the file's ``directed`` flag when not ``None``.
         slice_strategy : str
-            ``"mask"`` or ``"roi"`` (D17).
+            ``"mask"`` or ``"roi"``.
         data_coordinate_system : DataCoordinateSystem | None
             The store's coordinate system.  ``None`` builds one from the
             loaded axes' geff metadata; see
@@ -489,7 +487,7 @@ class GraphMemoryStore(BaseDataStore):
         """``"vertex"`` when per-node colours are present, else ``"uniform"``.
 
         Descriptive only: it says what the store carries, and never decides
-        what the material does (D20).
+        what the material does.
         """
         return "vertex" if self.node_colors is not None else "uniform"
 
@@ -590,7 +588,7 @@ class GraphMemoryStore(BaseDataStore):
 
     @property
     def graph(self) -> Any:
-        """The spatial index, built on first use over ROW indices (D18).
+        """The spatial index, built on first use over ROW indices.
 
         Node ids in the returned ``SpatialGraph`` / ``SpatialDiGraph`` are
         ``arange(n_nodes)``, *not* the caller's ``node_ids``, so queries
@@ -681,7 +679,7 @@ class GraphMemoryStore(BaseDataStore):
 
         Requires ``node_ids`` to be sorted, which it is for every geff file
         and for the ``arange`` default.  Called on an explicit user request,
-        never per frame (D18).
+        never per frame.
 
         Parameters
         ----------
@@ -820,11 +818,11 @@ class GraphMemoryStore(BaseDataStore):
         Inclusion rule
         --------------
         A node survives when it is inside the slab on every non-displayed
-        axis.  An edge survives when **either** endpoint does (D5), and it
+        axis.  An edge survives when **either** endpoint does, and it
         draws in full to the out-of-slab endpoint's projected position.
-        That far endpoint contributes a line vertex but no node marker
-        (D6) -- which is the only rule that renders anything for tracking
-        data, where every edge spans two timepoints.
+        That far endpoint contributes a line vertex but no node marker --
+        which is the only rule that renders anything for tracking data,
+        where every edge spans two timepoints.
 
         Parameters
         ----------
@@ -863,7 +861,7 @@ class GraphMemoryStore(BaseDataStore):
         """The reference selection: two vectorized passes over the arrays.
 
         No optional dependency, O(E) always and never worse -- which is why
-        it is the default and the correctness reference (D17).
+        it is the default and the correctness reference.
         """
         node_mask = self._window_mask(request)
         node_rows = np.flatnonzero(node_mask)
@@ -883,7 +881,7 @@ class GraphMemoryStore(BaseDataStore):
     def _select_roi(
         self, request: GraphSliceRequest
     ) -> tuple[np.ndarray, np.ndarray, None]:
-        """Index-accelerated selection over the same slab (D17).
+        """Index-accelerated selection over the same slab.
 
         The ROI is the trail window on the sliced axes and unbounded on the
         displayed ones, so for an axis-aligned slab the query box *is* the
@@ -954,10 +952,10 @@ class GraphMemoryStore(BaseDataStore):
         - In-window nodes are clamped *up* to ``min_alpha``, so a trail
           never disappears before the window ends.
         - Out-of-window nodes get exactly 0.0.  They only ever appear as
-          the far vertex of a dangling edge (D13), so the edge fades
-          smoothly to nothing at the window boundary rather than being cut
-          square -- the gradient is free, because LineSegmentMaterial
-          interpolates along the segment.
+          the far vertex of a dangling edge, so the edge fades smoothly to
+          nothing at the window boundary rather than being cut square --
+          the gradient is free, because LineSegmentMaterial interpolates
+          along the segment.
         """
         alpha = np.ones(rows.shape[0], dtype=np.float32)
         min_alpha = 0.0
@@ -982,9 +980,9 @@ class GraphMemoryStore(BaseDataStore):
         # here would raise on a store of lower rank than the world and
         # silently upload the wrong columns on a transform that permutes its
         # axes; it was the fallback for a headlessly constructed visual until
-        # v1 was retired (R8.3).
+        # v1 was retired.
         displayed = list(request.retained_axes)
-        # The collapsed columns a coupled view folds in (design v2, D11).
+        # The collapsed columns a coupled view folds in.
         folded = list(request.fold_axes)
         node_fold = edge_fold = None
         fading = bool(request.fades)
@@ -1054,8 +1052,8 @@ class GraphMemoryStore(BaseDataStore):
             original_edge_rows = edge_rows
             if clip_planes:
                 # Cut each edge at the clipping planes, by its true position
-                # on every axis; colour and alpha are interpolated to the cut
-                # (clipping planes design 5.2).
+                # on every axis; colour and alpha are interpolated to the
+                # cut.
                 full = self.positions[vertex_rows].astype(np.float64)
                 width = full.shape[1]
                 columns = [full]

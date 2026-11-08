@@ -21,7 +21,7 @@ def test_coordinate_system_roundtrip(tmp_path):
 
 
 def test_dims_manager_roundtrip(tmp_path):
-    # 3D case -- all axes displayed; each still keeps a position (D36)
+    # 3D case -- all axes displayed; each still keeps a position
     original_3d = DimsManager(
         world_coordinate_system=world_coordinate_system(
             spatial_axes("z", "y", "x"), name="world"
@@ -74,7 +74,7 @@ def test_the_snapshot_does_not_carry_the_slice_positions():
 
 
 def test_dims_manager_validates_axis_coverage():
-    """Every world axis needs a position, displayed or not (D36)."""
+    """Every world axis needs a position, displayed or not."""
     with pytest.raises(ValueError, match="Axis coverage mismatch"):
         DimsManager(
             world_coordinate_system=world_coordinate_system(

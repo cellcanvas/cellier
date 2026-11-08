@@ -9,7 +9,7 @@ to the data's footprint.  Two bugs, both found by the full affine hand checks
   camera at once (``_switch_canvas_cameras``), before the 3D slice loads,
   and nothing refits afterwards; the labels nodes were not pinned, so a
   labels volume started in 2D and toggled to 3D was framed on an empty
-  corner (H7).
+  corner.
 - **The 2D box ignored the view.**  The image pinned its 2D box once, from
   the store's last two axes, but a ``(z, x)`` view's slice is ``Z x X``; and
   both visuals sized their outline wireframe only on the first upload, so a

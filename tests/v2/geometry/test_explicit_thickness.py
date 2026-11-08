@@ -1,4 +1,4 @@
-"""The scene's thickness is the only thickness (mesh refactor v3, T1-T3).
+"""The scene's thickness is the only thickness.
 
 No geometry family adds a floor: an axis the user gave no thickness is a
 plane.  A continuous axis keeps pure containment.  A discrete axis is
@@ -183,7 +183,7 @@ async def test_a_thickness_draws_the_band_of_a_slab_mode_mesh():
 
 
 # ---------------------------------------------------------------------------
-# Discrete axes (T2)
+# Discrete axes
 # ---------------------------------------------------------------------------
 
 
@@ -305,7 +305,7 @@ def test_a_continuous_axis_is_not_snapped():
 
 
 # ---------------------------------------------------------------------------
-# The graph's window (T3)
+# The graph's window
 # ---------------------------------------------------------------------------
 
 

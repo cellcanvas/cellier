@@ -120,10 +120,10 @@ def test_center_slices_sets_unrounded_midpoints(image_store):
     }
 
     viewer.center_slices()
-    # Slice positions are floats (D3): the midpoint of an even-length axis
-    # sits between its two middle voxels and is kept there, not rounded.
-    # Every panel keeps a position for every axis (D36), so all four hold the
-    # same point, displayed axes included.
+    # Slice positions are floats: the midpoint of an even-length axis sits
+    # between its two middle voxels and is kept there, not rounded. Every
+    # panel keeps a position for every axis, so all four hold the same point,
+    # displayed axes included.
     for key in ("xy", "xz", "yz", "vol"):
         assert dict(viewer.scenes[key].dims.selection.slice_indices) == {
             0: 3.5,
@@ -203,7 +203,7 @@ def test_from_file_rejects_non_ortho_model(tmp_path, image_store):
     ids=["single", "composite", "empty_composite"],
 )
 def test_serialization_roundtrip_unified_image(tmp_path, composite, n_channels):
-    """Every panel's image keeps its mode and channels (design 3.11)."""
+    """Every panel's image keeps its mode and channels."""
     world = [("c", "channel"), *spatial_axes("z", "y", "x")]
     store = ImageMemoryStore(data=np.zeros((2, 4, 8, 8), dtype=np.float32), name="c")
     viewer = OrthoViewer(world)

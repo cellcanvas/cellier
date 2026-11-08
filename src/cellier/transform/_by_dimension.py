@@ -5,8 +5,7 @@ Its blocks act on disjoint subsets of the input and output axes, which is
 what makes every operation decompose: a question about the affine axes is
 answered by the affine block and never reaches the non-uniform one.
 
-Mirrors RFC-5's ``byDimension``.  See
-``plans/nonuniform_time_axis_transform_design.md``.
+Mirrors RFC-5's ``byDimension``.
 """
 
 from __future__ import annotations
@@ -883,8 +882,8 @@ class ByDimensionTransform(BaseTransform):
         box = region.bounding_box()
         pulled = self._route_box(box, self.input_coordinate_system, forward=False)
 
-        # Broadcast axes lose their constraint (D8): a block the input has
-        # no extent along cannot bound anything.
+        # Broadcast axes lose their constraint: a block the input has no
+        # extent along cannot bound anything.
         broadcast = set()
         for block in self.blocks:
             affine = (

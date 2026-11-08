@@ -1,11 +1,10 @@
 """``CachePolicy.commit_stale``: stale results drawn as kept in the commit round.
 
-``plans/scheduler_only_loading_design_v2.md`` 4.1 (D13, D14).  A cache whose
-policy has ``commit_stale`` keeps a result an invalidation makes stale -- a
-read invalidated in flight, or an arrival invalidated before its round -- and
-hands it to the adapter's ``write_kept`` in the next commit round, never
-before; the record is requeued either way.  A cache without it behaves as it
-always did (the other core tests and the trace guard).
+A cache whose policy has ``commit_stale`` keeps a result an invalidation
+makes stale -- a read invalidated in flight, or an arrival invalidated before
+its round -- and hands it to the adapter's ``write_kept`` in the next commit
+round, never before; the record is requeued either way.  A cache without it
+behaves as it always did (the other core tests and the trace guard).
 """
 
 from __future__ import annotations

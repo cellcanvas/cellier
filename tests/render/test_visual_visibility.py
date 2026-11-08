@@ -233,8 +233,8 @@ async def test_the_qt_visible_checkbox_hides_and_restores_the_picture(
     dock = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
     await reslice(viewer.controller, viewer.scene.id)
 
-    # The checkbox carries no text of its own: its row's label names it
-    # (``plans/label_ownership_unification.md``), so find the row first.
+    # The checkbox carries no text of its own: its row's label names it,
+    # so find the row first.
     from cellier.gui.qt.visuals._chrome import LABELLED_ROW_OBJECT_NAME
 
     row = next(

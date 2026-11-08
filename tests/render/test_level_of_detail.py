@@ -81,9 +81,9 @@ def test_build_level_grids_centres_formula_and_axis_order(
     arr = grids[0]["arr"]
     centres = grids[0]["centres"]
     gz, gy, gx = arr[:, 1], arr[:, 2], arr[:, 3]
-    # centre[x] uses gx (W), centre[z] uses gz (D).  Centre convention (plan
-    # v2, D1): brick g covers level voxels [8g, 8g + 8), centred on
-    # s * ((g + 0.5) * 8 - 0.5) + t, here with s = 1.
+    # centre[x] uses gx (W), centre[z] uses gz (D).  Centre convention:
+    # brick g covers level voxels [8g, 8g + 8), centred on s * ((g + 0.5) *
+    # 8 - 0.5) + t, here with s = 1.
     np.testing.assert_allclose(centres[:, 0], (gx + 0.5) * 8 - 0.5 + 100.0)
     np.testing.assert_allclose(centres[:, 1], (gy + 0.5) * 8 - 0.5 + 200.0)
     np.testing.assert_allclose(centres[:, 2], (gz + 0.5) * 8 - 0.5 + 300.0)

@@ -1,4 +1,4 @@
-"""GFXGraphMemoryVisual -- the pygfx compound (D1, D22)."""
+"""GFXGraphMemoryVisual -- the pygfx compound."""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ def _commit(visual, store, displayed=(0, 1, 2), sliced=None, extents=None, fades
 
 
 def test_group_structure():
-    """The two data children, and the node material wins coplanar ties (D22).
+    """The two data children, and the node material wins coplanar ties.
 
     The group also holds the AABB wireframe, which is why this asserts a
     superset of the two data nodes rather than an exact pair: the box is a
@@ -109,7 +109,7 @@ def test_pick_write_enabled_by_default():
 
 
 def test_sub_visual_toggles_are_independent():
-    """D16: node_visible / edge_visible nest under the group's visible."""
+    """node_visible / edge_visible nest under the group's visible."""
     visual = _visual(_store())
     visual.on_appearance_changed(_appearance_event("node_visible", False))
     assert visual.node_points.visible is False
@@ -253,7 +253,7 @@ def test_alpha_survives_geometry_replacement():
     assert np.all(third == 1.0)
 
 
-# ── color_mode is honoured, never inferred (D20) ───────────────────────────
+# ── color_mode is honoured, never inferred ─────────────────────────────────
 
 
 def test_declared_uniform_survives_store_colors():

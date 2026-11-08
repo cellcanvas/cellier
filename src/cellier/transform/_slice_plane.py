@@ -1,9 +1,8 @@
-"""The geometry of one 2D slice through raster data (oblique 2D design v3).
+"""The geometry of one 2D slice through raster data.
 
-Section 4.1 of ``plans/oblique_2d_raster_design_v3.md``.  For one visual in
-one 2D view, ``L`` and ``t`` are the effective ``data -> world`` linear
-block and translation, ``D`` the two displayed world axes, ``S`` the sliced
-ones and ``s`` the slice position:
+For one visual in one 2D view, ``L`` and ``t`` are the effective
+``data -> world`` linear block and translation, ``D`` the two displayed
+world axes, ``S`` the sliced ones and ``s`` the slice position:
 
 * the **frame** (:func:`slice_plane_frame`) parameterises the pullback
   ``P = {p : L[S, :] p + t[S] = s[S]}`` by the displayed world coordinates:
@@ -14,13 +13,13 @@ ones and ``s`` the slice position:
 * the **ray step** (:func:`ray_step`) is one drawn-level voxel along that
   ray, the Euclidean voxel length (never the max-norm, K6);
 * the **footprint** (:func:`slice_footprint`) is the data box cut by the
-  slice or the slab, as a convex polygon in the displayed world axes (D15);
+  slice or the slab, as a convex polygon in the displayed world axes;
 * :func:`projection_axis` and :func:`choose_slice_route` are the rules of
   4.2 and 5.2.2, as pure functions.
 
 Everything is float64 and reads ``classification.effective_transform``, so
-it agrees with :func:`~cellier.transform.classify_view` about what is zero
-(D7).  A non-affine (non-uniform) axis may be sliced: it is pinned to the
+it agrees with :func:`~cellier.transform.classify_view` about what is
+zero.  A non-affine (non-uniform) axis may be sliced: it is pinned to the
 data value its slice position maps back to.  It may not be displayed or
 projected along, because nothing here is affine in it.
 """
@@ -361,7 +360,7 @@ def _check_solution(
 
 
 class DepthAlignment(str, Enum):
-    """How a projection's rays meet the data (4.1).
+    """How a projection's rays meet the data.
 
     ``ALONG_AXIS``: the ray runs along one data axis, so the projection is
     an exact voxel reduction.  ``TILTED``: it crosses several.
@@ -488,8 +487,8 @@ def ray_step(
 ) -> float:
     """World units between samples one drawn-level voxel apart along a ray.
 
-    ``1 / |diag(level_scale)^-1 d| / steps_per_voxel`` (4.1): the Euclidean
-    length, in drawn-level voxels, of one world unit along the ray (K6).
+    ``1 / |diag(level_scale)^-1 d| / steps_per_voxel``: the Euclidean
+    length, in drawn-level voxels, of one world unit along the ray.
 
     Parameters
     ----------
@@ -533,11 +532,11 @@ def ray_step(
     return 1.0 / voxels_per_world / steps_per_voxel
 
 
-# -- which axis projects (4.2, G0-3) ------------------------------------------
+# -- which axis projects ------------------------------------------------------
 
 
 class ProjectionRefusalReason(str, Enum):
-    """Why a projection setting draws the plane instead (5.2.5)."""
+    """Why a projection setting draws the plane instead."""
 
     MULTIPLE_AXES = "multiple_axes"
     DISPLAYED_AXIS = "displayed_axis"
@@ -567,7 +566,7 @@ def projection_axis(
     displayed_world_axes: Sequence[int],
     thickness: Mapping[int, float],
 ) -> int | None | ProjectionRefusal:
-    """The world axis a visual projects along in one view, if any (4.2).
+    """The world axis a visual projects along in one view, if any.
 
     Parameters
     ----------
@@ -606,11 +605,11 @@ def projection_axis(
     return axis
 
 
-# -- the route (5.2.2) ---------------------------------------------------------
+# -- the route -----------------------------------------------------------------
 
 
 class SliceRoute(str, Enum):
-    """Which path draws a raster visual in a view (5.2.2)."""
+    """Which path draws a raster visual in a view."""
 
     PLANAR = "planar"
     BRICK = "brick"
@@ -618,7 +617,7 @@ class SliceRoute(str, Enum):
 
 
 class RouteRefusalReason(str, Enum):
-    """Why a raster visual draws nothing in a view (5.2.5)."""
+    """Why a raster visual draws nothing in a view."""
 
     PULLBACK_NOT_2D = "pullback_not_2d"
     TOO_MANY_VARYING_AXES = "too_many_varying_axes"
@@ -650,7 +649,7 @@ class RouteDecision:
     normal_world_axis: int | None = None
 
 
-#: The number of data axes the brick route can draw a slice through (O19).
+#: The number of data axes the brick route can draw a slice through.
 BRICK_ROUTE_AXES = 3
 
 
@@ -678,10 +677,10 @@ def choose_slice_route(
 
     Notes
     -----
-    A plain 2D slice whose pullback is a line or a point (``pullback_dim <
-    2``: a tilted 2D store, or a flat one seen edge-on) is refused in every
-    alignment (O18, U13). It has no area to draw, and the planar path raises
-    on it when the render spaces are pushed.
+    A plain 2D slice whose pullback is a line or a point
+    (``pullback_dim < 2``: a tilted 2D store, or a flat one seen edge-on) is
+    refused in every alignment. It has no area to draw, and the planar path
+    raises on it when the render spaces are pushed.
     """
     if len(_displayed(classification)) != 2:
         return RouteDecision(SliceRoute.PLANAR)
@@ -735,7 +734,7 @@ def _brick_or_refusal(
     return RouteDecision(SliceRoute.BRICK)
 
 
-# -- the footprint (D15) -------------------------------------------------------
+# -- the footprint -------------------------------------------------------------
 
 
 def slice_footprint(
@@ -761,7 +760,7 @@ def slice_footprint(
     classification : ViewClassification
         The visual against a 2D view.
     selection : RegionSelection
-        The view's selection; its region is read, never rebuilt (5.1).
+        The view's selection; its region is read, never rebuilt.
     projection_world_axis : int or None
         ``a`` when the visual projects.
 

@@ -1,4 +1,4 @@
-"""``OrthoDimsController``: one world point across the four panels (design 3.6)."""
+"""``OrthoDimsController``: one world point across the four panels."""
 
 from __future__ import annotations
 
@@ -210,7 +210,7 @@ def test_save_load_keeps_the_panels_in_agreement(tmp_path):
     assert loaded.axis_sync_enabled
 
 
-# -- scrub forwarding (interaction tracker design 4.8) ---------------------------
+# -- scrub forwarding ------------------------------------------------------------
 
 
 def _record_interactions(viewer: OrthoViewer) -> list[tuple]:
@@ -383,7 +383,7 @@ async def test_two_panels_scrubbed_at_once_end_on_stillness():
     Each origin's forwarded scope is its own, so one release does not end the
     other's scrub.  But neither origin can end by release while the other's
     forwarded scope is open on it, so the pair ends on stillness.  Bounded by
-    ``dims_settle_s``, like a leaked scope (design 4.3).
+    ``dims_settle_s``, like a leaked scope.
     """
     viewer = OrthoViewer(_WORLD)
     controller = viewer.controller

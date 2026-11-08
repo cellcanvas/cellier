@@ -1,4 +1,4 @@
-"""Render-layer canvas overlays for cellier v2."""
+"""Render-layer canvas overlays."""
 
 from __future__ import annotations
 

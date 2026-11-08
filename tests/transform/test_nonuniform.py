@@ -1,4 +1,4 @@
-"""The non-uniform axis leaf (implementation plan, Phase 2).
+"""The non-uniform axis leaf.
 
 The running example throughout is the design's table: thirteen frames whose
 world times are unevenly spaced, densely sampled in the middle and sparse at

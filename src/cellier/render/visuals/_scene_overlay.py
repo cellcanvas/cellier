@@ -1,4 +1,4 @@
-"""Render-layer scene overlays for cellier v2.
+"""Render-layer scene overlays.
 
 A scene overlay's node lives in the scene's own ``gfx.Scene`` -- beside the
 background and the visuals -- and is drawn by the scene camera in the main

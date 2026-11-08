@@ -1,4 +1,4 @@
-"""The "Clipping planes" control on both toolkits (clipping planes design 7).
+"""The "Clipping planes" control on both toolkits.
 
 The control sends ``ClippingPlanesUpdateEvent`` and follows
 ``ClippingPlanesChangedEvent``.
@@ -765,7 +765,7 @@ def test_the_panel_builders_make_the_control(controller, toolkit):
     assert widget.editor.rows[0]["position"] == 9.0
 
 
-# -- the gizmo toggle (clipping plane gizmo design v2, 7) -----------------------
+# -- the gizmo toggle -----------------------------------------------------------
 
 
 def _gizmo_scene(controller, names="zyx"):
@@ -1044,7 +1044,7 @@ def test_the_explicit_api_is_exported_from_cellier_gui():
         assert getattr(gui, name) is getattr(_clipping_planes, name)
 
 
-# -- a plane's outline (plane outline design 4.1) -------------------------------
+# -- a plane's outline ----------------------------------------------------------
 
 
 def _outlined_plane():
@@ -1105,7 +1105,7 @@ def test_an_edit_of_a_row_keeps_the_plane_s_outline():
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
 def test_a_row_draws_and_colours_its_plane_s_outline(controller, toolkit):
-    """Plane outline design 7: a box and a colour per row."""
+    """A box and a colour per row."""
     from cellier.visuals import PlaneOutline
 
     visual, store = _add_points(controller)

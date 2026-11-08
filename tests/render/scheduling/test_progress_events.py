@@ -1,4 +1,4 @@
-"""Progress events for multiscale visuals (design v3 5.13, Phase 6).
+"""Progress events for multiscale visuals.
 
 The fixture is a 16^3 volume with two levels and ``force_level=1``: the
 target is level 1 (store scale 0) and the backstop level 2 (scale 1).

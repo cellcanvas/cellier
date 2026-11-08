@@ -1,4 +1,4 @@
-"""Plane outlines on screen (plane outline design, sections 5.3, 6 and 10).
+"""Plane outlines on screen.
 
 Two things are checked against pixels.  That the polygon an outline
 follows is where each of the four volume shaders stops drawing the plane:
@@ -181,8 +181,8 @@ async def _shot_without_outline(controller, tmp_path, kind, case):
 async def test_the_outline_s_polygon_is_the_edge_of_what_the_shader_draws(
     controller, tmp_path, kind, case
 ):
-    """Agreement with the shader (5.3): the filled polygon and the pixels a
-    plane is drawn on differ only within half a pixel of the edge.
+    """Agreement with the shader: the filled polygon and the pixels a plane
+    is drawn on differ only within half a pixel of the edge.
 
     On voxel edges and not centres, on anisotropic voxels, with extents and
     a clipping plane, and at a coarse level of a pyramid that never
@@ -251,9 +251,9 @@ async def _outlined_image(controller, **kwargs):
 
 @pytest.mark.parametrize("view", list(_views()))
 async def test_the_line_is_whole_on_the_plane_it_lies_in(controller, view):
-    """Depth (6.2): an opaque plane writes depth where the line is.  Both
-    halves of the line are drawn, from in front, from behind and at a tilt,
-    and nothing red is drawn off the edge."""
+    """Depth: an opaque plane writes depth where the line is.  Both halves
+    of the line are drawn, from in front, from behind and at a tilt, and
+    nothing red is drawn off the edge."""
     scene, _visual, polygon = await _outlined_image(controller)
     size = (480, 480)
     shot = h.shoot(controller, scene, size=size, view_dir=_views()[view])

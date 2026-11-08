@@ -1,4 +1,4 @@
-"""The multiscale visuals upload each level's translation (plan v2, Phase 4).
+"""The multiscale visuals upload each level's translation.
 
 ``offset_k`` in the block-scales uniform holds level ``k``'s translation in
 level-0 voxels, shader order.  No shader reads it until Phases 5-6; this

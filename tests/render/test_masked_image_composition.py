@@ -1,8 +1,8 @@
-"""A MaskedImage's two sides plan, load and close together (design 5, Phase 3).
+"""A MaskedImage's two sides plan, load and close together.
 
 The mask side is the drawn visual; the value side is an inner visual whose
 node is never in the scene.  Both load through the chunk scheduler, both paint
-only the current slice's bricks (8.5), and close frees both by refcount.
+only the current slice's bricks, and close frees both by refcount.
 """
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ def test_masked_residencies_paint_the_current_slice_only(tmp_path):
         viewer.controller.close()
 
 
-# -- the value side's placement (design 5.1, G8, P0-17) ----------------------
+# -- the value side's placement ----------------------------------------------
 
 
 def _fields(spaces) -> dict:
@@ -185,7 +185,7 @@ def test_value_spaces_match_the_value_placed_as_an_image(tmp_path, kind, view):
     A plain multiscale image visual of the value store, placed by
     ``transform @ value_to_mask``, is what the prototype's ghost id was:
     every field must agree.  In 3D a wrong value transform does not change
-    the frame (P0-17), so the fields are the check.
+    the frame, so the fields are the check.
     """
     from cellier.convenience.capture import _ensure_canvases
     from tests.render._affine import rot, world_matrix
@@ -256,7 +256,7 @@ def test_value_space_is_forgotten_on_removal(tmp_path):
         viewer.controller.close()
 
 
-# -- close (design 5.3) ------------------------------------------------------
+# -- close -------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -286,7 +286,7 @@ def test_close_frees_both_atlases_by_refcount(tmp_path, kind):
             gc.enable()
 
 
-# -- only the current time point is drawn (design 8.5, MI-D13) ----------------
+# -- only the current time point is drawn -------------------------------------
 
 
 def _time_data(seed: int) -> np.ndarray:
@@ -377,7 +377,7 @@ def test_paint_controller_is_refused(tmp_path):
 
 
 def test_an_in_memory_side_that_grows_past_its_budget_draws_nothing(tmp_path):
-    """Design 5.2: a live store cannot be refused, so the view draws nothing."""
+    """A live store cannot be refused, so the view draws nothing."""
     from cellier.data import ImageMemoryStore
 
     mask_data, value_data = random_pair(shape=(16, 16, 16))
@@ -403,7 +403,7 @@ def test_an_in_memory_side_that_grows_past_its_budget_draws_nothing(tmp_path):
 
 
 def test_a_2d_view_slicing_two_space_axes_is_refused():
-    """Design 6.3: the slice node's normal is the one sliced space axis.
+    """The slice node's normal is the one sliced space axis.
 
     A world of four space axes, two of them sliced: no single normal, so
     the view is refused rather than drawn as a plain image by the tile path.

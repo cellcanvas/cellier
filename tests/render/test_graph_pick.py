@@ -1,4 +1,4 @@
-"""Pick decoding for the graph compound visual (D14, D18).
+"""Pick decoding for the graph compound visual.
 
 Picks report the store's **original node id**, never the render-buffer row.
 The distinction is invisible in a full 3-D view of a contiguously-numbered

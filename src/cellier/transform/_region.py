@@ -1,4 +1,4 @@
-"""Convex regions as intersections of half-spaces (design section 10)."""
+"""Convex regions as intersections of half-spaces."""
 
 from __future__ import annotations
 
@@ -38,8 +38,8 @@ class HalfSpace(BaseModel):
     """The set ``{p : normal . p <= offset}``.
 
     There is no ``inside`` field: the sign of the normal carries the
-    side, so a slab is two half-spaces with opposed normals (D37).  There
-    is no coordinate system id either -- every constraint in a region is
+    side, so a slab is two half-spaces with opposed normals.  There is no
+    coordinate system id either -- every constraint in a region is
     necessarily in the same system, so storing it per-constraint would
     only create something that can disagree with itself.
 
@@ -47,14 +47,14 @@ class HalfSpace(BaseModel):
     allowed**.  That is not an oversight: pulling a world constraint back
     through a transform with no extent along that axis produces exactly
     that, and the honest answers are "vacuous" (offset >= 0) and
-    "infeasible" (offset < 0) rather than an error (D39).
+    "infeasible" (offset < 0) rather than an error.
 
     Parameters
     ----------
     normal : np.ndarray
         The constraint normal.  Finite, any magnitude, possibly zero.
     offset : float
-        The constraint offset.  Finite (D44).
+        The constraint offset.  Finite.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -65,13 +65,13 @@ class HalfSpace(BaseModel):
     @field_validator("normal", mode="before")
     @classmethod
     def _coerce_normal(cls, value: Any) -> np.ndarray:
-        """Coerce to a finite float array (D44)."""
+        """Coerce to a finite float array."""
         return reject_non_finite(coerce_float_array(value), "HalfSpace.normal")
 
     @field_validator("offset")
     @classmethod
     def _validate_offset(cls, value: float) -> float:
-        """Reject a non-finite offset (D44)."""
+        """Reject a non-finite offset."""
         if not np.isfinite(value):
             raise ValueError(f"HalfSpace.offset must be finite; got {value}.")
         return value
@@ -102,7 +102,7 @@ class HalfSpace(BaseModel):
         return not np.any(self.normal != 0.0) and self.offset < 0
 
     def __eq__(self, other: object) -> bool:
-        """Compare by normal and offset (D44)."""
+        """Compare by normal and offset."""
         if not isinstance(other, HalfSpace):
             return NotImplemented
         return (
@@ -111,7 +111,7 @@ class HalfSpace(BaseModel):
         )
 
     def __hash__(self) -> int:
-        """Hash by normal and offset (D44)."""
+        """Hash by normal and offset."""
         return hash((self.normal.tobytes(), self.offset))
 
 
@@ -120,7 +120,7 @@ class ConvexRegion(BaseModel):
 
     This is the *query* type; :class:`AxisAlignedBoundingBox` is the
     *answer* type, and :meth:`from_bounding_box` / :meth:`bounding_box`
-    bridge them.  There is deliberately only one region type (D38): an
+    bridge them.  There is deliberately only one region type: an
     axis-aligned selection, an oblique slab and a camera frustum are the
     same object, and the axis-aligned fast path is an implementation
     detail rather than a kind.
@@ -180,7 +180,7 @@ class ConvexRegion(BaseModel):
     # -- queries ------------------------------------------------------
 
     def _bounds(self) -> tuple[np.ndarray, np.ndarray] | None:
-        """Return the exact bounds, taking the fast path where possible (D40)."""
+        """Return the exact bounds, taking the fast path where possible."""
         normals = self.normals
         if is_axis_aligned(normals):
             return axis_aligned_bounds(normals, self.offsets, self.ndim)
@@ -190,16 +190,16 @@ class ConvexRegion(BaseModel):
         """Return the smallest axis-aligned box containing this region.
 
         Exact, not conservative: the bounds come from ``2 * ndim`` linear
-        programs, or -- when every normal lies along a single axis --
-        are read off directly, which is roughly 1000x faster and covers
-        every axis-aligned selection shipping today (D40).
+        programs, or -- when every normal lies along a single axis -- are
+        read off directly, which is roughly 1000x faster and covers every
+        axis-aligned selection shipping today.
 
         An unconstrained axis comes back ``-inf`` / ``+inf``.
 
-        A zero-thickness region is not special-cased (D42): the box comes
-        back with ``min == max`` on that axis, and converting that to
-        voxel indices, with whatever rounding rule applies, is the
-        datastore's job.
+        A zero-thickness region is not special-cased: the box comes back
+        with ``min == max`` on that axis, and converting that to voxel
+        indices, with whatever rounding rule applies, is the datastore's
+        job.
 
         Returns
         -------
@@ -231,7 +231,7 @@ class ConvexRegion(BaseModel):
         This answers a question about **continuous** points and is *not*
         the voxel selection API.  A zero-thickness region is a
         measure-zero set, so this is float-exact and effectively always
-        ``False`` on one (D42).  Voxel selection goes through
+        ``False`` on one.  Voxel selection goes through
         :meth:`bounding_box` plus the datastore's rounding rule.
 
         Parameters
@@ -359,13 +359,13 @@ class ConvexRegion(BaseModel):
         """Build a region from per-axis ``(centre, half_thickness)`` slabs.
 
         An axis absent from ``slabs`` is unbounded.  The region has no
-        notion of "displayed" versus "collapsed" (R3): any axis may be
+        notion of "displayed" versus "collapsed": any axis may be
         bounded, and a displayed axis is bounded exactly as readily as a
         collapsed one.  That distinction lives in the transform, as the
         difference between a column and a constant column.
 
         A ``half_thickness`` of zero is allowed and produces a
-        zero-thickness slab (D42).
+        zero-thickness slab.
 
         Parameters
         ----------
@@ -429,7 +429,7 @@ class ConvexRegion(BaseModel):
         coordinate_system : CoordinateSystem
             The system the region lives in.
         normal : np.ndarray
-            The plane normal.  Need not be unit length (D28).
+            The plane normal.  Need not be unit length.
         offset : float
             The plane offset.
         half_thickness : float

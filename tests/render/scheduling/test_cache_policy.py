@@ -1,4 +1,4 @@
-"""Cache policies, rule by rule (``plans/mesh_refactor_v3.md`` 5.2, K1-K6).
+"""Cache policies, rule by rule.
 
 A cache declares a :class:`CachePolicy` once, at registration: a cap on
 target reads in flight, the resource a read occupies, and what a failure
@@ -136,7 +136,7 @@ def test_a_policy_of_the_wrong_type_is_refused() -> None:
 
 
 # ---------------------------------------------------------------------------
-# K1: the cap counts target reads only
+# The cap counts target reads only
 # ---------------------------------------------------------------------------
 
 
@@ -220,7 +220,7 @@ def test_the_cap_is_per_cache() -> None:
 
 
 # ---------------------------------------------------------------------------
-# K2: the compute lane
+# The compute lane
 # ---------------------------------------------------------------------------
 
 
@@ -275,7 +275,7 @@ def test_an_idle_core_has_no_compute_read_outstanding() -> None:
 
 
 # ---------------------------------------------------------------------------
-# K3: a blocked resource does not end the round
+# A blocked resource does not end the round
 # ---------------------------------------------------------------------------
 
 
@@ -304,7 +304,7 @@ def test_a_full_shared_window_does_not_hold_compute_reads() -> None:
 
 
 # ---------------------------------------------------------------------------
-# K4: a target waits for the backstop's commit
+# A target waits for the backstop's commit
 # ---------------------------------------------------------------------------
 
 
@@ -388,7 +388,7 @@ async def test_a_round_that_only_discards_pumps_too() -> None:
 
 
 # ---------------------------------------------------------------------------
-# K5: the draw is rebuilt before completion fires
+# The draw is rebuilt before completion fires
 # ---------------------------------------------------------------------------
 
 
@@ -433,7 +433,7 @@ def test_an_all_kept_pass_still_completes_with_its_draw_built() -> None:
 
 
 # ---------------------------------------------------------------------------
-# K6: failures per cache
+# Failures per cache
 # ---------------------------------------------------------------------------
 
 

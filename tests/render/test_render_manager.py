@@ -283,7 +283,7 @@ def test_slice_coordinator_submit_registers_and_passes() -> None:
 def test_slice_coordinator_last_plan_wins_across_canvases() -> None:
     """Two canvases of one scene: each submit passes its plan, the later one
     replaces the earlier for the shared cache, and one completion answers
-    both canvases' started events (design v2, 4.9)."""
+    both canvases' started events."""
     coordinator, scheduler, _sm, (visual,), scene_id = _make_coordinator_with_scene()
     canvas_a, canvas_b = uuid4(), uuid4()
     first = _desired(visual.cache_id)

@@ -1,8 +1,7 @@
 """Multiscale plane rendering: the right voxel, of the right level.
 
-Plane rendering design v3, sections 5 and 6, and 14.8 (Phase 7).  Each
-pixel test draws a multiscale image or labels visual in ``"plane"`` render
-mode and compares the frame with the CPU reference of
+Each pixel test draws a multiscale image or labels visual in ``"plane"``
+render mode and compares the frame with the CPU reference of
 ``tests/render/_planes.py``.  The planner's own tests (culling rows, the
 level rule, the cache) are in ``test_plane_planning.py``.
 """
@@ -88,7 +87,7 @@ async def test_an_image_plane_shows_the_voxel_of_the_level_drawn(
 async def test_a_label_plane_shows_the_label_of_the_level_drawn(
     controller, tmp_path, pose, level
 ):
-    """Labels (14.8): label, background and level right at three levels."""
+    """Labels: label, background and level right at three levels."""
     spec = ANISO
     rig = await make_rig(
         controller,
@@ -223,7 +222,7 @@ def _expected_levels(rig: Rig, reference: h.Reference):
 async def test_each_pixel_draws_the_level_the_plan_names(
     controller, tmp_path, spec_name, pose
 ):
-    """C1: every level holds one grey, so a pixel names the level it drew."""
+    """Every level holds one grey, so a pixel names the level it drew."""
     spec = SPECS[spec_name]
     rig = await make_rig(
         controller,
@@ -378,7 +377,7 @@ async def test_an_orthographic_view_draws_a_plane_at_one_level(controller, tmp_p
 async def test_plane_mode_with_no_plane_plans_and_loads_nothing(
     controller, tmp_path, monkeypatch
 ):
-    """P17: no backstop either; a plane that appears is planned at once."""
+    """No backstop either; a plane that appears is planned at once."""
     spec = ISO
     rig = await make_rig(controller, tmp_path, spec, lambda world, centre: [])
     plans = _record_plans(monkeypatch)
@@ -561,7 +560,7 @@ async def test_switching_multiscale_labels_between_plane_and_a_volume_mode(
 
 
 async def test_a_2d_view_plans_its_slice_and_ignores_the_mode(controller, tmp_path):
-    """Design 4.4: in a 2D view a visual in plane mode shows the normal slice."""
+    """In a 2D view a visual in plane mode shows the normal slice."""
     spec = ISO
     rig = await make_rig(
         controller,

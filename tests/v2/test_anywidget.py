@@ -261,7 +261,7 @@ def test_dims_panel_toggle_emits_dims_update_event():
 
 
 def test_dims_panel_toggle_sends_only_displayed_axes():
-    """The toggle never carries positions: the model keeps every one (D36)."""
+    """The toggle never carries positions: the model keeps every one."""
     panel = _make_dims_panel(with_toggle=True)
     emitted = []
     panel.changed.connect(emitted.append)
@@ -436,7 +436,7 @@ def test_build_canvas_widget_anywidget_with_controls():
 
     Panel building belongs to the renderer, from a dock spec.  The canvas
     view composes identically whether or not a config is registered, which is
-    what makes the removed in-canvas path (section 7.2) purely dead weight.
+    what makes the removed in-canvas path purely dead weight.
     """
     from cellier.convenience._hosts import JupyterHost
     from cellier.convenience.gui import AnywidgetCanvasView, build_canvas_widget
@@ -851,7 +851,7 @@ def test_build_appearance_widgets_anywidget_from_visual():
     Names come from the shared ``appearance_specs`` layer so the two front
     ends name the same control the same way (stage 1, section 7.3), and each
     widget carries its own -- ``label`` on a single-field control, ``title``
-    on a multi-row one (``plans/label_ownership_unification.md``).
+    on a multi-row one.
     """
     import numpy as np
 
@@ -917,7 +917,7 @@ def test_renderer_builds_appearance_widgets_for_configured_visual(monkeypatch):
     ranges = axis_values_from_viewer(viewer)
     view = build_canvas_widget(viewer, ranges, gui="anywidget")
     # The canvas view is canvas + dims only: the in-canvas controls column was
-    # unreachable through the public API and is gone (section 7.2).
+    # unreachable through the public API and is gone.
     assert not hasattr(view, "controls")
 
     fake = _FakeHost()

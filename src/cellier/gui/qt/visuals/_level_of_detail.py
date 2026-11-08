@@ -1,4 +1,4 @@
-"""The "Level of detail" control wired to the cellier v2 event bus (Qt)."""
+"""The "Level of detail" control wired to the event bus (Qt)."""
 
 from __future__ import annotations
 

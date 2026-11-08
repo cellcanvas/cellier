@@ -107,10 +107,10 @@ function render({ model, el }) {
     const current = (model.get("thickness") || {})[axis];
     box.value = current !== undefined ? current : 0;
     // A step -- the spinner, an arrow key, the wheel -- is a tick of a drag;
-    // a typed value, committed on "change", is a jump (oblique 2D design v3,
-    // D13).  A step fires "input" at once, so it is sent from there, as a
-    // message carrying the value; the "change" a spinner click also fires
-    // then finds the value already sent.
+    // a typed value, committed on "change", is a jump.  A step fires "input"
+    // at once, so it is sent from there, as a message carrying the value;
+    // the "change" a spinner click also fires then finds the value already
+    // sent.
     let stepping = false;
     let sentStep = null;
     const stepKeys = ["ArrowUp", "ArrowDown", "PageUp", "PageDown"];

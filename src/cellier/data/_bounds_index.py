@@ -1,9 +1,8 @@
 """A per-axis index over item bounds, for slab and plane queries.
 
-``plans/mesh_refactor_v3.md`` S4.  An item is anything with an extent along
-one axis: a mesh face (its three vertices' extremes), a point (``min ==
-max``), a line segment (its two endpoints' extremes).  The index answers,
-without a pass over every item:
+An item is anything with an extent along one axis: a mesh face (its three
+vertices' extremes), a point (``min == max``), a line segment (its two
+endpoints' extremes).  The index answers, without a pass over every item:
 
 - **contained**: the items wholly inside ``[lo, hi]``;
 - **overlapping**: the items that touch ``[lo, hi]``.

@@ -1,10 +1,9 @@
 """The level-transform contract and where it is enforced.
 
-``plans/multiscale_level_transform_v2.md``, "The contract".  The renderer
-places pyramid levels that are axis-aligned, coarser with level, offset by
-less than one coarse voxel and covering level 0; anything else is rejected
-when the store gets its transforms, and again when a store whose transforms
-were set directly is added to a scene.
+The renderer places pyramid levels that are axis-aligned, coarser with
+level, offset by less than one coarse voxel and covering level 0; anything
+else is rejected when the store gets its transforms, and again when a store
+whose transforms were set directly is added to a scene.
 """
 
 from __future__ import annotations

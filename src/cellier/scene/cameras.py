@@ -1,4 +1,4 @@
-"""Camera and camera controller models for cellier v2."""
+"""Camera and camera controller models."""
 
 from __future__ import annotations
 

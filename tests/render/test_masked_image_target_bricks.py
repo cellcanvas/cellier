@@ -1,7 +1,7 @@
-"""``target_bricks="surface"``: load only the bricks near the surface (8.3).
+"""``target_bricks="surface"``: load only the bricks near the surface.
 
-Masked image design v2, Phase 9.  The read counts are checked against design
-3.1's coarse pass, frozen in ``masked_surface_counts.json`` by
+The read counts are checked against design 3.1's coarse pass, frozen in
+``masked_surface_counts.json`` by
 ``scripts/masked_image/phase9_surface_counts.py`` (never re-frozen to make a
 test pass).  The scenes are the probe's: a 128 cubed EDT ellipsoid in 16-voxel
 bricks over a four-level pyramid, so the backstop is the 8x level and a coarse
@@ -288,7 +288,7 @@ def test_read_counts_match_the_coarse_pass_of_3_1(tmp_path, case):
 
 
 def test_a_thin_spike_is_never_loaded_under_surface(tmp_path):
-    """Design 3.1: the spike's coarse mean is below the threshold."""
+    """The spike's coarse mean is below the threshold."""
     spike_bricks = {tuple(g) for g in EXPECTED["spike_iso1_t10"]["truth_spike"]}
     missed = {}
     for target in ("visible", "surface"):
@@ -477,7 +477,7 @@ def test_a_drag_re_plans_at_most_the_capped_rate(tmp_path, monkeypatch):
 
 
 def test_a_2d_view_is_unaffected(tmp_path):
-    """Design 4.1: the 2D slice node plans no filter and never waits."""
+    """The 2D slice node plans no filter and never waits."""
     viewer, model, plans, _ = _viewer(tmp_path, dim="2d", iso_threshold=1.0)
     try:
         assert plans["mask"] == [] and plans["value"] == []
@@ -539,7 +539,7 @@ def test_close_drops_the_value_sides_filter(tmp_path):
 
 
 def test_a_time_step_waits_for_its_own_coarse_mask(tmp_path):
-    """Each time point plans from its own coarse level (design 8.3).
+    """Each time point plans from its own coarse level.
 
     Time 1 is time 0 moved 16 voxels (one brick) along +x, so its kept mask
     bricks are time 0's moved one brick.

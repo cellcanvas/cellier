@@ -1,4 +1,4 @@
-"""The transform base class (design section 8)."""
+"""The transform base class."""
 
 from __future__ import annotations
 
@@ -45,12 +45,11 @@ class BaseTransform(BaseModel, ABC):
     transform.  Owning the source/target pairing here is what avoids
     inheriting that bug.
 
-    Transforms are frozen (Q13).  Dimensionality is **not** stored: it
-    lives on the wrapped transform and is read through, so the model
-    cannot disagree with itself (D9).  The cross-check against the
-    coordinate systems' axis counts cannot happen here, because the model
-    holds ids rather than systems; it is factored into
-    :meth:`validate_against`.
+    Transforms are frozen.  Dimensionality is **not** stored: it lives on
+    the wrapped transform and is read through, so the model cannot
+    disagree with itself.  The cross-check against the coordinate
+    systems' axis counts cannot happen here, because the model holds ids
+    rather than systems; it is factored into :meth:`validate_against`.
 
     Parameters
     ----------
@@ -65,7 +64,7 @@ class BaseTransform(BaseModel, ABC):
     id : UUID4
         Unique identifier.  Auto-generated.  Not ``(input, output)``,
         because two coordinate systems may be joined by more than one
-        transform (D14).
+        transform.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -76,7 +75,7 @@ class BaseTransform(BaseModel, ABC):
     transform: Transform
     id: UUID4 = Field(default_factory=uuid4, frozen=True)
 
-    # -- dimensionality, read through to the wrapped transform (D9) ----
+    # -- dimensionality, read through to the wrapped transform ---------
 
     @property
     def input_ndim(self) -> int:
@@ -191,7 +190,7 @@ class BaseTransform(BaseModel, ABC):
     def imap_coordinates(self, coordinates: np.ndarray) -> np.ndarray:
         """Map points from the output system back to the input system."""
 
-    # -- vectors, two kinds and never one (D27) ------------------------
+    # -- vectors, two kinds and never one ------------------------------
 
     @abstractmethod
     def map_direction(self, direction: np.ndarray) -> np.ndarray:
@@ -241,7 +240,7 @@ class BaseTransform(BaseModel, ABC):
         region: ConvexRegion,
         output_coordinate_system: CoordinateSystem,
     ) -> ConvexRegion:
-        """Map a convex region back, dropping broadcast constraints (D8)."""
+        """Map a convex region back, dropping broadcast constraints."""
 
     # -- structure ------------------------------------------------------
 
@@ -277,10 +276,10 @@ class BaseTransform(BaseModel, ABC):
 
         The correspondence is **not stored** -- keeping it beside the
         transform that already encodes it would be a second source of truth
-        (D23) -- so each transform reads it back from whatever it does hold.
-        An affine reads it off its matrix; a block container reads it off
-        its block declarations, structurally, with no matrix involved, which
-        is what lets a non-affine transform answer at all.
+        -- so each transform reads it back from whatever it does hold. An
+        affine reads it off its matrix; a block container reads it off its
+        block declarations, structurally, with no matrix involved, which is
+        what lets a non-affine transform answer at all.
 
         Returns
         -------
@@ -344,9 +343,9 @@ class BaseTransform(BaseModel, ABC):
         output axis is reached by nothing else.  Where
         :meth:`axis_correspondence` holds it is that mapping; under a
         rotation or shear it keeps the pairs the coupling leaves alone (a
-        time axis beside a rotated volume, a channel axis) and drops the
-        rest instead of raising.  Callers that need a per-axis pairing use it
-        on the axes the classifier shows uncoupled (design v2, I2).
+        time axis beside a rotated volume, a channel axis) and drops the rest
+        instead of raising.  Callers that need a per-axis pairing use it on
+        the axes the classifier shows uncoupled.
 
         Returns
         -------

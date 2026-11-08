@@ -1,10 +1,10 @@
-"""Full affine design v2, Phase 5: ``SLICE_SHIFT`` views, 2D and 3D.
+"""``SLICE_SHIFT`` views, 2D and 3D.
 
 A view whose sliced data axes reach a displayed world axis -- a drift
 ``x += v t`` scrubbed in ``t``, a shear ``x += s z`` sliced in ``z`` -- moves
 the drawn slab across the view as the slice moves.  Image, labels and mesh
-nodes follow the slice; points, lines and graph place each element at its
-own collapsed position by the model-frame fold (D11).
+nodes follow the slice; points, lines and graph place each element at its own
+collapsed position by the model-frame fold.
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ def test_a_drift_tracks_v_t_while_scrubbing(tmp_path, dim, family):
 
 
 def test_the_time_slider_stays_discrete_under_drift():
-    """K15: the ``t`` row reads data ``t`` alone, so its samples survive.
+    """The ``t`` row reads data ``t`` alone, so its samples survive.
 
     Before the port the sampler asked for a bijection, got a ``ValueError``
     from the drift, and marked every non-space axis continuous.

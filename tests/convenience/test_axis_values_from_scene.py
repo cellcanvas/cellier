@@ -1,4 +1,4 @@
-"""World-space axis ranges from store extents (implementation plan, Phase 1).
+"""World-space axis ranges from store extents.
 
 ``_axis_values_from_scene`` used to read ``level_shapes``, which only image
 and label stores have.  Now every store answers ``axis_extents``, so the

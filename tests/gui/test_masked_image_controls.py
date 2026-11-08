@@ -1,12 +1,12 @@
-"""A MaskedImage's rows of the image control, on both toolkits (Phase 8).
+"""A MaskedImage's rows of the image control, on both toolkits.
 
-Masked image design v2, section 10: the surface rows (thickness, placement,
-the projection along the normal), the 2D band's rows (minimum width, rays,
-cap), the threshold shown in 2D as well, no render-mode row, and the contrast
-and threshold labelled with the image whose units they are in.  The rule is
-decided once (:func:`cellier.gui._image_controls.row_visible`); the anywidget
-front end applies it in JavaScript, which has no test runner here, so these
-tests pin the traits it reads and
+The surface rows (thickness, placement, the projection along the normal), the
+2D band's rows (minimum width, rays, cap), the threshold shown in 2D as well,
+no render-mode row, and the contrast and threshold labelled with the image
+whose units they are in.  The rule is decided once
+(:func:`cellier.gui._image_controls.row_visible`); the anywidget front end
+applies it in JavaScript, which has no test runner here, so these tests pin
+the traits it reads and
 ``scripts/masked_image/phase8_image_controls_js_check.py`` runs the JS.
 
 ``color_map`` is never written here: see ``tests/gui/test_image_controls.py``.
@@ -138,7 +138,7 @@ def _image_widget(viewer, backend):
 @pytest.mark.parametrize("n", [2, 3])
 @pytest.mark.parametrize("field", FIELDS)
 def test_which_rows_a_masked_image_shows(field, n):
-    """Design 10: the threshold in both views, projection 3D, band rows 2D."""
+    """The threshold in both views, projection 3D, band rows 2D."""
     expected = (
         (n == 3) if field in THREE_D_ONLY else (n == 2) if field in TWO_D_ONLY else True
     )
@@ -443,7 +443,7 @@ def test_anywidget_target_bricks_writes_and_follows_the_appearance(masked_viewer
 
 
 # ---------------------------------------------------------------------------
-# The example, driven by its controls (design 12.2, Phase 8 "done when")
+# The example, driven by its controls
 # ---------------------------------------------------------------------------
 
 SIDE = 64

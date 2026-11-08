@@ -1,4 +1,4 @@
-"""The cull-first 3D brick planner (plane rendering design v3 6.1, Phase 1).
+"""The cull-first 3D brick planner.
 
 A clipped visual drops the bricks its clipping planes cut off before it ranks
 and sorts them.  The plan must be the rows of the old order (rank everything,

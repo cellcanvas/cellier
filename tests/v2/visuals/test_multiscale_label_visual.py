@@ -169,7 +169,7 @@ def test_visual_requires_camera_reslice_is_true():
     assert v.requires_camera_reslice is True
 
 
-# ── Phase 2: MultiscaleLabelsAppearance inherits from BaseLabelsAppearance ────
+# ── MultiscaleLabelsAppearance inherits from BaseLabelsAppearance ─────────────
 
 
 def test_label_appearance_inherits_colormap_mode_frozen():

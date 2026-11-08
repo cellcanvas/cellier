@@ -1,4 +1,4 @@
-"""Array math for affine geometry (design section 4).
+"""Array math for affine geometry.
 
 Pure functions over numpy arrays.  Nothing here constructs a pydantic
 model, knows about a coordinate system, or touches a ``transformnd``
@@ -28,7 +28,7 @@ class NonInvertibleTransformError(RuntimeError):
 
 
 class DegenerateNormalError(RuntimeError):
-    """Raised when a normal or plane maps to the zero vector (D32)."""
+    """Raised when a normal or plane maps to the zero vector."""
 
 
 class NonAffineTransformError(RuntimeError):
@@ -48,7 +48,7 @@ class NonAffineTransformError(RuntimeError):
 
 
 # ---------------------------------------------------------------------
-# input handling (D12)
+# input handling
 # ---------------------------------------------------------------------
 
 
@@ -57,7 +57,7 @@ def _as_2d(array: np.ndarray, ndim: int, name: str) -> tuple[np.ndarray, bool]:
 
     Homogeneous ``(N, ndim + 1)`` input is rejected: it is an encoding
     detail of the affine implementation with no meaning for a
-    displacement field or a spline (D12).
+    displacement field or a spline.
 
     Parameters
     ----------
@@ -103,14 +103,14 @@ def _restore_rank(values: np.ndarray, was_1d: bool) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------
-# the inverse rule (D24)
+# the inverse rule
 # ---------------------------------------------------------------------
 
 
 def pseudo_inverse_affine(
     linear: np.ndarray, translation: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray] | None:
-    """Return the inverse affine ``(A+, -A+ t)``, or ``None`` (D24).
+    """Return the inverse affine ``(A+, -A+ t)``, or ``None``.
 
     Three cases, in order:
 
@@ -169,7 +169,7 @@ def map_points(
     """Push points forward: ``A p + t``.
 
     The result is always a distinct array, even when the affine is the
-    identity (D11), so a caller may mutate it without aliasing its input.
+    identity, so a caller may mutate it without aliasing its input.
 
     Parameters
     ----------
@@ -220,8 +220,7 @@ def imap_points(
 def map_directions(directions: np.ndarray, linear: np.ndarray) -> np.ndarray:
     """Push displacement vectors forward: ``A v`` (contravariant, D27).
 
-    Nothing is normalized (D28): a displacement's magnitude is
-    meaningful.
+    Nothing is normalized: a displacement's magnitude is meaningful.
 
     Parameters
     ----------
@@ -241,7 +240,7 @@ def map_directions(directions: np.ndarray, linear: np.ndarray) -> np.ndarray:
 
 
 def imap_directions(directions: np.ndarray, inverse_linear: np.ndarray) -> np.ndarray:
-    """Pull displacement vectors back: ``A+ v`` (D27).
+    """Pull displacement vectors back: ``A+ v``.
 
     Parameters
     ----------
@@ -261,7 +260,7 @@ def imap_directions(directions: np.ndarray, inverse_linear: np.ndarray) -> np.nd
 
 
 def _check_non_degenerate(normals: np.ndarray) -> None:
-    """Raise if any row is the zero vector (D32).
+    """Raise if any row is the zero vector.
 
     Parameters
     ----------
@@ -287,7 +286,7 @@ def map_normals(normals: np.ndarray, inverse_linear: np.ndarray) -> np.ndarray:
 
     A normal is not a displacement.  Using ``A`` here is correct only for
     a rigid transform and is wrong for every scale.  Nothing is
-    normalized (D28).
+    normalized.
 
     Parameters
     ----------
@@ -304,7 +303,7 @@ def map_normals(normals: np.ndarray, inverse_linear: np.ndarray) -> np.ndarray:
     Raises
     ------
     DegenerateNormalError
-        If a normal maps to the zero vector (D32).
+        If a normal maps to the zero vector.
     """
     matrix = np.asarray(inverse_linear, dtype=float)
     values, was_1d = _as_2d(normals, matrix.shape[0], "normals")
@@ -314,7 +313,7 @@ def map_normals(normals: np.ndarray, inverse_linear: np.ndarray) -> np.ndarray:
 
 
 def imap_normals(normals: np.ndarray, linear: np.ndarray) -> np.ndarray:
-    """Pull plane normals back: ``A^T n'`` (D27).
+    """Pull plane normals back: ``A^T n'``.
 
     This needs only the forward linear block, so it works on a transform
     whose inverse does not exist.
@@ -338,7 +337,7 @@ def imap_normals(normals: np.ndarray, linear: np.ndarray) -> np.ndarray:
     Raises
     ------
     DegenerateNormalError
-        If a normal maps to the zero vector (D32).
+        If a normal maps to the zero vector.
     """
     matrix = np.asarray(linear, dtype=float)
     values, was_1d = _as_2d(normals, matrix.shape[0], "normals")
@@ -381,7 +380,7 @@ def map_plane(
     Raises
     ------
     DegenerateNormalError
-        If the normal maps to the zero vector (D32).
+        If the normal maps to the zero vector.
     """
     mapped_normal = map_normals(normal, inverse_linear)
     mapped_offset = float(offset) + float(
@@ -421,7 +420,7 @@ def imap_plane(
     Raises
     ------
     DegenerateNormalError
-        If the normal maps to the zero vector (D32).
+        If the normal maps to the zero vector.
     """
     values = np.asarray(normal, dtype=float)
     mapped_normal = imap_normals(values, linear)
@@ -439,9 +438,9 @@ def map_half_spaces(
 
     The rule is the plane rule of :func:`map_plane` with ``<=`` carried
     through, which it survives.  Unlike the plane version this does
-    **not** raise on a degenerate normal (D39): a half-space whose normal
-    maps to zero becomes either vacuous or infeasible, and both of those
-    are correct, useful answers rather than errors.
+    **not** raise on a degenerate normal: a half-space whose normal maps
+    to zero becomes either vacuous or infeasible, and both of those are
+    correct, useful answers rather than errors.
 
     Parameters
     ----------
@@ -473,7 +472,7 @@ def drop_broadcast_constraints(
     offsets: np.ndarray,
     broadcast_axes: tuple[int, ...],
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Drop half-spaces that constrain a broadcast axis (D8).
+    """Drop half-spaces that constrain a broadcast axis.
 
     A broadcast axis is a **free variable**: the source occupies
     ``{M p + t + s e_b : p in data, s in R}`` in the output space, so the
@@ -529,7 +528,7 @@ def imap_half_spaces(
     translation: np.ndarray,
     broadcast_axes: tuple[int, ...] = (),
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Pull half-spaces back: ``n = A^T m``, ``f = e - m . t`` (D39).
+    """Pull half-spaces back: ``n = A^T m``, ``f = e - m . t``.
 
     This is the operation the slicer actually runs -- a world-space
     selection into a datastore's voxel space -- and it needs nothing but
@@ -537,10 +536,10 @@ def imap_half_spaces(
     inverse is ``None``.
 
     Constraints touching a broadcast axis are removed first, by
-    :func:`drop_broadcast_constraints` (D8).  Without that step a
-    selection on an axis the source is broadcast over pulls back through
-    an all-zero row to an infeasible ``0 <= negative`` and the region
-    comes back empty -- the wrong answer for a source that by definition
+    :func:`drop_broadcast_constraints`.  Without that step a selection
+    on an axis the source is broadcast over pulls back through an
+    all-zero row to an infeasible ``0 <= negative`` and the region comes
+    back empty -- the wrong answer for a source that by definition
     exists at every position on that axis.
 
     A constraint on an axis the transform has no extent in, and which is
@@ -591,7 +590,7 @@ def affine_bounding_box(
     translation: np.ndarray,
     unbounded_output_axes: tuple[int, ...] = (),
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return the smallest AABB enclosing the image of a box (D30, D31).
+    """Return the smallest AABB enclosing the image of a box.
 
     Computed from the centre and half-extent, ``c -> A c + t`` and
     ``h'_i = sum_j abs(A_ij) h_j``, never from the corners: transforming
@@ -605,7 +604,7 @@ def affine_bounding_box(
 
     The half-extent contraction skips zero coefficients rather than
     multiplying by them, because ``0 * inf`` is ``nan`` and one ``nan``
-    poisons every output axis, not just the unbounded one (D31).
+    poisons every output axis, not just the unbounded one.
 
     A semi-infinite input interval (one finite bound and one infinite)
     makes every output axis it touches fully unbounded.  That is a
@@ -662,12 +661,12 @@ def affine_bounding_box(
 
 
 # ---------------------------------------------------------------------
-# polytope bounds (D40)
+# polytope bounds
 # ---------------------------------------------------------------------
 
 
 def is_axis_aligned(normals: np.ndarray) -> bool:
-    """Whether every constraint normal lies along a single axis (D40).
+    """Whether every constraint normal lies along a single axis.
 
     A normal with at most one non-zero entry is axis-aligned; its
     magnitude does not matter, since the fast path divides it out.  A
@@ -693,7 +692,7 @@ def is_axis_aligned(normals: np.ndarray) -> bool:
 def axis_aligned_bounds(
     normals: np.ndarray, offsets: np.ndarray, ndim: int
 ) -> tuple[np.ndarray, np.ndarray] | None:
-    """Read the bounds of an axis-aligned polytope off directly (D40).
+    """Read the bounds of an axis-aligned polytope off directly.
 
     The fast path of :func:`polytope_bounds`, worth roughly 1000x and
     covering every axis-aligned selection shipping today.  Requires
@@ -752,7 +751,7 @@ def axis_aligned_bounds(
 def polytope_bounds(
     normals: np.ndarray, offsets: np.ndarray, ndim: int
 ) -> tuple[np.ndarray, np.ndarray] | None:
-    """Exact bounds of ``{p : N p <= d}`` by ``2 * ndim`` LPs (D40).
+    """Exact bounds of ``{p : N p <= d}`` by ``2 * ndim`` LPs.
 
     Unboundedness falls out of the solver rather than being special-cased
     and maps to ``-inf`` / ``+inf``, which is what makes this usable where

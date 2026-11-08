@@ -67,8 +67,8 @@ def test_the_composition_refuses_a_displayed_axis_with_no_data_behind_it():
 
 
 def test_a_collapsed_axis_index_enters_the_translation():
-    """Design 3.9: for a block-diagonal transform it contributes nothing to
-    the displayed rows, which is exactly why ``select_axes`` got away with
+    """For a block-diagonal transform it contributes nothing to the
+    displayed rows, which is exactly why ``select_axes`` got away with
     dropping it.  It stops being free the moment there is a cross-term."""
     ctx = Context(3, (1.0, 1.0, 1.0), displayed_axes=(1, 2), slice_indices={0: 0.0})
     spaces = _spaces(ctx)
@@ -118,7 +118,7 @@ def test_the_visual_system_is_ascending_not_displayed_order():
 
 def test_a_transposed_rendered_system_transposes_the_node_matrix():
     """A transpose costs no refetch: the visual space is unchanged and only
-    the rendered system's axis order moves (design 3.14)."""
+    the rendered system's axis order moves."""
     straight = Context(3, (2.0, 3.0, 4.0), displayed_axes=(0, 1, 2))
     swapped = Context(
         3,
@@ -135,7 +135,7 @@ def test_a_transposed_rendered_system_transposes_the_node_matrix():
 
 
 def test_the_node_matrix_is_narrowed_to_float32():
-    """D6: the model layer is float64 and float32 begins at the GPU."""
+    """The model layer is float64 and float32 begins at the GPU."""
     ctx = Context(3, (2.0, 3.0, 4.0), displayed_axes=(0, 1, 2))
     assert ctx.transform.matrix.dtype == np.float64
     assert node_matrix(_spaces(ctx), ctx.transform, {}).dtype == np.float32
@@ -162,8 +162,8 @@ def test_every_collapsed_axis_must_state_where_it_sits():
 
 
 def test_a_windowed_request_moves_the_origin():
-    """Design 3.9 case 2: forget the window origin and a brick is drawn at the
-    corner of the volume instead of where it belongs."""
+    """Forget the window origin and a brick is drawn at the corner of the
+    volume instead of where it belongs."""
     ctx = Context(3, (1.0, 1.0, 1.0), displayed_axes=(0, 1, 2))
     spaces = _spaces(ctx)
     at_origin = node_matrix(spaces, ctx.transform, {})
@@ -181,7 +181,7 @@ def test_a_windowed_request_moves_the_origin():
 
 
 def test_the_correspondence_is_read_back_off_the_matrix():
-    """D23: the matrix encodes it, so storing an axis_map alongside would be a
+    """The matrix encodes it, so storing an axis_map alongside would be a
     second source of truth."""
     ctx = Context(4, (1.0, 2.0, 3.0, 4.0), displayed_axes=(1, 2, 3))
     assert axis_correspondence(ctx.transform) == {0: 0, 1: 1, 2: 2, 3: 3}

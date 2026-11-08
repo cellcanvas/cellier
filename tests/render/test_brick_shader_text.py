@@ -1,4 +1,4 @@
-"""The plain multiscale brick shader's text is unchanged (masked design 6.1).
+"""The plain multiscale brick shader's text is unchanged.
 
 ``brick_shader_text_baseline.json`` records, for a fixed set of plain image
 scenes made at commit ``7e1b683f``, every template variable the shader was

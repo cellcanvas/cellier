@@ -1,10 +1,10 @@
 """CI-sized multiscale stores for the plane rendering tests.
 
-``plans/plane_rendering_design_v3.md`` 14.0.2.  The measured store
-(``ExpA_VIP_ASLM_on.zarr``, 2 GB) is not in CI, so these small pyramids
-reproduce what matters about it: a level pyramid that does not downsample
-every axis (``aniso_pyramid``), an isotropic one, one with non-integer level
-ratios, one with a time axis, an integer label one, and a channel stack.
+The measured store (``ExpA_VIP_ASLM_on.zarr``, 2 GB) is not in CI, so these
+small pyramids reproduce what matters about it: a level pyramid that does
+not downsample every axis (``aniso_pyramid``), an isotropic one, one with
+non-integer level ratios, one with a time axis, an integer label one, and a
+channel stack.
 
 Every voxel of every level holds a value of its own where a pixel test
 compares voxels, so a pixel can name the voxel (and level) it was drawn from.

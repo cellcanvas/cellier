@@ -1,4 +1,4 @@
-"""Analytic oracles for transformed rendering (full affine design v2, D10).
+"""Analytic oracles for transformed rendering.
 
 Every expectation here is numpy on the transform and the camera, or a
 property of the data -- nothing is rendered by another library and no

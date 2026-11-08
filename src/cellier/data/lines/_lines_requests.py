@@ -1,4 +1,3 @@
-# src/cellier/v2/data/lines/_lines_requests.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -40,24 +39,23 @@ class LinesSliceRequest(NamedTuple):
         world axes raises on the first and silently uploads the wrong columns
         on the second.
     region : ConvexRegion
-        The selected region, already pulled back into **data** coordinates
-        (design 3.12).  It is the whole filter -- one ``contains`` call
+        The selected region, already pulled back into **data**
+        coordinates.  It is the whole filter -- one ``contains`` call
         instead of a per-axis mask loop.
 
         Until v1 was retired this was optional, and a request without one
         fell back to comparing a **world** position from ``slice_indices``
         against **data** coordinates -- the latent bug D4 exists to fix: on a
         2 um z spacing it could show a vertex 24 um off the slice plane and
-        hide the ones that are on it.  There is no second path now (R8.3).
+        hide the ones that are on it.  There is no second path now.
     clip_planes : tuple[tuple[tuple[float, ...], float], ...]
         Clipping planes the read applies on the CPU, as ``(normal, offset)``
-        pairs in data coordinates, kept where ``normal . p >= offset``.
-        Set only where the shader cannot clip: geometry flattened along an
-        axis a plane has a component on (clipping planes design 5.2).
-        Empty otherwise.
+        pairs in data coordinates, kept where ``normal . p >= offset``. Set
+        only where the shader cannot clip: geometry flattened along an axis
+        a plane has a component on. Empty otherwise.
     fold_axes : tuple[int, ...]
         Collapsed data axes whose columns the store also returns, for the
-        render layer's per-element fold (full affine design v2, D11).
+        render layer's per-element fold.
     """
 
     slice_request_id: UUID

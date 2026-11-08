@@ -1,4 +1,4 @@
-"""Render + appearance tests for ``GFXLabelMemoryVisual`` (Phase 3).
+"""Render + appearance tests for ``GFXLabelMemoryVisual``.
 
 Exercises the in-memory label commit path (``on_data_ready`` texture upload +
 material build) and the colormap/appearance update handlers that the

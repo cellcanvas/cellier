@@ -1,4 +1,4 @@
-"""The synthetic MaskedImage example's data (design section 11, Phase 1).
+"""The synthetic MaskedImage example's data.
 
 The mask is an ellipsoid's distance transform, zero outside; the value is one
 integer per ``BAND_WIDTH`` of that distance, counted from 1 at the boundary.
@@ -97,7 +97,7 @@ def test_value_to_mask_is_identity_at_scale_one(example):
 
 
 def test_pyramid_levels_round_up(example):
-    """A coarse level covers the finest level's whole extent (design 6.4)."""
+    """A coarse level covers the finest level's whole extent."""
     level = np.ones((5, 7, 9), np.float32)
     half = example._block_mean(level)
     assert half.shape == (3, 4, 5)

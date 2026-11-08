@@ -70,7 +70,7 @@ CATALOG = [
     ("EdgeThicknessSpin", "edge_thickness", "Edge thickness"),
     ("EdgeThicknessSpaceCombo", "edge_thickness_space", "Edge thickness space"),
     # The image field controls are gone: the unified image control draws every
-    # image field (unified image design 3.10).
+    # image field.
 ]
 
 
@@ -329,7 +329,7 @@ def test_every_control_type_applies_a_foreign_write_without_re_emitting(qtbot, t
         assert emitted == [], f"{toolkit}/{name} re-emitted on an inbound write"
         # One spelling on both toolkits now: Qt's ``value`` is a property
         # like the anywidget trait, so the branch this line used to need
-        # is gone (``plans/gui_backend_unification.md`` D7).
+        # is gone.
         actual = widget.value
         if name == "color_picker":
             assert tuple(actual) == pytest.approx(foreign)
@@ -536,7 +536,7 @@ def test_a_colour_edit_emits_one_event_carrying_all_four_components(qtbot):
 
 
 # ---------------------------------------------------------------------------
-# One asset per control type (design section 10.2 / 6.2.1)
+# One asset per control type
 # ---------------------------------------------------------------------------
 
 

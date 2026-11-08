@@ -1,8 +1,8 @@
 """In-memory geometry on the chunk scheduler: one whole result per visual.
 
-``plans/scheduler_only_loading_design_v2.md`` 4.3 and 4.4.  The points,
-lines and graph visuals load their whole slice (one filtered result) through
-a single-level :class:`~cellier.render._level_residency.LevelResidency`:
+The points, lines and graph visuals load their whole slice (one filtered
+result) through a single-level
+:class:`~cellier.render._level_residency.LevelResidency`:
 
 - the request key is everything the read depends on except the store's
   contents (:func:`freeze_request`); an unchanged request reads nothing;
@@ -10,12 +10,11 @@ a single-level :class:`~cellier.render._level_residency.LevelResidency`:
   filter runs in the loop's executor (``MEMORY_GEOMETRY_POLICY``);
 - the previous result stays on screen while the next one loads when the two
   keys place their data the same way (``keeps_previous``, D1);
-- a contents change keeps the old result drawn until its re-read lands
-  (D12, D13).
+- a contents change keeps the old result drawn until its re-read lands.
 
 An upload is placed by its own request key, never by state the newest plan
-set (D7): the key carries the world-frame flag, the collapsed data positions
-and the fold axes.
+set: the key carries the world-frame flag, the collapsed data positions and
+the fold axes.
 """
 
 from __future__ import annotations
@@ -120,7 +119,7 @@ class WholeItemGeometryMixin:
 
         ``(retained axes, frozen request, fold axes, world frame, data
         positions)``: the last two as the plan that built *request* left
-        them, so an upload can be placed by its own key (D7).
+        them, so an upload can be placed by its own key.
         """
         return (
             tuple(request.retained_axes),
@@ -139,7 +138,7 @@ class WholeItemGeometryMixin:
         """One desired set: the whole filtered slice, whatever the mode.
 
         A whole-item cache has no backstop, so a ``BACKSTOP_ONLY`` plan (a
-        dims drag) still plans the one result (design v2 4.3).
+        dims drag) still plans the one result.
         """
         displayed = request.dims_state.selection.displayed_axes
         if displayed != self._last_displayed_axes:
@@ -164,7 +163,7 @@ class WholeItemGeometryMixin:
     # -- the residency's callbacks -------------------------------------------
 
     def upload(self, level: int, request_key: tuple, data: Any) -> None:
-        """Put a read's result on the GPU, placed by its own request key (D7).
+        """Put a read's result on the GPU, placed by its own request key.
 
         Called by the residency from ``rebuild_draw``; a test may call it
         directly with ``request_key(request)``.

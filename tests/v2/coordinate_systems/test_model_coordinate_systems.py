@@ -56,7 +56,7 @@ from tests._v2 import data_system, systems
 
 
 def test_a_bare_axis_name_is_rejected_and_names_the_fix():
-    """``Axis.axis_type`` has no default, so neither does the world (D3)."""
+    """``Axis.axis_type`` has no default, so neither does the world."""
     with pytest.raises(TypeError, match="spatial_axes"):
         world_coordinate_system(("z", "y", "x"))
 
@@ -102,9 +102,9 @@ def test_a_fractional_slice_position_is_kept(tmp_path):
     unreachable through an integer-valued slider."""
     selection = AxisAlignedSelection(displayed_axes=(1, 2), slice_indices={0: 2.5})
     assert selection.slice_indices[0] == 2.5
-    # The snapshot stopped carrying the positions in Phase 8 (D5); what
-    # reaches the render layer is the region built from them, and nothing on
-    # the way rounds or truncates.
+    # The snapshot stopped carrying the positions in Phase 8; what reaches
+    # the render layer is the region built from them, and nothing on the way
+    # rounds or truncates.
     assert not hasattr(selection.to_state(), "slice_indices")
 
 
@@ -181,8 +181,8 @@ def test_a_state_built_without_thickness_still_works():
 
 
 def test_a_store_has_no_coordinate_systems_until_it_is_told():
-    """F1.4: no auto-build.  ``Axis.axis_type`` has no honest default, and a
-    store with no metadata has nowhere to get one from on its own."""
+    """No auto-build.  ``Axis.axis_type`` has no honest default, and a store
+    with no metadata has nowhere to get one from on its own."""
     store = ImageMemoryStore(data=np.zeros((4, 5, 6), dtype=np.float32))
     assert store.data_coordinate_systems == []
     with pytest.raises(ValueError, match="data_coordinate_systems"):
@@ -234,7 +234,7 @@ def test_explicit_axis_types_win_over_the_name_rule():
 
 
 def test_an_empty_axis_type_raises_and_names_the_axis():
-    """A blank ``type`` in NGFF is a dataset defect, not a default (F1.4)."""
+    """A blank ``type`` in NGFF is a dataset defect, not a default."""
     with pytest.raises(ValueError, match="'y' has an empty axis_type"):
         build_axes(("y", "x"), types=("", "space"))
 

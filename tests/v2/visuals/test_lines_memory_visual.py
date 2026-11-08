@@ -73,7 +73,7 @@ def test_visual_json_roundtrip(tmp_path):
     assert v2.name == "segments"
 
 
-# ── Phase 2: visual_type rename + migration validator ─────────────────────────
+# ── visual_type rename + migration validator ──────────────────────────────────
 
 
 def test_visual_type_is_lines_memory():

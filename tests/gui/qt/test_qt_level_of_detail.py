@@ -1,4 +1,4 @@
-"""Tests for the Qt "Level of detail" control (plane rendering design 9.3)."""
+"""Tests for the Qt "Level of detail" control."""
 
 from __future__ import annotations
 
@@ -184,8 +184,8 @@ def test_n_displayed_dimensions_is_validated(qtbot):
 
 
 def test_an_in_memory_appearance_hides_the_checkbox_in_3d(qtbot):
-    """Oblique 2D design v3, U1: an in-memory visual has levels on its brick
-    route only, in 2D; there is no 3D setting to edit."""
+    """An in-memory visual has levels on its brick route only, in 2D; there
+    is no 3D setting to edit."""
     from cellier.visuals import InMemoryImageAppearance
 
     values = level_of_detail_values(InMemoryImageAppearance())

@@ -3,7 +3,6 @@
 The motivating case is a time axis whose frames were not acquired at a
 regular interval, but nothing here mentions time: an irregular ``z`` step or
 any other monotonic, unevenly sampled axis uses the same class unchanged.
-See ``plans/nonuniform_time_axis_transform_design.md``.
 """
 
 from __future__ import annotations

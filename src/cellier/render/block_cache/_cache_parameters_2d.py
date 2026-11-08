@@ -6,10 +6,10 @@ from dataclasses import dataclass
 import numpy as np
 import pygfx as gfx
 
-#: Ghost border of 2D image and labels tiles, in level-k pixels (plan v2,
-#: D5).  Two pixels absorb the translation term and the cell -> tile rule on
-#: non-integer pyramids (worst in the repo: 1.34) for linear (1.5 allowed)
-#: and nearest (2.0) sampling; one pixel left the 2D image only 0.5.
+#: Ghost border of 2D image and labels tiles, in level-k pixels.  Two pixels
+#: absorb the translation term and the cell -> tile rule on non-integer
+#: pyramids (worst in the repo: 1.34) for linear (1.5 allowed) and nearest
+#: (2.0) sampling; one pixel left the 2D image only 0.5.
 TILE_BORDER_2D = 2
 
 

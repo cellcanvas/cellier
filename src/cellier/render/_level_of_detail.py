@@ -124,7 +124,7 @@ def build_level_grids(
 
         sv = np.asarray(scale_vecs_shader[k], dtype=np.float64)  # (W, H, D)
         tv = np.asarray(translation_vecs_shader[k], dtype=np.float64)
-        # Centre convention (plan v2, D1): shader order (x=W, y=H, z=D).
+        # Centre convention: shader order (x=W, y=H, z=D).
         centres = brick_centre_data(np.stack([gx_c, gy_c, gz_c], axis=1), bs, sv, tv)
 
         half_extents = (bs * sv / 2.0).astype(np.float64)

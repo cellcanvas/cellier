@@ -1,4 +1,4 @@
-"""The CPU clipping kernels (clipping planes design 5.2)."""
+"""The CPU clipping kernels."""
 
 from __future__ import annotations
 

@@ -438,9 +438,9 @@ def test_the_qt_window_teardown_is_idempotent(qtbot):
 
 
 async def test_close_stops_loading_without_waiting_on_a_running_read():
-    """Scheduler-only loading design v2, Phase 4: after ``close()`` no loading
-    task or timer is live, and ``close()`` returns while a read is still
-    running in an executor thread (its result is dropped when it lands)."""
+    """After ``close()`` no loading task or timer is live, and ``close()``
+    returns while a read is still running in an executor thread (its result is
+    dropped when it lands)."""
     import threading
     import time
 

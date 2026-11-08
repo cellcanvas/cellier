@@ -1,9 +1,9 @@
 """Whole-level geometry on the chunk scheduler, and what of it is drawn.
 
-``plans/mesh_refactor_v3.md`` L2 and L3.  :class:`LevelResidency` is the
-scheduler ``Residency`` of a visual whose data is a few whole levels (a mesh:
-the fine level, and for a multiscale mesh a coarse one), not many bricks.
-One per visual, so one scheduler cache per visual.
+:class:`LevelResidency` is the scheduler ``Residency`` of a visual whose data
+is a few whole levels (a mesh: the fine level, and for a multiscale mesh a
+coarse one), not many bricks.  One per visual, so one scheduler cache per
+visual.
 
 - A key is one level at one request: ``(level, request key)``, interned to
   the ``int64`` the scheduler works with.  The same level at another slider
@@ -13,13 +13,13 @@ One per visual, so one scheduler cache per visual.
   callbacks: ``upload(level, data)`` puts a result on the GPU, and
   ``release(level)`` takes it off.
 
-The display rule (L3, decision D8): **a level is drawn only if it holds the
-key of the newest plan.**  ``planned`` is set when the plan is made, so a
-slider tick stops the old position being drawn in the next frame, and an
-arrival for a position the slider has left is never drawn.  While the new
-position loads, nothing is drawn.
+The display rule: **a level is drawn only if it holds the key of the newest
+plan.**  ``planned`` is set when the plan is made, so a slider tick stops
+the old position being drawn in the next frame, and an arrival for a
+position the slider has left is never drawn.  While the new position loads,
+nothing is drawn.
 
-No revisit guarantee (D9): a level whose key leaves the plan is released at
+No revisit guarantee: a level whose key leaves the plan is released at
 once, and coming back to that position reads again.
 """
 
@@ -45,14 +45,14 @@ if TYPE_CHECKING:
 
 _RESIDENT = int(ChunkState.RESIDENT)
 
-#: How the scheduler treats a level cache's reads (L2):
+#: How the scheduler treats a level cache's reads:
 #:
 #: - one target (fine) read in flight per visual; a coarse read is never
-#:   held by the cap (K1);
+#:   held by the cap;
 #: - reads are computation in an executor, so they count against
-#:   ``SchedulerConfig.compute_budget`` (K2);
+#:   ``SchedulerConfig.compute_budget``;
 #: - a read that raises fails the same way every time: one attempt, and no
-#:   new attempt on later passes (K6).
+#:   new attempt on later passes.
 LEVEL_CACHE_POLICY = CachePolicy(
     max_target_fetching=1,
     resource="compute",
@@ -60,10 +60,9 @@ LEVEL_CACHE_POLICY = CachePolicy(
     retry_on_pass=False,
 )
 
-#: A whole-slice in-memory raster cache (``plans/scheduler_only_loading_design_v2.md``
-#: D17): one read in flight (D2), the compute lane (D3), one attempt and no
-#: retry on a pass (D11), and a result an invalidation makes stale is still
-#: drawn, as kept, until its re-read lands (D13).
+#: A whole-slice in-memory raster cache: one read in flight, the compute lane, one
+#: attempt and no retry on a pass, and a result an invalidation makes stale is still
+#: drawn, as kept, until its re-read lands.
 MEMORY_RASTER_POLICY = CachePolicy(
     max_target_fetching=1,
     resource="compute",
@@ -73,7 +72,7 @@ MEMORY_RASTER_POLICY = CachePolicy(
 )
 
 #: An in-memory geometry cache (points, lines, graph): as
-#: :data:`MEMORY_RASTER_POLICY` with two reads in flight (D2).
+#: :data:`MEMORY_RASTER_POLICY` with two reads in flight.
 MEMORY_GEOMETRY_POLICY = CachePolicy(
     max_target_fetching=2,
     resource="compute",
@@ -120,8 +119,8 @@ class LevelResidency:
         to :meth:`write_kept`.
     keeps_through_invalidation : bool
         Whether a held level whose planned key is invalidated stays drawn,
-        as kept, until the re-read lands (design v2 D12), instead of being
-        released at once.  For data under a change stream (painting).
+        as kept, until the re-read lands, instead of being released at
+        once.  For data under a change stream (painting).
 
     Attributes
     ----------
@@ -228,9 +227,9 @@ class LevelResidency:
             store's contents.
         asked : Collection[int]
             The levels the plan mode asks for.  A level left out is kept in
-            the plan while its key is unchanged (decision D23): it costs no
-            read, and a level that is still valid is not thrown away because
-            a scrub of some other axis plans coarse only.
+            the plan while its key is unchanged: it costs no read, and a
+            level that is still valid is not thrown away because a scrub of
+            some other axis plans coarse only.
         requests : Mapping[int, Any]
             ``level -> store request`` for every level.
 
@@ -252,7 +251,7 @@ class LevelResidency:
                     continue
             planned[level] = key
             self._requests[key] = requests[level]
-        # D9: a level that no longer holds the plan's key is released now,
+        # A level that no longer holds the plan's key is released now,
         # when the plan is made, so no frame draws the position just left.
         for level in [lv for lv, (key, _) in self.held.items()]:
             if planned.get(level) == self.held[level][0]:
@@ -319,10 +318,10 @@ class LevelResidency:
         """Keep a stale result of *key* to draw as kept until its re-read lands.
 
         Called by the scheduler's commit round for a cache whose policy has
-        ``commit_stale`` (design v2 D14).  Only a result of a key the plan
-        still names is kept; a stale result of a superseded key is never
-        drawn.  A newer one replaces an older one; the next
-        :meth:`rebuild_draw` uploads it.
+        ``commit_stale``.  Only a result of a key the plan still names is
+        kept; a stale result of a superseded key is never drawn.  A newer
+        one replaces an older one; the next :meth:`rebuild_draw` uploads
+        it.
         """
         item = self._items.get(int(key))
         if item is None:
@@ -349,7 +348,7 @@ class LevelResidency:
                 self.keeps_through_invalidation
                 and self.planned.get(level) == self.held[level][0]
             ):
-                # D12: the planned key was invalidated; its old result stays
+                # The planned key was invalidated; its old result stays
                 # drawn, as kept, until the re-read lands.
                 self._kept.add(level)
                 continue
@@ -357,8 +356,9 @@ class LevelResidency:
             self._held_request.pop(level, None)
             self._release(level)
 
-        # 1b. A stale result of a planned key handed over by ``write_kept``
-        #     (D14), newer than what the level holds, is drawn as kept.
+        # 1b. A stale result of a planned key handed over by
+        # ``write_kept``, newer than what the level holds, is drawn as
+        # kept.
         for level, (key, data, serial) in list(self._kept_payloads.items()):
             del self._kept_payloads[level]
             if self.planned.get(level) != key:
@@ -473,7 +473,7 @@ class LevelResidency:
         """Every key: a result is a whole level, so any change touches it."""
         return np.ones(len(keys), dtype=bool)
 
-    # -- the display rule (L3) -----------------------------------------------
+    # -- the display rule ----------------------------------------------------
 
     def is_drawable(self, level: int) -> bool:
         """Whether *level* may be drawn.

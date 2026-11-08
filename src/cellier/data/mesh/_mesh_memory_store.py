@@ -1,4 +1,3 @@
-# src/cellier/v2/data/mesh/_mesh_memory_store.py
 from __future__ import annotations
 
 from typing import Any, ClassVar, Literal
@@ -85,8 +84,8 @@ class MeshMemoryStore(BaseDataStore):
     """
 
     store_type: Literal["mesh_memory"] = "mesh_memory"
-    # Reassigning these announces a change on ``data_changed``
-    # (plans/store_change_events.md): positions move the extent.
+    # Reassigning these announces a change on ``data_changed``:
+    # positions move the extent.
     _EXTENT_FIELDS: ClassVar[frozenset[str]] = frozenset({"positions"})
     _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {"indices", "colors", "colors_layout"}

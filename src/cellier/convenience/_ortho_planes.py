@@ -1,7 +1,4 @@
-"""Slice planes in the 3D panel of an OrthoViewer.
-
-See ``plans/plane_rendering_design_v3.md`` section 10.2.
-"""
+"""Slice planes in the 3D panel of an OrthoViewer."""
 
 from __future__ import annotations
 

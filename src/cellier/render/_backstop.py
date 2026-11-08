@@ -1,10 +1,10 @@
 """The coarse backstop the multiscale planners load ahead of the target.
 
-Design v3, 5.9.  A backstop is one pyramid level, loaded before every target
-read (the scheduler's ``BACKSTOP`` class), so a view is blurry rather than
-blank -- or showing the previous slice -- while the target loads.  All four
-planners (image and labels, 2D and 3D) call these helpers, which work on the
-same level grids and sort / cull functions as their target planning.
+A backstop is one pyramid level, loaded before every target read (the
+scheduler's ``BACKSTOP`` class), so a view is blurry rather than blank -- or
+showing the previous slice -- while the target loads.  All four planners
+(image and labels, 2D and 3D) call these helpers, which work on the same
+level grids and sort / cull functions as their target planning.
 
 What the settings mean is :class:`~cellier.visuals.ProgressiveLoadingConfig`'s
 business; this module turns them into brick arrays in load order.
@@ -58,8 +58,7 @@ def intermediate_bricks(
 ) -> np.ndarray:
     """The intermediate stage of a target plan: its ancestors *offset* levels up.
 
-    ``plans/progressive_intermediate_level_design_v2.md``, section 3.  For a
-    target brick at level ``L`` its ancestors are the bricks of level
+    For a target brick at level ``L`` its ancestors are the bricks of level
     ``L + offset`` that own one of its base cells, by the shared cell -> brick
     rule (:mod:`cellier.render.lut_indirection._cell_brick_rule`), so the
     stage covers exactly what the lookup table will look up.  Where the

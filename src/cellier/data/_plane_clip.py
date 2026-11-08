@@ -1,4 +1,4 @@
-"""CPU clipping of geometry against half-spaces (clipping planes design 5.2).
+"""CPU clipping of geometry against half-spaces.
 
 Used only where a shader cannot do it: geometry flattened into a 2D slab,
 which has lost the coordinate a clipping plane needs.  The kernels work in

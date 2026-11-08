@@ -1,10 +1,10 @@
-"""Oblique 2D design v3, Phase 3: multiscale labels on the brick route.
+"""Multiscale labels on the brick route.
 
-``plans/oblique_2d_raster_design_v3.md`` 5.8 and Phase 3.  A multiscale
-labels visual whose transform tilts a 2D view's slice is drawn by its 3D
-node in the plane render mode (the slice node), as multiscale images are
-from Phase 2.  The labels rule: every drawn pixel shows the label of the
-voxel under its centre, and no label that is not in the data.
+A multiscale labels visual whose transform tilts a 2D view's slice is
+drawn by its 3D node in the plane render mode (the slice node), as
+multiscale images are from Phase 2.  The labels rule: every drawn pixel
+shows the label of the voxel under its centre, and no label that is not
+in the data.
 
 Expectations are analytic (the transform, the camera) or properties of the
 data -- never another library's rendering (memory: no cross-library tests).
@@ -144,7 +144,7 @@ def _expected_labels(camera, matrix, slice_z, data):
 
 
 # ---------------------------------------------------------------------------
-# Placement, landmarks and the labels rule (D11)
+# Placement, landmarks and the labels rule
 # ---------------------------------------------------------------------------
 
 
@@ -159,7 +159,7 @@ def test_a_tilted_labels_view_is_placed_on_the_slice_node(tmp_path):
         assert gfx_visual.material_3d.render_mode == "plane"
         assert gfx_visual.material_3d.slice_2d
         assert viewer.controller.draw_status(visual.id).drawable
-        # The model's render mode is untouched (D5).
+        # The model's render mode is untouched.
         assert visual.appearance.render_mode == "iso_categorical"
     finally:
         viewer.controller.close()
@@ -400,7 +400,7 @@ def test_every_outline_pixel_lies_on_a_label_boundary(tmp_path, mode):
 
 
 def test_depth_threshold_draws_as_all_boundaries_on_the_slice_node(tmp_path):
-    """5.8: the slice node is one plane; no depth range is sent for it."""
+    """The slice node is one plane; no depth range is sent for it."""
     viewer, visual, *_ = _outline_viewer(tmp_path, "all_boundaries")
     try:
         expected, _ = _draw_outlined(viewer)
@@ -415,7 +415,7 @@ def test_depth_threshold_draws_as_all_boundaries_on_the_slice_node(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Stacking (U9): labels on the brick node over a planar image
+# Stacking: labels on the brick node over a planar image
 # ---------------------------------------------------------------------------
 
 
@@ -461,7 +461,7 @@ def test_brick_labels_over_a_planar_image_follow_render_order(tmp_path, labels_o
 
 
 # ---------------------------------------------------------------------------
-# Picks (5.6) and statuses (5.2.5)
+# Picks and statuses
 # ---------------------------------------------------------------------------
 
 

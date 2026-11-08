@@ -322,26 +322,25 @@ _RESLICE_FIELDS: frozenset[str] = frozenset(
         "settled_lod_bias",
         "force_level",
         "frustum_cull",
-        # A MaskedImage's (masked image design 4.1, 8.3).
+        # A MaskedImage's.
         "value_force_level",
         "target_bricks",
     }
 )
 
-#: A MaskedImage's single fields its ``target_bricks="surface"`` plan reads
-#: (masked image design 8.3): a change re-plans which bricks are near the
-#: surface.
+#: A MaskedImage's single fields its ``target_bricks="surface"`` plan
+#: reads: a change re-plans which bricks are near the surface.
 _SURFACE_PLAN_FIELDS: frozenset[str] = frozenset({"iso_threshold", "surface_thickness"})
 
-#: Re-plans a second a ``target_bricks="surface"`` MaskedImage takes while
-#: its threshold or thickness is dragged (masked image design 8.3).  The first
-#: change re-plans at once; changes inside the interval fold into one
-#: trailing re-plan at its end.  A plan reads nothing (the coarse mask is
-#: kept), so this caps only the planning and the reads the new plan starts.
+#: Re-plans a second a ``target_bricks="surface"`` MaskedImage takes while its
+#: threshold or thickness is dragged.  The first change re-plans at once;
+#: changes inside the interval fold into one trailing re-plan at its end.  A
+#: plan reads nothing (the coarse mask is kept), so this caps only the
+#: planning and the reads the new plan starts.
 SURFACE_REPLAN_MAX_HZ = 10.0
 
-#: An image appearance's projection fields (oblique 2D design v3, 4.2): a
-#: change can move the image onto the brick route or off it.
+#: An image appearance's projection fields: a change can move the image
+#: onto the brick route or off it.
 _PROJECTION_FIELDS: frozenset[str] = frozenset(
     {"slab_projection", "projection_axes", "projection_steps_per_voxel"}
 )
@@ -368,8 +367,7 @@ def _projection_key(visual: Any, scene: Any) -> Any:
 
 #: Visuals that load nothing while they draw nothing; showing one reslices it.
 #: They are retired while hidden: their reads stop, and shown again at an
-#: unchanged position they read nothing (scheduler-only loading design v2,
-#: D18).
+#: unchanged position they read nothing.
 _SKIP_WHEN_HIDDEN = (
     BaseImageVisual,
     LabelMemoryVisual,
@@ -397,15 +395,15 @@ _NOT_OBLIQUE = frozenset(
     {SliceAlignment.AXIS_ALIGNED, SliceAlignment.IN_PLANE, SliceAlignment.SLICE_SHIFT}
 )
 
-#: Which view alignments each visual family draws (full affine design v2,
-#: 3.2 and 4.2).  Each phase enabled cells (Phase 4 ``AXIS_ALIGNED`` and
-#: ``IN_PLANE``, Phase 5 ``SLICE_SHIFT``, Phase 6 ``OBLIQUE`` for the
-#: geometry families); a view whose cell is not enabled
-#: draws nothing of the visual and says why (D3), never something wrong.
+#: Which view alignments each visual family draws.  Each phase enabled
+#: cells (Phase 4 ``AXIS_ALIGNED`` and ``IN_PLANE``, Phase 5
+#: ``SLICE_SHIFT``, Phase 6 ``OBLIQUE`` for the geometry families); a
+#: view whose cell is not enabled draws nothing of the visual and says
+#: why, never something wrong.
 _EVERY_ALIGNMENT = frozenset(SliceAlignment)
 
 #: Raster OBLIQUE (a 2D image or labels view on a tilted slice) is out of
-#: scope for the planar path (D1): those views draw nothing and say why --
+#: scope for the planar path: those views draw nothing and say why --
 #: except a 2D view the brick route draws (``_BRICK_ROUTE_FAMILIES``).
 _DRAWABLE: dict[str, frozenset[SliceAlignment]] = {
     "image": _NOT_OBLIQUE,
@@ -419,11 +417,11 @@ _DRAWABLE: dict[str, frozenset[SliceAlignment]] = {
     "graph": _EVERY_ALIGNMENT,
 }
 
-#: The families whose tilted 2D views the brick route draws (oblique 2D
-#: design v3, 5.2.1): multiscale images from Phase 2, multiscale labels from
-#: Phase 3, in-memory images and labels from Phase 4.  A raster view the
-#: route table refuses (a slice along a line, or through too many data axes)
-#: draws nothing whatever its family and alignment.
+#: The families whose tilted 2D views the brick route draws: multiscale
+#: images from Phase 2, multiscale labels from Phase 3, in-memory images and
+#: labels from Phase 4.  A raster view the route table refuses (a slice
+#: along a line, or through too many data axes) draws nothing whatever its
+#: family and alignment.
 _BRICK_ROUTE_FAMILIES = frozenset(
     {"image_multiscale", "labels_multiscale", "image", "labels"}
 )
@@ -480,7 +478,7 @@ def _visual_family(visual: BaseVisual) -> str:
 
 
 class _RouteEntry(NamedTuple):
-    """One raster visual's route in its 2D view (design v3, D17).
+    """One raster visual's route in its 2D view.
 
     Cached on the transform object, the displayed axes and the projection
     key (the appearance's projection fields and which axes have a
@@ -500,8 +498,7 @@ class _RouteEntry(NamedTuple):
 def _slice_layout(effective: Any, axes: tuple[int, int, int]) -> tuple[int, ...]:
     """The data axes a slice node over world *axes* lays out, ascending.
 
-    Those the three world axes retain and some world axis reads (design v3,
-    5.3.1).
+    Those the three world axes retain and some world axis reads.
     """
     coupling = effective.axis_coupling()
     return tuple(
@@ -516,10 +513,9 @@ def retained_raster_axes(
 ) -> tuple[int, ...]:
     """The data axes a placement keeps off the brick route, ascending.
 
-    The pure core of :meth:`CellierController._retained_data_axes` (design
-    3.14, full affine v2 3.1), with the transform and its classification
-    passed in, so the value side of a MaskedImage is placed by the same rule
-    as the visual (masked image design 5.1).
+    The pure core of :meth:`CellierController._retained_data_axes`, with the
+    transform and its classification passed in, so the value side of a
+    MaskedImage is placed by the same rule as the visual.
 
     Parameters
     ----------
@@ -533,17 +529,17 @@ def retained_raster_axes(
     if classification.alignment is not SliceAlignment.AXIS_ALIGNED or not (
         _has_bijection(classification.effective_transform)
     ):
-        # Rotated, sheared or drifted (design v2 3.1), or two sliced axes
-        # coupled to each other in an otherwise aligned view: the data
-        # axes no sliced world axis reads.  A data axis that reaches no
-        # world axis at all has no extent to keep, as before.
+        # Rotated, sheared or drifted, or two sliced axes coupled to each
+        # other in an otherwise aligned view: the data axes no sliced
+        # world axis reads.  A data axis that reaches no world axis at
+        # all has no extent to keep, as before.
         coupling = transform.axis_coupling()
         return tuple(
             axis
             for axis in classification.retained_data_axes
             if coupling[:, axis].any()
         )
-    # D7: the snapped matrix, which the classifier called aligned.
+    # The snapped matrix, which the classifier called aligned.
     data_axis_of_world = {
         world_axis: data_axis
         for data_axis, world_axis in axis_correspondence(
@@ -570,10 +566,10 @@ def _coupled_to_others(coupling: np.ndarray, data_axis: int) -> bool:
 def _route_refusal_reason(
     family: str, decision: RouteDecision, projecting: bool = False
 ) -> str:
-    """Why the route table refuses a raster view (oblique 2D design v3, 5.2.5)."""
+    """Why the route table refuses a raster view."""
     noun = _FAMILY_NOUN[family]
     if decision.reason is RouteRefusalReason.PULLBACK_NOT_2D:
-        # A slab over a 2D store meets it along a line too (G0-4).
+        # A slab over a 2D store meets it along a line too.
         if (decision.dimension or 0) < (3 if projecting else 2):
             return f"this view cuts the {noun} along a line; nothing to draw"
         return (
@@ -592,7 +588,7 @@ def _route_refusal_reason(
 
 
 def _projection_refusal_reason(refusal: ProjectionRefusal) -> str:
-    """Why a projecting image draws its plane instead (design v3, 5.2.5)."""
+    """Why a projecting image draws its plane instead."""
     if refusal.reason is ProjectionRefusalReason.MULTIPLE_AXES:
         return "projects over one axis only; drawing the slice"
     if refusal.reason is ProjectionRefusalReason.DISPLAYED_AXIS:
@@ -601,7 +597,7 @@ def _projection_refusal_reason(refusal: ProjectionRefusal) -> str:
 
 
 def _undrawable_reason(family: str, alignment: SliceAlignment) -> str:
-    """Why a view of *alignment* does not draw a visual of *family* (D8)."""
+    """Why a view of *alignment* does not draw a visual of *family*."""
     noun = _FAMILY_NOUN[family]
     if alignment is SliceAlignment.OBLIQUE and family in _RASTER_FAMILIES:
         return (
@@ -713,10 +709,9 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
     -------
     VisualRenderConfig
         LOD settings from a multiscale visual's appearance, its backstop
-        settings (``render_config.loading``), and
-        ``slicing_enabled=False`` for an image or mesh visual that draws
-        nothing: hidden, or a composite image with no drawn channel (unified
-        image design 3.3).
+        settings (``render_config.loading``), and ``slicing_enabled=False``
+        for an image or mesh visual that draws nothing: hidden, or a
+        composite image with no drawn channel.
     """
     slicing_enabled = not (
         isinstance(visual, _SKIP_WHEN_HIDDEN) and _draws_nothing(visual)
@@ -730,8 +725,7 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
             loading=visual.render_config.loading,
         )
     if isinstance(visual, (ImageVisual, LabelMemoryVisual)):
-        # Read by the brick route only (oblique 2D design v3, U1); the planar
-        # path ignores them.
+        # Read by the brick route only; the planar path ignores them.
         return VisualRenderConfig(
             settled_lod_bias=visual.appearance.settled_lod_bias,
             force_level=visual.appearance.force_level,
@@ -1212,14 +1206,14 @@ class CellierController:
         self._slice_cache: dict[UUID, tuple] = {}
         # The last ``Scene.slider_axes`` emitted per scene.  Used only to
         # decide whether a model change moved the derived set and so needs a
-        # ``SliderAxesChangedEvent``; nothing reads it as state (design 3.5).
+        # ``SliderAxesChangedEvent``; nothing reads it as state.
         self._slider_axes_cache: dict[UUID, tuple[int, ...]] = {}
         # id -> coordinate system, for every system this session knows about:
         # the stored ones (world, per-level data) and the runtime ones
         # (rendered, visual).  Three v2 methods -- map_bounding_box, then and
         # validate_against -- take system *objects* while a transform stores
         # only ids, so a lookup is required.  Deliberately a plain dict: no
-        # edges, no path finding, no automatic composition (D15).
+        # edges, no path finding, no automatic composition.
         self._coordinate_systems: dict[UUID, CoordinateSystemType] = {}
         # canvas_id -> (rendered system, rendered -> world embedding).
         # Rebuilt when displayed_axes changes, including a pure reorder; only
@@ -1228,12 +1222,12 @@ class CellierController:
             UUID, tuple[RenderedCoordinateSystem, AffineTransform]
         ] = {}
         # (visual_id, render_mode) -> the space that visual's GPU geometry is
-        # indexed in (D45).  One per mode: a multiscale visual's 3D node is in
+        # indexed in.  One per mode: a multiscale visual's 3D node is in
         # normalized proxy-box space and its 2D node in level-0 pixels.
         self._visual_spaces: dict[tuple[UUID, str], VisualCoordinateSystem] = {}
         # MaskedImage id -> (mode, retained axes, the value side's visual
         # system): the value store's placement, keyed by the MaskedImage's
-        # own id since the value side has none (masked image design 5.1, G8).
+        # own id since the value side has none.
         self._value_spaces: dict[
             UUID, tuple[str, tuple[int, ...], VisualCoordinateSystem]
         ] = {}
@@ -1243,8 +1237,7 @@ class CellierController:
         self._canvases_awaiting_fit: set[UUID] = set()
         # render_modes registered per scene (determines which nodes visuals build)
         self._scene_render_modes: dict[UUID, set[Literal["2d", "3d"]]] = {}
-        # Camera motion, one tracker per canvas (interaction tracker design
-        # 4.5, 4.6).
+        # Camera motion, one tracker per canvas.
         self._camera_driver = _InteractionDriver(
             lambda: self._render_manager.config.camera.settle_threshold_s,
             self._on_camera_transition,
@@ -1261,11 +1254,10 @@ class CellierController:
         # True while this controller emits the ``CameraChangedEvent`` of a
         # programmatic move, which it has already acted on.
         self._announcing_camera_move: bool = False
-        # Dims scrubs, one tracker per scene (interaction tracker design
-        # 4.3, 4.4).  Per scene: the visuals that planned coarse during the
-        # current scrub, the sliced axes it has moved, and, while
-        # ``update_slice_indices`` applies a tick, whether that tick is
-        # interactive.
+        # Dims scrubs, one tracker per scene.  Per scene: the visuals that
+        # planned coarse during the current scrub, the sliced axes it has
+        # moved, and, while ``update_slice_indices`` applies a tick,
+        # whether that tick is interactive.
         self._dims_driver = _InteractionDriver(
             lambda: self._render_manager.config.scheduler.dims_settle_s,
             self._on_dims_transition,
@@ -1273,26 +1265,26 @@ class CellierController:
         self._dims_scrub_pending: dict[UUID, set[UUID]] = {}
         self._dims_scrub_axes: dict[UUID, set[int]] = {}
         self._dims_ticks: dict[UUID, bool] = {}
-        # Plane drags, one tracker per visual (gizmo design 6; plane
-        # rendering design 7.2).  ``_plane_plan_owed`` holds the visuals a
-        # drag left without a plan (7.4): the drag's end plans them.
+        # Plane drags, one tracker per visual.  ``_plane_plan_owed`` holds
+        # the visuals a drag left without a plan: the drag's end plans
+        # them.
         self._plane_interaction_driver = _InteractionDriver(
             lambda: self._render_manager.config.scheduler.dims_settle_s,
             self._on_plane_transition,
         )
         self._plane_plan_owed: set[UUID] = set()
-        # Transform drags, one tracker per visual (oblique 2D design v3, D7).
-        # ``_transform_plan_owed`` holds the visuals a drag planned coarse or
-        # held: the drag's end plans them.
+        # Transform drags, one tracker per visual. ``_transform_plan_owed``
+        # holds the visuals a drag planned coarse or held: the drag's end
+        # plans them.
         self._transform_interaction_driver = _InteractionDriver(
             lambda: self._render_manager.config.scheduler.dims_settle_s,
             self._on_transform_transition,
         )
         self._transform_plan_owed: set[UUID] = set()
-        # Render planes (plane rendering design 4).  Per visual: whether a
-        # 3D view shows it in plane mode, the render mode its channels share
-        # (to put a refused one back), and whether it has been warned that a
-        # plane's axes are not the displayed ones.
+        # Render planes.  Per visual: whether a 3D view shows it in plane
+        # mode, the render mode its channels share (to put a refused one
+        # back), and whether it has been warned that a plane's axes are not
+        # the displayed ones.
         self._plane_mode_shown: dict[UUID, bool] = {}
         self._channel_render_modes: dict[UUID, dict[int, str]] = {}
         # Image visuals whose channels' render modes are being set together
@@ -1300,16 +1292,16 @@ class CellierController:
         # between the channels of the batch.
         self._render_mode_sync: set[UUID] = set()
         self._render_plane_axes_warned: set[UUID] = set()
-        # Full affine design v2, D3 / D8: each visual's draw status in its
-        # scene's current view, and the classification it came from, cached
-        # on (transform object, displayed axes).
+        # Each visual's draw status in its scene's current view, and the
+        # classification it came from, cached on (transform object,
+        # displayed axes).
         self._draw_status: dict[UUID, DrawStatus] = {}
         self._classifications: dict[
             UUID, tuple[Any, tuple[int, ...], ViewClassification]
         ] = {}
-        # Oblique 2D design v3, 5.2.2: each raster visual's route in its 2D
-        # view, cached like the classification, with the slice node's world
-        # axes (normal first), the data axes they keep and the projection.
+        # Each raster visual's route in its 2D view, cached like the
+        # classification, with the slice node's world axes (normal first),
+        # the data axes they keep and the projection.
         self._slice_routes: dict[UUID, _RouteEntry] = {}
         # Visual id -> (axes, canvas id, rendered system) of a slice node's
         # own rendered system, kept while its axes and canvas are, so its
@@ -1318,27 +1310,26 @@ class CellierController:
             UUID, tuple[tuple[int, int, int], UUID, RenderedCoordinateSystem]
         ] = {}
         # The transform each visual had before its latest assignment, to put
-        # back when an assignment is refused (design v2 4.2).
+        # back when an assignment is refused.
         self._accepted_transforms: dict[UUID, Any] = {}
         # Canvas id -> (model, render overlay, handler) of show_draw_status.
         self._draw_status_overlays: dict[UUID, tuple[Any, Any, Any]] = {}
         # The plane gizmo of each canvas that has one: at most one per
-        # canvas, on a clipping plane or a render plane (gizmo design 7;
-        # plane rendering design 8.3).
+        # canvas, on a clipping plane or a render plane.
         self._plane_gizmos: dict[UUID, PlaneGizmoController] = {}
         # The source to stamp on the state event of a gizmo closed on
         # request, and whether one is being replaced (no event for the old).
         self._plane_gizmo_source: UUID | None = None
         self._plane_gizmo_replacing: bool = False
         # Reslices after store changes, capped per store at
-        # ``SchedulerConfig.store_change_max_hz`` (design v3 5.14): the loop
-        # time of the last one, the trailing one waiting to run, and whether
-        # an extent change is folded into it.
+        # ``SchedulerConfig.store_change_max_hz``: the loop time of the last
+        # one, the trailing one waiting to run, and whether an extent change
+        # is folded into it.
         self._store_reslice_at: dict[UUID, float] = {}
         self._store_reslice_tasks: dict[UUID, asyncio.Task] = {}
         self._store_reslice_extent: dict[UUID, bool] = {}
-        # A target_bricks="surface" MaskedImage's re-plans (masked image
-        # design 8.3): the loop time of the last one and the one waiting.
+        # A target_bricks="surface" MaskedImage's re-plans: the loop time
+        # of the last one and the one waiting.
         self._surface_replan_at: dict[UUID, float] = {}
         self._surface_replan_tasks: dict[UUID, asyncio.Task] = {}
         # Per-canvas count of active pick-event subscribers (``on_pick``).
@@ -1351,9 +1342,9 @@ class CellierController:
         # A pick SubscriptionHandle's id -> (canvas, event type), so that
         # unsubscribe_pick can decrement the right counters.
         self._pick_handles: dict[int, tuple[UUID, type]] = {}
-        # In-flight asynchronous pick value reads (design 3.7): the ``move``
-        # read per canvas, which a newer pointer event cancels, and every read
-        # per visual, which ``remove_visual`` cancels.
+        # In-flight asynchronous pick value reads: the ``move`` read per
+        # canvas, which a newer pointer event cancels, and every read per
+        # visual, which ``remove_visual`` cancels.
         self._move_pick_reads: dict[UUID, UUID] = {}
         self._pick_reads_by_visual: dict[UUID, set[UUID]] = {}
         # Stored psygnal bridge handlers keyed by visual_id.
@@ -1409,7 +1400,7 @@ class CellierController:
             self._on_canvas_size_changed,
             owner_id=self._id,
         )
-        # A MaskedImage's surface target waits for its coarse mask (8.3).
+        # A MaskedImage's surface target waits for its coarse mask.
         self._outgoing_events.subscribe(
             BackstopCompleteEvent,
             self._on_backstop_complete_surface,
@@ -1756,7 +1747,7 @@ class CellierController:
         ndim = world.ndim
         modes = render_modes if render_modes is not None else {"2d", "3d"}
         displayed = resolve_displayed_axes(world, displayed_axes, modes)
-        # Every axis gets a position, displayed ones included (D36).
+        # Every axis gets a position, displayed ones included.
         slice_indices = dict.fromkeys(range(ndim), 0.0)
         dims = DimsManager(
             world_coordinate_system=world,
@@ -1840,9 +1831,8 @@ class CellierController:
         both at once: the scheduler reads what is still wanted again.
         Finally, for an ``"extent"`` change, reslice the visuals reading the
         store, so a caller that changes a store no longer has to reslice by
-        hand (``plans/store_change_events.md``), at most
-        ``SchedulerConfig.store_change_max_hz`` times a second per store
-        (:meth:`_request_store_reslice`).
+        hand, at most ``SchedulerConfig.store_change_max_hz`` times a second
+        per store (:meth:`_request_store_reslice`).
         """
         readers = [
             (scene_id, visual.id) for scene_id, visual in self._store_readers(store_id)
@@ -1863,7 +1853,7 @@ class CellierController:
         self._outgoing_events.emit(event)
         # Bricks already on the GPU were read before the change: drop the
         # ones it touches (all of them without regions) so the reslice below
-        # fetches them again rather than finding them resident (design 5.14).
+        # fetches them again rather than finding them resident.
         self._render_manager.invalidate_store(store_id, change.regions)
         extent = change.kind == "extent"
         if extent or any(
@@ -1871,11 +1861,11 @@ class CellierController:
             for _, visual in self._store_readers(store_id)
         ):
             # A contents change replans nothing else, so it schedules no
-            # reslice at all (scheduler-only loading design v2, 8.5).
+            # reslice at all.
             self._request_store_reslice(store_id, extent=extent)
 
     def _request_store_reslice(self, store_id: UUID, *, extent: bool) -> None:
-        """Reslice *store_id*'s readers, rate-capped (design v3 5.14).
+        """Reslice *store_id*'s readers, rate-capped.
 
         The first change after a quiet interval reslices at once.  Changes
         inside the interval fold into one trailing reslice at its end, so a
@@ -1919,8 +1909,7 @@ class CellierController:
 
         Every visual loads through the chunk scheduler, so a ``"contents"``
         change needs no new plan: invalidation already requeued what each
-        visual wants, and the scheduler reads it again
-        (``plans/scheduler_only_loading_design_v2.md`` 4.7).  Only an
+        visual wants, and the scheduler reads it again.  Only an
         ``"extent"`` change, which can change what should be planned,
         replans the readers -- and a ``MaskedImage`` whose surface target is
         planned from the changed mask store, for either kind.
@@ -1940,7 +1929,7 @@ class CellierController:
                 continue
             self.reslice_visual(visual.id)
 
-    # -- target_bricks="surface" (masked image design 8.3) ---------------------
+    # -- target_bricks="surface" -----------------------------------------------
 
     def _on_backstop_complete_surface(self, event: BackstopCompleteEvent) -> None:
         """Re-plan a MaskedImage whose surface target waited for this backstop.
@@ -1974,7 +1963,7 @@ class CellierController:
             return
         displayed = self._dims_state_for_scene(scene_id).selection.displayed_axes
         if len(displayed) != 3:
-            return  # 2D plans no surface filter (design 4.1)
+            return  # 2D plans no surface filter
         self._queue_surface_replan(visual_id, capped=True)
 
     def _queue_surface_replan(self, visual_id: UUID, *, capped: bool) -> None:
@@ -2018,7 +2007,7 @@ class CellierController:
 
     @staticmethod
     def _surface_reads_mask(visual: Any, store_id: UUID) -> bool:
-        """Whether *visual* plans a surface target from *store_id* (8.3).
+        """Whether *visual* plans a surface target from *store_id*.
 
         Its coarse mask is forgotten when the mask store changes, so even a
         contents change re-plans it: the target waits for the new backstop.
@@ -2172,10 +2161,10 @@ class CellierController:
     ) -> ImageVisual:
         """Add an in-memory image visual to a scene.
 
-        One visual draws the image single-channel or composited
-        (unified image design 3.1): ``composite`` picks the mode, ``single``
-        is the appearance single mode draws with, and ``channels`` the
-        per-channel appearances composite mode draws with.
+        One visual draws the image single-channel or composited:
+        ``composite`` picks the mode, ``single`` is the appearance single
+        mode draws with, and ``channels`` the per-channel appearances
+        composite mode draws with.
 
         Parameters
         ----------
@@ -2224,8 +2213,7 @@ class CellierController:
             with :meth:`set_render_planes`.  Default none.
         render_config : InMemoryImageRenderConfig or None
             The GPU configuration of the brick route, which draws a tilted
-            2D view of the image (oblique 2D design v3).  ``None`` uses the
-            defaults.
+            2D view of the image.  ``None`` uses the defaults.
 
         Returns
         -------
@@ -2348,8 +2336,7 @@ class CellierController:
             with :meth:`set_render_planes`.  Default none.
         render_config : InMemoryLabelRenderConfig or None
             The GPU configuration of the brick route, which draws a tilted
-            2D view of the labels (oblique 2D design v3).  ``None`` uses the
-            defaults.
+            2D view of the labels.  ``None`` uses the defaults.
 
         Returns
         -------
@@ -2731,13 +2718,13 @@ class CellierController:
         transform : AffineTransform or None
             Data-to-world transform for this visual.  When ``None``, the
             store's own transform is used if it has one -- a geff file's
-            per-axis ``scale`` / ``offset`` (D23) -- and identity otherwise.
-            An explicit argument always wins, as it does for every other
+            per-axis ``scale`` / ``offset`` -- and identity otherwise.  An
+            explicit argument always wins, as it does for every other
             visual: D23 constrains construction, not composition.
         trail : dict[int, TrailConfig] or None
             Axis index -> window configuration.  Keys are validated against
-            the store's ``ndim``; an out-of-range axis raises ``ValueError``
-            (D21).
+            the store's ``ndim``; an out-of-range axis raises
+            ``ValueError``.
 
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
@@ -2775,7 +2762,7 @@ class CellierController:
         if appearance is None:
             appearance = GraphAppearance()
 
-        # A geff file states its own per-axis scale and offset (D23), which
+        # A geff file states its own per-axis scale and offset, which
         # stands in for an explicit transform.  They are raw numbers -- the
         # store cannot name the scene's world -- so they become a transform
         # here, between the two systems this method knows.
@@ -2934,11 +2921,11 @@ class CellierController:
     ) -> MaskedImageVisual:
         """Add a MaskedImage: a mask's isosurface coloured by a value image.
 
-        The surface is found and lit in *mask* at ``single.iso_threshold``
-        and coloured from *value*.  In 3D the colour is the max, mean or min
-        of the value along the surface normal over ``single.surface_thickness``;
-        in 2D the thickness is the width of a contour band, each pixel showing
-        its own value (masked image design v2).
+        The surface is found and lit in *mask* at ``single.iso_threshold`` and
+        coloured from *value*.  In 3D the colour is the max, mean or min of the
+        value along the surface normal over ``single.surface_thickness``; in 2D
+        the thickness is the width of a contour band, each pixel showing its own
+        value.
 
         Parameters
         ----------
@@ -3201,7 +3188,7 @@ class CellierController:
     def remove_channel(self, visual_id: UUID, channel_index: int) -> None:
         """Remove a channel from an image visual's composite channels.
 
-        Any channel may be removed, including the last (D35); an empty
+        Any channel may be removed, including the last; an empty
         composite draws nothing.  The ``channels`` bridge reslices.
 
         Parameters
@@ -3238,8 +3225,8 @@ class CellierController:
     def _check_image_axes(self, scene_id: UUID, visual: BaseImageVisual) -> None:
         """Refuse an image whose channel axis is unusable where it is going.
 
-        The channel axis must map to a world axis (design 3.1), and a
-        composited axis cannot be displayed (design 3.4).
+        The channel axis must map to a world axis, and a composited axis
+        cannot be displayed.
 
         Raises
         ------
@@ -3253,7 +3240,7 @@ class CellierController:
             correspondence = visual.transform.axis_correspondence()
         except ValueError:
             # Rotated, sheared or drifted somewhere: only the uncoupled pairs
-            # have a correspondence, and the channel axis must be one (D6).
+            # have a correspondence, and the channel axis must be one.
             correspondence = visual.transform.exclusive_axis_correspondence()
             coupling = visual.transform.axis_coupling()
         if (
@@ -3489,7 +3476,7 @@ class CellierController:
 
         Refused when added (:meth:`_check_masked_image`); a live store that
         grows later cannot be, so the view draws nothing of the visual
-        while it does not fit (masked image design 5.2).
+        while it does not fit.
         """
         for store_id, side, field_name in (
             (visual.data_store_id, "mask", "gpu_budget_bytes"),
@@ -3655,7 +3642,7 @@ class CellierController:
 
     @staticmethod
     def _validate_trail_axes(trail: dict, data_store: Any) -> None:
-        """Raise if any trail key is out of range for the store (D21).
+        """Raise if any trail key is out of range for the store.
 
         This lives in the controller rather than on the visual because the
         visual holds only ``data_store_id`` while ``ndim`` is on the store.
@@ -3832,16 +3819,16 @@ class CellierController:
     # ------------------------------------------------------------------
     # Overlays
     # ------------------------------------------------------------------
-    #
+
     # Two categories share one registry, one bridge and one event pair:
-    #
+
     # * canvas overlays (``Canvas.overlays``) draw in screen space as a
     #   post-pass on one canvas, with their own camera;
     # * scene overlays (``Scene.overlays``) draw in the scene's world, in the
     #   main pass, by the scene camera.  Their geometry depends on the scene's
-    #   contents, so ``_refresh_scene_overlays`` rebuilds it whenever those
-    #   change (see ``plans/scene_overlay_implementation.md``).
-    #
+    # contents, so ``_refresh_scene_overlays`` rebuilds it whenever those
+    # change.
+
     # The controller constructs the GFX objects; the render manager is a
     # passive registrar, as for visuals.
 
@@ -3934,12 +3921,11 @@ class CellierController:
     def show_draw_status(self, canvas_id: UUID, overlay: DrawStatusOverlay) -> None:
         """Draw the visuals a canvas's view does not draw, as text on it.
 
-        Full affine design v2, D8 variant B.  Unlike :meth:`add_canvas_overlay`
-        the overlay is not put in ``Canvas.overlays``: it is a viewer setting
-        (the convenience viewers attach one to every canvas they make), not
-        part of the scene, so overlay listings and docks are unchanged.  Its
-        fields stay live.  Calling it again for the same canvas replaces the
-        previous one.
+        Unlike :meth:`add_canvas_overlay` the overlay is not put in
+        ``Canvas.overlays``: it is a viewer setting (the convenience viewers
+        attach one to every canvas they make), not part of the scene, so
+        overlay listings and docks are unchanged.  Its fields stay live.
+        Calling it again for the same canvas replaces the previous one.
 
         Parameters
         ----------
@@ -4582,7 +4568,7 @@ class CellierController:
             self._register_canvas_overlay(canvas_model.id, overlay_model)
         # The rendered system is derived from (world, displayed_axes,
         # canvas_id) rather than stored on the Canvas: storing it would be a
-        # second source of truth for displayed_axes (design 3.1, D9).
+        # second source of truth for displayed_axes.
         rendered, embedding = self._build_rendered(scene_id, canvas_model.id)
         self._rendered[canvas_model.id] = (rendered, embedding)
         self._register_coordinate_systems(rendered)
@@ -4949,17 +4935,17 @@ class CellierController:
         plan nothing is planned at all (:meth:`_plane_drag_holds_plan`), and
         a reslice that does reach here during one is a jump, planned in full.
         A drag of the visual's transform plans ``BACKSTOP_ONLY`` in a 2D view
-        with ``plans_coarse_while_moving`` (oblique 2D design v3, D7), and
-        holds the plan in a 3D view as a plane drag does.
+        with ``plans_coarse_while_moving``, and holds the plan in a 3D view
+        as a plane drag does.
 
         A visual in plane mode with no plane to draw in this view draws
-        nothing, so it is not sliced (design 4.2).
+        nothing, so it is not sliced.
         """
         config = _visual_render_config(visual)
         if config.slicing_enabled and self._plane_mode_draws_nothing(scene_id, visual):
             config = dataclasses.replace(config, slicing_enabled=False)
         if config.slicing_enabled and not self._view_draws(visual.id):
-            # A view that cannot draw the visual loads nothing for it (D3).
+            # A view that cannot draw the visual loads nothing for it.
             config = dataclasses.replace(config, slicing_enabled=False)
         if self._dims_driver.is_active(scene_id) and visual.plans_coarse_while_moving(
             self._n_displayed_dims(scene_id)
@@ -4967,12 +4953,12 @@ class CellierController:
             self._dims_scrub_pending.setdefault(scene_id, set()).add(visual.id)
             return dataclasses.replace(config, plan_mode=PlanMode.BACKSTOP_ONLY)
         if self._transform_drag_plans_coarse(visual):
-            # A tick of a transform drag in a 2D view (design v3, D7): the
-            # drag's end plans the target.
+            # A tick of a transform drag in a 2D view: the drag's end
+            # plans the target.
             self._transform_plan_owed.add(visual.id)
             return dataclasses.replace(config, plan_mode=PlanMode.BACKSTOP_ONLY)
         if visual.id in self._camera_handoff.get(scene_id, ()):
-            # Left to a camera end by the scrub that just ended (4.6).
+            # Left to a camera end by the scrub that just ended.
             return dataclasses.replace(config, plan_mode=PlanMode.BACKSTOP_ONLY)
         return config
 
@@ -4987,7 +4973,7 @@ class CellierController:
         ``validate_against`` -- take coordinate system **objects** while a
         transform stores only their ids, so composing anything needs this
         lookup.  It is a plain dict: no edges, no path finding and no
-        automatic composition (D15).
+        automatic composition.
 
         Parameters
         ----------
@@ -5125,7 +5111,7 @@ class CellierController:
                 f"This transform maps out of coordinate system "
                 f"{transform.input_coordinate_system}, but the store's level-0 "
                 f"system is {level_zero.id} ('{level_zero.name}').  Build it "
-                f"against the store's own system -- a v2 transform names its "
+                f"against the store's own system -- a transform names its "
                 f"endpoints, so one built elsewhere describes a different space."
             )
         if transform.output_coordinate_system != world.id:
@@ -5280,7 +5266,7 @@ class CellierController:
     def _retained_data_axes(
         self, visual_id: UUID, level_zero: Any, scene: Any
     ) -> list[int]:
-        """The data axes a visual's geometry keeps, ascending (design 3.14).
+        """The data axes a visual's geometry keeps, ascending.
 
         Which data axis a displayed **world** axis names is a question only the
         visual's ``data -> world`` transform can answer.  Subtracting a
@@ -5301,8 +5287,7 @@ class CellierController:
         visual = self._model_visual_or_none(visual_id)
         transform = getattr(visual, "transform", None)
         if self._brick_route_axes(visual_id) is not None:
-            # A 2D slice node (oblique 2D design v3, 5.3.1): the data axes
-            # its three world axes read.
+            # A 2D slice node: the data axes its three world axes read.
             return list(self._slice_route_entry(visual_id)[2])
         classification = (
             self.view_classification(visual_id) if transform is not None else None
@@ -5312,9 +5297,9 @@ class CellierController:
             and classification.alignment is SliceAlignment.OBLIQUE
             and not isinstance(visual, _RASTER_VISUALS)
         ):
-            # A geometry visual in a view that tilts its slice (design v2
-            # Phase 6): it is drawn in the world frame from every data axis
-            # a displayed world axis reads, so those are the ones it keeps.
+            # A geometry visual in a view that tilts its slice: it is drawn
+            # in the world frame from every data axis a displayed world
+            # axis reads, so those are the ones it keeps.
             return list(transform.data_axes_feeding(displayed))
         if classification is not None:
             return list(retained_raster_axes(transform, classification, displayed))
@@ -5340,7 +5325,7 @@ class CellierController:
         key = (visual_id, render_mode)
         previous = self._visual_spaces.get(key)
         if not self._view_draws(visual_id):
-            # Nothing places geometry in a view that cannot draw it (D3).
+            # Nothing places geometry in a view that cannot draw it.
             if previous is not None:
                 self._forget_coordinate_systems(previous)
                 del self._visual_spaces[key]
@@ -5366,8 +5351,8 @@ class CellierController:
 
         ``None`` when the visual is not placeable yet -- its store has no
         coordinate systems, or the scene has no canvas and so no rendered
-        system -- or the view does not draw it.  On the brick route (oblique
-        2D design v3, 5.3.2) they are the 2D slice node's own systems.
+        system -- or the view does not draw it.  On the brick route they are
+        the 2D slice node's own systems.
         """
         scene_id = self._visual_to_scene.get(visual_id)
         if scene_id is None:
@@ -5408,7 +5393,7 @@ class CellierController:
         )
 
     def value_render_spaces(self, visual_id: UUID) -> RenderSpaces | None:
-        """The value side's systems for a MaskedImage (masked design 5.1, G8).
+        """The value side's systems for a MaskedImage.
 
         Keyed by the MaskedImage's own id: the value side has no id of its
         own.  The route, the rendered system and its embedding are the
@@ -5511,7 +5496,7 @@ class CellierController:
         )
 
     # ------------------------------------------------------------------
-    # View alignment and draw status (full affine design v2, 4.2, D3, D8)
+    # View alignment and draw status
     # ------------------------------------------------------------------
 
     def view_classification(self, visual_id: UUID) -> ViewClassification | None:
@@ -5555,7 +5540,7 @@ class CellierController:
             refusal = self._masked_image_fit_refusal(visual)
             if refusal is not None:
                 # An in-memory side that grew past its budget draws nothing,
-                # never part of the image (masked image design 5.2).
+                # never part of the image.
                 return DrawStatus(
                     visual_id=visual.id,
                     scene_id=scene_id,
@@ -5567,13 +5552,13 @@ class CellierController:
         decision = self.slice_route(visual.id)
         route = self._slice_routes.get(visual.id)
         if decision is not None and decision.route is SliceRoute.NONE:
-            # The route table refuses it (design v3, 5.2.2, U13).
+            # The route table refuses it.
             reason = _route_refusal_reason(
                 family, decision, route is not None and route.projection is not None
             )
             if isinstance(visual, MaskedImageVisual) and alignment in _NOT_OBLIQUE:
-                # An aligned view refused by the masked route (masked image
-                # design 6.3): no single sliced space axis is its normal.
+                # An aligned view refused by the masked route: no single
+                # sliced space axis is its normal.
                 reason = (
                     f"this view slices {decision.dimension} space axes; a masked "
                     "image's 2D view slices exactly one"
@@ -5593,7 +5578,7 @@ class CellierController:
         )
         reason = None if drawable else _undrawable_reason(family, alignment)
         if drawable and route is not None and route.refusal is not None:
-            # The plane is drawn, with why it does not project (5.2.5).
+            # The plane is drawn, with why it does not project.
             reason = _projection_refusal_reason(route.refusal)
         return DrawStatus(
             visual_id=visual.id,
@@ -5605,7 +5590,7 @@ class CellierController:
         )
 
     # ------------------------------------------------------------------
-    # The brick route (oblique 2D design v3, 5.2)
+    # The brick route
     # ------------------------------------------------------------------
 
     def _slice_route_entry(
@@ -5617,12 +5602,12 @@ class CellierController:
         transform, or is in a 3D view.  Cached on the transform object and
         the displayed axes, as the classification is.
 
-        **Sticky** (design v3, 5.2.3, D17): while a scope that moves the
-        visual is open, a visual on the brick route stays on it when the
-        table would now pick the planar path, with the same layout axes, as
-        long as its three world axes still read those data axes.  A tilt
-        through a different three axes re-lays it out.  The scope's end
-        drops the entry (:meth:`_release_sticky_route`).
+        **Sticky**: while a scope that moves the visual is open, a visual
+        on the brick route stays on it when the table would now pick the
+        planar path, with the same layout axes, as long as its three world
+        axes still read those data axes.  A tilt through a different three
+        axes re-lays it out.  The scope's end drops the entry
+        (:meth:`_release_sticky_route`).
         """
         visual = self._model_visual_or_none(visual_id)
         if not isinstance(visual, _RASTER_VISUALS):
@@ -5653,9 +5638,9 @@ class CellierController:
         if decision.route is SliceRoute.PLANAR and isinstance(
             visual, MaskedImageVisual
         ):
-            # Every 2D view of a MaskedImage is drawn by the slice node
-            # (masked image design 6.3): the normal is the one sliced world
-            # axis of type space (a time axis is sliced too).
+            # Every 2D view of a MaskedImage is drawn by the slice node:
+            # the normal is the one sliced world axis of type space (a time
+            # axis is sliced too).
             world = scene.dims.world_coordinate_system
             sliced_space = [
                 axis
@@ -5684,9 +5669,9 @@ class CellierController:
             and self._route_held(visual_id)
             and _slice_layout(effective, cached.axes) == cached.retained
         ):
-            # Held on the route by an open scope (5.2.3): the aligned
-            # transient -- or a thickness drag through zero -- keeps the
-            # slice node and its layout.
+            # Held on the route by an open scope: the aligned transient
+            # -- or a thickness drag through zero -- keeps the slice
+            # node and its layout.
             decision = RouteDecision(SliceRoute.BRICK, normal_world_axis=cached.axes[0])
         if decision.route is SliceRoute.BRICK:
             axes = (decision.normal_world_axis, displayed[0], displayed[1])
@@ -5721,7 +5706,7 @@ class CellierController:
         displayed: tuple[int, ...],
         classification: ViewClassification,
     ) -> tuple[Any, Any]:
-        """``(ProjectionGeometry or None, ProjectionRefusal or None)`` (4.2).
+        """``(ProjectionGeometry or None, ProjectionRefusal or None)``.
 
         Images only (labels never project).  A projection along a world
         axis the data does not vary along (``DepthAlignment.CONSTANT``: a
@@ -5754,7 +5739,7 @@ class CellierController:
         return geometry, None
 
     def slice_route(self, visual_id: UUID) -> RouteDecision | None:
-        """Which path draws a raster visual in its 2D view (design v3, 5.2.2).
+        """Which path draws a raster visual in its 2D view.
 
         Parameters
         ----------
@@ -5776,7 +5761,7 @@ class CellierController:
 
         The slice normal's world axis, then the two displayed axes in the
         view's order; ``None`` on the planar path, when the route refuses the
-        view, or when the family does not draw the route yet (5.2.1).
+        view, or when the family does not draw the route yet.
         """
         entry = self._slice_route_entry(visual_id)
         if entry is None or entry[1] is None:
@@ -5799,7 +5784,7 @@ class CellierController:
         space: VisualCoordinateSystem,
         store: Any,
     ) -> RenderSpaces | None:
-        """The systems a 2D slice node is placed with (design v3, 5.3.2).
+        """The systems a 2D slice node is placed with.
 
         Its rendered system is 3D: the slice normal's world axis, then the
         two displayed axes, so pygfx ``z`` is the normal.  The embedding
@@ -5843,8 +5828,8 @@ class CellierController:
             name="rendered_to_world",
         )
         visual_model = self._get_visual_model(visual_id)
-        # An in-memory visual's slice node reads its two-level brick pyramid
-        # (design v3, 5.4.1); a multiscale one its store's levels.
+        # An in-memory visual's slice node reads its two-level brick
+        # pyramid; a multiscale one its store's levels.
         scene_manager = self._render_manager._scenes.get(scene_id)
         gfx_visual = (
             None if scene_manager is None else scene_manager.get_visual(visual_id)
@@ -5884,11 +5869,11 @@ class CellierController:
     def _give_brick_source(
         self, scene_id: UUID, visual_model: Any, gfx_visual: Any, data_store: Any
     ) -> None:
-        """Give an in-memory visual its brick pyramid and start its build (5.4).
+        """Give an in-memory visual its brick pyramid and start its build.
 
-        The coarse level is built on a worker when the visual is added (U8);
-        a visual on the brick route is resliced when it lands, which plans
-        its backstop.
+        The coarse level is built on a worker when the visual is added; a
+        visual on the brick route is resliced when it lands, which plans its
+        backstop.
         """
         world = self._model.scenes[scene_id].dims.world_coordinate_system
         transform = getattr(visual_model, "transform", None)
@@ -5922,8 +5907,8 @@ class CellierController:
         """Rebuild an in-memory visual's brick pyramid after its shape changed.
 
         An ``"extent"`` change can change the array's shape, so the coarse
-        level and the layout are built again (5.4.4).  A visual on the route
-        leaves it and takes it again with the new source.
+        level and the layout are built again.  A visual on the route leaves
+        it and takes it again with the new source.
         """
         scene_manager = self._render_manager._scenes.get(scene_id)
         if scene_manager is None:
@@ -5961,7 +5946,7 @@ class CellierController:
         self._request_draw_for_visual(visual_id)
 
     def _camera_sensitive(self, visual: BaseVisual) -> bool:
-        """Whether a camera move reslices *visual* in its view (design v3, D6).
+        """Whether a camera move reslices *visual* in its view.
 
         A visual that says so (``requires_camera_reslice``), or one a 2D view
         draws on the brick route -- an in-memory visual too, whose model
@@ -5984,7 +5969,7 @@ class CellierController:
         self._request_draw_for_visual(visual_id)
 
     def _route_held(self, visual_id: UUID) -> bool:
-        """Whether a scope that moves the visual holds its route (5.2.3).
+        """Whether a scope that moves the visual holds its route.
 
         A drag of its transform, or a scrub of its scene's dims.
         """
@@ -6031,8 +6016,8 @@ class CellierController:
 
         The visual's own on the route; otherwise the last sliced world axis
         whose row reads the data, then the displayed axes.  A guess for
-        preparing the atlas (U12): a tilt through another axis re-lays the
-        layout out but keeps the atlas.
+        preparing the atlas: a tilt through another axis re-lays the layout
+        out but keeps the atlas.
         """
         axes = self._brick_route_axes(visual_id)
         if axes is not None:
@@ -6056,7 +6041,7 @@ class CellierController:
         return (sliced[-1], displayed[0], displayed[1])
 
     def _prepare_slice_route(self, visual_id: UUID) -> None:
-        """Prepare a visual's brick atlas before its first switch (5.1, U12)."""
+        """Prepare a visual's brick atlas before its first switch."""
         visual = self._model_visual_or_none(visual_id)
         if visual is None or not isinstance(visual, _RASTER_VISUALS):
             return
@@ -6076,7 +6061,7 @@ class CellierController:
     def _apply_slice_route(self, scene_manager: Any, visual_id: UUID) -> None:
         """Give a visual its route, and swap its node in if the route changed.
 
-        Before its render spaces are pushed (C3): the planar path's 2D placement must
+        Before its render spaces are pushed: the planar path's 2D placement must
         never see a tilted raster view.
         """
         gfx_visual = scene_manager.get_visual(visual_id)
@@ -6087,7 +6072,7 @@ class CellierController:
         if setter(axes):
             # Off the route the visual's atlases leave its ``residencies()``,
             # so the next plan's cache sync forgets them; its whole-slice
-            # caches keep what they hold (scheduler-only loading v2, D20).
+            # caches keep what they hold.
             scene_id = self._visual_to_scene[visual_id]
             displayed = tuple(
                 self._model.scenes[scene_id].dims.selection.displayed_axes
@@ -6095,11 +6080,11 @@ class CellierController:
             scene_manager.swap_node(visual_id, gfx_visual.get_node_for_dims(displayed))
             if axes is not None:
                 # The atlas goes on the GPU now, zero-filled, rather than
-                # uploading on the first frame (U12).
+                # uploading on the first frame.
                 gfx_visual.prepare_slice_route(axes)
             visual = self._model_visual_or_none(visual_id)
             if visual is not None and int(visual.outline.slot) >= 1:
-                # The outline's depth range follows the route (5.8).
+                # The outline's depth range follows the route.
                 self._push_visual_outline(visual)
         self._push_slab_for(visual_id)
 
@@ -6132,7 +6117,7 @@ class CellierController:
         gfx_visual.set_slice_footprint(polygon)
 
     def _push_slab_for(self, visual_id: UUID) -> None:
-        """Give a visual's slice node the slab it projects, or none (4.2)."""
+        """Give a visual's slice node the slab it projects, or none."""
         scene_id = self._visual_to_scene.get(visual_id)
         scene_manager = self._render_manager._scenes.get(scene_id)
         if scene_manager is None:
@@ -6160,9 +6145,9 @@ class CellierController:
         """Re-choose one raster visual's route after its slab may have changed.
 
         A projection's route follows the thickness (crossing zero) and the
-        appearance's projection fields (5.2.2).  The visual is placed again
-        if its route changed; a slice node is re-placed either way (its
-        embedding carries the slice, 5.3.2) and given its slab.
+        appearance's projection fields.  The visual is placed again if its
+        route changed; a slice node is re-placed either way (its embedding
+        carries the slice, 5.3.2) and given its slab.
 
         Returns
         -------
@@ -6198,9 +6183,9 @@ class CellierController:
         """After a slice or thickness move, re-place every slice node on a scene.
 
         The planar path's 2D nodes keep their matrix across a scrub; a slice node's
-        embedding carries the slice position (5.3.2), so it is pushed again.
-        A thickness change can move a projecting image onto the route or off
-        it (5.2.2), and changes its slab.
+        embedding carries the slice position, so it is pushed again. A thickness
+        change can move a projecting image onto the route or off it, and changes
+        its slab.
         """
         if scene_id not in self._render_manager._scenes:
             return
@@ -6215,9 +6200,9 @@ class CellierController:
 
         A view that cannot draw a visual -- a 2D view whose slice cuts an
         image at an angle, say -- draws nothing of it rather than something
-        wrong (design v2, D3): the visual is not sliced and its nodes are
-        out of the scene until a view or transform that draws it arrives.
-        Each change is announced by a :class:`DrawStatusChangedEvent`
+        wrong: the visual is not sliced and its nodes are out of the scene
+        until a view or transform that draws it arrives. Each change is
+        announced by a :class:`DrawStatusChangedEvent`
         (:meth:`on_draw_status_changed`) and each change into "not drawn" is
         logged once as a warning on the ``cellier.draw_status`` logger.
 
@@ -6319,7 +6304,7 @@ class CellierController:
         brush does; a shear would paint a slanted shape the user did not ask
         for.  So painting is allowed where the view draws the visual and is
         ``AXIS_ALIGNED``, or ``IN_PLANE`` with mutually orthogonal columns in
-        the displayed block ``L[D, R]`` (full affine design v2, D5).
+        the displayed block ``L[D, R]``.
 
         Parameters
         ----------
@@ -6384,12 +6369,12 @@ class CellierController:
     def _check_transform_assignable(
         self, scene_id: UUID, visual: BaseVisual, transform: Any, data_store: Any
     ) -> None:
-        """Refuse a transform no view of the scene could draw (design v2 4.2).
+        """Refuse a transform no view of the scene could draw.
 
-        Two things are refused at assignment, everything else is decided
-        per view (D3): a channel axis coupled to any other axis (D6), on
-        either side, and a singular block (data axes the transform collapses
-        onto fewer world dimensions).
+        Two things are refused at assignment, everything else is decided per
+        view: a channel axis coupled to any other axis, on either side, and
+        a singular block (data axes the transform collapses onto fewer world
+        dimensions).
 
         Raises
         ------
@@ -6469,7 +6454,7 @@ class CellierController:
             return
         for visual_model in self._model.scenes[scene_id].visuals:
             gfx_visual = scene_manager.get_visual(visual_model.id)
-            # The route first (oblique 2D design v3, C3).
+            # The route first.
             self._apply_slice_route(scene_manager, visual_model.id)
             if getattr(gfx_visual, "set_render_spaces", None) is None:
                 continue
@@ -6482,8 +6467,8 @@ class CellierController:
         Only the mode the scene is actually in.  There is one
         ``displayed_axes`` per scene, so the *other* mode's axes are not known
         here -- the 2D and 3D nodes of one visual are genuinely different
-        spaces (D45), and inventing the idle one would put a wrong answer in
-        the cache rather than no answer.  Its entry is built when the scene
+        spaces, and inventing the idle one would put a wrong answer in the
+        cache rather than no answer.  Its entry is built when the scene
         switches into it, which is this same trigger.
         """
         displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
@@ -6514,7 +6499,7 @@ class CellierController:
         Compared rather than the whole selection because ``displayed_axes``
         has its own, coarser, invalidation: this one rebuilds only the
         embedding.  Only the **sliced** axes count: a displayed axis keeps a
-        stored position (D36) that nothing is sliced at.
+        stored position that nothing is sliced at.
         """
         displayed = set(getattr(selection, "displayed_axes", ()))
         return (
@@ -6688,8 +6673,8 @@ class CellierController:
 
         Called after every model change that can alter the derived set: a
         visual added or removed, a transform replaced, an image's composite
-        flag, or a slider override (design 3.5, D38).  Recomputes, compares
-        with the last value emitted for the scene, and emits only on change.
+        flag, or a slider override.  Recomputes, compares with the last
+        value emitted for the scene, and emits only on change.
 
         Parameters
         ----------
@@ -6731,12 +6716,12 @@ class CellierController:
             new_slice = self._slice_signature(selection)
             self._slice_cache[scene_id] = new_slice
             if displayed_axes_changed:
-                # The rendered system and every visual space are rebuilt for
-                # a reorder as well as a set change (design 3.14): a transpose
-                # is a different rendered system even though the fetch is
-                # identical.  The geometry rebuild and camera switch below
-                # keep their existing trigger; narrowing them to a set change
-                # is the separate optimisation 3.14 describes.
+                # The rendered system and every visual space are rebuilt for a
+                # reorder as well as a set change: a transpose is a different
+                # rendered system even though the fetch is identical.  The
+                # geometry rebuild and camera switch below keep their existing
+                # trigger; narrowing them to a set change is the separate
+                # optimisation 3.14 describes.
                 self._rebuild_rendered(scene_id)
                 if set(prev_axes) != set(new_axes):
                     self._rebuild_visual_spaces(scene_id)
@@ -6896,8 +6881,8 @@ class CellierController:
         number of planes changed).  A visual whose reads depend on the
         planes is resliced.  Emits ``ClippingPlanesChangedEvent``.
 
-        A change of the planes' outlines alone is not a move (plane outline
-        design 4.3): it is announced and drawn, and nothing is read again.
+        A change of the planes' outlines alone is not a move: it is
+        announced and drawn, and nothing is read again.
 
         A tuple that fails the check is put back to the last good one and
         the error raised.
@@ -6948,13 +6933,13 @@ class CellierController:
         )
 
     # ------------------------------------------------------------------
-    # Render planes (plane rendering design v3, sections 4 and 7.4)
+    # Render planes
     # ------------------------------------------------------------------
 
     def _check_render_planes(
         self, visual: BaseVisual, planes: Any, *, scene_id: UUID | None = None
     ) -> None:
-        """Refuse render planes the visual cannot carry (design 4.3).
+        """Refuse render planes the visual cannot carry.
 
         Parameters
         ----------
@@ -7019,9 +7004,9 @@ class CellierController:
 
         A plane is drawn in a 3D view of its own three axes.  The plane
         planner reads the full linear block off the camera pull-back, so a
-        rotation or shear is fine (full affine design v2, K6): what a plane
-        needs is data behind each of its axes, a linear block to read, and a
-        view of its three axes that the visual's family draws (``_DRAWABLE``).
+        rotation or shear is fine: what a plane needs is data behind each of
+        its axes, a linear block to read, and a view of its three axes that
+        the visual's family draws (``_DRAWABLE``).
         """
         transform = visual.transform
         ok = getattr(transform, "linear", None) is not None
@@ -7081,7 +7066,7 @@ class CellierController:
         """Whether *visual* is in plane mode in a 3D view with no plane to draw.
 
         Then it draws nothing: it is not sliced and loads no backstop, and
-        it is resliced when a plane appears (design 4.2).
+        it is resliced when a plane appears.
         """
         if not isinstance(visual, _PLANE_VISUALS) or not visual.plane_mode():
             return False
@@ -7093,8 +7078,8 @@ class CellierController:
     def _warn_render_planes_not_displayed(self, visual: BaseVisual) -> None:
         """Warn, once per visual, that a plane's axes are not the displayed ones.
 
-        Such a plane is not drawn (design 4.4).  The warning is armed again
-        once every enabled plane of the visual is on the displayed axes.
+        Such a plane is not drawn.  The warning is armed again once every
+        enabled plane of the visual is on the displayed axes.
         """
         if not self._draws_planes(visual):
             return
@@ -7142,7 +7127,7 @@ class CellierController:
             self._warn_render_planes_not_displayed(visual)
         else:
             self._render_plane_axes_warned.discard(visual_id)
-            # A gizmo edits a plane that is drawn (design 8.3).
+            # A gizmo edits a plane that is drawn.
             self._close_render_plane_gizmos(visual_id)
         if shown != was and reslice:
             self.reslice_visual(visual_id)
@@ -7152,13 +7137,12 @@ class CellierController:
     def _refresh_plane_outlines(self, scene_id: UUID) -> None:
         """Tell the render layer which visuals show their planes' outlines.
 
-        Plane outline design 3.3 and 6.4.  In a 3D view a visible visual
-        shows the outlines of its clipping planes, and of its render planes
-        while it is drawn in plane mode.  A 2D view shows none.  What an
-        outline looks like, and where it is, the
-        render layer follows by itself: this is called when what is *shown*
-        may have changed (a visual added, shown or hidden; a render mode;
-        the displayed axes).
+        In a 3D view a visible visual shows the outlines of its clipping
+        planes, and of its render planes while it is drawn in plane mode.
+        A 2D view shows none.  What an outline looks like, and where it is,
+        the render layer follows by itself: this is called when what is
+        *shown* may have changed (a visual added, shown or hidden; a render
+        mode; the displayed axes).
 
         Parameters
         ----------
@@ -7184,7 +7168,7 @@ class CellierController:
         self._render_manager.set_plane_outline_kinds(scene_id, kinds)
 
     def _wire_render_planes(self, visual: BaseVisual) -> None:
-        """Act on a replaced ``render_planes`` tuple (design 7.4, 8.2).
+        """Act on a replaced ``render_planes`` tuple.
 
         Emits ``RenderPlanesChangedEvent``, which carries the planes to the
         render visual.  While a 3D view shows the visual in plane mode the
@@ -7193,8 +7177,8 @@ class CellierController:
         drag's end when the view plans coarsest while moving.  Otherwise the
         tuple is stored and announced and nothing else happens.
 
-        A change of the planes' outlines alone is not a move (plane outline
-        design 4.3): it is announced and drawn, and nothing is read again.
+        A change of the planes' outlines alone is not a move: it is
+        announced and drawn, and nothing is read again.
 
         A tuple that fails the check is put back to the last good one and
         the error raised.
@@ -7321,23 +7305,23 @@ class CellierController:
                         scene_id, visual_model, new_transform, store
                     )
                 except ValueError:
-                    # Refused (design v2 4.2): put the accepted transform
-                    # back without running this handler again, then raise.
+                    # Refused: put the accepted transform back without
+                    # running this handler again, then raise.
                     previous = self._accepted_transforms.get(visual_id)
                     with visual_model.events.transform.blocked():
                         visual_model.transform = previous
                     raise
                 self._accepted_transforms[visual_id] = new_transform
-            # A tick of a drag while a scope is open; otherwise a jump
-            # (design v3, D7).  Heard first, so the route stays where a drag
-            # holds it (5.2.3) and the plan mode below is the drag's.
+            # A tick of a drag while a scope is open; otherwise a jump.
+            # Heard first, so the route stays where a drag holds it and the
+            # plan mode below is the drag's.
             self._transform_interaction_driver.tick(
                 visual_id, self._id, interactive=False
             )
             # A replaced transform can change which data axes the view
-            # retains and whether the view draws the visual at all (design
-            # v2 D3), which the render spaces read back off the matrix -- and
-            # which decides the world axes this visual wants sliders for.
+            # retains and whether the view draws the visual at all, which the
+            # render spaces read back off the matrix -- and which decides the
+            # world axes this visual wants sliders for.
             if store is not None:
                 displayed = self._model.scenes[scene_id].dims.selection.displayed_axes
                 self._rebuild_visual_space(
@@ -7361,7 +7345,7 @@ class CellierController:
                 )
                 if held:
                     # A 3D view keeps its last plan: the bricks move with
-                    # the node matrix, and the drag's end plans (D7).
+                    # the node matrix, and the drag's end plans.
                     others = frozenset(
                         visual.id
                         for visual in self._model.scenes[scene_id].visuals
@@ -7399,14 +7383,14 @@ class CellierController:
         )
 
     def _wire_image(self, visual: BaseImageVisual) -> None:
-        """Bridge an image visual's mode, single and channel models (design 3.3).
+        """Bridge an image visual's mode, single and channel models.
 
         Four connections:
 
         1. ``events.composite`` -- emits ``ImageCompositeChangedEvent``,
            re-checks the scene's slider axes and reslices.  On the model event,
            so a direct ``visual.composite = ...`` behaves like
-           :meth:`set_image_composite` (D38).
+           :meth:`set_image_composite`.
         2. ``single.events`` -- per-field ``SingleAppearanceChangedEvent``.
         3. ``events.single`` -- a replaced ``single`` model: moves connection 2
            and emits one event with ``field_name=None``.
@@ -8129,7 +8113,7 @@ class CellierController:
         depth_range = _outline_depth_range(visual)
         if depth_range is not None and self._brick_route_axes(visual.id) is not None:
             # A 2D slice node draws one plane: ``depth_threshold`` acts as
-            # ``all_boundaries`` there (oblique 2D design v3, 5.8, D5).
+            # ``all_boundaries`` there.
             depth_range = None
         self._render_manager.set_visual_outline(
             visual.id,
@@ -8266,11 +8250,11 @@ class CellierController:
             self.reslice_scene(scene_id)
 
     def _selections_for_scene(self, scene_id: UUID) -> dict[UUID, RegionSelection]:
-        """The region each of a scene's canvases is showing (design 3.1).
+        """The region each of a scene's canvases is showing.
 
-        ``DimsManager`` is the editor and emits the artifact (D43), but it
-        needs the canvas's rendered system, which is per canvas and is not
-        model state.  Both halves meet here: the controller owns the rendered
+        ``DimsManager`` is the editor and emits the artifact, but it needs
+        the canvas's rendered system, which is per canvas and is not model
+        state.  Both halves meet here: the controller owns the rendered
         systems and hands one to the model, and the model layer never reaches
         into the render layer.
         """
@@ -8583,7 +8567,7 @@ class CellierController:
         )
         rerouted: set[UUID] = set()
         if transition.phase == "end":
-            # The scrub no longer holds the routes (5.2.3).
+            # The scrub no longer holds the routes.
             scene = self._model.scenes.get(scene_id)
             for visual in scene.visuals if scene is not None else ():
                 if self._release_sticky_route(visual.id):
@@ -8604,7 +8588,7 @@ class CellierController:
                 self._camera_handoff.setdefault(scene_id, set()).update(handed)
                 target -= handed
         # A visual whose planes are still dragged keeps its backstop: the
-        # target is planned when every motion has stopped (7.4).
+        # target is planned when every motion has stopped.
         target -= self._leave_to_plane_drags(live[vid] for vid in target)
         if not target:
             return
@@ -8732,7 +8716,7 @@ class CellierController:
 
         **Merges** into the scene's positions: axes absent from
         *slice_indices* keep theirs.  Every world axis has a position whether
-        or not it is displayed (D36), so this never adds or removes one.
+        or not it is displayed, so this never adds or removes one.
 
         Tags the emitted bus event with *source_id*.
         GUI widgets should pass ``source_id=self._id`` so their own
@@ -8823,13 +8807,12 @@ class CellierController:
         """Replace a scene's per-axis half-thicknesses.
 
         A change on a sliced axis is a tick of the scene's dims tracker, as a
-        slice move is (oblique 2D design v3, D13): inside
-        :meth:`dims_interaction`, or with *interactive*, it is a tick of a
-        drag -- visuals that plan coarse while moving load their backstop
-        only, and plan in full when the drag ends (``dims_settle_s`` after
-        the last tick, without a scope).  Otherwise it is a jump.  A
-        thickness box's stepped changes are sent this way; a typed value is
-        a jump.
+        slice move is: inside :meth:`dims_interaction`, or with
+        *interactive*, it is a tick of a drag -- visuals that plan coarse
+        while moving load their backstop only, and plan in full when the drag
+        ends (``dims_settle_s`` after the last tick, without a scope).
+        Otherwise it is a jump.  A thickness box's stepped changes are sent
+        this way; a typed value is a jump.
 
         Parameters
         ----------
@@ -9357,7 +9340,7 @@ class CellierController:
         Validates, then assigns.  The reslice, ``ImageCompositeChangedEvent``
         and any ``SliderAxesChangedEvent`` come from the ``composite`` model
         bridge, so a direct ``visual.composite = ...`` gets them too -- but a
-        direct assignment skips the checks below (design 3.4).
+        direct assignment skips the checks below.
 
         Parameters
         ----------
@@ -9866,7 +9849,7 @@ class CellierController:
         Called for a GUI's request only (an appearance update event): a
         control that selects the mode on a visual with no planes would
         otherwise blank it.  The model does not switch itself: assigning
-        the mode from code adds nothing (design 9.1).
+        the mode from code adds nothing.
         """
         if field != "render_mode" or value != PLANE_RENDER_MODE:
             return
@@ -9969,9 +9952,9 @@ class CellierController:
         """Whether to skip a plan of *visual* because its planes are dragged.
 
         When ``True`` the visual is owed a plan, made when the drag ends
-        (:meth:`_on_plane_transition`).  The last plan stays the desired
-        set meanwhile, so the bricks already loaded are still drawn; a
-        ``BACKSTOP_ONLY`` plan would drop them (plane rendering design 7.4).
+        (:meth:`_on_plane_transition`).  The last plan stays the desired set
+        meanwhile, so the bricks already loaded are still drawn; a
+        ``BACKSTOP_ONLY`` plan would drop them.
         """
         if not self._plane_interaction_driver.is_active(visual.id):
             return False
@@ -9983,8 +9966,7 @@ class CellierController:
     def _leave_to_plane_drags(self, visuals: Iterable[BaseVisual]) -> set[UUID]:
         """Ids of *visuals* whose plan a drag holds; each is now owed one.
 
-        A drag of the visual's planes, or of its transform in a 3D view
-        (oblique 2D design v3, D7).
+        A drag of the visual's planes, or of its transform in a 3D view.
         """
         return {
             visual.id
@@ -10121,7 +10103,7 @@ class CellierController:
         return self._plane_interaction_driver.state(visual_id).value
 
     # ------------------------------------------------------------------
-    # Transform drags (oblique 2D design v3, D7)
+    # Transform drags
     # ------------------------------------------------------------------
 
     def _transform_drag_plans_coarse(self, visual: BaseVisual) -> bool:
@@ -10207,9 +10189,9 @@ class CellierController:
         ``appearance.coarsest_while_moving_3d`` on keeps its last plan.  The
         target is planned when the drag ends, once the scene's dims and
         cameras are still too.  A visual a drag moves onto the brick route
-        of a tilted 2D view stays on it until the drag ends (oblique 2D
-        design v3, 5.2.3), and opening the scope prepares that route's
-        brick atlas, so the first switch is about one frame (U12).
+        of a tilted 2D view stays on it until the drag ends, and opening the
+        scope prepares that route's brick atlas, so the first switch is
+        about one frame.
 
         A rotation slider calls this when it is pressed.  Scripts normally
         use :meth:`transform_interaction`.
@@ -10733,7 +10715,7 @@ class CellierController:
 
     def _on_dims_update(self, event: DimsUpdateEvent) -> None:
         # No ordering between the two: every axis keeps a position whether or
-        # not it is displayed (D36), so neither write can leave one uncovered.
+        # not it is displayed, so neither write can leave one uncovered.
         if event.slice_indices is not None:
             self.update_slice_indices(
                 event.scene_id,
@@ -11288,7 +11270,7 @@ class CellierController:
                 visual.id for visual in scene.visuals if visual.id in handed
             )
         # A camera end during a drag of a visual's planes leaves that
-        # visual's target to the drag's end (7.4).
+        # visual's target to the drag's end.
         target_ids -= self._leave_to_plane_drags(
             visual for visual in scene.visuals if visual.id in target_ids
         )
@@ -11748,7 +11730,7 @@ class CellierController:
                     "MultiscalePaintController currently only supports 2-D "
                     f"displayed-axis configurations; scene {scene_id} has "
                     f"displayed_axes={displayed_axes!r}.  3-D paint "
-                    "feedback is a Phase 3 follow-up."
+                    "feedback is not supported yet."
                 )
 
             block_size = visual_model.render_config.block_size
@@ -12265,8 +12247,8 @@ class CellierController:
             self._brick_route_axes(hit_visual_id) if hit_visual_id is not None else None
         )
         if slice_axes is not None:
-            # A 2D slice node (oblique 2D design v3, 5.6): the decode is the
-            # three data axes of its layout, ascending, all of them placed.
+            # A 2D slice node: the decode is the three data axes of its
+            # layout, ascending, all of them placed.
             retained = self._slice_route_entry(hit_visual_id)[2]
             for slot, data_axis in enumerate(retained[: len(decoded)]):
                 coordinate[data_axis] = decoded[slot]
@@ -12276,9 +12258,9 @@ class CellierController:
                 if data_axis is not None:
                     coordinate[data_axis] = decoded[slot]
         else:
-            # Rotated or sheared among the displayed axes (design v2): no
-            # displayed world axis names a data axis, and the decoded
-            # position is in the visual's own retained data axes, ascending.
+            # Rotated or sheared among the displayed axes: no displayed
+            # world axis names a data axis, and the decoded position is in
+            # the visual's own retained data axes, ascending.
             retained = classify_view(transform, displayed_axes).retained_data_axes
             for slot, data_axis in enumerate(retained[: len(decoded)]):
                 coordinate[data_axis] = decoded[slot]
@@ -12334,14 +12316,14 @@ class CellierController:
         Reads displayed_axes and slice_indices from the scene model to fill
         the full world coordinate, emits the canvas mouse event, and then --
         for a hit that some ``on_pick`` subscriber wants -- the matching pick
-        event (design 3.7).
+        event.
         """
         from cellier.events._events import CanvasPickInfo
 
         scene_model = self._model.scenes[event.scene_id]
         dims = scene_model.dims
         displayed_axes = dims.selection.displayed_axes
-        # A displayed axis keeps a stored position (D36), but the pointer
+        # A displayed axis keeps a stored position, but the pointer
         # supplies its coordinate; only the sliced axes come from dims.
         slice_indices = {
             axis: position
@@ -12406,7 +12388,7 @@ class CellierController:
             )
 
         # A newer pointer event supersedes an in-flight ``move`` value read;
-        # ``press`` and ``release`` reads always complete (design 3.7).
+        # ``press`` and ``release`` reads always complete.
         self._cancel_move_pick_read(event.canvas_id)
         if event.hit_visual_id is not None and event.pick_details is not None:
             self._emit_pick_event(
@@ -12539,7 +12521,7 @@ class CellierController:
         mask_store: Any,
         coordinate: tuple[float, ...],
     ) -> None:
-        """Read a MaskedImage pick in two passes and emit its event (design 9.3).
+        """Read a MaskedImage pick in two passes and emit its event.
 
         The mask first: its value at the hit and, in 3D, the stencil that
         gives the normal.  Then the value image at the hit and along that
@@ -12728,13 +12710,13 @@ class CellierController:
     ) -> SubscriptionHandle:
         """Register a callback fired when a visual of one kind is picked.
 
-        Mouse events say *that* something was hit; pick events say *what*
-        (unified image design 3.7).  A pick event follows the mouse event for
-        the same pointer event, carries the same ``gesture_id``, ``action``,
-        button, buttons and modifiers, and is emitted only for hits.  Image
-        and labels events carry the values under the pointer; for multiscale
-        visuals those are read asynchronously, so match events by
-        ``gesture_id`` and ``action`` rather than by arrival order.
+        Mouse events say *that* something was hit; pick events say *what*.  A
+        pick event follows the mouse event for the same pointer event,
+        carries the same ``gesture_id``, ``action``, button, buttons and
+        modifiers, and is emitted only for hits.  Image and labels events
+        carry the values under the pointer; for multiscale visuals those are
+        read asynchronously, so match events by ``gesture_id`` and ``action``
+        rather than by arrival order.
 
         Pick details are extracted while the canvas has any pick subscriber,
         and image and labels values are read only while that event type has
@@ -12965,7 +12947,7 @@ class CellierController:
 
         Used by :class:`MultiscalePaintController` after flushing a paint
         transaction.  Every atlas reading the store drops its resident bricks
-        and tiles that overlap *regions*, at every level (design 5.14).
+        and tiles that overlap *regions*, at every level.
 
         Parameters
         ----------

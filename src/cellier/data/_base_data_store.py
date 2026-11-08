@@ -156,8 +156,7 @@ class BaseDataStore(EventedModel):
         store's data changes: automatically when a data field is reassigned,
         and on :meth:`notify_changed` after an in-place write.  A controller
         that registers the store relays it to the event bus and reslices the
-        visuals reading the store (``plans/store_change_events.md``).
-        Changes must happen on the main thread.
+        visuals reading the store.  Changes must happen on the main thread.
     """
 
     data_changed: ClassVar[Signal] = Signal(object)

@@ -1,6 +1,5 @@
 """The chunk scheduler on asyncio.
 
-Design: ``plans/progressive_loading_design_v3.md`` sections 5.4-5.7.
 :class:`ChunkScheduler` wraps :class:`~cellier.render.scheduling._core.
 SchedulerCore` with the parts that need an event loop:
 
@@ -92,7 +91,7 @@ class ChunkScheduler:
         self.core.register(cache_id, residency, scene)
 
     def remove(self, cache_id: int) -> None:
-        """Forget a cache and every reference to its ``Residency`` (5.4).
+        """Forget a cache and every reference to its ``Residency``.
 
         Reads in flight for it land and are dropped.  Call it before
         registering a replacement under the same id.
@@ -100,7 +99,7 @@ class ChunkScheduler:
         self.core.remove(cache_id)
 
     def retire(self, cache_id: int) -> None:
-        """Stop fetching for a cache that is no longer drawn (5.4).
+        """Stop fetching for a cache that is no longer drawn.
 
         An empty pass, coalesced like any other: queued reads are deleted,
         everything else becomes ``RECENT``, residents stay.
@@ -144,7 +143,7 @@ class ChunkScheduler:
     # -- invalidation --------------------------------------------------------
 
     def invalidate(self, store_id: Any, region: Any = None) -> list[int]:
-        """Forget data read from a store in *region* (5.14).
+        """Forget data read from a store in *region*.
 
         Takes effect immediately: touched caches are redrawn, and invalidated
         ``VISIBLE`` records are fetched again.
@@ -244,7 +243,7 @@ class ChunkScheduler:
 
         A canvas's ``before_draw`` hook calls this with its scene, so the
         frame being drawn shows what was committed.  At most one round per
-        drawn frame; nothing is time-budgeted (design 5.7, V5).
+        drawn frame; nothing is time-budgeted.
 
         Returns
         -------
@@ -302,7 +301,7 @@ class ChunkScheduler:
     # -- introspection and lifecycle -------------------------------------------
 
     def progress(self, cache_id: int) -> CacheProgress:
-        """Loading progress for one cache (design 5.13)."""
+        """Loading progress for one cache."""
         return self.core.progress(cache_id)
 
     def idle(self) -> bool:

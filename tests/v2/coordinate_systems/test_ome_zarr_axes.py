@@ -112,8 +112,8 @@ def test_the_systems_survive_a_round_trip_with_their_ids(ome_zarr_5d: str) -> No
 
 
 def test_an_empty_axis_type_raises_and_names_the_axis(ome_zarr_5d: str) -> None:
-    """F1.4: the metadata had a slot for the type and left it blank, which is
-    a dataset defect.  ``AxisType`` is a closed six-value literal with no
+    """The metadata had a slot for the type and left it blank, which is a
+    dataset defect.  ``AxisType`` is a closed six-value literal with no
     honest fallback, so D3's "no silent default" is taken literally.
 
     Reached through the label reader: the v0.5 image reader runs NGFF

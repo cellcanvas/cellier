@@ -1,9 +1,8 @@
 """A triangle mesh held at several levels of detail, finest first.
 
-``plans/mesh_refactor_v3.md`` M3.  The levels are supplied by the caller
-(build them with quadric decimation).  A visual asks for a level by its
-index and never touches the arrays, so a lazy backend can later implement
-the same ``get_data``.
+The levels are supplied by the caller (build them with quadric
+decimation).  A visual asks for a level by its index and never touches
+the arrays, so a lazy backend can later implement the same ``get_data``.
 """
 
 from __future__ import annotations

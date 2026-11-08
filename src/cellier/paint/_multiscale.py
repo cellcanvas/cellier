@@ -108,7 +108,7 @@ class MultiscalePaintController(AbstractPaintController):
             raise NotImplementedError(
                 "MultiscalePaintController currently only supports 2-D "
                 f"displayed-axis configurations; got {displayed_axes!r}.  "
-                "3-D paint feedback is a Phase 3 follow-up."
+                "3-D paint feedback is not supported yet."
             )
         if not data_store._ts_stores:
             raise ValueError(
@@ -441,7 +441,7 @@ class MultiscalePaintController(AbstractPaintController):
     # ------------------------------------------------------------------
 
     def _invalidate_dirty_bricks(self) -> list[int]:
-        """Drop GPU data over every dirty brick, at every level (design 5.14).
+        """Drop GPU data over every dirty brick, at every level.
 
         Each dirty level-0 brick becomes a level-0 data region; the chunk
         scheduler drops the resident bricks and tiles of every atlas reading

@@ -1,4 +1,4 @@
-"""Typed pick events and in-memory pick values (unified image design 3.7).
+"""Typed pick events and in-memory pick values.
 
 Mouse events report *that* something was hit; a typed pick event, subscribed
 with ``on_pick``, reports *what*.  It follows the mouse event for the same

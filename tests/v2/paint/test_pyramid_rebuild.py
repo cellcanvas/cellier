@@ -60,8 +60,8 @@ def _make_controller(
         id=uuid4(),
         n_levels=len(level_shapes),
         level_shapes=[list(s) for s in level_shapes],
-        # Phase 8: the pyramid rebuild reads the per-level scale directly,
-        # rather than the diagonal of a transform built from it.
+        # The pyramid rebuild reads the per-level scale directly, rather
+        # than the diagonal of a transform built from it.
         level_scales=[(float(s), float(s)) for s in level_scales],
         _ts_stores=stores,
     )

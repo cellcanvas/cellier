@@ -1,4 +1,4 @@
-"""The vectorised painter's-order LUT write (design v3 5.8, D6).
+"""The vectorised painter's-order LUT write.
 
 ``paint_lut`` writes regular bricks with one fancy-index assignment per
 (phase, level) and the rest with a per-brick loop.  Two checks:

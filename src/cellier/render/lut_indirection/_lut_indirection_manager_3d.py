@@ -70,8 +70,8 @@ class LutIndirectionManager3D:
         averaging.
     sampling_margin : float
         How far past a sample position this path's shader reads, in level-k
-        voxels, at the default ray density (plan v2, "Padding budgets"):
-        subtracted from *border* for the warning.  Default 0.5 (linear).
+        voxels, at the default ray density: subtracted from *border* for
+        the warning.  Default 0.5 (linear).
 
     Attributes
     ----------
@@ -156,10 +156,10 @@ class LutIndirectionManager3D:
     ) -> None:
         """Rewrite the LUT and brick-max tables, and schedule their upload.
 
-        Bricks are painted phase by phase, each phase coarsest to finest, so
-        a finer brick covers the coarser fallback under it and a later phase
-        covers an earlier one (design 5.8).  The GPU upload is deferred to the
-        next ``renderer.render()``.
+        Bricks are painted phase by phase, each phase coarsest to finest, so a
+        finer brick covers the coarser fallback under it and a later phase
+        covers an earlier one.  The GPU upload is deferred to the next
+        ``renderer.render()``.
 
         Parameters
         ----------

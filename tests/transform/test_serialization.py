@@ -1,4 +1,4 @@
-"""The np.ndarray field contract and round-trips (D44, section 11)."""
+"""The np.ndarray field contract and round-trips."""
 
 import json
 from uuid import uuid4
@@ -22,7 +22,7 @@ from cellier.transform import (
     VisualCoordinateSystem,
     WorldCoordinateSystem,
 )
-from tests.transform._use_cases import uc1, uc3
+from tests.transform._use_cases import channel_broadcast, scale_only
 
 
 def space(name):
@@ -43,7 +43,7 @@ def tczyx():
 
 def every_model():
     """One instance of every model in the package."""
-    data, world, transform = uc1()
+    data, world, transform = scale_only()
     rendered = RenderedCoordinateSystem.from_world(world, ("Z", "Y"), uuid4())
     world5 = tczyx()
     rendered5 = RenderedCoordinateSystem.from_world(world5, ("Z", "Y", "X"), uuid4())
@@ -95,7 +95,7 @@ def test_every_model_round_trips_through_json(name):
     assert back == instance
 
 
-# --- infinity (D44 / A3) ---------------------------------------------
+# --- infinity --------------------------------------------------------
 
 
 def infinite_box():
@@ -145,12 +145,12 @@ def test_sentinel_strings_are_accepted_on_the_way_in():
     assert box.max_coordinate[0] == np.inf
 
 
-# --- rejection rules (D44) -------------------------------------------
+# --- rejection rules -------------------------------------------------
 
 
 def test_non_finite_values_are_rejected_everywhere_but_box_bounds():
     coordinate_system = uuid4()
-    data, world, _ = uc1()
+    data, world, _ = scale_only()
     for factory in (
         lambda v: Plane(
             coordinate_system=coordinate_system, normal=[v, 0.0], offset=1.0
@@ -187,7 +187,7 @@ def test_a_bare_string_is_not_read_as_a_character_sequence():
         HalfSpace(normal="10", offset=1.0)
 
 
-# --- equality and hashing (D21, D44) ---------------------------------
+# --- equality and hashing --------------------------------------------
 
 
 @pytest.mark.parametrize("name", list(every_model()))
@@ -214,7 +214,7 @@ def test_array_holding_models_hash(name):
 
 
 def test_the_dumped_affine_is_a_nested_list_of_floats():
-    _, _, transform = uc1()
+    _, _, transform = scale_only()
     dumped = transform.model_dump()["transform"]
     assert isinstance(dumped, list)
     assert isinstance(dumped[0], list)
@@ -230,7 +230,7 @@ def test_axis_dumps_type_under_the_rfc5_spelling():
 
 
 def test_broadcast_axes_survive_json():
-    _, world, transform = uc3()
+    _, world, transform = channel_broadcast()
     back = AffineTransform.model_validate_json(transform.model_dump_json())
     assert back.broadcast_axes == frozenset({world.axis_by_name("C").id})
 

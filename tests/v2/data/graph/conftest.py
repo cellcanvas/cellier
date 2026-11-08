@@ -33,7 +33,7 @@ def make_request():
             displayed_axes=displayed,
             retained_axes=tuple(sorted(displayed)),
             # Named ``slice_indices`` until Phase 8; the graph keeps its own
-            # slab (D6.2) and the positions are in **data** coordinates.
+            # slab and the positions are in **data** coordinates.
             slice_positions={a: float(v) for a, v in dict(sliced).items()},
             extents=dict(extents or {}),
             fades=dict(fades or {}),

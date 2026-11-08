@@ -1,14 +1,13 @@
 """The multiscale brick shader's generated WGSL, for the text-identity test.
 
-Masked image design v2, 6.1 and 12.3: the ``masked`` template variable and the
-shared slab include must leave the plain image shader's generated text
-unchanged.  :func:`capture` renders a fixed set of plain multiscale image
-scenes and records, per template-variable set the shader was generated with,
-the SHA-256 of the generated code, with every template variable it was
-generated with, so the test can make the code again from the source alone.
-``brick_shader_text_baseline.json`` holds
-that record made at commit ``7e1b683f``, before any MaskedImage change; it
-must never be regenerated to make the test pass.
+The ``masked`` template variable and the shared slab include must leave the
+plain image shader's generated text unchanged.  :func:`capture` renders a
+fixed set of plain multiscale image scenes and records, per template-variable
+set the shader was generated with, the SHA-256 of the generated code, with
+every template variable it was generated with, so the test can make the code
+again from the source alone.  ``brick_shader_text_baseline.json`` holds that
+record made at commit ``7e1b683f``, before any MaskedImage change; it must
+never be regenerated to make the test pass.
 """
 
 from __future__ import annotations

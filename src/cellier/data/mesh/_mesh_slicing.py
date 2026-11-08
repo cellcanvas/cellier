@@ -1,24 +1,24 @@
 """Slicing one level of a mesh: the synchronous body of a mesh store's read.
 
-``plans/mesh_refactor_v3.md`` L5 and 5.4.  A mesh store's ``get_data`` runs
-:func:`slice_mesh` in an executor thread, on one level's arrays and that
-level's :class:`LevelCache`.  The function has no cancellation checkpoints:
-the scheduler never cancels a read, and a thread cannot be interrupted.
+A mesh store's ``get_data`` runs :func:`slice_mesh` in an executor thread,
+on one level's arrays and that level's :class:`LevelCache`.  The function
+has no cancellation checkpoints: the scheduler never cancels a read, and a
+thread cannot be interrupted.
 
 The inclusion rule is the whole-face rule: a face survives when all three of
 its vertices are inside the request's region.
 
-What keeps the read cheap (5.4):
+What keeps the read cheap:
 
-- **the identity path** (S3): when every face passes, the level's projected
+- **the identity path**: when every face passes, the level's projected
   arrays are returned as they are, with no reindex;
-- **cached normals** (S2): 3D vertex normals are computed once per level and
+- **cached normals**: 3D vertex normals are computed once per level and
   column order, and gathered while no face straddles the slab;
-- **the bounds index** (S4): an axis-aligned region asks a per-axis index
-  for its candidate faces instead of testing every vertex.
+- **the bounds index**: an axis-aligned region asks a per-axis index for
+  its candidate faces instead of testing every vertex.
 
 Nothing here calls ``np.unique`` on a large array: numpy 2.4 can hold the
-GIL in it, which stalls the event loop from an executor thread (D15).
+GIL in it, which stalls the event loop from an executor thread.
 """
 
 from __future__ import annotations
@@ -394,7 +394,7 @@ def slice_mesh(
         return compute_vertex_normals(whole, indices)
 
     if faces is None:
-        # S3: every face passes, so the output is the level itself.
+        # Every face passes, so the output is the level itself.
         if indices.shape[0] == 0:
             return _empty(request)
         if cache is None:
@@ -425,7 +425,7 @@ def slice_mesh(
     if len(faces) == 0:
         return _empty(request)
 
-    # Reindex with a vertex mask (S1), not ``np.unique``.
+    # Reindex with a vertex mask, not ``np.unique``.
     surviving = indices[faces]
     used = np.zeros(positions.shape[0], dtype=bool)
     used[surviving.ravel()] = True
@@ -437,8 +437,8 @@ def slice_mesh(
 
     normals = None
     if is_3d:
-        # S2: the level's normals hold for a vertex whose faces all
-        # survived.  A dropped face that shares a kept vertex changes it.
+        # The level's normals hold for a vertex whose faces all survived.
+        # A dropped face that shares a kept vertex changes it.
         straddles = near is None or (len(near) > 0 and bool(used[indices[near]].any()))
         if cache is not None and not straddles:
             normals = np.ascontiguousarray(
@@ -466,8 +466,8 @@ def slice_mesh(
     )
 
 
-#: In-plane tolerance, as a fraction of the level's bounding-box diagonal
-#: (decision D2).
+#: In-plane tolerance, as a fraction of the level's bounding-box
+#: diagonal.
 SECTION_TOLERANCE = 1e-7
 
 
@@ -517,7 +517,7 @@ def _flatten(
 
 
 def level_closure(arrays: MeshLevelArrays, cache: LevelCache):
-    """The level's closure report, computed on first use (X5)."""
+    """The level's closure report, computed on first use."""
     return cache.get(
         ("closure",),
         lambda: closure_report(arrays.indices, arrays.positions.shape[0]),
@@ -525,7 +525,7 @@ def level_closure(arrays: MeshLevelArrays, cache: LevelCache):
 
 
 def closure_text(report) -> str:
-    """One line for ``dataset_info``: is the surface closed (D14)."""
+    """One line for ``dataset_info``: is the surface closed."""
     if report is None:
         return "not computed"
     if report.closed:
@@ -539,12 +539,12 @@ def closure_text(report) -> str:
 def slice_section(
     arrays: MeshLevelArrays, request: MeshSliceRequest, cache: LevelCache | None = None
 ) -> MeshSectionData:
-    """Cut one level of a mesh with the request's plane or slab (5.5).
+    """Cut one level of a mesh with the request's plane or slab.
 
     The request's ``region`` is the filter on the axes the cut does not
     replace (the whole-face rule, as in :func:`slice_mesh`); the faces that
     pass it are then cut.  With an axis-aligned plane the candidates come
-    from the level's bounds index (S4), not from a pass over every face.
+    from the level's bounds index, not from a pass over every face.
 
     Parameters
     ----------
@@ -574,7 +574,7 @@ def slice_section(
         points, tol = kernel_space()
     else:
         points, tol = cache.get(("section", columns), kernel_space)
-        # The closure of the level, for ``dataset_info`` (X5).
+        # The closure of the level, for ``dataset_info``.
         level_closure(arrays, cache)
 
     # A unit normal pointing up the section axis, so that the float32

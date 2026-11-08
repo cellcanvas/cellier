@@ -4,12 +4,12 @@ A visual in the ``"plane"`` render mode draws its data on a tuple of
 :class:`~cellier.visuals.RenderPlane`, in the scene's world coordinates.
 The Qt and anywidget controls (``QtRenderPlanesControls``,
 ``AnywidgetRenderPlanesControls``) draw one row per plane, as close to the
-"Clipping planes" control as they can be (plane rendering design v3, 9.2):
-an enabled checkbox, the normal (one entry per axis of the plane, under that
-axis's name, with a button to face the plane along either direction of an
-axis), a flip button, a position slider along the normal, a remove button,
-and what a clipping plane has not: the extents, four fields with an
-"unbounded" box each.  An add button appends a plane.
+"Clipping planes" control as they can be: an enabled checkbox, the normal
+(one entry per axis of the plane, under that axis's name, with a button to
+face the plane along either direction of an axis), a flip button, a position
+slider along the normal, a remove button, and what a clipping plane has not:
+the extents, four fields with an "unbounded" box each.  An add button
+appends a plane.
 
 A row is plain data, so the anywidget control syncs the whole list in one
 trait and constructs nothing when a plane is added::
@@ -167,7 +167,7 @@ def flipped(plane: RenderPlane) -> RenderPlane:
     """*plane* with its normal reversed and nothing drawn changed.
 
     ``in_plane_axis_1`` is reversed and its extent mirrored with it, so the
-    rectangle stays where it is (design 9.2, P15).
+    rectangle stays where it is.
     """
     low, high = plane.extent_1
     return plane.model_copy(
@@ -248,9 +248,9 @@ def with_side_bounded(
     """*plane* with one extent side made finite or unbounded.
 
     Making a side finite fills in where the data box cuts the plane on that
-    side, so the picture does not jump (design 9.2).  When the plane misses
-    the box, or the cut would not leave ``min < max`` against the other
-    side, the side is put a little past the other one.
+    side, so the picture does not jump.  When the plane misses the box, or
+    the cut would not leave ``min < max`` against the other side, the side
+    is put a little past the other one.
 
     Parameters
     ----------

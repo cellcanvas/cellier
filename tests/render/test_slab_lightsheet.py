@@ -1,4 +1,4 @@
-"""A slab on a light-sheet style scene (mesh refactor v3, T3, T4 and T7).
+"""A slab on a light-sheet style scene.
 
 World ``(t, c, z, y, x)`` with ``t`` in seconds through one shared
 non-uniform transform; multiscale labels ``tzyx`` broadcast over ``c``; a

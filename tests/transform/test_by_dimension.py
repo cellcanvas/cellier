@@ -1,4 +1,4 @@
-"""ByDimensionTransform (implementation plan, Phase 4).
+"""ByDimensionTransform.
 
 The container that lets one axis be irregular while the rest stay affine.
 The running scene is the design's worked example: a TZYX labels volume into
@@ -336,7 +336,7 @@ def test_equality_is_total_against_a_foreign_type(transform):
     assert (transform == "not a transform") is False
 
 
-# -- axis_correspondence (Phase 5) -------------------------------------------
+# -- axis_correspondence -----------------------------------------------------
 
 
 def test_axis_correspondence_is_structural(transform):

@@ -115,8 +115,8 @@ class InMemoryLabelsAppearance(BaseLabelsAppearance):
 
     The level-of-detail and motion fields apply to a 2D view on the brick
     route only -- a tilted view -- which draws the labels from 3D bricks
-    with a coarse level (oblique 2D design v3, U1).  Aligned 2D views and 3D
-    views load the whole slice and ignore them.
+    with a coarse level.  Aligned 2D views and 3D views load the whole slice
+    and ignore them.
 
     Parameters
     ----------
@@ -141,9 +141,8 @@ class InMemoryLabelsAppearance(BaseLabelsAppearance):
 class InMemoryLabelRenderConfig(BaseModel):
     """Render-layer configuration of an in-memory labels visual's brick route.
 
-    Used only while a tilted 2D view draws the labels from 3D bricks
-    (oblique 2D design v3, U1).  Nothing is allocated for a visual that
-    never takes that route.
+    Used only while a tilted 2D view draws the labels from 3D bricks.
+    Nothing is allocated for a visual that never takes that route.
 
     Parameters
     ----------
@@ -302,7 +301,7 @@ class LabelMemoryVisual(BaseLabelsVisual):
     )
 
     def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:
-        """The 2D moving setting in a 2D view; ``False`` in 3D (design v3, U1)."""
+        """The 2D moving setting in a 2D view; ``False`` in 3D."""
         if n_displayed_dims == 3:
             return False
         return self.appearance.coarsest_while_moving_2d

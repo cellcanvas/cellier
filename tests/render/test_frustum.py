@@ -205,8 +205,8 @@ def test_aabb_corners_isotropic_axis_swap_level1():
     key = BlockKey3D(level=1, g0=1, g1=2, g2=3)
     corners = compute_brick_aabb_corners(key, block_size=8)
     assert corners.shape == (8, 3)
-    # Centre convention (plan v2, D1): x spans voxels g2*8 .. (g2+1)*8 - 1,
-    # i.e. [g2*8 - 0.5, (g2+1)*8 - 0.5]; y from g1, z from g0.
+    # Centre convention: x spans voxels g2*8 .. (g2+1)*8 - 1, i.e. [g2*8 -
+    # 0.5, (g2+1)*8 - 0.5]; y from g1, z from g0.
     assert corners[:, 0].min() == 23.5 and corners[:, 0].max() == 31.5  # x <- g2
     assert corners[:, 1].min() == 15.5 and corners[:, 1].max() == 23.5  # y <- g1
     assert corners[:, 2].min() == 7.5 and corners[:, 2].max() == 15.5  # z <- g0

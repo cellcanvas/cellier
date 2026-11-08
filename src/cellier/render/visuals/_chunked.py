@@ -1,4 +1,4 @@
-"""Planner tails shared by the chunked multiscale visuals (design v3, 5.3).
+"""Planner tails shared by the chunked multiscale visuals.
 
 Image and labels keep their own LOD selection, sort and cull, and change only
 their tail: the planned brick array becomes a :class:`DesiredSet` of packed
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 
 def brick_budget(block_cache: BlockCache3D | BlockCache2D) -> int:
-    """Bricks (or tiles) a plan may want: the scheduler's slots minus one (5.3).
+    """Bricks (or tiles) a plan may want: the scheduler's slots minus one.
 
     The atlas's slot 0 is reserved, so the scheduler has ``n_slots - 1``
     slots, and a plan wants at most one fewer: while a wanted brick is being
@@ -117,21 +117,20 @@ def viewport_2d(request: ReslicingRequest) -> tuple[np.ndarray, np.ndarray]:
 
 
 #: Half-depth of the 2D slice node's culling prism, in rendered units: far
-#: beyond any slab, so the 2D camera's own near and far planes never cull
-#: (oblique 2D design v3, 5.3.4, C2).
+#: beyond any slab, so the 2D camera's own near and far planes never cull.
 SLICE_PRISM_DEPTH = 1.0e7
 
 
 def viewport_prism(request: ReslicingRequest) -> np.ndarray:
     """A 2D request's viewport as frustum corners unbounded in depth.
 
-    The 2D slice node is planned by the 3D brick planner (design v3,
-    5.3.4), which culls with frustum corners.  A 2D request carries none,
-    and the 2D camera's near and far planes must not cull: they would drop
-    a slab's bricks to the backstop (Phase 0c P-b).  So the corners are the
-    viewport in ``(x, y)`` and +-``SLICE_PRISM_DEPTH`` in depth, in pygfx's
-    order: ``[near, far] x [(l, b), (r, b), (r, t), (l, t)]``, the near
-    side at ``+z`` (the camera looks down ``-z``).
+    The 2D slice node is planned by the 3D brick planner, which culls with
+    frustum corners.  A 2D request carries none, and the 2D camera's near
+    and far planes must not cull: they would drop a slab's bricks to the
+    backstop (Phase 0c P-b).  So the corners are the viewport in ``(x, y)``
+    and +-``SLICE_PRISM_DEPTH`` in depth, in pygfx's order: ``[near, far] x
+    [(l, b), (r, b), (r, t), (l, t)]``, the near side at ``+z`` (the camera
+    looks down ``-z``).
     """
     (x0, y0), (x1, y1) = viewport_2d(request)
     corners = np.empty((2, 4, 3), dtype=np.float64)
@@ -244,7 +243,7 @@ def desired_bricks(
     fill: dict[int, int] | None = None,
     loading: ProgressiveLoadingConfig | None = None,
 ) -> DesiredSet:
-    """Turn planned brick or tile arrays into the atlas's desired set (5.3).
+    """Turn planned brick or tile arrays into the atlas's desired set.
 
     The backstop block comes first, then each intermediate stage, then the
     target (intermediate-level design v2, section 6):
@@ -368,7 +367,7 @@ def backstop_cap_for(
 
 
 def log_backstop_cap_once(owner: object, desired: list[DesiredSet]) -> None:
-    """Log, once per visual, that the backstop cap truncated its backstop (5.9).
+    """Log, once per visual, that the backstop cap truncated its backstop.
 
     Parameters
     ----------

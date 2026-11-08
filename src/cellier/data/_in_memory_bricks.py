@@ -1,9 +1,8 @@
 """An in-memory image or labels store, served as a two-level brick pyramid.
 
-Oblique 2D design v3, 5.4 (I-iii+, U8).  A tilted 2D view of an in-memory
-visual is drawn by the multiscale brick route, whose chunk scheduler reads
-bricks from a multiscale source.  :class:`InMemoryBrickSource` is that
-source for an in-memory store:
+A tilted 2D view of an in-memory visual is drawn by the multiscale brick
+route, whose chunk scheduler reads bricks from a multiscale source.
+:class:`InMemoryBrickSource` is that source for an in-memory store:
 
 - **level 1** (index 0) is the array itself, read by the store's own
   ``get_data``;
@@ -11,17 +10,17 @@ source for an in-memory store:
   a worker thread (E, G1): a ``4 x`` block mean for images, a stride at
   phase 1 for labels (never a mean, which would invent label ids).
 
-Only the data axes section cutting would cut are downsampled (D9): every
-world axis the axis maps to, and the axis itself, typed ``space``, and its
+Only the data axes section cutting would cut are downsampled: every world
+axis the axis maps to, and the axis itself, typed ``space``, and its
 sampling ``"continuous"``.  Time and discrete axes keep every sample.  The
 level transform states exactly what the reduction did: scale 4 and
 translation 1.5 fine voxels for a mean, translation 1 for the stride.
 
 Until the coarse level is built the visual plans the target only, and no
-read waits for the build (U8).  A contents change marks the coarse blocks it
+read waits for the build.  A contents change marks the coarse blocks it
 touches stale and recomputes them on the worker; a coarse read that overlaps
 a stale block waits for that recompute, so a stale coarse brick is never
-drawn after a stroke (U3).
+drawn after a stroke.
 """
 
 from __future__ import annotations
@@ -46,10 +45,10 @@ if TYPE_CHECKING:
 
 __all__ = ["COARSE_FACTOR", "InMemoryBrickSource", "downsampled_axes"]
 
-#: The coarse level's factor on every downsampled axis (D9).
+#: The coarse level's factor on every downsampled axis.
 COARSE_FACTOR = 4
 
-#: Level-0 planes per block of the coarse build (5.4.2), along the first
+#: Level-0 planes per block of the coarse build, along the first
 #: downsampled axis: small enough to keep a block's temporaries modest.
 _BUILD_PLANES = 64
 
@@ -70,7 +69,7 @@ def _executor() -> ThreadPoolExecutor:
 
 
 def downsampled_axes(transform: Any, world: Any, data: Any) -> tuple[bool, ...]:
-    """Which data axes the coarse level downsamples (D9).
+    """Which data axes the coarse level downsamples.
 
     A data axis is downsampled when it is typed ``space`` with
     ``"continuous"`` sampling and every world axis it maps to is typed
@@ -142,7 +141,7 @@ def _coarse_shape(shape: Sequence[int], downsample: Sequence[bool]) -> tuple[int
 def _block_mean(block: np.ndarray, downsample: Sequence[bool]) -> np.ndarray:
     """The ``4 x`` block mean of *block* over the downsampled axes.
 
-    A partial block at an edge averages only the voxels that exist (D9).
+    A partial block at an edge averages only the voxels that exist.
     """
     total = np.asarray(block, dtype=np.float64)
     count = np.ones((1,) * block.ndim)
@@ -183,9 +182,9 @@ class InMemoryBrickSource:
     store : ImageMemoryStore or LabelMemoryStore
         The store.  Its ``data`` is read in place; its ``id`` is this
         source's, so a ``StoreChange`` of the store invalidates the bricks
-        read through here (5.4.4).
+        read through here.
     labels : bool
-        Labels take the phase-1 stride; images the block mean (D9).
+        Labels take the phase-1 stride; images the block mean.
     downsample : Sequence[bool]
         Which data axes the coarse level shrinks (:func:`downsampled_axes`).
 
@@ -336,7 +335,7 @@ class InMemoryBrickSource:
         self.build_seconds = time.perf_counter() - start
 
     def contents_changed(self, regions) -> None:
-        """Recompute the coarse blocks a contents change touched (U3).
+        """Recompute the coarse blocks a contents change touched.
 
         Parameters
         ----------
@@ -433,8 +432,8 @@ class InMemoryBrickSource:
         lands); it waits for the recompute of a stale block it overlaps.
         """
         if request.scale_index == 0:
-            # Inline, as before the whole-slice reads moved to the executor
-            # (scheduler-only loading design v2, D21).
+            # Inline, as before the whole-slice reads moved to the
+            # executor.
             return self.store.read_padded(request)
         coarse = self._coarse
         if coarse is None:

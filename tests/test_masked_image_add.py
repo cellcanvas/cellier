@@ -1,4 +1,4 @@
-"""Adding a MaskedImage: the refusals (masked image design v2, 4.3 and 5.2).
+"""Adding a MaskedImage: the refusals.
 
 Every refusal happens before a render object is built, and its message says
 what to change.
@@ -115,7 +115,7 @@ def test_value_to_mask_must_name_the_two_systems(controller):
     [("mask", "gpu_budget_bytes"), ("value", "value_gpu_budget_bytes")],
 )
 def test_an_in_memory_side_that_does_not_fit_is_refused(controller, side, field):
-    """256 cubed needs 512 bricks of 32; 128 MiB holds 511 (P0-16)."""
+    """256 cubed needs 512 bricks of 32; 128 MiB holds 511."""
     scene_id = _scene(controller, spatial_axes("z", "y", "x"))
     small = ImageMemoryStore(data=np.zeros((32, 32, 32), np.float32), name="small")
     big = ImageMemoryStore(data=np.zeros((256, 256, 256), np.float32), name="big")

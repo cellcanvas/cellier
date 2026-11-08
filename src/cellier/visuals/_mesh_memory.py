@@ -1,4 +1,3 @@
-# src/cellier/v2/visuals/_mesh_memory.py
 from typing import Annotated, Literal, Union
 
 from psygnal import EventedModel

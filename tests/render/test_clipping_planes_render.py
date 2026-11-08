@@ -113,9 +113,9 @@ async def test_a_volume_is_cut_at_the_plane(
         assert result["silhouette_off_edge"] <= allowed, (view_name, result)
         # Colour is compared where the reference's colour means the same
         # thing.  A MIP has no shading.  A lit cut face takes the plane's
-        # normal (D21); the reference's face is lit by a normal estimated
-        # from masked data, which agrees for a face along the voxel grid
-        # seen from the fitted view and not otherwise.
+        # normal; the reference's face is lit by a normal estimated from
+        # masked data, which agrees for a face along the voxel grid seen
+        # from the fitted view and not otherwise.
         if is_mip:
             assert result["colour_off_edge"] <= allowed, (view_name, result)
         elif axis_aligned and view_name == "fit":

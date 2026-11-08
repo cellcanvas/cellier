@@ -1,8 +1,8 @@
 """Field names removed by a hard break, and their refusal.
 
-A removed name is not aliased and not mapped at load time (plane rendering
-design v3 7.6): passing one raises, naming the replacement, so it cannot
-pass silently as an ignored extra field.
+A removed name is not aliased and not mapped at load time: passing one
+raises, naming the replacement, so it cannot pass silently as an ignored
+extra field.
 """
 
 from __future__ import annotations

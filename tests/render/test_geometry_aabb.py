@@ -155,8 +155,8 @@ async def test_colour_and_width_reach_the_line(controller, reslice, kind):
 async def test_the_mesh_box_is_the_store_extent_before_any_data(controller):
     """A mesh sizes its box from the store's extent, not from loaded faces.
 
-    So the box is there while the mesh loads, and does not blink with it
-    (``plans/mesh_refactor_v3.md`` M5).
+    So the box is there while the mesh loads, and does not blink with
+    it.
     """
     scene, visual = _scene_with(controller, "mesh")
     controller.update_aabb_field(visual.id, "enabled", True)

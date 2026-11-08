@@ -187,7 +187,7 @@ def test_block_scales_buffer_2d_power_of_two_fallback():
     assert tuple(data["bricks_3"][:2]) == (float(UNBOUNDED_BRICK_COUNT),) * 2
 
 
-# -- Level offsets (plan v2, Phase 4) ------------------------------------------
+# -- Level offsets -------------------------------------------------------------
 
 
 def test_brick_scales_buffer_carries_level_offsets_in_shader_order():

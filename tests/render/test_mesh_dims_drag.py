@@ -1,10 +1,9 @@
 """A multiscale mesh during a dims scrub, through the controller.
 
-``plans/mesh_refactor_v3.md`` Phase 7 (I1, D23).  A scrub tick plans a
-multiscale mesh coarse only; the scrub's end plans the finest.  A mesh the
-scrub does not change keeps both levels and is drawn coarse while it lasts.
-Scrubs are ticked with ``interactive=True`` or inside a scope; frames are
-real frames of an offscreen canvas.
+A scrub tick plans a multiscale mesh coarse only; the scrub's end plans the
+finest.  A mesh the scrub does not change keeps both levels and is drawn
+coarse while it lasts.  Scrubs are ticked with ``interactive=True`` or
+inside a scope; frames are real frames of an offscreen canvas.
 """
 
 from __future__ import annotations
@@ -277,7 +276,7 @@ async def test_steps_apart_each_come_back_within_a_coarse_read(rig, reads):
     assert _drawn_timepoint(rig, series) == 3
 
 
-# -- a mesh the scrub does not change (D23) -----------------------------------
+# -- a mesh the scrub does not change -----------------------------------------
 
 
 @pytest.mark.parametrize("draw", ["coarse", "full"])

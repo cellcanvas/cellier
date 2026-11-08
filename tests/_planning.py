@@ -2,11 +2,11 @@
 
 Multiscale visuals no longer build store requests while planning: ``plan()``
 returns desired sets of packed keys, and the chunk scheduler builds requests
-as it issues reads (``plans/progressive_loading_design_v3.md`` 5.3).  Tests
-that assert on the requests a plan implies -- which planes, which levels,
-which channels -- ask for all of them here: every wanted key, as into an
-empty atlas, in the order the planner wants them (drawn channels
-interleaved, as the old per-channel materialisation produced them).
+as it issues reads.  Tests that assert on the requests a plan implies --
+which planes, which levels, which channels -- ask for all of them here:
+every wanted key, as into an empty atlas, in the order the planner wants
+them (drawn channels interleaved, as the old per-channel materialisation
+produced them).
 """
 
 from __future__ import annotations
@@ -192,11 +192,11 @@ def commit_whole_item(
 ) -> None:
     """Upload *data* as the result of *request*, as ``rebuild_draw`` would.
 
-    A pure commit test (``plans/scheduler_only_loading_design_v2.md`` 4.11):
-    no plan and no scheduler.  A geometry visual (points, lines, graph)
-    uploads through ``visual.upload(0, key, data)``; an in-memory image or
-    labels visual through ``visual.upload_slice(slot, mode, key, data)``.
-    *mode* and *slot* are read for the raster visuals only.
+    A pure commit test: no plan and no scheduler.  A geometry visual
+    (points, lines, graph) uploads through ``visual.upload(0, key, data)``;
+    an in-memory image or labels visual through ``visual.upload_slice(slot,
+    mode, key, data)``.  *mode* and *slot* are read for the raster visuals
+    only.
     """
     key = visual.request_key(request)
     if hasattr(visual, "upload_slice"):

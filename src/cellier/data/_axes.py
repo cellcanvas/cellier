@@ -392,8 +392,8 @@ def install_level_transforms(store: object) -> None:
     restored from JSON keeps the ones it was serialized with, ids included.
 
     Until Phase 8 the readers built these as v1 matrices, which name no
-    endpoints, and the region pull-back derived a named form alongside them
-    (D5.1).  There is one list now.
+    endpoints, and the region pull-back derived a named form alongside
+    them.  There is one list now.
 
     Parameters
     ----------
@@ -464,7 +464,7 @@ def default_data_to_world(
 
     * *fewer data axes than world axes.*  The leading world axes are
       **broadcast**: a 3-D volume in a ``TZYX`` world exists at every ``T``,
-      which is not the same claim as sitting at ``T = 0`` (D25).
+      which is not the same claim as sitting at ``T = 0``.
     * *more data axes than world axes.*  The leading data axes are projected
       away -- a multichannel store's channel axis is composited by the visual
       and never reaches the world.  ``from_axis_map`` cannot express a dropped
@@ -522,8 +522,8 @@ def scale_and_translation_transform(
     """Name the endpoints of a per-axis scale and offset.
 
     For a store that states its own geometry as raw numbers -- a geff file's
-    per-axis ``scale`` and ``offset`` (D23) -- and so has said *what* the map
-    is without saying *between which spaces*.  The controller knows both, so
+    per-axis ``scale`` and ``offset`` -- and so has said *what* the map is
+    without saying *between which spaces*.  The controller knows both, so
     this is where they get attached.
 
     This replaced ``transform_from_v1``, which did the same job for a bare v1
@@ -584,7 +584,7 @@ def store_level_transforms(store: object) -> list[AffineTransform]:
     coordinate system, built by :func:`install_level_transforms` from its own
     ``level_scales`` and ``level_translations`` as soon as the systems exist.
     Until then the readers held v1 matrices, the region pull-back needed a v2
-    form, and this derived one alongside them (D5.1).
+    form, and this derived one alongside them.
 
     Parameters
     ----------

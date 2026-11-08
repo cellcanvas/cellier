@@ -1,4 +1,4 @@
-"""All event NamedTuples for the cellier v2 EventBus."""
+"""All event NamedTuples for the EventBus."""
 
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ class DimsChangedEvent(NamedTuple):
 
     ``region_changed`` is ``False`` when the change moved only positions or
     thicknesses of **displayed** axes.  Every axis keeps a position while
-    displayed (D36), but a displayed axis is not sliced, so what the scene
-    shows is unchanged and nothing needs reslicing.
+    displayed, but a displayed axis is not sliced, so what the scene shows
+    is unchanged and nothing needs reslicing.
 
     ``interactive`` is ``True`` when the change is a tick of a dims scrub:
     it was marked interactive, or it came inside an open scope (see
@@ -87,7 +87,7 @@ class SliderAxesChangedEvent(NamedTuple):
 
     ``Scene.slider_axes`` is a derived property with no signal of its own;
     the controller recomputes it after every model change that can move it
-    and emits this only when the value differs (design 3.5).
+    and emits this only when the value differs.
     """
 
     source_id: UUID
@@ -256,10 +256,9 @@ class VisualVisibilityChangedEvent(NamedTuple):
 class DataStoreMetadataChangedEvent(NamedTuple):
     """Emitted when a store's data may now occupy a different region.
 
-    The bus form of a store's ``"extent"`` change
-    (``plans/store_change_events.md``): new geometry positions, image data of
-    a new shape, a store that grew.  Everything derived from the store's
-    ``axis_extents`` is stale.  Relayed by the controller from
+    The bus form of a store's ``"extent"`` change: new geometry positions,
+    image data of a new shape, a store that grew.  Everything derived from
+    the store's ``axis_extents`` is stale.  Relayed by the controller from
     ``BaseDataStore.data_changed``, after it has refreshed extent-derived
     state and requested a reslice of every visual reading the store.
 
@@ -294,8 +293,7 @@ class DataStoreContentsChangedEvent(NamedTuple):
         Where the values changed, as per-axis ``(start, stop)`` in level-0
         data coordinates, or ``None`` for anywhere.  In the store's own
         coordinates because the store does not know the render layer's brick
-        grid; converting to brick keys is the render layer's job
-        (``plans/streaming_acquisition_design.md`` 8b).
+        grid; converting to brick keys is the render layer's job.
     """
 
     source_id: UUID
@@ -373,8 +371,7 @@ class LoadingProgress(NamedTuple):
     """How far a multiscale visual's latest plan has loaded.
 
     Summed over every atlas of the visual (a composite image has one per
-    drawn channel).  Counts are chunks: bricks in 3D, tiles in 2D.  See
-    ``plans/progressive_loading_design_v3.md`` 5.13.
+    drawn channel).  Counts are chunks: bricks in 3D, tiles in 2D.
 
     Attributes
     ----------
@@ -655,8 +652,7 @@ class TransformInteractionEvent(NamedTuple):
     plans only its backstop between the start and the end.  In a 3D view,
     a multiscale image or labels visual with
     ``appearance.coarsest_while_moving_3d`` on keeps its last plan, whose
-    bricks move with the transform.  The target is planned at the end
-    (oblique 2D design v3, D7).
+    bricks move with the transform.  The target is planned at the end.
 
     Attributes
     ----------
@@ -1046,9 +1042,9 @@ class TransformChangedEvent(NamedTuple):
 class DrawStatus(NamedTuple):
     """Whether a scene's current view draws a visual, and why not.
 
-    Full affine design v2, D3 / D8.  A visual whose transform the view cannot
-    draw -- a 2D view whose slice cuts an image at an angle, say -- draws
-    nothing and reports it here rather than drawing something wrong.
+    A visual whose transform the view cannot draw -- a 2D view whose slice
+    cuts an image at an angle, say -- draws nothing and reports it here
+    rather than drawing something wrong.
 
     Attributes
     ----------
@@ -1197,7 +1193,7 @@ class LabelsPickInfo(NamedTuple):
 
 
 class MaskedImagePickInfo(NamedTuple):
-    """Element-level pick result for a MaskedImage (masked image design v2, 9.3).
+    """Element-level pick result for a MaskedImage.
 
     Every value is read at **level 0** and at the **nearest voxel**, as image
     picks are, so a pick can differ slightly from the drawn colour while a
@@ -1236,10 +1232,10 @@ class GraphNodePickInfo(NamedTuple):
     Attributes
     ----------
     node_id : Any
-        The store's **original** node id, not the render-buffer row (D14).
-        Typed ``Any`` rather than ``int`` because a geff file may carry
-        uint64 or string ids; this is the one place the graph pick payload
-        is more weakly typed than the points one.
+        The store's **original** node id, not the render-buffer row. Typed
+        ``Any`` rather than ``int`` because a geff file may carry uint64
+        or string ids; this is the one place the graph pick payload is
+        more weakly typed than the points one.
     node_row : int
         Row of the node in the store's position array.  Stable under D7's
         immutability and useful for indexing the store's own arrays.
@@ -1394,7 +1390,7 @@ class CanvasMouseRelease3DEvent(NamedTuple):
 
 
 class ImagePickEvent(NamedTuple):
-    """An image visual was hit on a canvas (design 3.7).
+    """An image visual was hit on a canvas.
 
     Emitted only for a hit, after the mouse event for the same pointer event:
     at once for an in-memory image, and when the level-0 value read completes
@@ -1446,7 +1442,7 @@ class ImagePickEvent(NamedTuple):
 
 
 class LabelsPickEvent(NamedTuple):
-    """A labels visual was hit on a canvas (design 3.7).
+    """A labels visual was hit on a canvas.
 
     Timing as for ``ImagePickEvent``: synchronous for in-memory labels,
     asynchronous for multiscale labels.
@@ -1495,7 +1491,7 @@ class LabelsPickEvent(NamedTuple):
 
 
 class MaskedImagePickEvent(NamedTuple):
-    """A MaskedImage was hit on a canvas (masked image design v2, 9.3).
+    """A MaskedImage was hit on a canvas.
 
     Timing as for ``ImagePickEvent``: synchronous when both stores are in
     memory, otherwise emitted when the level-0 reads complete.  The reads run
@@ -1547,7 +1543,7 @@ class MaskedImagePickEvent(NamedTuple):
 
 
 class PointsPickEvent(NamedTuple):
-    """A points visual was hit on a canvas (design 3.7).
+    """A points visual was hit on a canvas.
 
     Emitted synchronously,
     right after the mouse event for the same pointer event, and only for a hit.
@@ -1596,7 +1592,7 @@ class PointsPickEvent(NamedTuple):
 
 
 class LinesPickEvent(NamedTuple):
-    """A lines visual was hit on a canvas (design 3.7).
+    """A lines visual was hit on a canvas.
 
     Emitted synchronously,
     right after the mouse event for the same pointer event, and only for a hit.
@@ -1645,7 +1641,7 @@ class LinesPickEvent(NamedTuple):
 
 
 class MeshPickEvent(NamedTuple):
-    """A mesh visual was hit on a canvas (design 3.7).
+    """A mesh visual was hit on a canvas.
 
     Emitted synchronously,
     right after the mouse event for the same pointer event, and only for a hit.
@@ -1694,7 +1690,7 @@ class MeshPickEvent(NamedTuple):
 
 
 class GraphPickEvent(NamedTuple):
-    """A graph visual was hit on a canvas (design 3.7).
+    """A graph visual was hit on a canvas.
 
     Emitted synchronously,
     right after the mouse event for the same pointer event, and only for a hit.

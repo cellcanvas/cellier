@@ -1,8 +1,7 @@
 """Golden plans that the plane rendering work must not change.
 
-``plans/plane_rendering_design_v3.md`` 14.1 step 0.2.  Captured once from the
-shipping code (HEAD ``ec887f3b``) and replayed here: the cull-first planner
-(Phase 1) and the renames (Phase 2) must leave every one of these equal.
+Captured once from the shipping code (HEAD ``ec887f3b``) and replayed here:
+the cull-first planner and the renames must leave every one of these equal.
 
 * ``plans.npz``: for each case, the desired sets of a multiscale visual's
   plan (packed brick or tile keys, their request class, truncation counts),
@@ -234,8 +233,7 @@ def _flatten(cases):
 def _recorded_class(cls: np.ndarray) -> np.ndarray:
     """A plan's class array as the golden recorded it.
 
-    The request class became a priority with the backstop at 255
-    (``plans/progressive_intermediate_level_design_v2.md`` 5.1); the golden
+    The request class became a priority with the backstop at 255; the golden
     holds it as 1.  The integer changed and no plan did, so it is translated
     back here and the golden is untouched, as ``scheduling/_trace.py`` does
     for the trace baseline.  Both translations go when that plan's Phase 7

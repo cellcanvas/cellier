@@ -1,10 +1,10 @@
 """PySide6 ``QtAsyncio`` compatibility patches.
 
-Moved from ``cellier/slicer.py`` when the slicer was deleted
-(scheduler-only loading design v2, D8), unchanged but for the slicer's name
-in two messages, and imported by ``cellier.render.render_manager``, so they are in
-place before any read task is cancelled under a ``QAsyncioEventLoop``.
-Importing this module applies them; it is a no-op without PySide6.
+Moved from ``cellier/slicer.py`` when the slicer was deleted, unchanged but for
+the slicer's name in two messages, and imported by
+``cellier.render.render_manager``, so they are in place before any read task is
+cancelled under a ``QAsyncioEventLoop``. Importing this module applies them; it is
+a no-op without PySide6.
 """
 
 from __future__ import annotations

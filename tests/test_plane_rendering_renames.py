@@ -1,4 +1,4 @@
-"""The hard break of plane rendering design v3 7.6 (Phase 2).
+"""The hard break of plane rendering design v3 7.6.
 
 The old names are removed, not aliased: each is refused, and none is left in
 ``src`` or ``examples``.
@@ -68,7 +68,7 @@ def test_the_removed_loading_fields_are_refused(field) -> None:
     "appearance_cls", [MultiscaleImageAppearance, MultiscaleLabelsAppearance]
 )
 def test_the_moving_settings_defaults(appearance_cls) -> None:
-    """Coarsest while moving in 3D, eager in 2D (design 7.1)."""
+    """Coarsest while moving in 3D, eager in 2D."""
     appearance = appearance_cls()
     assert appearance.coarsest_while_moving_3d is True
     assert appearance.coarsest_while_moving_2d is False
@@ -103,7 +103,7 @@ def test_the_interaction_event_is_renamed() -> None:
 
 
 def test_the_clipping_gizmo_names_are_neutral() -> None:
-    """One gizmo per canvas serves both kinds of plane (design 8.3, Phase 8)."""
+    """One gizmo per canvas serves both kinds of plane."""
     for old, new in (
         ("Clipping" + "PlaneGizmoChangedEvent", "PlaneGizmoChangedEvent"),
         ("Clipping" + "PlaneGizmoUpdateEvent", "PlaneGizmoUpdateEvent"),
@@ -218,7 +218,7 @@ def test_no_old_bias_name_is_left() -> None:
 
 
 def test_the_bias_slider_widgets_are_gone() -> None:
-    """The level of detail control replaced them (design 9.3)."""
+    """The level of detail control replaced them."""
     import cellier.gui.anywidget.visuals as any_visuals
     import cellier.gui.qt.visuals as qt_visuals
 

@@ -77,11 +77,11 @@ async def test_the_visual_now_slices_against_its_transform():
     """Design 3.12's headline: the code this replaced drew the one point
     24 um off the slice plane and hid the three that are on it.
 
-    The old path was still reachable, and asserted against here, until
-    Phase 8 deleted it (R8.3); what is left is the number it was wrong about.
-    The points sit at data z ``0, 2, 4, 6, 8, 14`` under a 4x z scale, so
-    world Z 14 +/- 1 is data z ``[3.25, 3.75]``... only on the reading that
-    ``contains`` does, against the transform.
+    The old path was still reachable, and asserted against here, until Phase
+    8 deleted it; what is left is the number it was wrong about. The points
+    sit at data z ``0, 2, 4, 6, 8, 14`` under a 4x z scale, so world Z 14 +/-
+    1 is data z ``[3.25, 3.75]``... only on the reading that ``contains``
+    does, against the transform.
     """
     controller, scene, visual, store = _viewer()
     controller.update_slice_indices(scene.id, {0: 14.0})
@@ -90,7 +90,7 @@ async def test_the_visual_now_slices_against_its_transform():
 
 
 async def test_planning_without_a_region_is_now_an_error():
-    """R8.3.  A request carrying no region used to compare a world value
+    """A request carrying no region used to compare a world value
     against data coordinates; there is no second path now."""
     controller, scene, visual, store = _viewer()
     controller.update_slice_indices(scene.id, {0: 14.0})
@@ -122,8 +122,8 @@ async def test_a_three_dimensional_view_keeps_every_point():
 
 
 async def test_the_uploaded_positions_are_in_ascending_data_axis_order():
-    """Design 3.14: ``positions[:, displayed]`` baked the display permutation
-    into the vertex buffer, which is the one place it must never live."""
+    """``positions[:, displayed]`` baked the display permutation into the
+    vertex buffer, which is the one place it must never live."""
     controller, scene, visual, store = _viewer(scale=None)
     controller.update_slice_indices(scene.id, {0: 2.0})
     gfx = controller._render_manager._scenes[scene.id].get_visual(visual.id)

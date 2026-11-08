@@ -1,4 +1,4 @@
-"""The two slice strategies must agree exactly (D17).
+"""The two slice strategies must agree exactly.
 
 This is the highest-value module in the graph suite: ``mask`` is the
 correctness reference, ``roi`` is the fast path, and the only thing that

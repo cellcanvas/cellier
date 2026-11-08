@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 #: Read by every toolkit.  It used to be Qt-private, which is why Qt labelled
 #: its panels ``XY`` / ``XZ`` / ``YZ`` / ``3D`` and the notebook labelled none
 #: of them -- the same four-panel viewer, annotated in a script and bare in a
-#: notebook (``plans/gui_backend_unification.md`` D15).
+#: notebook.
 PANEL_LAYOUT: tuple[tuple[int, int, str, str], ...] = (
     (0, 0, "xy", "XY"),
     (0, 1, "xz", "XZ"),

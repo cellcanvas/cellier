@@ -1,4 +1,4 @@
-"""The extent clamp under a camera drag (masked image design v2, MI-P16, 6.4).
+"""The extent clamp under a camera drag.
 
 A signed distance mask whose pyramid is floor halved, so each coarse level
 covers less than the finest; frustum culling and a small mask budget, so a
@@ -193,7 +193,7 @@ def test_a_pyramid_rounded_up_is_clean_with_the_clamp(drag):
 
 
 def test_settled_frames_barely_change_with_the_clamp(tmp_path):
-    """At rest the clamp changes at most a few pixels (6.4)."""
+    """At rest the clamp changes at most a few pixels."""
     mask = pyramid_store(tmp_path, "mask", _signed_distance(DRAG_SHAPE), DRAG_LEVELS)
     value = pyramid_store(
         tmp_path, "value", np.full(DRAG_SHAPE, 0.7, np.float32), DRAG_LEVELS

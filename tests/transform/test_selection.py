@@ -1,4 +1,4 @@
-"""Tests for cellier.transform._selection (D43)."""
+"""Tests for cellier.transform._selection."""
 
 from uuid import uuid4
 
@@ -59,13 +59,13 @@ def test_a_consistent_selection_validates():
     assert result.region.ndim == 5
 
 
-def test_the_slice_position_is_the_translation_column_d35():
+def test_the_slice_position_is_the_translation_column():
     result = selection()
     assert np.allclose(result.slice_position, [7.0, 2.0, 0.0, 0.0, 0.0])
     assert np.allclose(result.slice_position, result.transform.translation)
 
 
-def test_a_slice_outside_its_own_region_is_rejected_d43():
+def test_a_slice_outside_its_own_region_is_rejected():
     """The invariant that connects the two halves."""
     world = tczyx()
     with pytest.raises(ValidationError, match="would select nothing"):
@@ -101,12 +101,12 @@ def test_an_unbounded_region_is_accepted():
     )
 
 
-def test_a_zero_thickness_selection_is_accepted_d42():
+def test_a_zero_thickness_selection_is_accepted():
     """The slice sits exactly on the boundary, which contains() includes."""
     assert selection(slabs={"T": (7.0, 0.0), "C": (2.0, 0.0)})
 
 
-def test_an_oblique_selection_is_the_same_type_r4():
+def test_an_oblique_selection_is_the_same_type():
     world = tczyx()
     diagonal = np.array([0.0, 0.0, 1.0, 1.0, 0.0])
     result = RegionSelection(
@@ -132,7 +132,7 @@ def test_selection_round_trips():
     assert back.region == result.region
 
 
-def test_there_is_no_dims_editor_here_d43():
+def test_there_is_no_dims_editor_here():
     """This phase fixes the artifact, not the editor that emits it."""
     import cellier.transform as package
 
@@ -140,7 +140,7 @@ def test_there_is_no_dims_editor_here_d43():
     assert not hasattr(RegionSelection, "from_indices")
 
 
-def test_a_bounded_displayed_axis_is_accepted_r3():
+def test_a_bounded_displayed_axis_is_accepted():
     """R3 permits bounding a displayed axis; the invariant must allow it.
 
     D43 states the invariant as "the transform's translation satisfies
@@ -157,7 +157,7 @@ def test_a_bounded_displayed_axis_is_accepted_r3():
     )
 
 
-def test_an_embedding_with_broadcast_axes_is_rejected_d8():
+def test_an_embedding_with_broadcast_axes_is_rejected():
     """The validator resolves D8's drop rule to "nothing to drop".
 
     It holds axis **ids** and never the world ``CoordinateSystem``

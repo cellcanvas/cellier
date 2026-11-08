@@ -310,7 +310,7 @@ def test_2d_keys_in_region() -> None:
 
 
 def test_2d_keys_in_region_uses_voxel_centres_on_a_translated_level() -> None:
-    """Level 2 (scale 2) shifted by t = 0.25: centre convention (plan v2, D1).
+    """Level 2 (scale 2) shifted by t = 0.25: centre convention.
 
     Brick 0's padded tile holds level voxels ``-1 .. BLOCK``; voxel ``BLOCK``
     is centred on ``2 * BLOCK + 0.25`` and covers up to ``2 * BLOCK + 1.25``.

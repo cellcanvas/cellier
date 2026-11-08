@@ -1,4 +1,4 @@
-"""Dimension and coordinate system models for cellier v2."""
+"""Dimension and coordinate system models."""
 
 from __future__ import annotations
 
@@ -233,18 +233,18 @@ class AxisAlignedSelection(EventedModel):
         Length 2 -> 2D; length 3 -> 3D.
     slice_indices : dict[int, float]
         Mapping of axis index -> **world-space slice position**, for **every**
-        world axis, displayed or not (unified image design D36).  A displayed
-        axis keeps the position it slices at once it stops being displayed,
-        so a 3D -> 2D switch needs no bookkeeping.  A world position, not a
-        voxel index: an integer-valued slider on a 0.5 world-unit-per-voxel
-        axis cannot address the odd-numbered planes (D3).
+        world axis, displayed or not.  A displayed axis keeps the position it
+        slices at once it stops being displayed, so a 3D -> 2D switch needs no
+        bookkeeping.  A world position, not a voxel index: an integer-valued
+        slider on a 0.5 world-unit-per-voxel axis cannot address the
+        odd-numbered planes.
     thickness : dict[int, float]
         Mapping of axis index -> **half**-thickness in world units.  An axis
         absent from the mapping has thickness 0: a plane.  This is the only
         thickness in the slicing path; no visual family adds one.  Per axis
-        rather than scalar because one number means three frames on a
-        0.5 s/frame time axis and a quarter of a voxel on a 2 um/voxel spatial
-        one (D4).
+        rather than scalar because one number means three frames on a 0.5
+        s/frame time axis and a quarter of a voxel on a 2 um/voxel spatial
+        one.
     """
 
     selector_type: Literal["axis_aligned"] = "axis_aligned"
@@ -296,7 +296,7 @@ class DimsManager(EventedModel):
         Unique identifier. Auto-generated.
     world_coordinate_system : WorldCoordinateSystem
         The scene's world axes.  Frozen: changing the axes means assigning a
-        replacement (D7), which is why there is no event relay onto it.
+        replacement, which is why there is no event relay onto it.
     selection : AxisAlignedSelection
         The current axis selection.
     slider_overrides : dict[int, bool]
@@ -304,7 +304,7 @@ class DimsManager(EventedModel):
         hidden (``False``).  An axis absent from the mapping is automatic:
         it gets a slider when a visual slices it.  Only the overrides are
         stored; the effective set is ``Scene.slider_axes``, which is derived
-        from the visuals and never serialized (D23).
+        from the visuals and never serialized.
     """
 
     id: UUID4 | Annotated[str, AfterValidator(lambda x: uuid.UUID(x, version=4))] = (
@@ -326,7 +326,7 @@ class DimsManager(EventedModel):
 
     @model_validator(mode="after")
     def _validate_axis_coverage(self) -> DimsManager:
-        """Every world axis has a slice position, and nothing else does (D36).
+        """Every world axis has a slice position, and nothing else does.
 
         A displayed axis keeps its entry, so ``slice_indices`` alone covers
         the world.  Overrides must name world axes too.
@@ -382,8 +382,8 @@ class DimsManager(EventedModel):
 
         This model is the **editor** -- it holds an index and a thickness, the
         thing a GUI binds to -- and the slicer consumes one type regardless of
-        which editor produced it (D43, R6).  An oblique editor would hold a
-        plane and emit the same type.
+        which editor produced it.  An oblique editor would hold a plane and
+        emit the same type.
 
         The rendered system arrives as an argument rather than being reached
         for: it is per canvas and is not model state, and this way the model
@@ -396,8 +396,8 @@ class DimsManager(EventedModel):
         one plane within it, a geometry visual what lies in it.
 
         Displayed axes are left unbounded, although they keep a stored
-        position (D36).  Bounding one is the viewport-crop follow-up; the
-        region type already expresses it (R3).
+        position.  Bounding one is the viewport-crop follow-up; the
+        region type already expresses it.
 
         Parameters
         ----------

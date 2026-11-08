@@ -1,7 +1,7 @@
 """The clipping interaction tracker: scopes, ticks and the start / end event.
 
-A drag is announced (clipping plane gizmo design, section 6).  What it does
-to planning is in ``test_moving_policy.py`` (plane rendering design 7).
+A drag is announced.  What it does to planning is in
+``test_moving_policy.py``.
 """
 
 from __future__ import annotations

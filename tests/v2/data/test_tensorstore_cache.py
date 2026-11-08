@@ -613,7 +613,7 @@ def test_committed_write_is_visible_at_coarser_levels(single_chunk_uri: str) -> 
 
 
 # ---------------------------------------------------------------------------
-# One-shot revalidation on an announced change (design v3 5.14, Phase 7)
+# One-shot revalidation on an announced change
 # ---------------------------------------------------------------------------
 
 

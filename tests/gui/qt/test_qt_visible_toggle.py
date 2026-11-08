@@ -167,8 +167,7 @@ def test_visible_toggle_binds_field_and_label(qtbot):
     qtbot.addWidget(widget.widget)
 
     assert widget.field == "visible"
-    # The row's label carries the name; the checkbox itself has no text (see
-    # ``plans/label_ownership_unification.md``).
+    # The row's label carries the name; the checkbox itself has no text.
     assert _row_label_text(widget) == "Visible"
     assert widget.control.text() == ""
     assert widget.value is True  # matches the model default

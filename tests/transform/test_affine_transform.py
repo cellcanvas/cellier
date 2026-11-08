@@ -1,4 +1,4 @@
-"""Tests for cellier.transform._affine (design section 9)."""
+"""Tests for cellier.transform._affine."""
 
 from uuid import uuid4
 
@@ -20,7 +20,13 @@ from cellier.transform import (
     VisualCoordinateSystem,
     WorldCoordinateSystem,
 )
-from tests.transform._use_cases import MODEL_USE_CASES, uc1, uc2, uc3, uc4
+from tests.transform._use_cases import (
+    MODEL_USE_CASES,
+    channel_broadcast,
+    channel_passthrough,
+    reversed_axes,
+    scale_only,
+)
 
 CASE_IDS = list(MODEL_USE_CASES)
 
@@ -43,44 +49,46 @@ def reducing_transform():
     return data, flat, AffineTransform.from_matrix(matrix, data, flat)
 
 
-# --- the four use cases (section 9.3) --------------------------------
+# --- the four use cases ----------------------------------------------
 
 
-def test_uc1_matrix_is_diagonal():
-    _, _, transform = uc1()
+def test_scale_only_matrix_is_diagonal():
+    _, _, transform = scale_only()
     assert np.allclose(transform.matrix, np.diag([0.5, 0.1, 0.1, 1.0]))
     point = np.array([1.0, 2.0, 3.0])
     assert np.allclose(transform.map_coordinates(point), [0.5, 0.2, 0.3])
 
 
-def test_uc4_matrix_is_anti_diagonal_and_the_call_is_identical_to_uc1():
-    """The regression test for the axis-order bug class (section 3.1)."""
-    _, _, one = uc1()
-    _, _, four = uc4()
-    assert np.allclose(four.matrix[:3, :3], [[0, 0, 0.1], [0, 0.1, 0], [0.5, 0, 0]])
+def test_reversed_axes_matrix_is_anti_diagonal():
+    """The regression test for the axis-order bug class."""
+    _, _, plain = scale_only()
+    _, _, reordered = reversed_axes()
+    anti_diagonal = [[0, 0, 0.1], [0, 0.1, 0], [0.5, 0, 0]]
+    assert np.allclose(reordered.matrix[:3, :3], anti_diagonal)
     # same input point, different world axis order
-    assert np.allclose(one.map_coordinates(np.array([1.0, 2.0, 3.0])), [0.5, 0.2, 0.3])
-    assert np.allclose(four.map_coordinates(np.array([1.0, 2.0, 3.0])), [0.3, 0.2, 0.5])
+    point = np.array([1.0, 2.0, 3.0])
+    assert np.allclose(plain.map_coordinates(point), [0.5, 0.2, 0.3])
+    assert np.allclose(reordered.map_coordinates(point), [0.3, 0.2, 0.5])
 
 
-def test_uc1_and_uc4_differ_only_in_the_world_system_d22():
+def test_scale_only_and_reversed_axes_differ_only_in_the_world_system():
     """The axis map, scale and every other argument are byte-identical."""
     import inspect
 
     from tests.transform import _use_cases
 
-    one = inspect.getsource(_use_cases.uc1)
-    four = inspect.getsource(_use_cases.uc4)
+    plain = inspect.getsource(_use_cases.scale_only)
+    reordered = inspect.getsource(_use_cases.reversed_axes)
     call = (
         'axis_map={"z": "Z", "y": "Y", "x": "X"},\n'
         '        scale={"z": 0.5, "y": 0.1, "x": 0.1},'
     )
-    assert call in one
-    assert call in four
+    assert call in plain
+    assert call in reordered
 
 
-def test_uc2_channel_row_passes_through():
-    _, _, transform = uc2()
+def test_channel_passthrough_channel_row_passes_through():
+    _, _, transform = channel_passthrough()
     assert np.allclose(transform.matrix[0], [1.0, 0.0, 0.0, 0.0, 0.0])
     first = transform.map_coordinates(np.array([3.0, 1.0, 2.0, 3.0]))
     second = transform.map_coordinates(np.array([7.0, 1.0, 2.0, 3.0]))
@@ -88,8 +96,8 @@ def test_uc2_channel_row_passes_through():
     assert np.allclose(first[1:], second[1:])
 
 
-def test_uc3_shape_rank_and_zero_channel_row():
-    _, _, transform = uc3()
+def test_channel_broadcast_shape_rank_and_zero_channel_row():
+    _, _, transform = channel_broadcast()
     assert transform.matrix.shape == (6, 5)
     assert transform.input_ndim == 4
     assert transform.output_ndim == 5
@@ -97,24 +105,24 @@ def test_uc3_shape_rank_and_zero_channel_row():
     assert transform.map_coordinates(np.array([1.0, 2.0, 3.0, 4.0]))[1] == 0.0
 
 
-def test_uc3_inverse_exists_and_has_the_projecting_shape():
-    _, _, transform = uc3()
+def test_channel_broadcast_inverse_exists_and_has_the_projecting_shape():
+    _, _, transform = channel_broadcast()
     inverse = transform.inverse()
     assert inverse is not None
     assert inverse.matrix.shape == (5, 6)
 
 
-def test_uc3_round_trip_is_exact():
-    _, _, transform = uc3()
+def test_channel_broadcast_round_trip_is_exact():
+    _, _, transform = channel_broadcast()
     points = np.array([[1.0, 2.0, 3.0, 4.0], [-1.0, 0.5, 2.0, 7.0]])
     assert np.allclose(
         transform.imap_coordinates(transform.map_coordinates(points)), points
     )
 
 
-def test_uc3_perturbing_the_broadcast_axis_does_not_move_the_data_point():
+def test_channel_broadcast_perturbing_the_broadcast_axis_does_not_move_the_data_point():
     """The broadcast property, and the assertion that matters."""
-    _, _, transform = uc3()
+    _, _, transform = channel_broadcast()
     point = np.array([1.0, 2.0, 3.0, 4.0])
     world = transform.map_coordinates(point)
     perturbed = world.copy()
@@ -123,19 +131,19 @@ def test_uc3_perturbing_the_broadcast_axis_does_not_move_the_data_point():
     assert np.allclose(transform.imap_coordinates(world), point)
 
 
-def test_uc3_records_the_broadcast_axis_d25():
-    _, world, transform = uc3()
+def test_channel_broadcast_records_the_broadcast_axis():
+    _, world, transform = channel_broadcast()
     assert transform.broadcast_axes == frozenset({world.axis_by_name("C").id})
 
 
-def test_uc3_broadcast_axes_survives_a_round_trip():
-    _, _, transform = uc3()
+def test_channel_broadcast_broadcast_axes_survives_a_round_trip():
+    _, _, transform = channel_broadcast()
     back = AffineTransform.model_validate(transform.model_dump())
     assert back.broadcast_axes == transform.broadcast_axes
 
 
-def test_uc3_without_broadcast_output_axes_raises_d22():
-    data, world, _ = uc3()
+def test_channel_broadcast_without_broadcast_output_axes_raises():
+    data, world, _ = channel_broadcast()
     with pytest.raises(ValueError, match="neither mapped nor declared"):
         AffineTransform.from_axis_map(
             data,
@@ -155,10 +163,10 @@ def test_every_use_case_round_trips_points(name):
     )
 
 
-# --- points (D11, D12) -----------------------------------------------
+# --- points ----------------------------------------------------------
 
 
-def test_identity_affine_returns_a_new_array_d11():
+def test_identity_affine_returns_a_new_array():
     data = CoordinateSystem(name="d", axes=(space("z"), space("y")))
     world = CoordinateSystem(name="w", axes=(space("Z"), space("Y")))
     transform = AffineTransform.from_matrix(np.eye(3), data, world)
@@ -170,39 +178,39 @@ def test_identity_affine_returns_a_new_array_d11():
 
 
 def test_input_is_not_mutated():
-    _, _, transform = uc2()
+    _, _, transform = channel_passthrough()
     points = np.array([[1.0, 2.0, 3.0, 4.0]])
     original = points.copy()
     transform.map_coordinates(points)
     assert np.array_equal(points, original)
 
 
-def test_rank_of_output_matches_input_d12():
-    _, _, transform = uc3()
+def test_rank_of_output_matches_input():
+    _, _, transform = channel_broadcast()
     assert transform.map_coordinates(np.zeros(4)).shape == (5,)
     assert transform.map_coordinates(np.zeros((6, 4))).shape == (6, 5)
     assert transform.imap_coordinates(np.zeros(5)).shape == (4,)
 
 
-def test_homogeneous_input_is_rejected_d12():
-    _, _, transform = uc3()
+def test_homogeneous_input_is_rejected():
+    _, _, transform = channel_broadcast()
     with pytest.raises(ValueError, match="Homogeneous"):
         transform.map_coordinates(np.zeros((3, 5)))
 
 
-# --- inversion (D13, D24) ---------------------------------------------
+# --- inversion --------------------------------------------------------
 
 
-def test_inverse_swaps_the_coordinate_system_ids_d13():
+def test_inverse_swaps_the_coordinate_system_ids():
     """The explicit regression test for the Spaced.invert() bug."""
-    data, world, transform = uc1()
+    data, world, transform = scale_only()
     inverse = transform.inverse()
     assert inverse.input_coordinate_system == world.id
     assert inverse.output_coordinate_system == data.id
     assert transform.input_coordinate_system == data.id
 
 
-def test_dimension_reducing_transform_has_no_inverse_d24_case_3():
+def test_dimension_reducing_transform_has_no_inverse():
     _, _, transform = reducing_transform()
     assert transform.input_ndim == 3
     assert transform.output_ndim == 2
@@ -221,20 +229,20 @@ def test_singular_square_matrix_has_no_inverse():
 
 
 def test_inverse_is_cached():
-    _, _, transform = uc3()
+    _, _, transform = channel_broadcast()
     assert transform._inverse_blocks is transform._inverse_blocks
 
 
 def test_inverse_of_a_broadcast_transform_carries_no_broadcast_axes():
-    _, _, transform = uc3()
+    _, _, transform = channel_broadcast()
     assert transform.inverse().broadcast_axes == frozenset()
 
 
-# --- vectors (D27, D28) -----------------------------------------------
+# --- vectors ----------------------------------------------------------
 
 
 @pytest.mark.parametrize("name", CASE_IDS)
-def test_normals_use_the_covariant_rule_d27(name):
+def test_normals_use_the_covariant_rule(name):
     _, _, transform = MODEL_USE_CASES[name]()
     rng = np.random.default_rng(1)
     normal = rng.normal(size=transform.input_ndim)
@@ -245,14 +253,14 @@ def test_normals_use_the_covariant_rule_d27(name):
     )
 
 
-def test_there_is_no_map_vector_d27():
+def test_there_is_no_map_vector():
     assert not hasattr(AffineTransform, "map_vector")
     assert not hasattr(AffineTransform, "imap_vector")
 
 
-def test_nothing_is_normalised_d28():
+def test_nothing_is_normalised():
     """v1 returned unit normals; v2 returns the raw transformed vector."""
-    _, _, transform = uc1()  # scale (0.5, 0.1, 0.1)
+    _, _, transform = scale_only()  # scale (0.5, 0.1, 0.1)
     vector = np.array([3.0, 0.0, 0.0])
     # a displacement scales by A, and its magnitude is meaningful
     assert np.allclose(transform.map_direction(vector), [1.5, 0.0, 0.0])
@@ -262,7 +270,7 @@ def test_nothing_is_normalised_d28():
     assert np.allclose(transform.imap_direction(vector), [6.0, 0.0, 0.0])
 
 
-def test_map_direction_and_imap_normal_need_no_inverse_d27():
+def test_map_direction_and_imap_normal_need_no_inverse():
     _, _, transform = reducing_transform()
     assert transform.inverse() is None
     assert transform.map_direction(np.array([1.0, 2.0, 3.0])).shape == (2,)
@@ -273,11 +281,11 @@ def test_map_direction_and_imap_normal_need_no_inverse_d27():
         transform.imap_direction(np.array([1.0, 2.0]))
 
 
-# --- planes (D29, D32) ------------------------------------------------
+# --- planes -----------------------------------------------------------
 
 
 def test_map_plane_keeps_points_on_the_plane():
-    data, world, transform = uc2()
+    data, world, transform = channel_passthrough()
     rng = np.random.default_rng(2)
     normal = rng.normal(size=4)
     offset = 1.5
@@ -293,8 +301,8 @@ def test_map_plane_keeps_points_on_the_plane():
     assert np.allclose(image @ mapped.normal, mapped.offset)
 
 
-def test_a_world_space_plane_fed_to_map_plane_raises_d29():
-    data, world, transform = uc1()
+def test_a_world_space_plane_fed_to_map_plane_raises():
+    data, world, transform = scale_only()
     plane = Plane(coordinate_system=world.id, normal=[0.0, 0.0, 1.0], offset=1.0)
     with pytest.raises(ValueError, match="this transform's input"):
         transform.map_plane(plane)
@@ -303,8 +311,8 @@ def test_a_world_space_plane_fed_to_map_plane_raises_d29():
         transform.imap_plane(data_plane)
 
 
-def test_a_plane_parallel_to_the_broadcast_axis_raises_d32():
-    _, world, transform = uc3()
+def test_a_plane_parallel_to_the_broadcast_axis_raises():
+    _, world, transform = channel_broadcast()
     plane = Plane(
         coordinate_system=world.id, normal=[0.0, 1.0, 0.0, 0.0, 0.0], offset=2.0
     )
@@ -314,9 +322,9 @@ def test_a_plane_parallel_to_the_broadcast_axis_raises_d32():
         transform.imap_normal(np.array([0.0, 1.0, 0.0, 0.0, 0.0]))
 
 
-def test_a_plane_tilted_in_c_and_x_does_not_raise_d32():
+def test_a_plane_tilted_in_c_and_x_does_not_raise():
     """Pinned so the non-injectivity is not later 'fixed' into an exception."""
-    _, world, transform = uc3()
+    _, world, transform = channel_broadcast()
     plane = Plane(
         coordinate_system=world.id, normal=[0.0, 1.0, 0.0, 0.0, 1.0], offset=0.0
     )
@@ -324,11 +332,11 @@ def test_a_plane_tilted_in_c_and_x_does_not_raise_d32():
     assert np.allclose(pulled.normal, [0.0, 0.0, 0.0, 0.1])
 
 
-# --- bounding boxes (D30, D31) ----------------------------------------
+# --- bounding boxes ---------------------------------------------------
 
 
-def test_map_bounding_box_marks_the_broadcast_axis_unbounded_d31():
-    data, world, transform = uc3()
+def test_map_bounding_box_marks_the_broadcast_axis_unbounded():
+    data, world, transform = channel_broadcast()
     box = AxisAlignedBoundingBox(
         coordinate_system=data.id,
         min_coordinate=[0.0, 0.0, 0.0, 0.0],
@@ -342,7 +350,7 @@ def test_map_bounding_box_marks_the_broadcast_axis_unbounded_d31():
 
 
 def test_map_bounding_box_requires_the_matching_output_system():
-    data, _, transform = uc3()
+    data, _, transform = channel_broadcast()
     box = AxisAlignedBoundingBox(
         coordinate_system=data.id,
         min_coordinate=np.zeros(4),
@@ -355,8 +363,8 @@ def test_map_bounding_box_requires_the_matching_output_system():
         transform.map_bounding_box(box, other)
 
 
-def test_map_bounding_box_rejects_a_world_space_box_d29():
-    _, world, transform = uc1()
+def test_map_bounding_box_rejects_a_world_space_box():
+    _, world, transform = scale_only()
     box = AxisAlignedBoundingBox(
         coordinate_system=world.id,
         min_coordinate=np.zeros(3),
@@ -366,8 +374,8 @@ def test_map_bounding_box_rejects_a_world_space_box_d29():
         transform.map_bounding_box(box, world)
 
 
-@pytest.mark.parametrize("name", ["UC1", "UC2", "UC4"])
-def test_map_bounding_box_is_exact_for_the_diagonal_cases_d30(name):
+@pytest.mark.parametrize("name", ["scale_only", "channel_passthrough", "reversed_axes"])
+def test_map_bounding_box_is_exact_for_the_diagonal_cases(name):
     data, world, transform = MODEL_USE_CASES[name]()
     ndim = transform.input_ndim
     lower = np.zeros(ndim)
@@ -389,8 +397,8 @@ def test_map_bounding_box_is_exact_for_the_diagonal_cases_d30(name):
 
 
 @pytest.mark.parametrize("extent", [1.0, np.inf])
-def test_imap_bounding_box_drops_the_broadcast_axis_either_way_d31(extent):
-    data, world, transform = uc3()
+def test_imap_bounding_box_drops_the_broadcast_axis_either_way(extent):
+    data, world, transform = channel_broadcast()
     box = AxisAlignedBoundingBox(
         coordinate_system=world.id,
         min_coordinate=[0.0, -extent, 0.0, 0.0, 0.0],
@@ -402,11 +410,11 @@ def test_imap_bounding_box_drops_the_broadcast_axis_either_way_d31(extent):
     assert np.all(np.isfinite(pulled.max_coordinate))
 
 
-# --- regions (D39, D41) -----------------------------------------------
+# --- regions ----------------------------------------------------------
 
 
-def test_imap_region_returns_a_region_not_a_box_d41():
-    data, world, transform = uc3()
+def test_imap_region_returns_a_region_not_a_box():
+    data, world, transform = channel_broadcast()
     region = ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5)})
     pulled = transform.imap_region(region, world)
     assert isinstance(pulled, ConvexRegion)
@@ -414,7 +422,7 @@ def test_imap_region_returns_a_region_not_a_box_d41():
     assert pulled.ndim == 4
 
 
-def test_imap_region_works_without_an_inverse_d39():
+def test_imap_region_works_without_an_inverse():
     data, flat, transform = reducing_transform()
     assert transform.inverse() is None
     region = ConvexRegion.from_axis_slabs(flat, {"v": (1.0, 0.5)})
@@ -428,18 +436,18 @@ def test_imap_region_works_without_an_inverse_d39():
         )
 
 
-def test_imap_region_agrees_with_the_direct_predicate_d39():
+def test_imap_region_agrees_with_the_direct_predicate():
     """Without broadcast axes the pull-back is exactly the forward predicate.
 
     This is D39's original property, and D8 must not disturb it: for a
     transform with no broadcast axes the drop rule removes nothing, so
-    ``imap_region`` is still raw ``A^T``.  UC2 is used rather than UC3
-    because a *broadcast* axis deliberately breaks this equivalence --
-    the forward map puts the data at ``C = 0``, which is not where it
-    is, and pinning that is
-    :func:`test_imap_region_drops_constraints_on_a_broadcast_axis_d8`.
+    ``imap_region`` is still raw ``A^T``.  ``channel_passthrough`` is
+    used rather than ``channel_broadcast`` because a *broadcast* axis
+    deliberately breaks this equivalence -- the forward map puts the data
+    at ``C = 0``, which is not where it is, and pinning that is
+    :func:`test_imap_region_drops_constraints_on_a_broadcast_axis`.
     """
-    _, world, transform = uc2()
+    _, world, transform = channel_passthrough()
     rng = np.random.default_rng(3)
     region = ConvexRegion(
         coordinate_system=world.id,
@@ -459,7 +467,7 @@ def test_imap_region_agrees_with_the_direct_predicate_d39():
     )
 
 
-# --- D8: imap_region consults broadcast_axes --------------------------
+# --- imap_region consults broadcast_axes ------------------------------
 
 
 def _exists_s_oracle(region, transform, broadcast_index, points):
@@ -484,13 +492,13 @@ def _exists_s_oracle(region, transform, broadcast_index, points):
     return inside
 
 
-def _uc3_oblique_through_c(world):
+def _channel_broadcast_oblique_through_c(world):
     """A slab whose normal tilts through the broadcast axis C and Z."""
     normal = np.array([0.0, 0.7, 0.7, 0.0, 0.0])
     return ConvexRegion.from_plane_slab(world, normal, 21.9, 1.0)
 
 
-def test_imap_region_drops_constraints_on_a_broadcast_axis_d8():
+def test_imap_region_drops_constraints_on_a_broadcast_axis():
     """The failure D8 exists to fix, on the case the viewer hits first.
 
     Selecting a channel the dataset has no axis for must not empty the
@@ -499,7 +507,7 @@ def test_imap_region_drops_constraints_on_a_broadcast_axis_d8():
     through the all-zero row to ``0 <= -1.5`` and the visual vanishes the
     moment the channel slider leaves zero.
     """
-    data, world, transform = uc3()
+    data, world, transform = channel_broadcast()
     region = ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5), "C": (2.0, 0.5)})
     assert len(region.half_spaces) == 4
 
@@ -517,9 +525,9 @@ def test_imap_region_drops_constraints_on_a_broadcast_axis_d8():
     assert box.max_coordinate[0] == pytest.approx(7.5)
 
 
-def test_imap_region_without_d8_would_have_been_empty():
+def test_imap_region_without_the_broadcast_drop_would_have_been_empty():
     """Pin the old answer, so the fix cannot silently regress."""
-    _, world, transform = uc3()
+    _, world, transform = channel_broadcast()
     region = ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5), "C": (2.0, 0.5)})
     # the shipped-before-D8 arithmetic: raw A^T with nothing dropped
     unamended = transform._imap_region(region, ())
@@ -528,7 +536,7 @@ def test_imap_region_without_d8_would_have_been_empty():
 
 
 @pytest.mark.parametrize("kind", ["axis_aligned", "oblique_through_c"])
-def test_the_d8_drop_rule_matches_an_exists_s_oracle(kind):
+def test_the_broadcast_drop_rule_matches_an_exists_s_oracle(kind):
     """The measurement that justifies shipping the cheap rule.
 
     For an axis-aligned selection the Fourier-Motzkin elimination of the
@@ -537,13 +545,13 @@ def test_the_d8_drop_rule_matches_an_exists_s_oracle(kind):
     ``0 <= 2 * half_thickness``.  The same holds for a lone oblique slab
     tilted through the axis.
     """
-    _, world, transform = uc3()
+    _, world, transform = channel_broadcast()
     broadcast_index = world.resolve("C")
 
     if kind == "axis_aligned":
         region = ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5), "C": (1.5, 1.0)})
     else:
-        region = _uc3_oblique_through_c(world)
+        region = _channel_broadcast_oblique_through_c(world)
 
     rng = np.random.default_rng(0)
     points = rng.uniform(-6.0, 12.0, size=(3000, 4))
@@ -555,7 +563,7 @@ def test_the_d8_drop_rule_matches_an_exists_s_oracle(kind):
     assert np.array_equal(drop_rule, truth)
 
 
-def test_the_d8_drop_rule_diverges_only_where_the_design_says_it_does():
+def test_the_broadcast_drop_rule_diverges_only_at_its_documented_limit():
     """The documented limit, pinned as a limit rather than as a bug.
 
     An oblique slab tilted *through* the broadcast axis, intersected
@@ -566,10 +574,10 @@ def test_the_d8_drop_rule_diverges_only_where_the_design_says_it_does():
     shape.  When one does, this test is the place the generalisation
     lands.
     """
-    _, world, transform = uc3()
+    _, world, transform = channel_broadcast()
     broadcast_index = world.resolve("C")
     region = ConvexRegion.intersection(
-        _uc3_oblique_through_c(world),
+        _channel_broadcast_oblique_through_c(world),
         ConvexRegion.from_axis_slabs(world, {"C": (2.0, 0.5)}),
     )
 
@@ -585,8 +593,8 @@ def test_the_d8_drop_rule_diverges_only_where_the_design_says_it_does():
     assert drop_rule.sum() > truth.sum()
 
 
-@pytest.mark.parametrize("name", ["UC1", "UC2", "UC4"])
-def test_d8_leaves_a_transform_without_broadcast_axes_bit_identical(name):
+@pytest.mark.parametrize("name", ["scale_only", "channel_passthrough", "reversed_axes"])
+def test_the_drop_leaves_a_transform_without_broadcast_axes_bit_identical(name):
     """No broadcast axes means nothing to drop, so the rule is raw A^T.
 
     Checked against the closed form written out inline rather than
@@ -617,16 +625,16 @@ def test_d8_leaves_a_transform_without_broadcast_axes_bit_identical(name):
     assert len(pulled.half_spaces) == len(region.half_spaces)
 
 
-def test_a_constant_output_axis_is_not_a_broadcast_one_under_imap_region_d39():
+def test_a_constant_output_axis_is_not_a_broadcast_one_under_imap_region():
     """D8 must not erase D39's vacuous / infeasible distinction.
 
     A *constant* zero row means "the source sits at exactly this
     position", so a selection elsewhere on that axis genuinely selects
     nothing.  Only a *broadcast* zero row means "the source is at every
     position".  The two look identical in the matrix, which is why
-    ``broadcast_axes`` is stored beside it (D25).
+    ``broadcast_axes`` is stored beside it.
     """
-    data, world, _ = uc3()
+    data, world, _ = channel_broadcast()
     constant = AffineTransform.from_axis_map(
         data,
         world,
@@ -643,13 +651,13 @@ def test_a_constant_output_axis_is_not_a_broadcast_one_under_imap_region_d39():
 
 
 def test_imap_region_requires_the_matching_output_system():
-    _, world, transform = uc3()
+    _, world, transform = channel_broadcast()
     region = ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5)})
     with pytest.raises(ValueError, match="output_coordinate_system must be"):
         transform.imap_region(region, tczyx_world())
 
 
-def test_map_region_is_not_given_the_d8_treatment_d31():
+def test_map_region_is_not_given_the_broadcast_drop():
     """The asymmetry is deliberate: broadcast is unboundedness forward.
 
     ``map_region`` keeps its single-argument signature.  Forward,
@@ -665,11 +673,11 @@ def test_map_region_is_not_given_the_d8_treatment_d31():
     assert list(backward) == ["self", "region", "output_coordinate_system"]
 
 
-# --- composition (D10, D19) -------------------------------------------
+# --- composition ------------------------------------------------------
 
 
-def test_then_composes_in_application_order_d10():
-    data, world, first = uc1()
+def test_then_composes_in_application_order():
+    data, world, first = scale_only()
     second_world = WorldCoordinateSystem(
         name="world2", axes=(space("Z2"), space("Y2"), space("X2"))
     )
@@ -690,8 +698,8 @@ def test_then_composes_in_application_order_d10():
     assert chained.output_coordinate_system == second_world.id
 
 
-def test_then_raises_across_a_coordinate_system_mismatch_d19():
-    _, world, first = uc1()
+def test_then_raises_across_a_coordinate_system_mismatch():
+    _, world, first = scale_only()
     other = WorldCoordinateSystem(
         name="other", axes=(space("Z"), space("Y"), space("X"))
     )
@@ -707,7 +715,7 @@ def test_then_raises_across_a_coordinate_system_mismatch_d19():
 
 
 def test_then_rejects_a_wrong_intermediate_system():
-    _, world, first = uc1()
+    _, world, first = scale_only()
     second_world = WorldCoordinateSystem(
         name="world2", axes=(space("Z2"), space("Y2"), space("X2"))
     )
@@ -720,7 +728,7 @@ def test_then_rejects_a_wrong_intermediate_system():
 
 def test_then_propagates_broadcast_axes_through_the_second_matrix():
     """A | identity must not quietly lose the unbounded extent."""
-    data, world, first = uc3()
+    data, world, first = channel_broadcast()
     world2 = WorldCoordinateSystem(
         name="world2",
         axes=(
@@ -751,7 +759,7 @@ def test_then_propagates_broadcast_axes_through_the_second_matrix():
 
 def test_then_propagates_broadcast_through_an_axis_that_mixes_it_in():
     """Anything downstream of an unbounded axis is itself unbounded."""
-    _, world, first = uc3()
+    _, world, first = channel_broadcast()
     world2 = WorldCoordinateSystem(
         name="world2",
         axes=(
@@ -773,8 +781,8 @@ def test_then_propagates_broadcast_through_an_axis_that_mixes_it_in():
     )
 
 
-def test_there_is_no_matmul_and_no_compose_and_no_or_d10():
-    _, world, first = uc1()
+def test_there_is_no_matmul_and_no_compose_and_no_or():
+    _, world, first = scale_only()
     second_world = WorldCoordinateSystem(
         name="world2", axes=(space("Z2"), space("Y2"), space("X2"))
     )
@@ -788,30 +796,30 @@ def test_there_is_no_matmul_and_no_compose_and_no_or_d10():
         first | second
 
 
-# --- constructor guardrails (D18, D22, D23, D26) -----------------------
+# --- constructor guardrails --------------------------------------------
 
 
-def test_axis_map_is_required_d22():
-    data, world, _ = uc1()
+def test_axis_map_is_required():
+    data, world, _ = scale_only()
     with pytest.raises(TypeError):
         AffineTransform.from_axis_map(data, world)
 
 
-def test_an_unmapped_input_axis_raises_d22():
-    data, world, _ = uc1()
+def test_an_unmapped_input_axis_raises():
+    data, world, _ = scale_only()
     with pytest.raises(ValueError, match="Every input axis"):
         AffineTransform.from_axis_map(data, world, axis_map={"z": "Z", "y": "Y"})
 
 
 def test_an_output_axis_claimed_twice_raises():
-    data, world, _ = uc1()
+    data, world, _ = scale_only()
     with pytest.raises(ValueError, match="claimed by more than one"):
         AffineTransform.from_axis_map(
             data, world, axis_map={"z": "Z", "y": "Z", "x": "X"}
         )
 
 
-def test_mapping_time_to_space_raises_d26():
+def test_mapping_time_to_space_raises():
     data = DataCoordinateSystem(
         name="d",
         datastore_id=uuid4(),
@@ -822,7 +830,7 @@ def test_mapping_time_to_space_raises_d26():
         AffineTransform.from_axis_map(data, world, axis_map={"t": "T", "z": "Z"})
 
 
-def test_mismatched_units_do_not_raise_d16():
+def test_mismatched_units_do_not_raise():
     """Units are recorded, not enforced."""
     data = DataCoordinateSystem(
         name="d",
@@ -835,7 +843,7 @@ def test_mismatched_units_do_not_raise_d16():
     assert AffineTransform.from_axis_map(data, world, axis_map={"z": "Z"})
 
 
-def test_an_ambiguous_axis_name_raises_and_the_id_works_d6():
+def test_an_ambiguous_axis_name_raises_and_the_id_works():
     first, second = space("z"), space("z")
     data = CoordinateSystem(name="d", axes=(first, second))
     world = CoordinateSystem(name="w", axes=(space("Z"), space("Y")))
@@ -847,13 +855,13 @@ def test_an_ambiguous_axis_name_raises_and_the_id_works_d6():
 
 
 def test_from_matrix_rejects_a_shape_that_disagrees_with_the_systems():
-    data, world, _ = uc1()
+    data, world, _ = scale_only()
     with pytest.raises(ValueError, match="must have shape"):
         AffineTransform.from_matrix(np.eye(5), data, world)
 
 
-def test_a_non_finite_matrix_is_rejected_d44():
-    data, world, _ = uc1()
+def test_a_non_finite_matrix_is_rejected():
+    data, world, _ = scale_only()
     bad = np.eye(4)
     bad[0, 0] = np.inf
     with pytest.raises(ValueError, match="finite"):
@@ -863,16 +871,16 @@ def test_a_non_finite_matrix_is_rejected_d44():
         AffineTransform.from_matrix(bad, data, world)
 
 
-def test_there_is_no_identity_constructor_d18():
+def test_there_is_no_identity_constructor():
     assert not hasattr(AffineTransform, "identity")
     assert not hasattr(AffineTransform, "from_scale")
 
 
-def test_the_axis_map_is_not_stored_d23():
+def test_the_axis_map_is_not_stored():
     assert "axis_map" not in AffineTransform.model_fields
 
 
-# --- the rendered -> world embedding (D34, D35, D36) -------------------
+# --- the rendered -> world embedding -----------------------------------
 
 
 def tczyx_world():
@@ -899,7 +907,7 @@ def rendered_to_world(displayed, slices):
     return world, rendered, transform
 
 
-def test_the_3d_embedding_is_invertible_and_drops_the_sliced_axes_d34():
+def test_the_3d_embedding_is_invertible_and_drops_the_sliced_axes():
     _, _, transform = rendered_to_world(("Z", "Y", "X"), {"T": 7.0, "C": 2.0})
     assert transform.matrix.shape == (6, 4)
     assert np.linalg.matrix_rank(transform.linear) == 3
@@ -912,7 +920,7 @@ def test_the_3d_embedding_is_invertible_and_drops_the_sliced_axes_d34():
     assert np.allclose(transform.imap_coordinates(world_point), point)
 
 
-def test_the_2d_embedding_is_an_exact_left_inverse_d34():
+def test_the_2d_embedding_is_an_exact_left_inverse():
     _, _, transform = rendered_to_world(("Z", "Y"), {"T": 7.0, "C": 2.0, "X": 1.0})
     assert transform.matrix.shape == (6, 3)
     point = np.array([3.0, 4.0])
@@ -920,7 +928,7 @@ def test_the_2d_embedding_is_an_exact_left_inverse_d34():
     assert np.allclose(transform.imap_coordinates(mapped), point)
 
 
-def test_declaring_the_transform_world_to_rendered_gives_no_inverse_d34():
+def test_declaring_the_transform_world_to_rendered_gives_no_inverse():
     """Pinned so the direction choice cannot be quietly reversed."""
     world, rendered, _ = rendered_to_world(("Z", "Y", "X"), {"T": 7.0, "C": 2.0})
     reversed_matrix = np.zeros((4, 6))
@@ -932,7 +940,7 @@ def test_declaring_the_transform_world_to_rendered_gives_no_inverse_d34():
     assert backwards.inverse() is None
 
 
-def test_a_world_point_off_the_slice_maps_onto_it_d36():
+def test_a_world_point_off_the_slice_maps_onto_it():
     """A transform is a total function; a selection is a predicate."""
     _, _, transform = rendered_to_world(("Z", "Y", "X"), {"T": 7.0, "C": 2.0})
     on_slice = np.array([7.0, 2.0, 3.0, 4.0, 5.0])
@@ -942,15 +950,15 @@ def test_a_world_point_off_the_slice_maps_onto_it_d36():
     )
 
 
-def test_constant_output_axes_do_not_become_broadcast_axes_d35():
+def test_constant_output_axes_do_not_become_broadcast_axes():
     _, _, transform = rendered_to_world(("Z", "Y", "X"), {"T": 7.0, "C": 2.0})
     assert transform.broadcast_axes == frozenset()
     assert transform.translation[0] == 7.0
     assert transform.translation[1] == 2.0
 
 
-def test_broadcast_output_axes_do_both_d35():
-    _, world, transform = uc3()
+def test_broadcast_output_axes_do_both():
+    _, world, transform = channel_broadcast()
     assert transform.broadcast_axes == frozenset({world.axis_by_name("C").id})
     assert transform.translation[1] == 0.0
 
@@ -981,7 +989,7 @@ def test_a_mapped_output_axis_cannot_also_be_declared():
         )
 
 
-# --- D46: permuting the rendered axes transposes the view --------------
+# --- Permuting the rendered axes transposes the view -------------------
 
 
 def _node_matrix_for_rendered_order(displayed):
@@ -1022,14 +1030,16 @@ def _node_matrix_for_rendered_order(displayed):
     )
 
     inverse = rendered_to_world_transform.inverse()
-    assert inverse is not None, "the D34 embedding must have an exact left inverse"
+    assert inverse is not None, (
+        "the rendered -> world embedding must have an exact left inverse"
+    )
     node = visual_to_data.then(data_to_world, data, world).then(
         inverse, world, rendered
     )
     return node
 
 
-def test_a_permuted_rendered_system_transposes_the_node_matrix_d46():
+def test_a_permuted_rendered_system_transposes_the_node_matrix():
     """The call sites differ only in the order of the displayed sequence."""
     in_order = _node_matrix_for_rendered_order(("Y", "X"))
     permuted = _node_matrix_for_rendered_order(("X", "Y"))
@@ -1038,7 +1048,7 @@ def test_a_permuted_rendered_system_transposes_the_node_matrix_d46():
     assert np.allclose(permuted.linear, [[0.0, 0.25], [0.5, 0.0]])
 
 
-def test_a_permuted_rendered_system_has_a_negative_determinant_d46():
+def test_a_permuted_rendered_system_has_a_negative_determinant():
     """A swap of two axes is a reflection, not a rotation.
 
     Worth pinning because "rotate the view 90 degrees" is a *different*
@@ -1053,7 +1063,7 @@ def test_a_permuted_rendered_system_has_a_negative_determinant_d46():
     assert np.linalg.det(permuted.linear) == pytest.approx(-0.125)
 
 
-def test_a_permuted_rendered_system_is_still_exactly_invertible_d46():
+def test_a_permuted_rendered_system_is_still_exactly_invertible():
     permuted = _node_matrix_for_rendered_order(("X", "Y"))
     inverse = permuted.inverse()
     assert inverse is not None
@@ -1062,11 +1072,11 @@ def test_a_permuted_rendered_system_is_still_exactly_invertible_d46():
     assert np.allclose(inverse.map_coordinates(permuted.map_coordinates(point)), point)
 
 
-# --- equality (D21) ----------------------------------------------------
+# --- equality ----------------------------------------------------------
 
 
-def test_independently_built_identical_transforms_compare_equal_d21():
-    data, world, first = uc1()
+def test_independently_built_identical_transforms_compare_equal():
+    data, world, first = scale_only()
     second = AffineTransform.from_axis_map(
         data,
         world,
@@ -1078,14 +1088,14 @@ def test_independently_built_identical_transforms_compare_equal_d21():
     assert hash(first) == hash(second)
 
 
-def test_equality_against_a_foreign_type_is_false_not_an_exception_d21():
-    _, _, transform = uc1()
+def test_equality_against_a_foreign_type_is_false_not_an_exception():
+    _, _, transform = scale_only()
     assert (transform == "not a transform") is False
     assert (transform != "not a transform") is True
 
 
 def test_transforms_differing_only_in_broadcast_axes_are_not_equal():
-    data, world, with_broadcast = uc3()
+    data, world, with_broadcast = channel_broadcast()
     without = AffineTransform.from_matrix(
         with_broadcast.matrix,
         data,
@@ -1096,8 +1106,8 @@ def test_transforms_differing_only_in_broadcast_axes_are_not_equal():
     assert with_broadcast != without
 
 
-def test_hash_works_on_a_model_holding_an_unhashable_affine_d21():
-    _, _, transform = uc1()
+def test_hash_works_on_a_model_holding_an_unhashable_affine():
+    _, _, transform = scale_only()
     with pytest.raises(TypeError):
         hash(transform.transform)
     assert isinstance(hash(transform), int)

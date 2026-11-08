@@ -1,4 +1,4 @@
-"""Oblique 2D design v3, Phase 5: feature parity in tilted views (O17).
+"""Feature parity in tilted views.
 
 ``plans/oblique_2d_raster_design_v3.md`` 5.7 (clipping), 5.9 (progressive
 display), multichannel composite, and the orthoviewer under ``rot_zx`` and
@@ -96,7 +96,7 @@ def _data_points(camera, matrix, slice_z, size=SIZE):
 
 
 # ---------------------------------------------------------------------------
-# Clip lines (5.7)
+# Clip lines
 # ---------------------------------------------------------------------------
 
 
@@ -237,7 +237,7 @@ def test_a_tilted_composite_is_each_channel_drawn_alone_blended(tmp_path, family
 
 
 # ---------------------------------------------------------------------------
-# Progressive display (5.9): intermediate stages on the slice node
+# Progressive display: intermediate stages on the slice node
 # ---------------------------------------------------------------------------
 
 

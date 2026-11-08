@@ -505,7 +505,7 @@ async def test_the_request_event_opens_and_closes(make_rig):
     assert (last.plane_id, last.source_id) == (None, widget)
 
 
-# -- a component on an axis the view does not show (5.5) ----------------------
+# -- a component on an axis the view does not show ----------------------------
 
 
 async def test_a_plane_tilted_on_a_hidden_axis_has_no_gizmo(make_rig):

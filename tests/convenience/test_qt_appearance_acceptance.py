@@ -1,12 +1,12 @@
 """Visual acceptance of the Qt appearance dock.
 
-Stage 0 section 6.3 of ``plans/convenience_cleanup.md``: pins the group titles
-the Qt appearance dock renders, in order, and that the panel actually paints.
+Pins the group titles the Qt appearance dock renders, in order, and that the
+panel actually paints.
 
 **Stage 1 landed here**: the "Bounding box" group is new in every list below.
 ``QtAABBWidget`` already existed and the anywidget path already built one; only
-the Qt renderer did not, which was drift rather than a toolkit limit
-(section 7.1).  That change is the diff this module exists to show.
+the Qt renderer did not, which was drift rather than a toolkit limit.  That
+change is the diff this module exists to show.
 """
 
 from __future__ import annotations
@@ -136,7 +136,7 @@ def test_a_field_the_model_lacks_warns_and_the_rest_is_built(qtbot, mesh_store):
 
 
 def test_the_image_rows_do_not_follow_the_field_order(qtbot, image_store):
-    """``ImageControl.fields`` chooses rows; it does not order them (D1)."""
+    """``ImageControl.fields`` chooses rows; it does not order them."""
     viewer = Viewer(spatial_axes("z", "y", "x"), displayed_axes=("y", "x"), gui="qt")
     viewer.add_image(
         image_store,

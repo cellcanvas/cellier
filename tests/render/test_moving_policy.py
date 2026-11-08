@@ -1,8 +1,8 @@
 """The moving policy: what a multiscale visual plans while it moves.
 
-Plane rendering design v3, section 7.  A visual moves while its planes are
-dragged (a ``plane_interaction`` scope) or its scene's dims are scrubbed.
-With ``coarsest_while_moving_3d`` on (the 3D default) a plane drag plans
+A visual moves while its planes are dragged (a ``plane_interaction``
+scope) or its scene's dims are scrubbed.  With
+``coarsest_while_moving_3d`` on (the 3D default) a plane drag plans
 nothing and keeps the last plan, a dims tick plans the backstop, and the
 target is planned once every motion has stopped.
 
@@ -355,7 +355,7 @@ async def test_removing_a_visual_mid_drag_forgets_what_it_was_owed(make_rig):
     assert rig.controller._plane_interaction_driver.tasks() == []
 
 
-# -- C3: a camera end during a drag ----------------------------------------------
+# -- A camera end during a drag --------------------------------------------------
 
 
 def _moved(state, step: float):
@@ -425,7 +425,7 @@ async def test_with_camera_reslicing_off_a_drag_end_plans_whatever_the_camera_do
     await drain_loading(controller)
 
 
-# -- C4: a plane drag and a dims scrub together ---------------------------------
+# -- A plane drag and a dims scrub together -------------------------------------
 
 
 async def test_a_drag_and_a_scrub_together_plan_the_target_once_both_have_stopped(

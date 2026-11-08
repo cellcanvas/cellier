@@ -1,4 +1,4 @@
-"""Incoming update event NamedTuples for the cellier v2 IncomingEventBus.
+"""Incoming update event NamedTuples for the IncomingEventBus.
 
 GUI widgets (and other callers) emit these onto ``CellierController.incoming_events``
 to request model mutations.  The controller subscribes handler methods that

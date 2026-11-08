@@ -1,4 +1,4 @@
-"""The unified image control for anywidget (unified image design 3.10).
+"""The unified image control for anywidget.
 
 The twin of ``QtImageControls``.  State is synced as a few dict traits --
 ``shared``, ``single`` and ``channels`` -- plus ``composite``.  The front end
@@ -100,7 +100,7 @@ class AnywidgetImageControls(VisualIdGroup, anywidget.AnyWidget):
     """Render modes that show the attenuation row (in 3D)."""
     n_displayed_dimensions = traitlets.Int(3).tag(sync=True)
     #: The projection rows' options, ``{"ops": [...], "axes": [...]}``, when
-    #: the field list asks for them (oblique 2D design v3, 4.2).
+    #: the field list asks for them.
     projection = traitlets.Dict({}).tag(sync=True)
     """How many dimensions the scene displays (2 or 3).  Python to JS only."""
     masked = traitlets.Bool(False).tag(sync=True)

@@ -1,4 +1,4 @@
-"""restrict() and to_affine() (implementation plan, Phase 3).
+"""restrict() and to_affine().
 
 The question the GPU boundary needs answered is not "is this transform
 affine" but "with every collapsed axis pinned, is what remains affine".

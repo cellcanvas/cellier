@@ -1,4 +1,4 @@
-"""Scene models for cellier v2."""
+"""Scene models."""
 
 from cellier.scene._background import BackgroundAppearance
 from cellier.scene.cameras import (

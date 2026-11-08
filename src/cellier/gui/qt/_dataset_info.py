@@ -123,8 +123,8 @@ class QtDatasetInfo:
     for the sectioned description a data store returns from its
     ``dataset_info()``, which adds nested blocks and matrix tables.
 
-    Uses ``qtpy`` for PyQt6/PySide6 compatibility.  Follows the cellier v2
-    widget pattern: a non-``QWidget`` class exposing a ``.widget`` property.
+    Uses ``qtpy`` for PyQt6/PySide6 compatibility.  Follows the widget
+    pattern: a non-``QWidget`` class exposing a ``.widget`` property.
     It is a pure-output control with nothing on the bus, so it carries no
     ``changed``/``closed`` signals and is never passed to ``connect_widget``
     (``layout._shared.STATIC_CONTROL_KINDS``).

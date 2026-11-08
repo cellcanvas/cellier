@@ -2,9 +2,9 @@
 
 Test code only; nothing here is exported from ``src``.
 
-``controls=`` has no "every field" value (ordered controls design D5), so a
-test that wants every field control of a visual, and does not care which
-they are, asks :func:`all_fields` or :func:`field_control`.
+``controls=`` has no "every field" value, so a test that wants every field
+control of a visual, and does not care which they are, asks
+:func:`all_fields` or :func:`field_control`.
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ def fields(kind: str, *names: str, **options: Any) -> Control:
 #
 # One per case of ``data/appearance_specs_golden.json``: what the old config
 # of ``scripts/ordered_controls/capture_spec_golden.py`` asked for, written as
-# a list in the order the old code built (design 4.1).
+# a list in the order the old code built.
 
 _IMAGE = ["visible", "opacity", "color_map", "clim", "render_mode", "iso_threshold"]
 _LABELS = ["visible", "opacity", "render_mode", "salt", "background_label"]
@@ -167,7 +167,7 @@ PARITY_CONTROLS: dict[str, Any] = {
         DatasetInfoControl(),
     ],
     # The old config also set ``lod_controls=True``, which built nothing on
-    # an in-memory mesh (design F1); the list cannot ask for it there.
+    # an in-memory mesh; the list cannot ask for it there.
     "mesh_flat/all": lambda: [
         FieldControls(_MESH_FLAT),
         BoundingBoxControl(),

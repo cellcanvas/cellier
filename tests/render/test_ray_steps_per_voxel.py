@@ -1,10 +1,10 @@
 """``ray_steps_per_voxel``: the 3D ray-march step density of multiscale visuals.
 
 Both 3D brick shaders take ``ray_steps_per_voxel`` samples per voxel of the
-drawn level, counted along the ray (plan v2, D6).  Slabs one voxel thick,
-seen face-on, show the density directly: at one sample per voxel every ray
-lands a sample in each; at one per two voxels a ray can step over one.  The
-setting is a live appearance field, so the test changes it between renders.
+drawn level, counted along the ray.  Slabs one voxel thick, seen face-on,
+show the density directly: at one sample per voxel every ray lands a sample
+in each; at one per two voxels a ray can step over one.  The setting is a
+live appearance field, so the test changes it between renders.
 """
 
 from __future__ import annotations

@@ -196,9 +196,7 @@ class RenderManager:
         self._visual_flags: dict[UUID, VisualFlags] = {}
         # Pick-value reads, cancellable by id (the only reads that are).
         self._pick_reads = CancellableReads()
-        # Every visual loads through the chunk scheduler, 2D and 3D
-        # (plans/progressive_loading_design_v3.md,
-        # plans/scheduler_only_loading_design_v2.md).
+        # Every visual loads through the chunk scheduler, 2D and 3D.
         self._scheduler = ChunkScheduler(
             config.scheduler,
             request_draw=self._request_draw_scene,
@@ -245,7 +243,7 @@ class RenderManager:
         self._slice_coordinator.on_cache_progress(cache_id)
 
     def loading_progress(self, visual_id: UUID) -> LoadingProgress | None:
-        """A multiscale visual's loading progress, or ``None`` (design 5.13)."""
+        """A multiscale visual's loading progress, or ``None``."""
         return self._slice_coordinator.visual_progress(visual_id)
 
     def _request_draw_scene(self, scene_id: UUID | None) -> None:
@@ -286,7 +284,7 @@ class RenderManager:
     def invalidate_store(
         self, store_id: UUID, regions: tuple | None = None
     ) -> list[int]:
-        """Forget GPU data read from a store, where it changed (design 5.14).
+        """Forget GPU data read from a store, where it changed.
 
         Every scheduled atlas reading the store drops the bricks that overlap
         *regions* (all of them for ``None``); wanted ones are fetched again.
@@ -1063,8 +1061,8 @@ class RenderManager:
         # Wire up per-frame tick for visuals (e.g. jitter seed advance).
         canvas_view._tick_visuals_fn = self._make_tick_fn(scene_id, canvas_view)
         # Commit what the chunk scheduler has received just before each frame
-        # of this canvas is drawn, scoped to its scene (design 5.7).  Every
-        # canvas of the scene is hooked, including capture canvases.
+        # of this canvas is drawn, scoped to its scene.  Every canvas of the
+        # scene is hooked, including capture canvases.
         scheduler = self._scheduler
 
         def _commit_before_draw(event, scene_id=scene_id) -> None:
@@ -1358,9 +1356,8 @@ class RenderManager:
     ) -> UUID | None:
         """Read pick values, cancellable by the returned id.
 
-        Multiscale pick values are read at level 0 (unified image design
-        3.7), concurrently, as one cancellable task (scheduler-only loading
-        design v2, 4.10).
+        Multiscale pick values are read at level 0, concurrently, as one
+        cancellable task.
 
         Parameters
         ----------
@@ -1527,8 +1524,8 @@ class RenderManager:
         return _ImageDisplayedDataCoord(
             displayed_data_coord=coord,
             collapsed_data_indices=collapsed_pairs,
-            # The pick-buffer winner in composite mode (design 3.7); the
-            # controller reads channel values from these.
+            # The pick-buffer winner in composite mode; the controller
+            # reads channel values from these.
             channel_index=gfx_visual.pick_channel_index(hit_object),
             drawn_channels=gfx_visual.drawn_channel_indices(),
         )
@@ -1690,11 +1687,11 @@ class RenderManager:
 
         Called in that canvas's frame, just before it renders.  Each visual
         is ticked, and a visual with ``prepare_draw`` chooses what this
-        canvas draws of it (``plans/mesh_refactor_v3.md`` L3): the scene
-        graph is shared by every canvas of the scene, and canvases render
-        one after another, so the choice is made per canvas, per frame.
-        When a visual reports that what it draws changed, the canvas
-        discards its accumulation history in the same frame.
+        canvas draws of it: the scene graph is shared by every canvas of
+        the scene, and canvases render one after another, so the choice is
+        made per canvas, per frame.  When a visual reports that what it
+        draws changed, the canvas discards its accumulation history in the
+        same frame.
         """
         canvas_id = canvas_view.canvas_id
 
@@ -1899,9 +1896,9 @@ class RenderManager:
     ) -> bool:
         """Say which planes each visual of a scene shows outlines of.
 
-        The outlines are computed again and drawn (plane outline design
-        6.4).  Between calls the scene keeps them up to date itself as its
-        visuals' planes and placement change.
+        The outlines are computed again and drawn.  Between calls the
+        scene keeps them up to date itself as its visuals' planes and
+        placement change.
 
         Parameters
         ----------

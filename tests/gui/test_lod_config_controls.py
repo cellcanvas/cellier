@@ -1,8 +1,8 @@
 """The "LOD" control of a multiscale mesh, on both toolkits.
 
-``plans/mesh_refactor_v3.md`` Phase 9 (5.11).  The control sends
-``LodConfigUpdateEvent`` and follows ``LodConfigChangedEvent``; the viewers
-mirror ``add_multiscale_mesh`` and ``set_lod_config``.
+The control sends ``LodConfigUpdateEvent`` and follows
+``LodConfigChangedEvent``; the viewers mirror ``add_multiscale_mesh`` and
+``set_lod_config``.
 """
 
 from __future__ import annotations

@@ -355,8 +355,8 @@ _IMAGE_FIELDS: dict[str, str] = {
     "clim": "image",
     "render_mode": "image",
     "iso_threshold": "image",
-    # The slab projection of a 2D view (oblique 2D design v3, 4.2): rows of
-    # the image control, beside the render mode.
+    # The slab projection of a 2D view: rows of the image control, beside
+    # the render mode.
     "slab_projection": "image",
     "projection_axes": "image",
 }
@@ -385,14 +385,14 @@ _MASKED_IMAGE_FIELDS: dict[str, str] = {
     "color_map": "image",
     "clim": "image",
     "iso_threshold": "image",
-    # The surface (masked image design 10) and the 2D band (4.1, 7.2).
+    # The surface and the 2D band.
     "surface_thickness": "image",
     "surface_placement": "image",
     "surface_projection": "image",
     "surface_min_width_px": "image",
     "band_rays": "image",
     "band_cap": "image",
-    # 3D target loading (8.3).
+    # 3D target loading.
     "target_bricks": "image",
 }
 
@@ -452,8 +452,8 @@ _COMMON_CONTROLS: tuple[type[Control], ...] = (
 )
 
 ALLOWED_CONTROLS: dict[str, tuple[type[Control], ...]] = {
-    # In-memory images and labels have levels on their brick route (oblique
-    # 2D design v3, U1): the level-of-detail and loading controls.
+    # In-memory images and labels have levels on their brick route: the
+    # level-of-detail and loading controls.
     "image": (
         ImageControl,
         LevelOfDetailControl,
@@ -470,7 +470,7 @@ ALLOWED_CONTROLS: dict[str, tuple[type[Control], ...]] = {
         LoadingConfigControl,
         *_COMMON_CONTROLS,
     ),
-    # No render planes: a MaskedImage refuses them (masked image design 4.3).
+    # No render planes: a MaskedImage refuses them.
     "masked_image": (
         ImageControl,
         LevelOfDetailControl,

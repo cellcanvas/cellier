@@ -13,7 +13,7 @@ const MAX_BRICK_ITERS: u32 = 512u;
 // ── Ray-step count ────────────────────────────────────────────────────────
 // Steps for a ray segment of length brick_len (normalized space) through a
 // brick drawn at lod_scale: u_material.ray_steps_per_voxel per level-k voxel
-// crossed, counting voxels along the ray (L2).  ray_dir * dataset_size /
+// crossed, counting voxels along the ray.  ray_dir * dataset_size /
 // norm_size is the ray's rate in level-0 voxels; dividing by lod_scale gives
 // level-k voxels.  The count depends only on the drawn level's voxel size
 // along the ray -- not on the block size, the physical voxel aspect ratio or
@@ -416,9 +416,9 @@ fn vs_main(in: VertexInput) -> Varyings {
 
     let norm_pos  = corners[indices[box_winding_index(in.vertex_index)]];
     $$ if slice_2d
-    // A 2D view's slice node (oblique 2D design v3, 5.3.3): the box is
-    // flattened onto rendered depth 0, as the image brick shader does, so
-    // the 2D camera's depth range never clips it.
+    // A 2D view's slice node: the box is flattened onto rendered depth 0,
+    // as the image brick shader does, so the 2D camera's depth range
+    // never clips it.
     let box_pos   = u_wobject.world_transform * vec4<f32>(norm_pos, 1.0);
     let world_pos = vec4<f32>(box_pos.xy, 0.0, box_pos.w);
     $$ else
@@ -485,7 +485,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     if (t_start >= t_end) { discard; }
 
     $$ if render_mode == "plane"
-    // ── Plane mode (plane rendering design v3, 5.1, 5.2) ───────────────
+    // ── Plane mode ─────────────────────────────────────────────────────
     // The label at the nearest render plane the ray meets.  Background, and
     // a brick that is not loaded, are passed over and the next plane along
     // the ray tried.
@@ -525,8 +525,8 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // Flat label colour: a plane is not shaded.
     out.color = vec4<f32>(plane_color.rgb, plane_color.a * u_material.opacity);
     $$ if slice_2d
-    // The flattened proxy's rasterised depth: a 2D tile's depth exactly
-    // (oblique 2D design v3, 5.3.3, K27).
+    // The flattened proxy's rasterised depth: a 2D tile's depth
+    // exactly.
     out.depth = varyings.position.z;
     $$ else
     out.depth = plane_ndc.z / plane_ndc.w;
@@ -650,7 +650,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         // starting at t puts samples exactly on voxel faces whenever the
         // step divides the brick (face-on views at 1 sample per voxel);
         // floor(u + 0.5) is then a coin toss between two voxels.  Half a
-        // step in puts them on voxel centres instead (plan v2 Phase 6).
+        // step in puts them on voxel centres instead.
         var t_sample = t + 0.5 * brick.step_size;
         for (var i = 0u; i < brick.num_steps; i++) {
             if (t_sample > brick.t_end) { break; }

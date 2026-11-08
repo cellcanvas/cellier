@@ -77,8 +77,8 @@ class BaseDrawAppearance(EventedModel):
     """How any visual is drawn, apart from its opacity.
 
     Split out of :class:`BaseAppearance` so an image, whose opacity is per
-    channel (unified image design 3.1), does not inherit a visual-level
-    ``opacity`` that would mean nothing.
+    channel, does not inherit a visual-level ``opacity`` that would mean
+    nothing.
 
     Parameters
     ----------
@@ -137,7 +137,7 @@ class BaseVisual(EventedModel):
         "not decided yet": ``CellierController.add_visual`` builds the
         identity between those two systems and assigns it.
 
-        There is no coordinate-system-less identity to default to (D18).  A
+        There is no coordinate-system-less identity to default to.  A
         transform names its endpoints by id, and a visual constructed before
         it is added to a scene does not yet know which world it is going into.
     aabb : AABBParams
@@ -163,7 +163,7 @@ class BaseVisual(EventedModel):
     -----
     Each concrete visual subclass declares its own typed ``appearance`` field.
     Image visuals also carry a ``single`` appearance and per-channel
-    ``channels`` appearances (unified image design 3.1).
+    ``channels`` appearances.
     """
 
     name: str

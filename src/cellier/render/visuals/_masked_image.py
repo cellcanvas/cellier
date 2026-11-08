@@ -1,4 +1,4 @@
-"""Render visual of a MaskedImage (masked image design v2, section 5).
+"""Render visual of a MaskedImage.
 
 A MaskedImage is two multiscale image visuals.  The **mask** side is this
 visual itself: its node is what the scene draws, and its slots build the mask
@@ -9,8 +9,8 @@ is bound into the mask's material.
 
 Both are built for the brick route only (``{"3d"}``): every view of a
 MaskedImage, 2D included, is drawn from 3D bricks, so no 2D tile atlas is
-allocated.  Both paint only the current slice's bricks (design 8.5), so a
-surface of one time point is never coloured with another's values.
+allocated.  Both paint only the current slice's bricks, so a surface of
+one time point is never coloured with another's values.
 """
 
 from __future__ import annotations
@@ -64,12 +64,12 @@ __all__ = [
     "value_model_view",
 ]
 
-#: Samples along the normal before the step widens (design 6.2).
+#: Samples along the normal before the step widens.
 PROJECTION_CAP = 64
 
 
 def surface_interval(thickness: float, placement: str) -> tuple[float, float]:
-    """The placed interval along ``inward``, world units (design 6.2).
+    """The placed interval along ``inward``, world units.
 
     Parameters
     ----------
@@ -93,7 +93,7 @@ def sliced_shader_axis(slot) -> int | None:
     The slice node's plane is rendered ``z = 0`` (``slice_render_plane``),
     so its normal in the slot's voxels is the third row of the voxel ->
     rendered map.  ``None`` when the plane is tilted against the slot's
-    grid: the side then reads at its true depth (MI-D14).
+    grid: the side then reads at its true depth.
     """
     world = np.asarray(slot._inner_node_3d.world.matrix, np.float64)[:3, :3]
     voxel_to_norm = np.asarray(slot._norm_size, np.float64) / np.asarray(
@@ -158,15 +158,15 @@ def mask_voxel_lengths(mask_slot) -> np.ndarray:
 
 
 def surface_reach(thickness: float, placement: str) -> float:
-    """How far from the surface the value is read, world units (8.3)."""
+    """How far from the surface the value is read, world units."""
     low, high = surface_interval(thickness, placement)
     return max(abs(low), abs(high))
 
 
 class _MaskSlot(_MultiscaleImageSlot):
-    """A mask slot: the masked material; paints only the current slice (8.5).
+    """A mask slot: the masked material; paints only the current slice.
 
-    Its atlas keeps each brick's range for the 2D band's skip (7.4).
+    Its atlas keeps each brick's range for the 2D band's skip.
     """
 
     _material_3d_class = MaskedVolumeBrickMaterial
@@ -192,7 +192,7 @@ class _MaskSlot(_MultiscaleImageSlot):
 
 
 class _ValueSlot(_MultiscaleImageSlot):
-    """A value slot: paints only the current slice (design 8.5)."""
+    """A value slot: paints only the current slice."""
 
     _current_slice_only = True
 
@@ -200,8 +200,8 @@ class _ValueSlot(_MultiscaleImageSlot):
 class _ValueImageVisual(GFXMultiscaleImageVisual):
     """The value side: plans and loads, never drawn.
 
-    Its 3D target is filtered by the mask visual's ``target_filter``
-    (design 8.3), set when the mask builds it.
+    Its 3D target is filtered by the mask visual's ``target_filter``,
+    set when the mask builds it.
     """
 
     _slot_class = _ValueSlot
@@ -256,7 +256,7 @@ def value_model_view(
 
     Not registered anywhere: the controller knows the MaskedImage only, and
     the value side's systems come from the controller under the
-    MaskedImage's own id (design 5.1, G8).
+    MaskedImage's own id.
 
     Parameters
     ----------
@@ -339,8 +339,8 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
             displayed_axes,
         )
         self._value_spaces: RenderSpaces | None = None
-        # target_bricks="surface" (design 8.3): the slice whose coarse level
-        # a target waits for, and this plan's crossing cells for the value.
+        # target_bricks="surface": the slice whose coarse level a target
+        # waits for, and this plan's crossing cells for the value.
         self._surface_owed: Any = None
         self._surface_crossing: tuple | None = None
         self._value.target_filter = self._filter_value_target
@@ -356,9 +356,9 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
     def get_node_for_dims(self, displayed_axes: tuple[int, ...]) -> gfx.Group | None:
         """The 3D node, also for a 2D view before the route is set.
 
-        Every 2D view of a MaskedImage is drawn by the slice node (design
-        6.3), so there is no 2D node; until the controller puts the visual on
-        the route the 3D group stands in, empty.
+        Every 2D view of a MaskedImage is drawn by the slice node, so there
+        is no 2D node; until the controller puts the visual on the route the
+        3D group stands in, empty.
         """
         if len(displayed_axes) == 2 and self._slice_axes is None:
             return self.node_3d
@@ -388,7 +388,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         spaces: RenderSpaces | None,
         value_spaces: RenderSpaces | None = None,
     ) -> None:
-        """Hand each side its own systems (design 5.1, G8).
+        """Hand each side its own systems.
 
         Parameters
         ----------
@@ -403,7 +403,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         self._value.set_render_spaces(self._value_spaces)
         self._bind_materials()
 
-    # -- clipping (design 5.1, 9.1) ---------------------------------------------
+    # -- clipping ---------------------------------------------------------------
 
     def set_clipping_planes(self, planes) -> None:
         """Clip the mask; the value side culls its bricks by the same planes.
@@ -426,7 +426,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         config: VisualRenderConfig,
         mode: PlanMode = PlanMode.FULL,
     ) -> list[DesiredSet]:
-        """Both sides' desired sets, each carrying its own store (design 5.1).
+        """Both sides' desired sets, each carrying its own store.
 
         The mask's sets leave ``store`` unset for the coordinator to fill in
         with the visual's store; the value's carry the value store.  The
@@ -454,7 +454,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         self._bind_materials()
         return [*mask_sets, *value_sets]
 
-    # -- target_bricks="surface" (design 8.3) --------------------------------------
+    # -- target_bricks="surface" ---------------------------------------------------
 
     @property
     def target_deferred(self) -> bool:
@@ -490,7 +490,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
                 residency.surface_map.clear()
 
     def _filter_target_3d(self, planner, arr, config, fill):
-        """Keep the mask's target bricks near the surface (design 8.3).
+        """Keep the mask's target bricks near the surface.
 
         Every 3D full plan keeps the map on the backstop level, whatever
         ``target_bricks`` is, so switching to "surface" finds the coarse
@@ -536,7 +536,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         )
 
     def _filter_value_target(self, planner, arr):
-        """Keep the value's target bricks within reach of the surface (8.3)."""
+        """Keep the value's target bricks within reach of the surface."""
         if self._visual_model.appearance.target_bricks != "surface" or arr is None:
             return arr
         if self._surface_owed is not None:
@@ -573,7 +573,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         out.update(self._value.residencies())
         return out
 
-    # -- binding (design 5.1, 6.1) -----------------------------------------------
+    # -- binding -----------------------------------------------------------------
 
     def _apply_materials(self) -> None:
         """Restyle as an image does, then the masked material's own settings."""
@@ -692,7 +692,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         self._bind_materials()
 
     def tick(self) -> None:
-        """Advance both sides' jitter seeds; the band's skip catches up (7.4).
+        """Advance both sides' jitter seeds; the band's skip catches up.
 
         A threshold change zeroes the skip's clearance at once; it is
         computed again here, once a frame however many ticks a drag sends.

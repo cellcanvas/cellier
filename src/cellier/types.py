@@ -1,4 +1,4 @@
-"""Shared annotated types for cellier v2 models."""
+"""Shared annotated types for models."""
 
 from typing import Annotated
 

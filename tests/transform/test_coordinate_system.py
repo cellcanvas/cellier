@@ -1,4 +1,4 @@
-"""Tests for cellier.transform._coordinate_system (D6-D8, D33, R5)."""
+"""Tests for cellier.transform._coordinate_system."""
 
 from functools import partial
 from uuid import uuid4
@@ -57,18 +57,18 @@ def test_ndim_equals_len_axes():
     assert zyx().ndim == 3
 
 
-def test_empty_axes_rejected_d6():
+def test_empty_axes_rejected():
     with pytest.raises(ValidationError):
         CoordinateSystem(name="empty", axes=())
 
 
-def test_duplicate_axis_ids_rejected_d6():
+def test_duplicate_axis_ids_rejected():
     axis = space(name="z")
     with pytest.raises(ValidationError):
         CoordinateSystem(name="dupe", axes=(axis, axis))
 
 
-def test_duplicate_axis_names_accepted_q6():
+def test_duplicate_axis_names_accepted():
     system = CoordinateSystem(name="dupe", axes=(space(name="z"), space(name="z")))
     assert system.axis_names() == ("z", "z")
 
@@ -78,7 +78,7 @@ def test_axis_by_name_unique_match():
     assert system.axis_by_name("y").name == "y"
 
 
-def test_axis_by_name_raises_on_ambiguity_d6():
+def test_axis_by_name_raises_on_ambiguity():
     system = CoordinateSystem(name="dupe", axes=(space(name="z"), space(name="z")))
     with pytest.raises(ValueError, match="ambiguous"):
         system.axis_by_name("z")
@@ -107,7 +107,7 @@ def test_resolve_accepts_a_name_or_an_id():
     assert system.resolve_axis("y") is system.axes[1]
 
 
-def test_resolve_by_id_works_where_a_name_is_ambiguous_d6():
+def test_resolve_by_id_works_where_a_name_is_ambiguous():
     """An id is never ambiguous, even when the names collide."""
     first, second = space(name="z"), space(name="z")
     system = CoordinateSystem(name="dupe", axes=(first, second))
@@ -116,7 +116,7 @@ def test_resolve_by_id_works_where_a_name_is_ambiguous_d6():
     assert system.resolve(second.id) == 1
 
 
-def test_coordinate_system_is_frozen_d7():
+def test_coordinate_system_is_frozen():
     system = zyx()
     with pytest.raises(ValidationError):
         system.name = "other"
@@ -125,7 +125,7 @@ def test_coordinate_system_is_frozen_d7():
 # --- subclasses ------------------------------------------------------
 
 
-def test_data_coordinate_system_requires_datastore_id_q7():
+def test_data_coordinate_system_requires_datastore_id():
     with pytest.raises(ValidationError):
         DataCoordinateSystem(name="cells", axes=(space(name="z"),))
     system = DataCoordinateSystem(
@@ -138,7 +138,7 @@ def test_world_coordinate_system_name_defaults_to_world():
     assert WorldCoordinateSystem(axes=(space(name="Z"),)).name == "world"
 
 
-def test_discriminated_union_round_trips_over_a_heterogeneous_list_d8():
+def test_discriminated_union_round_trips_over_a_heterogeneous_list():
     class Holder(BaseModel):
         systems: tuple[CoordinateSystemType, ...]
 
@@ -172,10 +172,10 @@ def test_union_adapter_selects_by_discriminator():
     assert isinstance(parsed, WorldCoordinateSystem)
 
 
-# --- RenderedCoordinateSystem (section 7.1) --------------------------
+# --- RenderedCoordinateSystem ----------------------------------------
 
 
-def test_rendered_rank_other_than_2_or_3_is_rejected_d33():
+def test_rendered_rank_other_than_2_or_3_is_rejected():
     canvas_id = uuid4()
     with pytest.raises(ValidationError):
         RenderedCoordinateSystem(axes=(space(name="Z"),), canvas_id=canvas_id)
@@ -189,7 +189,7 @@ def test_rendered_rank_other_than_2_or_3_is_rejected_d33():
     )
 
 
-def test_from_world_inherits_metadata_and_makes_fresh_ids_r5():
+def test_from_world_inherits_metadata_and_makes_fresh_ids():
     world = tczyx_world()
     rendered = RenderedCoordinateSystem.from_world(world, ("T", "Z", "Y"), uuid4())
 
@@ -224,17 +224,17 @@ def test_from_world_rejects_a_repeated_world_axis():
         RenderedCoordinateSystem.from_world(tczyx_world(), ("Z", "Z"), uuid4())
 
 
-def test_rendered_has_no_world_backref_d33():
-    """D33: the link is carried by the transform, not by a second field."""
+def test_rendered_has_no_world_backref():
+    """The link is carried by the transform, not by a second field."""
     rendered = RenderedCoordinateSystem.from_world(tczyx_world(), ("Z", "Y"), uuid4())
     assert "world_coordinate_system" not in type(rendered).model_fields
 
 
-# --- VisualCoordinateSystem (section 7.2, D45) -----------------------
+# --- VisualCoordinateSystem ------------------------------------------
 
 
-def test_from_data_inherits_metadata_and_makes_fresh_ids_r5():
-    """`from_data` mirrors `from_world` exactly (D45)."""
+def test_from_data_inherits_metadata_and_makes_fresh_ids():
+    """`from_data` mirrors `from_world` exactly."""
     data = tzyx_data()
     visual_id = uuid4()
     visual = VisualCoordinateSystem.from_data(data, ("z", "y", "x"), visual_id)
@@ -270,7 +270,7 @@ def test_from_data_rejects_a_repeated_data_axis():
         VisualCoordinateSystem.from_data(tzyx_data(), ("z", "z"), uuid4())
 
 
-def test_visual_system_has_no_rank_restriction_unlike_rendered_d45():
+def test_visual_system_has_no_rank_restriction_unlike_rendered():
     """A rendered system is 2D or 3D by R1; a visual system is what the
     request retained, which may be 1, 4 or more axes.
     """
@@ -282,7 +282,7 @@ def test_visual_system_has_no_rank_restriction_unlike_rendered_d45():
 
 
 def test_visual_system_carries_a_visual_backref_not_a_datastore_one():
-    """D45: this space belongs to a visual, so `datastore_id` would lie."""
+    """This space belongs to a visual, so `datastore_id` would lie."""
     visual = VisualCoordinateSystem.from_data(tzyx_data(), ("y", "x"), uuid4())
     assert "visual_id" in type(visual).model_fields
     assert "datastore_id" not in type(visual).model_fields
@@ -304,9 +304,9 @@ def test_visual_system_round_trips_directly_and_through_the_union():
     assert parsed == visual
 
 
-def test_two_visuals_over_one_store_get_distinct_systems_d45():
+def test_two_visuals_over_one_store_get_distinct_systems():
     """The upload space is not intrinsic to a store, which is why it is
-    not a `DataCoordinateSystem` (design 3.10).
+    not a `DataCoordinateSystem`.
     """
     data = tzyx_data()
     one = VisualCoordinateSystem.from_data(data, ("z", "y", "x"), uuid4())

@@ -1,4 +1,4 @@
-"""Asymmetric trail windows and the fade alpha (D11, D12, D13)."""
+"""Asymmetric trail windows and the fade alpha."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ async def test_trail_window_default_is_the_points_slab(make_request):
 
 
 async def test_trail_fade_alpha(make_request):
-    """Alpha is 1.0 at the index, clamps to min_alpha, and is 0.0 outside (D13)."""
+    """Alpha is 1.0 at the index, clamps to min_alpha, and is 0.0 outside."""
     store = _line_graph()
     data = await store.get_data(
         make_request(

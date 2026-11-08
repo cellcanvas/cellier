@@ -108,8 +108,8 @@ async def test_the_region_collapses_to_the_rounded_plane(kind, slice_position):
 @pytest.mark.parametrize("slice_position", [9.5, 99.0, -0.6])
 async def test_a_slice_outside_the_data_draws_nothing(kind, slice_position):
     """``[-0.5, size - 0.5)`` is the data's extent; outside it an image or a
-    labels visual plans no request and hides its data node (design 3.2).
-    Labels clamped to the end plane until they took the image rule."""
+    labels visual plans no request and hides its data node. Labels clamped
+    to the end plane until they took the image rule."""
     controller, scene, visual = _viewer(kind)
     gfx = controller._render_manager._scenes[scene.id].get_visual(visual.id)
     controller.update_slice_indices(scene.id, {0: 3.0})
@@ -156,7 +156,7 @@ async def test_an_awkward_transform_still_rounds_half_up(kind):
 
 @pytest.mark.parametrize("kind", ["image", "labels", "multichannel"])
 async def test_planning_without_a_region_is_now_an_error(kind):
-    """R8.3.  Until v1 was retired, a request carrying no region fell back to
+    """Until v1 was retired, a request carrying no region fell back to
     reading ``dims_state.slice_indices`` as world positions.  There is no
     second path now, and a caller who reaches this has a bug upstream."""
     controller, scene, visual = _viewer(kind)
@@ -173,9 +173,9 @@ async def test_a_thickness_draws_the_nearest_plane_in_it(
     kind, slice_position, half_thickness, expected
 ):
     """An image-like visual draws one plane per sliced axis: the sample
-    nearest the slice position whose extent overlaps the band (design 3.2).
-    Labels planned the whole range of planes until they took this rule, which
-    a 2D tile cannot hold."""
+    nearest the slice position whose extent overlaps the band. Labels planned
+    the whole range of planes until they took this rule, which a 2D tile
+    cannot hold."""
     controller, scene, visual = _viewer(kind)
     controller.update_slice_indices(scene.id, {0: slice_position})
     scene.dims.selection.thickness = {0: half_thickness}
@@ -191,7 +191,7 @@ async def test_a_thickness_too_thin_to_reach_the_data_draws_nothing(kind):
 
 
 async def test_a_sheared_transform_is_accepted_and_the_view_draws_nothing():
-    """Full affine design v2 (D3, D6), which flipped this from a refusal.
+    """Full affine design v2, which flipped this from a refusal.
 
     World ``T`` picks up a little of data ``z``: a time-space coupling, which
     is allowed at assignment.  In the ``zyx`` view the sliced ``T`` row reads

@@ -1,7 +1,6 @@
 """``controls=`` for the non-image visual types.
 
-Every ``add_*`` method takes a ``controls=`` list of control models
-(``plans/ordered_controls_list_design.md``).
+Every ``add_*`` method takes a ``controls=`` list of control models.
 
 The highest-value tests here are the end-to-end ones: a list naming every
 field of a visual type produces a dock containing the expected controls.
@@ -437,7 +436,7 @@ def test_an_ortho_non_image_edit_reaches_the_2d_panels(qtbot, points_store):
 
 
 def test_a_visible_toggle_reaches_the_model_on_its_own_event(qtbot, mesh_store):
-    """``visible`` travels on ``VisualVisibilityChangedEvent`` (section 6.4.1).
+    """``visible`` travels on ``VisualVisibilityChangedEvent``.
 
     It is the one field routed specially, and now the first row of every
     default panel, so it is worth an end-to-end check rather than only the

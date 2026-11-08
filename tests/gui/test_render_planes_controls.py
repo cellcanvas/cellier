@@ -1,9 +1,9 @@
-"""The "Render planes" control on both toolkits (plane rendering design 9.2).
+"""The "Render planes" control on both toolkits.
 
 The control sends ``RenderPlanesUpdateEvent`` and follows
 ``RenderPlanesChangedEvent``.  It is the "Clipping planes" control with the
 extents added, in world coordinates.  Also here: "Plane" in the render-mode
-combos (9.1).
+combos.
 """
 
 from __future__ import annotations
@@ -922,7 +922,7 @@ async def test_the_toggle_puts_the_gizmo_on_one_plane_at_a_time(controller, tool
 async def test_the_radio_runs_across_clipping_and_render_plane_controls(
     controller, toolkit
 ):
-    """One gizmo per canvas: the two controls' toggles are one set (H4)."""
+    """One gizmo per canvas: the two controls' toggles are one set."""
     from cellier.gui._clipping_planes import (
         get_clipping_plane_gizmo_data,
         get_clipping_planes_data_from_visual,
@@ -997,7 +997,7 @@ async def test_the_toggle_follows_a_gizmo_opened_and_closed_elsewhere(
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
 async def test_the_extent_fields_follow_a_gizmo_scale_drag(controller, toolkit):
-    """What a scale handle writes during a drag reaches the fields (14.9)."""
+    """What a scale handle writes during a drag reaches the fields."""
     _scene, visual, canvas_id = _gizmo_scene(controller)
     plane = visual.render_planes[0].model_copy(update={"extent_0": (-4.0, 6.0)})
     controller.set_render_plane(visual.id, plane.id, plane)
@@ -1151,7 +1151,7 @@ def test_the_planes_control_shows_the_plane_a_combo_added(controller, toolkit):
     assert widget.editor.rows[0]["position"] == CENTRE[0]
 
 
-# -- a plane's outline (plane outline design 4.1) -------------------------------
+# -- a plane's outline ----------------------------------------------------------
 
 
 def test_every_edit_of_a_plane_keeps_its_outline():
@@ -1179,7 +1179,7 @@ def test_every_edit_of_a_plane_keeps_its_outline():
 
 @pytest.mark.parametrize("toolkit", ["qt", "anywidget"])
 async def test_a_row_draws_and_colours_its_plane_s_outline(controller, toolkit):
-    """Plane outline design 7: a box and a colour per row."""
+    """A box and a colour per row."""
     from cellier.visuals import PlaneOutline
 
     scene, visual = _add_image(controller, canvas=True)

@@ -97,10 +97,10 @@ class LabelVolumeBrickMaterial(gfx.VolumeBasicMaterial):
         ``MultiscaleLabelsAppearance.smooth_geometry_level``: where the
         ``smooth_geometry`` surface sits.  Default ``0.5``.
     slice_2d : bool
-        Draw as a 2D view's slice node (oblique 2D design v3, 5.3.3): the
-        proxy box is flattened onto rendered depth 0 and the plane branch
-        writes the rasterised depth, as ``MultiscaleVolumeBrickMaterial``
-        does.  Default ``False``.
+        Draw as a 2D view's slice node: the proxy box is flattened onto
+        rendered depth 0 and the plane branch writes the rasterised
+        depth, as ``MultiscaleVolumeBrickMaterial`` does.  Default
+        ``False``.
     """
 
     uniform_type: ClassVar[dict] = dict(

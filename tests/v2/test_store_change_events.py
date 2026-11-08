@@ -1,4 +1,4 @@
-"""The controller relays store changes (``plans/store_change_events.md``).
+"""The controller relays store changes.
 
 A store announces a change on ``data_changed``; the controller refreshes
 extent-derived state for an ``extent`` change, emits the matching bus event,
@@ -77,8 +77,7 @@ def test_a_contents_change_carries_its_regions(controller, scene, monkeypatch):
     """The event carries the regions; the points visual is not resliced.
 
     Points load through the chunk scheduler: a contents change invalidates
-    its cache and the scheduler reads it again, with no new plan
-    (scheduler-only loading design v2, 4.7).
+    its cache and the scheduler reads it again, with no new plan.
     """
     store = _points_store()
     controller.add_points(store, scene.id)

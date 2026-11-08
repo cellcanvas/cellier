@@ -112,7 +112,7 @@ def test_toggle_click_emits_event_and_applies_optimistically():
     assert event.source_id == panel._id
     assert event.scene_id == scene_id
     assert event.displayed_axes == (0, 1, 2)
-    # Every axis keeps its position in the model (D36): nothing to hand over.
+    # Every axis keeps its position in the model: nothing to hand over.
     assert event.slice_indices is None
 
     # Unlike QtDimsControl, the anywidget panel applies the toggle

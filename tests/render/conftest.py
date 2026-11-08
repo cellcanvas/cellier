@@ -4,7 +4,7 @@ Phase 2 of the render-coverage plan.  The suite historically tests visual
 *construction* and *request planning* but never renders a frame or asserts a
 pixel; the whole slice-response -> texture-upload -> ``build_material`` -> draw
 half of every visual was uncovered.  This module supplies the shared pieces the
-per-visual render tests (Phase 3) build on:
+per-visual render tests build on:
 
 - ``offscreen_renderer`` -- probes for a working ``wgpu`` adapter once per
   session and skips cleanly when none is available (matching how the existing
@@ -181,11 +181,10 @@ async def drain_loading(controller: CellierController) -> None:
     """Drive the chunk scheduler until nothing is loading.
 
     Every visual loads through the scheduler, which commits on drawn frames,
-    which a test does not produce, so commit rounds run here as reads land
-    (``plans/scheduler_only_loading_design_v2.md`` 4.11).  A reslice still
-    to come (a rate-capped store change, the end of a dims scrub or a camera
-    motion) is awaited first: it starts loading of its own.  Pick-value
-    reads in flight are awaited too.
+    which a test does not produce, so commit rounds run here as reads land.
+    A reslice still to come (a rate-capped store change, the end of a dims
+    scrub or a camera motion) is awaited first: it starts loading of its
+    own.  Pick-value reads in flight are awaited too.
     """
     render_manager = controller._render_manager
     for _ in range(20):

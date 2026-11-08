@@ -177,7 +177,7 @@ def test_out_of_range_window_coordinates_are_passed_through(pyramid):
 
 
 def test_the_pull_back_needs_no_inverse(pyramid):
-    """D39.  ``imap_region`` is ``A^T`` on the normals and ``d - n . t`` on the
+    """``imap_region`` is ``A^T`` on the normals and ``d - n . t`` on the
     offsets, so it works on a transform whose ``inverse()`` is ``None`` -- which
     is what a broadcast ``data -> world`` has."""
     spaces, data_to_world, selection = pyramid

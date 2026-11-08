@@ -195,8 +195,8 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     s_back = clipped.y;
     if (s_front >= s_back) { discard; }
     $$ if mode == 'plane'
-    // Plane mode (plane rendering design v3, 5.1): one sample where the ray
-    // meets the nearest render plane inside the interval cut above.
+    // Plane mode: one sample where the ray meets the nearest render plane
+    // inside the interval cut above.
     let plane_ray_o = (u_wobject.world_transform * vec4<f32>(back_pos, 1.0)).xyz;
     let plane_ray_d = (u_wobject.world_transform * vec4<f32>(view_ray, 0.0)).xyz;
     let plane = plane_nearest_hit(plane_ray_o, plane_ray_d, s_front, s_back, true);

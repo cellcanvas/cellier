@@ -1,9 +1,8 @@
-"""``RegionSelection`` is the artifact the slicer consumes (D43).
+"""``RegionSelection`` is the artifact the slicer consumes.
 
 ``DimsManager`` becomes an *editor* -- it holds an index and a thickness, the
 thing a GUI binds to -- and emits one of these.  An oblique editor would hold
-a plane and emit the same type, and the slicer would not know the difference
-(R6).
+a plane and emit the same type, and the slicer would not know the difference.
 """
 
 from __future__ import annotations
@@ -44,8 +43,8 @@ def _selection(viewer) -> RegionSelection:
 
 
 async def test_the_collapsed_axis_is_bounded_and_the_displayed_ones_are_not(viewer):
-    """Design 3.7 step 2: in this phase the region bounds only the collapsed
-    axes, which is what makes the output identical to what came before."""
+    """In this phase the region bounds only the collapsed axes, which is
+    what makes the output identical to what came before."""
     controller, scene, _ = viewer
     controller.update_slice_indices(scene.id, {0: 1.0})
     box = _selection(viewer).region.bounding_box()
@@ -63,7 +62,7 @@ def test_the_region_is_in_world_coordinates(viewer):
 
 
 async def test_the_slice_position_lives_in_the_transforms_constant_column(viewer):
-    """D35: the numbers stay in one place.  The transform's constant column
+    """The numbers stay in one place.  The transform's constant column
     holds the slice *position* and the region holds its *extent*; both are
     downstream of the editor's index and neither is stored twice."""
     controller, scene, _ = viewer
@@ -93,7 +92,7 @@ async def test_an_explicit_thickness_makes_a_slab(viewer):
 
 
 def test_a_displayed_axis_position_is_left_unbounded(viewer):
-    """D36: a displayed axis keeps a stored position, which never bounds the
+    """A displayed axis keeps a stored position, which never bounds the
     region -- it is drawn, not sliced."""
     controller = CellierController(gui="offscreen")
     scene = controller.add_scene(
@@ -111,7 +110,7 @@ def test_a_displayed_axis_position_is_left_unbounded(viewer):
 
 
 def test_the_embedding_never_declares_a_broadcast_axis(viewer):
-    """F1.1: a world axis the canvas does not display sits at a definite
+    """A world axis the canvas does not display sits at a definite
     position, not free.  ``RegionSelection`` rejects an embedding that says
     otherwise, and this is what keeps that invariant honest."""
     selection = _selection(viewer)

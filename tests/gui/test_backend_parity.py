@@ -56,7 +56,7 @@ def _viewer(gui: str, *, configure_controls: bool = False):
 
 
 # ---------------------------------------------------------------------------
-# D1: closing a window releases what the renderer built -- all of it
+# Closing a window releases what the renderer built -- all of it
 # ---------------------------------------------------------------------------
 
 
@@ -98,7 +98,7 @@ def _subscribed_owners(controller) -> set:
 
 
 # ---------------------------------------------------------------------------
-# D2: a Grid cell holds its column on both toolkits
+# A Grid cell holds its column on both toolkits
 # ---------------------------------------------------------------------------
 
 
@@ -232,7 +232,7 @@ class _LabelLeaf:
 
 
 # ---------------------------------------------------------------------------
-# D3: a dock whose contents all resolve to nothing produces no dock
+# A dock whose contents all resolve to nothing produces no dock
 # ---------------------------------------------------------------------------
 
 
@@ -271,7 +271,7 @@ def test_a_dock_stack_that_builds_nothing_produces_no_dock(qtbot):
 
 
 # ---------------------------------------------------------------------------
-# D4: dataset-info sections are drawn in the order the store declared them
+# Dataset-info sections are drawn in the order the store declared them
 # ---------------------------------------------------------------------------
 
 
@@ -322,7 +322,7 @@ def test_both_front_ends_draw_the_sections_in_declaration_order(qtbot):
 
 
 # ---------------------------------------------------------------------------
-# D5: the render dock names its scope on both toolkits
+# The render dock names its scope on both toolkits
 # ---------------------------------------------------------------------------
 
 
@@ -353,7 +353,7 @@ class _TitleRecordingHost(_RecordingHost):
 
 
 # ---------------------------------------------------------------------------
-# D11: both front ends coalesce slider drags at the same rate
+# Both front ends coalesce slider drags at the same rate
 # ---------------------------------------------------------------------------
 
 
@@ -399,7 +399,7 @@ def test_the_dims_javascript_reads_the_interval_rather_than_declaring_one():
 
 
 # ---------------------------------------------------------------------------
-# D15: the ortho panels are labelled on every toolkit
+# The ortho panels are labelled on every toolkit
 # ---------------------------------------------------------------------------
 
 
@@ -468,7 +468,7 @@ def _box_titles(box) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# D16 / D17 / D18: the 2D/3D toggle
+# The 2D/3D toggle
 # ---------------------------------------------------------------------------
 
 
@@ -505,7 +505,7 @@ def _toggled_to_2d(gui: str):
     axis_values = axis_values_from_viewer(viewer)
     low, high = axis_values[0].min, axis_values[0].max
     # Not rounded: a slice position is a world coordinate, not a voxel
-    # index (D3), so the midpoint of an even-length axis is a half.
+    # index, so the midpoint of an even-length axis is a half.
     centre = (low + high) / 2.0
 
     # Held, not dropped: the canvas widget owns the Qt sliders, and letting it
@@ -528,8 +528,8 @@ def _toggled_to_2d(gui: str):
 async def test_the_toggle_hands_the_slicer_a_centred_index(qtbot, gui):
     """Switching a 3D scene to 2D slices the hidden axis at its centre.
 
-    Every axis keeps a position while displayed (D36), and the toggle sends
-    only ``displayed_axes``.  The position it slices at is the one the canvas
+    Every axis keeps a position while displayed, and the toggle sends only
+    ``displayed_axes``.  The position it slices at is the one the canvas
     builder moved the displayed axes to when it made the canvas: the centre,
     not the volume's edge.
     """
@@ -595,7 +595,7 @@ def test_only_a_scene_that_renders_both_ways_offers_a_toggle(qtbot, gui):
 
 
 # ---------------------------------------------------------------------------
-# The toggle remembers (plans/displayed_axes_required.md, Phase 1)
+# The toggle remembers
 # ---------------------------------------------------------------------------
 
 

@@ -39,7 +39,7 @@ def _req(
 
     ``sliced`` maps axis to a **data**-space position; each becomes a slab of
     half-width *thickness*, which is exactly what ``slice_indices`` plus
-    ``thickness`` meant before Phase 8 deleted them (R8.3).
+    ``thickness`` meant before Phase 8 deleted them.
     """
     if sliced is None:
         sliced = {}

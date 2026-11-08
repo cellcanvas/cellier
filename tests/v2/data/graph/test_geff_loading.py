@@ -1,4 +1,4 @@
-"""``GraphMemoryStore.from_geff`` (D4, D18, D23).
+"""``GraphMemoryStore.from_geff``.
 
 The fixture files are *written* by each test rather than committed: a geff
 store is a zarr tree of many small files, and geff is needed to read one
@@ -182,7 +182,7 @@ def test_from_geff_retains_props(tmp_path):
 
 @requires_geff
 def test_from_geff_builds_transform(tmp_path):
-    """The test that would have caught a silent 4x z error (D23).
+    """The test that would have caught a silent 4x z error.
 
     A typical anisotropic light-sheet volume: 4 um z spacing, 0.26 um in
     plane, and a 10 um z offset.
@@ -194,8 +194,8 @@ def test_from_geff_builds_transform(tmp_path):
     )
     store = GraphMemoryStore.from_geff(path)
 
-    # Phase 8: the store keeps the file's raw numbers.  It cannot name the
-    # scene's world, so the transform is built by the controller.
+    # The store keeps the file's raw numbers.  It cannot name the scene's
+    # world, so the transform is built by the controller.
     assert store.axis_scales == (1.0, 4.0, 0.26, 0.26)
     assert store.axis_offsets == (0.0, 10.0, 0.0, 0.0)
 
@@ -220,7 +220,7 @@ def test_from_geff_has_no_transform_param(tmp_path):
 
 @requires_geff
 def test_from_geff_edge_ids_become_rows(tmp_path):
-    """Original id pairs arrive; row indices are stored (D18)."""
+    """Original id pairs arrive; row indices are stored."""
     path, _, edges = _write_lineage(
         tmp_path / "sparse.geff", node_ids=(10, 20, 45, 900)
     )

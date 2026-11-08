@@ -209,7 +209,7 @@ async def test_coarse_is_drawn_first_and_fine_replaces_it(which, request, reads)
     rig.controller.fit_camera(rig.scene.id)
     await rig.turns()
 
-    # Both reads start in the same round, the coarse one first (D24).
+    # Both reads start in the same round, the coarse one first.
     assert reads.started == [1, 0]
     assert _drawn_level(rig, mesh) is None
 

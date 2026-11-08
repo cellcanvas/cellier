@@ -1,8 +1,8 @@
-"""Full affine design v2, Phase 4: 3D and ``IN_PLANE`` for every family.
+"""3D and ``IN_PLANE`` for every family.
 
 Every family draws under any spatial affine in 3D and under an in-plane
 rotation or shear in 2D; a view that cannot draw a visual draws nothing of
-it and says why (D3, D8).  Oracles are the D10 kinds: analytic landmarks
+it and says why.  Oracles are the D10 kinds: analytic landmarks
 (``tests/render/_affine.py``), in-cellier equivalences, picks and
 structural checks.
 """
@@ -113,7 +113,7 @@ def _slide_store(root: Path):
 
 
 def test_a_rotated_slide_zoomed_onto_a_corner_is_sharp(tmp_path):
-    """K10: the LOD and the view's tiles under an in-plane rotation.
+    """The LOD and the view's tiles under an in-plane rotation.
 
     Every pixel the rotated slide covers must show level 0 (white): a
     missing tile would fall back to level 1 (dark grey), and a too-coarse
@@ -356,9 +356,9 @@ def test_a_slice_shift_view_draws(tmp_path, family):
 
 
 def test_the_orthoviewer_under_rot_zx_reports_its_panels():
-    """Design 6.2: every panel draws the image -- ``xy`` and ``yz`` on the
-    brick route (oblique 2D design v3, Phase 4: a pre-approved flip of
-    "``xy``/``yz`` don't")."""
+    """Every panel draws the image -- ``xy`` and ``yz`` on the brick route
+    (oblique 2D design v3, Phase 4: a pre-approved flip of "``xy``/``yz``
+    don't")."""
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui="offscreen")
     try:
         store = ImageMemoryStore(data=block_volume(np.float32), name="F image")
@@ -387,8 +387,8 @@ def test_the_status_overlay_draws_in_a_capture(tmp_path):
     """D8 B: the canvas text shows in a screenshot (captures carry overlays)."""
     viewer = new_viewer("2d")
     try:
-        # A view that still draws nothing: a flat yx store cut along a line
-        # (oblique 2D design v3, U13).  A tilted volume draws since Phase 4.
+        # A view that still draws nothing: a flat yx store cut along a line.
+        # A tilted volume draws since Phase 4.
         store = ImageMemoryStore(data=np.ones((32, 40), np.float32), name="flat")
         matrix = np.zeros((4, 3))
         matrix[0, 1] = 0.5
@@ -475,7 +475,7 @@ def test_plane_mode_draws_the_landmark_section(tmp_path, name):
 
 
 # ---------------------------------------------------------------------------
-# Painting (D5)
+# Painting
 # ---------------------------------------------------------------------------
 
 
@@ -530,7 +530,7 @@ async def test_painting_under_shear_is_refused_naming_the_alignment():
 
 
 # ---------------------------------------------------------------------------
-# Assignment refusals (D6, design 4.2)
+# Assignment refusals
 # ---------------------------------------------------------------------------
 
 _CZYX = [("c", "channel"), *spatial_axes("z", "y", "x")]
@@ -605,7 +605,7 @@ def test_a_singular_transform_is_refused_at_assignment():
 
 
 # ---------------------------------------------------------------------------
-# I2: nothing decides drawability through axis_correspondence
+# Nothing decides drawability through axis_correspondence
 # ---------------------------------------------------------------------------
 
 
@@ -651,7 +651,7 @@ def test_axis_correspondence_is_only_called_where_the_design_allows():
 
 @pytest.mark.parametrize("family", FAMILIES)
 def test_a_trig_built_quarter_turn_draws_in_a_2d_view(tmp_path, family):
-    """``cos(pi / 2)`` is ``6e-17``: snapped (D7), every consumer agrees.
+    """``cos(pi / 2)`` is ``6e-17``: snapped, every consumer agrees.
 
     The classifier calls the ``(y, x)`` view of a 90 degree turn about ``y``
     ``AXIS_ALIGNED``; the render and slicing paths read the same snapped

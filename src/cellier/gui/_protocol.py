@@ -1,12 +1,11 @@
 """Backend-agnostic structural contract for cellier GUI elements.
 
-The controller talks to widgets through one structural contract (see design doc
-section 6.1).  It imposes no base class and says nothing about granularity: a
-widget may carry one field or many.  ``CellierController.connect_widget`` wires
-its single ``changed`` / ``closed`` pair and its aggregated
-``subscription_specs()`` regardless, which is what lets the Qt backend stay
-fine-grained (per-control widgets) while the anywidget backend uses a single
-composite panel.
+The controller talks to widgets through one structural contract.  It imposes no
+base class and says nothing about granularity: a widget may carry one field or
+many.  ``CellierController.connect_widget`` wires its single ``changed`` /
+``closed`` pair and its aggregated ``subscription_specs()`` regardless, which
+is what lets the Qt backend stay fine-grained (per-control widgets) while the
+anywidget backend uses a single composite panel.
 """
 
 from __future__ import annotations

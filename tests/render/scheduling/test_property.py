@@ -91,11 +91,10 @@ _BACKSTOP = int(ChunkClass.BACKSTOP)
 def importance(snap: tuple[int, int, int, int, int]) -> tuple:
     """The eviction order from a ``(key, tier, cls, wanted_gen, rank)`` snapshot.
 
-    Written from the design, independently of the core
-    (``plans/progressive_intermediate_level_design_v2.md`` 5.2): ``VISIBLE``
-    outranks ``RECENT``.  Among ``RECENT``: the backstop first, then the
-    newer generation, then the more important class, then the better rank.
-    For two classes that is ``(cls, wanted_gen, -rank)``.
+    Written from the design, independently of the core: ``VISIBLE`` outranks
+    ``RECENT``.  Among ``RECENT``: the backstop first, then the newer
+    generation, then the more important class, then the better rank.  For
+    two classes that is ``(cls, wanted_gen, -rank)``.
     """
     _, tier, cls, gen, rank = snap
     if tier == _VISIBLE:
@@ -238,7 +237,7 @@ class Environment:
         target: list[int] = []
         if not backstop_only:
             level = int(rng.integers(1, N_LEVELS + 1))
-            if not (level == N_LEVELS and mode != "off"):  # 5.3: dedup to backstop
+            if not (level == N_LEVELS and mode != "off"):  # Dedup to backstop
                 room = self.residency[cache_id].n_slots - 1 - len(backstop)
                 target = [pack(level, t, gy, gx) for gy, gx in cells(level)[:room]]
         ds = desired(cache_id, backstop=backstop, target=target, store=self.store)

@@ -1,8 +1,8 @@
 """The "Outline" line of a plane's row, shared by the two Qt plane controls.
 
 A check box that draws the plane's outline and a button, filled with the
-outline's colour, that opens a colour dialog (plane outline design,
-section 7).  The width of the line is not here: it is set from code.
+outline's colour, that opens a colour dialog.  The width of the line is
+not here: it is set from code.
 """
 
 from __future__ import annotations

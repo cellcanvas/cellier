@@ -1,7 +1,8 @@
 """Appearance controls specific to graph visuals (Qt).
 
-Layer 3 of the three-layer design in ``plans/convenience_cleanup.md`` section
-10.2: each class is a field name, a label, and the per-field defaults.  All
+Layer 3 of the appearance widgets' three layers (layer 1 talks to the bus,
+layer 2 is one class per control type, layer 3 binds a field and a label):
+each class is a field name, a label, and the per-field defaults.  All
 behaviour -- the bus contract, the echo filter, the fan-out over an
 ``OrthoViewer``'s panel group -- lives in the layer-1 base, and the control
 itself in the layer-2 type.

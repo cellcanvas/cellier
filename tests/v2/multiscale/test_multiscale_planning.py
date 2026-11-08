@@ -127,8 +127,8 @@ async def test_the_collapsed_axis_is_the_rounded_plane_at_every_level(
 
 
 async def test_planning_without_a_region_is_now_an_error(anisotropic_zarr):
-    """R8.3.  The multiscale fallback -- ``_build_world_to_level_transforms``
-    plus ``_build_axis_selections_multiscale`` -- is gone with v1."""
+    """The multiscale fallback -- ``_build_world_to_level_transforms`` plus
+    ``_build_axis_selections_multiscale`` -- is gone with v1."""
     controller, scene, visual = _viewer(anisotropic_zarr)
     with pytest.raises(RuntimeError, match="no pulled-back region"):
         _plan(controller, scene, visual, with_region=False)
@@ -184,7 +184,7 @@ async def test_the_visual_carries_its_stores_level_systems(anisotropic_zarr):
 
 
 async def test_a_transposed_display_order_fetches_identical_bricks(anisotropic_zarr):
-    """Design 3.14: a transpose costs no refetch.
+    """A transpose costs no refetch.
 
     It changes neither which axes are displayed nor their extents, so every
     ``ChunkRequest`` is identical and the GPU cache stays valid.  Only the

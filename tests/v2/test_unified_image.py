@@ -1,4 +1,4 @@
-"""The unified in-memory image visual (unified image design 3.1 - 3.4, 3.8).
+"""The unified in-memory image visual.
 
 One visual draws an image single-channel or composited.  These tests drive it
 through the controller and plan against the real per-canvas selection, so the
@@ -258,7 +258,7 @@ async def test_removing_the_last_channel_leaves_an_empty_composite():
 
 
 async def test_single_mode_draws_slot_zero_and_keeps_the_previous_slice():
-    """D19: single mode draws the slider's channel from slot 0.
+    """Single mode draws the slider's channel from slot 0.
 
     Switching from composite to single at channel 1 gives slot 0 channel 1;
     what slot 0 held (channel 0) stays drawn, kept, while channel 1 loads.
@@ -434,7 +434,7 @@ async def test_transparency_follows_the_mode_until_set():
 
 
 def test_remove_visual_forgets_its_caches_and_closes_it():
-    """Removing a visual removes its caches from the scheduler (design v2)."""
+    """Removing a visual removes its caches from the scheduler."""
     controller, scene, visual = _setup(composite=True)
     gfx = _gfx(controller, scene, visual)
     scheduler = controller._render_manager.scheduler

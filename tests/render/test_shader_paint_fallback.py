@@ -1,4 +1,4 @@
-"""Defensive paint-fallback bindings for the labels tile-cache shader (Phase 4).
+"""Defensive paint-fallback bindings for the labels tile-cache shader.
 
 ``LabelBlockShader`` unconditionally samples the paint cache + LUT, so
 ``get_bindings`` falls back to 1x1 zero textures when the material was built

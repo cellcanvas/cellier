@@ -1,4 +1,4 @@
-"""Tests for cellier.transform._region (design section 10)."""
+"""Tests for cellier.transform._region."""
 
 from functools import partial
 from uuid import uuid4
@@ -18,7 +18,7 @@ from cellier.transform import (
 from cellier.transform import _geometry_ops as geometry_ops
 from cellier.transform._geometry_ops import imap_half_spaces
 from cellier.transform._region import half_spaces_from_arrays
-from tests.transform._use_cases import UC3
+from tests.transform._use_cases import CHANNEL_BROADCAST
 
 space = partial(Axis, axis_type="space", unit="micrometer")
 
@@ -47,16 +47,16 @@ def tzyx() -> CoordinateSystem:
     )
 
 
-# --- HalfSpace (D37, D39, D44) ---------------------------------------
+# --- HalfSpace -------------------------------------------------------
 
 
-def test_half_space_has_no_inside_field_d37():
+def test_half_space_has_no_inside_field():
     """The sign of the normal carries the side; a slab is two half-spaces."""
     assert "inside" not in HalfSpace.model_fields
     assert "coordinate_system" not in HalfSpace.model_fields
 
 
-def test_half_space_allows_a_zero_normal_d39():
+def test_half_space_allows_a_zero_normal():
     """Contrast with Plane, which rejects it: D39 needs both outcomes."""
     vacuous = HalfSpace(normal=[0.0, 0.0], offset=5.0)
     infeasible = HalfSpace(normal=[0.0, 0.0], offset=-5.0)
@@ -64,7 +64,7 @@ def test_half_space_allows_a_zero_normal_d39():
     assert infeasible.is_infeasible() and not infeasible.is_vacuous()
 
 
-def test_half_space_rejects_non_finite_values_d44():
+def test_half_space_rejects_non_finite_values():
     with pytest.raises(ValidationError, match="finite"):
         HalfSpace(normal=[np.inf, 0.0], offset=1.0)
     with pytest.raises(ValidationError, match="finite"):
@@ -73,7 +73,7 @@ def test_half_space_rejects_non_finite_values_d44():
         HalfSpace(normal=[np.nan, 0.0], offset=1.0)
 
 
-def test_half_space_equality_and_hash_d44():
+def test_half_space_equality_and_hash():
     first = HalfSpace(normal=[1.0, 0.0], offset=5.0)
     second = HalfSpace(normal=[1.0, 0.0], offset=5.0)
     assert first == second
@@ -81,7 +81,7 @@ def test_half_space_equality_and_hash_d44():
     assert (first == "not a half space") is False
 
 
-def test_region_equality_delegates_to_half_spaces_d44():
+def test_region_equality_delegates_to_half_spaces():
     """ConvexRegion needs nothing extra once HalfSpace has explicit eq."""
     coordinate_system = uuid4()
     half_spaces = (HalfSpace(normal=[1.0, 0.0], offset=5.0),)
@@ -125,7 +125,7 @@ def test_region_is_frozen():
 # --- constructors -----------------------------------------------------
 
 
-def test_from_axis_slabs_leaves_omitted_axes_unbounded_r3():
+def test_from_axis_slabs_leaves_omitted_axes_unbounded():
     world = tczyx()
     region = ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5), "C": (2.0, 0.5)})
     bounds = region.bounding_box()
@@ -133,7 +133,7 @@ def test_from_axis_slabs_leaves_omitted_axes_unbounded_r3():
     assert np.array_equal(bounds.max_coordinate, [7.5, 2.5, np.inf, np.inf, np.inf])
 
 
-def test_from_axis_slabs_bounds_a_displayed_axis_just_as_readily_r3():
+def test_from_axis_slabs_bounds_a_displayed_axis_just_as_readily():
     """The region has no notion of displayed versus collapsed."""
     world = tczyx()
     region = ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5), "Z": (4.0, 2.0)})
@@ -177,7 +177,7 @@ def test_from_bounding_box_skips_infinite_bounds():
     assert region.bounding_box() == box
 
 
-def test_from_plane_slab_is_thickness_in_distance_units_d28():
+def test_from_plane_slab_is_thickness_in_distance_units():
     world = tczyx()
     normal = np.array([0.0, 0.0, 1.0, 1.0, 0.0]) * 3.0  # deliberately non-unit
     region = ConvexRegion.from_plane_slab(world, normal, offset=0.0, half_thickness=1.0)
@@ -214,10 +214,10 @@ def test_intersection_requires_at_least_one_region():
         ConvexRegion.intersection()
 
 
-# --- bounding_box: the fast path (D40) -------------------------------
+# --- bounding_box: the fast path -------------------------------------
 
 
-def test_axis_aligned_bounding_box_runs_no_lp_d40(monkeypatch):
+def test_axis_aligned_bounding_box_runs_no_lp(monkeypatch):
     """The fast path is 1000x, so assert the solver is never called."""
 
     def explode(*args, **kwargs):
@@ -239,7 +239,7 @@ def test_unbounded_region_runs_no_lp_either(monkeypatch):
     assert np.all(np.isposinf(bounds.max_coordinate))
 
 
-def test_oblique_bounding_box_uses_the_lp_and_matches_it_d40():
+def test_oblique_bounding_box_uses_the_lp_and_matches_it():
     world = tczyx()
     diagonal = np.array([0.0, 0.0, 1.0, 1.0, 0.0]) / np.sqrt(2)
     region = ConvexRegion.intersection(
@@ -296,7 +296,7 @@ def test_contains_rejects_the_wrong_rank():
         ConvexRegion.unbounded(tczyx()).contains(np.zeros(3))
 
 
-def test_zero_thickness_region_is_not_special_cased_d42():
+def test_zero_thickness_region_is_not_special_cased():
     """contains() is not the voxel selection API; bounding_box() plus rounding is."""
     world = tczyx()
     region = ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.0)})
@@ -352,8 +352,8 @@ def test_simplify_returns_self_when_nothing_is_vacuous():
     assert region.simplify() is region
 
 
-def _oblique_uc3_region(world, channel_slab):
-    """The probe's oblique UC3 region, with a configurable C slab."""
+def _oblique_channel_broadcast_region(world, channel_slab):
+    """An oblique channel_broadcast region, with a configurable C slab."""
     diagonal = np.array([0.0, 0.0, 1.0, 1.0, 0.0]) / np.sqrt(2)
     return ConvexRegion.intersection(
         ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5), "C": channel_slab}),
@@ -363,7 +363,7 @@ def _oblique_uc3_region(world, channel_slab):
 
 
 def _pull_into_data_space(region, data):
-    linear, translation, _ = UC3
+    linear, translation, _ = CHANNEL_BROADCAST
     normals, offsets = imap_half_spaces(
         region.normals, region.offsets, linear, translation
     )
@@ -374,14 +374,14 @@ def _pull_into_data_space(region, data):
     )
 
 
-def test_simplify_takes_the_oblique_uc3_region_from_ten_constraints_to_eight():
+def test_simplify_cuts_the_oblique_channel_broadcast_region_to_eight_constraints():
     """Design section 10.3's figure, for a C slab the data actually satisfies.
 
     Both constraints on the broadcast axis pull back to a zero normal with a
     non-negative offset, so both are vacuous and both are dropped.
     """
     world, data = tczyx(), tzyx()
-    region = _oblique_uc3_region(world, channel_slab=(0.0, 0.5))
+    region = _oblique_channel_broadcast_region(world, channel_slab=(0.0, 0.5))
     assert len(region.half_spaces) == 10
 
     pulled = _pull_into_data_space(region, data)
@@ -389,7 +389,7 @@ def test_simplify_takes_the_oblique_uc3_region_from_ten_constraints_to_eight():
     assert not pulled.is_empty()
 
 
-def test_a_channel_slab_off_the_data_makes_the_pulled_region_empty_d39():
+def test_a_channel_slab_off_the_data_makes_the_pulled_region_empty():
     """The other branch of D39, and where the probe's count came from.
 
     ``scripts/transform_region_probe.py`` selects ``C`` in ``[1.5, 2.5]``
@@ -400,7 +400,7 @@ def test_a_channel_slab_off_the_data_makes_the_pulled_region_empty_d39():
     is 9.
     """
     world, data = tczyx(), tzyx()
-    region = _oblique_uc3_region(world, channel_slab=(2.0, 0.5))
+    region = _oblique_channel_broadcast_region(world, channel_slab=(2.0, 0.5))
     pulled = _pull_into_data_space(region, data)
 
     zero_normal = [h for h in pulled.half_spaces if not np.any(h.normal != 0.0)]

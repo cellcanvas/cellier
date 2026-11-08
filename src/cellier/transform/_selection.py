@@ -1,4 +1,4 @@
-"""One canvas's view of the world: where the slice is, and how thick (D43)."""
+"""One canvas's view of the world: where the slice is, and how thick."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class RegionSelection(BaseModel):
     parameterization -- an index and a thickness, the thing a GUI binds
     to -- and emits one of these; an oblique editor holds a plane and a
     thickness and emits the same type.  The slicer consumes one thing and
-    does not know which editor produced it (R6).
+    does not know which editor produced it.
 
     **The region is absolute and the translation is a point inside it.**
     The transform's constant column holds the slice **position**, exactly
@@ -39,13 +39,13 @@ class RegionSelection(BaseModel):
     position reads :attr:`slice_position`, and one that needs the extent
     reads the region.  Recovering the position as the midpoint of the
     region's bounds can miss it by an ulp, and a zero-thickness plane put
-    there (D42) excludes the translation -- use
-    :meth:`with_planes_at_slice` to narrow a slab to a plane.
+    there excludes the translation -- use :meth:`with_planes_at_slice` to
+    narrow a slab to a plane.
 
     A region relative to the translation (an extent around the position,
     stored once) would make that mistake impossible to write; it is to be
-    revisited with the oblique raster editor (full affine design v2,
-    section 12), whose plane and thickness are that form already.
+    revisited with the oblique raster editor, whose plane and thickness
+    are that form already.
 
     The region is in **world** coordinates, not rendered.  Rendered space
     has only the two or three displayed axes and so cannot express a
@@ -56,8 +56,8 @@ class RegionSelection(BaseModel):
     Parameters
     ----------
     transform : AffineTransform
-        The rendered -> world embedding (D34).  Its translation column
-        carries the slice indices.
+        The rendered -> world embedding.  Its translation column carries
+        the slice indices.
     region : ConvexRegion
         The selected region, in the transform's **output** (world)
         coordinate system.
@@ -121,7 +121,7 @@ class RegionSelection(BaseModel):
         if self.transform.broadcast_axes:
             raise ValueError(
                 "A RegionSelection's transform is the rendered -> world "
-                "embedding of D34, which records where the slice sits as "
+                "embedding of the slice, which records where it sits as "
                 "constant_output_axes.  It must not declare broadcast_axes: a "
                 "world axis the canvas does not display is at a definite "
                 "position, not free.  Rebuild the embedding with "
@@ -144,7 +144,7 @@ class RegionSelection(BaseModel):
         """The world point the rendered origin maps to.
 
         This is the transform's translation column, which is where the
-        slice indices live (D35).
+        slice indices live.
         """
         return self.transform.translation
 

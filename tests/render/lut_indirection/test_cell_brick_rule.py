@@ -173,7 +173,7 @@ def test_no_issues_without_scales_or_shapes():
     assert brick_rule_issues(LIGHTSHEET_SCALES, None, BLOCK_SIZE, 1) == []
 
 
-# -- Translation term (plan v2, Phase 4) ---------------------------------------
+# -- Translation term ----------------------------------------------------------
 
 
 @pytest.mark.parametrize(

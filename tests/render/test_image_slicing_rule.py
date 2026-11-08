@@ -1,4 +1,4 @@
-"""The image slicing rule: nearest sample within the thickness (design 3.2).
+"""The image slicing rule: nearest sample within the thickness.
 
 :func:`select_plane_within_slab` decides which one sample an image draws on a
 sliced axis, or that it draws nothing.  At zero thickness inside the data it

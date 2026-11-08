@@ -1,7 +1,4 @@
-"""``OrthoClippingController``: linked clipping planes across the ortho panels.
-
-``plans/clipping_planes_linking_design.md`` sections 4 and 5.
-"""
+"""``OrthoClippingController``: linked clipping planes across the ortho panels."""
 
 from __future__ import annotations
 

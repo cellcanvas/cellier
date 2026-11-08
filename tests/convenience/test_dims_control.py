@@ -1,7 +1,7 @@
 """Tests for ``cellier.convenience.Viewer.set_displayed_dimensions``.
 
 Covers the two validation guards and the 2D <-> 3D roundtrip.  Every axis
-keeps its slice position whether or not it is displayed (D36), so an axis
+keeps its slice position whether or not it is displayed, so an axis
 cycling from displayed back to sliced needs no saving or restoring.
 """
 

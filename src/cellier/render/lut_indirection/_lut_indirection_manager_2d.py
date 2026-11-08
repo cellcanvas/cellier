@@ -52,8 +52,8 @@ class LutIndirectionManager2D:
         averaging.
     sampling_margin : float
         How far past a sample position this path's shader reads, in level-k
-        voxels, at the default ray density (plan v2, "Padding budgets"):
-        subtracted from *border* for the warning.  Default 0.5 (linear).
+        voxels, at the default ray density: subtracted from *border* for
+        the warning.  Default 0.5 (linear).
     """
 
     def __init__(
@@ -117,7 +117,7 @@ class LutIndirectionManager2D:
 
         Tiles are painted phase by phase, each phase coarsest to finest, so a
         finer tile covers the coarser fallback under it and a later phase
-        covers an earlier one (design 5.8).
+        covers an earlier one.
 
         Channel assignments: ``(sx, sy, level, 0)``; level 0 is out of bounds.
 

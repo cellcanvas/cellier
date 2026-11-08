@@ -1,4 +1,4 @@
-"""The unified multiscale image visual (unified image design 3.8, 3.9).
+"""The unified multiscale image visual.
 
 A multiscale image keeps a pool of per-channel slots.  The pyramid is planned
 once, with the first drawn slot, and materialized per channel; every tile key

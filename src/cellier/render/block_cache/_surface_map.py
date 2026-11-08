@@ -15,7 +15,7 @@ map *is* the coarse level, filled as its bricks land).  The plan then keeps
 A coarse cell no brick has filled is counted as crossing, so a cell the map
 does not know keeps its bricks: the filter only ever drops a brick it can see
 is far from the surface.  A thin feature the coarse level averages below the
-threshold is invisible to it, and is never loaded (design 3.1).
+threshold is invisible to it, and is never loaded.
 
 Every query is a box sum over a summed-area table of the crossing cells, so
 a plan's filter is a handful of vectorised array operations whatever the

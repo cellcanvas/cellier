@@ -1,11 +1,11 @@
 """Every pyramid level is drawn where its level -> data transform puts it.
 
-``plans/multiscale_level_transform_v2.md``.  A small OME-Zarr v0.5 pyramid
-(image and labels) is written in one of four **kinds** (``KINDS``), read back
-through the real OME-Zarr readers and drawn at every forced level, in 2D and
-3D, for the image and the labels.  Along an axis with cumulative factor
-``F``, level ``k`` has metadata ``scale = F * s0`` and ``translation =
-t * s0 + T0``, with ``t`` in level-0 voxels:
+A small OME-Zarr v0.5 pyramid (image and labels) is written in one of four
+**kinds** (``KINDS``), read back through the real OME-Zarr readers and drawn
+at every forced level, in 2D and 3D, for the image and the labels.  Along an
+axis with cumulative factor ``F``, level ``k`` has metadata
+``scale = F * s0`` and ``translation = t * s0 + T0``, with ``t`` in level-0
+voxels:
 
 - ``offset``: offset striding, level ``k`` keeps level-0 voxels
   ``F // 2 + F * i``; ``t = F // 2``.
@@ -122,8 +122,8 @@ TOL_VOXELS = 0.2
 
 PATHS = ("3d_image", "3d_labels", "2d_image", "2d_labels")
 
-#: Paths whose shaders apply the level transform (plan v2): 2D in Phase 5,
-#: 3D in Phase 6.  ``expected_before`` documents what they drew before.
+#: Paths whose shaders apply the level transform: 2D in Phase 5, 3D in
+#: Phase 6.  ``expected_before`` documents what they drew before.
 FIXED_PATHS = frozenset(PATHS)
 
 
@@ -480,10 +480,7 @@ def _cases():
                     marks.append(
                         pytest.mark.xfail(
                             strict=True,
-                            reason=(
-                                "level translation ignored (plan v2 Phase "
-                                f"{5 if path.startswith('2d') else 6})"
-                            ),
+                            reason="level translation ignored",
                         )
                     )
                 yield pytest.param(

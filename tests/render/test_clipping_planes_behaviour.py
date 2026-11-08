@@ -234,7 +234,7 @@ def test_one_plane_is_read_and_moved_by_its_id(controller):
 
 
 # ---------------------------------------------------------------------------
-# Planes survive every material change (design 4.6)
+# Planes survive every material change
 # ---------------------------------------------------------------------------
 
 
@@ -332,7 +332,7 @@ async def test_planes_survive_material_changes(controller, tmp_path):
 
 
 async def test_a_point_is_kept_or_dropped_whole(controller, render_scene):
-    """A marker straddling the plane is not cut in half (design 4.4)."""
+    """A marker straddling the plane is not cut in half."""
     system = _system()
     store = PointsMemoryStore(
         positions=np.array([[16, 16, 16]], dtype=np.float32),
@@ -461,7 +461,7 @@ async def test_the_clipped_part_of_a_mesh_cannot_be_picked(controller):
 
 
 # ---------------------------------------------------------------------------
-# Clipped regions are not fetched (design 5.1)
+# Clipped regions are not fetched
 # ---------------------------------------------------------------------------
 
 
@@ -533,7 +533,7 @@ async def test_a_plane_change_reslices_a_multiscale_visual_only(
 
 
 # ---------------------------------------------------------------------------
-# Geometry flattened in a 2D slab is clipped in the read (design 5.2)
+# Geometry flattened in a 2D slab is clipped in the read
 # ---------------------------------------------------------------------------
 
 
@@ -626,7 +626,7 @@ async def test_a_slab_mesh_section_is_clipped_with_its_fill(controller, render_s
 
 
 async def test_a_plane_change_keeps_a_slab_mesh_on_screen(controller):
-    """D31: the last result stays until the new one lands; a slice move hides."""
+    """The last result stays until the new one lands; a slice move hides."""
     system = _system()
     positions, indices = uv_sphere(
         radius=12.0, centre=(16.0, 16.0, 16.0), n_lat=16, n_lon=32
@@ -687,7 +687,7 @@ async def test_the_lines_read_cuts_segments_at_the_plane():
 
 
 # ---------------------------------------------------------------------------
-# Painting (D26)
+# Painting
 # ---------------------------------------------------------------------------
 
 

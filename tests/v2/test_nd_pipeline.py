@@ -152,7 +152,7 @@ def test_volume_geometry_3d_non_contiguous_displayed_axes():
 
     # Replicate from_cellier_model's 3D geometry construction.  The transforms
     # are handed over whole and projected inside: a v2 transform cannot be
-    # rank-reduced without inventing two coordinate systems (R8.1).
+    # rank-reduced without inventing two coordinate systems.
     shapes_3d = [select_axes(s, displayed_axes) for s in level_shapes]
     vg = MultiscaleBrickLayout3D(
         level_shapes=shapes_3d,

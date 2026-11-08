@@ -1,8 +1,8 @@
 """The one assembler that turns a voxel-space box into a datastore selection.
 
-Design 3.7 step 4.  It replaces ``_build_axis_selections_memory`` and, when
-the multiscale phase lands, ``_build_axis_selections_multiscale`` -- so the
-same three branches decide what every image and label family fetches.
+It replaces ``_build_axis_selections_memory`` and, when the multiscale
+phase lands, ``_build_axis_selections_multiscale`` -- so the same three
+branches decide what every image and label family fetches.
 """
 
 from __future__ import annotations
@@ -67,10 +67,10 @@ def test_a_slab_entirely_outside_the_data_is_empty_rather_than_inverted():
 
 
 def test_a_half_bounded_axis_raises_and_names_the_shear():
-    """D7.  A cross-term on a collapsed axis makes the preimage of the slice
-    plane a slanted hyperplane, with no single voxel index on it.  The
-    in-memory path had no guard and sliced silently wrong; this is a bug fix,
-    not a new restriction."""
+    """A cross-term on a collapsed axis makes the preimage of the slice plane
+    a slanted hyperplane, with no single voxel index on it.  The in-memory
+    path had no guard and sliced silently wrong; this is a bug fix, not a new
+    restriction."""
     box = _box([2.0, -np.inf], [np.inf, np.inf])
     with pytest.raises(ValueError, match="bounded on one side only"):
         axis_selections_from_box(box, (10, 20))

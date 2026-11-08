@@ -1,4 +1,4 @@
-"""Render + commit tests for ``GFXMultiscaleImageVisual`` (Phase 3).
+"""Render + commit tests for ``GFXMultiscaleImageVisual``.
 
 Exercises the multiscale image commit path -- tile/brick upload, LUT rebuild,
 and ``build_material`` -- that the planning-only tests never reach, then reads

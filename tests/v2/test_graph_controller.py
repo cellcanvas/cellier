@@ -1,4 +1,4 @@
-"""Controller wiring for graph visuals: add_graph, trail, D21 (D11, D21, D23).
+"""Controller wiring for graph visuals: add_graph, trail, D21.
 
 Every test here attaches a canvas.  A reslice fans out across the canvases
 attached to a scene, so with none attached ``_build_request`` never runs and
@@ -75,7 +75,7 @@ def test_add_graph_registers_store_and_visual(graph_setup):
 
 
 def test_add_graph_uses_store_transform(graph_setup):
-    """A geff-derived transform becomes the default; explicit still wins (D23)."""
+    """A geff-derived transform becomes the default; explicit still wins."""
     controller, scene, _ = graph_setup
     scaled = _store(
         axis_scales=(1.0, 4.0, 0.26, 0.26),
@@ -148,7 +148,7 @@ async def test_trail_dict_replacement_rewires(graph_setup):
     assert _gfx(controller, visual)._trail[1].after == 9.0
 
 
-# ── D21: out-of-range axes raise ───────────────────────────────────────────
+# ── Out-of-range axes raise ────────────────────────────────────────────────
 
 
 def test_out_of_range_trail_axis_raises_at_add(graph_setup):
@@ -189,7 +189,7 @@ def test_negative_trail_axis_raises(graph_setup):
         controller.add_graph(store, scene.id, trail={-1: TrailConfig()})
 
 
-# ── D21: displayed axes warn once ──────────────────────────────────────────
+# ── Displayed axes warn once ───────────────────────────────────────────────
 
 
 def _displayed_trail_setup(graph_setup, axis: int = 3):

@@ -1,4 +1,4 @@
-"""Painter's-order LUT writes from arrays (design v3, section 5.8; D6).
+"""Painter's-order LUT writes from arrays.
 
 A multiscale LUT is rebuilt by painting resident bricks into a grid of base
 cells, coarsest first, so a finer brick covers the coarser fallback under

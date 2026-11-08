@@ -1,4 +1,3 @@
-# src/cellier/v2/data/mesh/_mesh_requests.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,8 +14,8 @@ if TYPE_CHECKING:
 class MeshSectionRequest(NamedTuple):
     """The plane, or slab, a 2D view cuts a mesh with.
 
-    ``plans/mesh_refactor_v3.md`` X1.  Hashable: it is the section part of
-    the request key, so changing any field is a new request.
+    Hashable: it is the section part of the request key, so changing any
+    field is a new request.
 
     Parameters
     ----------
@@ -69,15 +68,15 @@ class MeshSliceRequest(NamedTuple):
         world axes raises on the first and silently uploads the wrong columns
         on the second.
     region : ConvexRegion
-        The selected region, already pulled back into **data** coordinates
-        (design 3.12).  It is the whole filter: a face survives when all
+        The selected region, already pulled back into **data**
+        coordinates.  It is the whole filter: a face survives when all
         three of its vertices are inside.
     output_axes : tuple[int, ...]
         The data axes to emit, in the column order of the result.  The
         render visual passes ``retained_axes`` reversed, which is the
         ``(x, y, z)`` order pygfx draws; a 2D result gets a third column of
         zeros.  The store emits this order directly, so the commit on the UI
-        thread copies nothing (``plans/mesh_refactor_v3.md`` L5).
+        thread copies nothing.
     section : MeshSectionRequest or None
         ``None`` reads whole faces (a 3D view, or a 2D view of a mesh with
         no extent across the slice).  Otherwise the read returns a
@@ -96,13 +95,12 @@ class MeshSliceRequest(NamedTuple):
     section: MeshSectionRequest | None = None
     #: Clipping planes a slab section is clipped with on the CPU, as
     #: ``(normal, offset)`` pairs in data coordinates, kept where
-    #: ``normal . p >= offset`` (clipping planes design 5.2).  Part of the
-    #: request key.  Empty in cut mode and in 3D, where the shader clips.
+    #: ``normal . p >= offset``.  Part of the request key.  Empty in cut
+    #: mode and in 3D, where the shader clips.
     clip_planes: tuple = ()
     #: Keep each section vertex's coordinate on the section axis in the
     #: third column instead of zero, so the render layer can place a section
-    #: cut by a tilted plane in the world frame (full affine design v2,
-    #: Phase 6).
+    #: cut by a tilted plane in the world frame.
     section_depth: bool = False
 
 
@@ -169,7 +167,7 @@ class MeshData:
 
 @dataclass(frozen=True)
 class MeshSectionData:
-    """One level of a mesh cut by a plane or slab, ready to upload (X4).
+    """One level of a mesh cut by a plane or slab, ready to upload.
 
     Returned by a mesh store's ``get_data`` for a request with a
     ``section``.  Positions are ``(n, 3)`` float32 in the request's

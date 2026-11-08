@@ -4,7 +4,7 @@ Run as ``.venv/bin/python -m tests.integration._generate_baseline``.  Writes
 one file per family under ``tests/integration/baseline/``.  The replay test
 (``test_golden_baseline.py``) asserts against exactly these files, so this
 script is only re-run when a later phase deliberately changes a recorded
-value (design section 3.6) and the readout says so.
+value and the readout says so.
 """
 
 from __future__ import annotations

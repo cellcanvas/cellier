@@ -1,4 +1,4 @@
-"""Paint controllers for cellier v2."""
+"""Paint controllers."""
 
 from cellier.paint._abstract import AbstractPaintController
 from cellier.paint._history import (

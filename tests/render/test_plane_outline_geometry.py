@@ -1,4 +1,4 @@
-"""The polygon a plane makes in a visual (plane outline design, section 5).
+"""The polygon a plane makes in a visual.
 
 The expected polygons are worked out by hand and written here as numbers.
 Coordinates are rendered space, pygfx ``(x, y, z)``.
