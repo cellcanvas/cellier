@@ -345,7 +345,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
             self._update_node_matrix(self._last_displayed_axes)
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place the node with the composition of design 3.9.
+        """Place the node with the node-matrix composition.
 
         ``visual -> data -> world -> rendered``, replacing the
         ``select_axes`` sub-block.  The two agree exactly for a
@@ -510,15 +510,14 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         legitimate, but indistinguishable at slice time from a typo, so it
         warns once per (visual, axis) -- see ``_warned_displayed_axes``.
 
-        The graph is design 3.12's "per-family policy on top of the region":
-        its window is **asymmetric** and its fade is measured from the slice,
-        so ``contains`` alone cannot express it.  What changes is the space
+        The graph has a per-family policy on top of the region: its window
+        is **asymmetric** and its fade is measured from the slice, so
+        ``contains`` alone cannot express it.  What changes is the space
         the numbers are in.  The slice position now comes from the region,
         pulled back through the visual's transform, and the extents are
         divided by the world-units-per-data-unit of their axis -- so the
-        store's own slab arithmetic compares data against data.  Before this
-        it compared a **world** position against **data** coordinates, which
-        is the latent bug D4 exists to fix.
+        store's own slab arithmetic compares data against data, never a
+        **world** position against **data** coordinates.
         """
         if selection is None or self._spaces is None or self._transform is None:
             raise RuntimeError(
@@ -593,7 +592,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         # A sliced axis no world row reads alone (a time axis a world row
         # mixes with space, say) has no window to convert: it is filtered by
         # plain containment in the region below, as is a slab tilted through
-        # the retained axes (an OBLIQUE view, Phase 6).
+        # the retained axes (an OBLIQUE view).
         coupling = self._transform.axis_coupling()
         windowed = [
             axis

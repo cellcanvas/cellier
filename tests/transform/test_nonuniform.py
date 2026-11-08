@@ -1,8 +1,8 @@
 """The non-uniform axis leaf.
 
-The running example throughout is the design's table: thirteen frames whose
-world times are unevenly spaced, densely sampled in the middle and sparse at
-the end.
+The running example throughout is a table of thirteen frames whose world
+times are unevenly spaced, densely sampled in the middle and sparse at the
+end.
 """
 
 from uuid import uuid4
@@ -141,7 +141,7 @@ def test_round_trip_on_fractional_positions(leaf):
 
 
 def test_the_designs_worked_example(leaf):
-    """5.2 s pulls back to frame 6.4, which is the number the design uses."""
+    """5.2 s pulls back to frame 6.4."""
     assert leaf.imap_coordinates(np.array([5.2]))[0] == pytest.approx(6.4)
     assert leaf.map_coordinates(np.array([6.4]))[0] == pytest.approx(5.2)
 
@@ -334,11 +334,11 @@ def test_equality_is_total_against_a_foreign_type(leaf):
     assert (leaf == "not a transform") is False
 
 
-# -- the Phase 0 item 9 regression -------------------------------------------
+# -- nearest sample in world units --------------------------------------------
 
 
 def test_linear_inverse_plus_round_half_up_is_nearest_in_world_units(leaf):
-    """Verified in the Phase 0 probe; pinned here so the repo owns it.
+    """Rounding the linear inverse half-up picks the nearest frame in time.
 
     This is what lets the image path keep round_world_to_voxel unchanged on
     a non-uniform axis.

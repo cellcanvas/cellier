@@ -1,7 +1,5 @@
 """The clipping planes widget of an ``OrthoViewer``.
 
-See ``plans/clipping_planes_linking_design.md`` (section 6).
-
 One widget holds the link mode selector and every clipping planes control
 of the viewer: for each dataset whose ``controls=`` list holds
 ``ClippingPlanesControl()``, one control per link group of the current mode.

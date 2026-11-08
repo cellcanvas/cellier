@@ -212,7 +212,7 @@ def test_from_geff_identity_when_axes_unscaled(tmp_path):
 
 @requires_geff
 def test_from_geff_has_no_transform_param(tmp_path):
-    """D23 is enforced, not merely documented."""
+    """The file is the sole source of the transform: no ``transform=``."""
     path, _, _ = _write_lineage(tmp_path / "lineage.geff")
     with pytest.raises(TypeError, match="transform"):
         GraphMemoryStore.from_geff(path, transform=object())
@@ -267,7 +267,7 @@ async def test_from_geff_store_slices(tmp_path, make_request):
 
     data = await store.get_data(make_request(displayed=(1, 2, 3), sliced={0: 1}))
     assert np.array_equal(data.original_node_rows, np.array([1, 2]))
-    # Every edge touching t=1 survives under D5: (0,1), (0,2) and (2,3).
+    # Every edge touching t=1 survives (either endpoint): (0,1), (0,2), (2,3).
     assert data.original_edge_rows.shape[0] == 3
 
 

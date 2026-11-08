@@ -33,7 +33,7 @@ def tczyx():
 
 
 def embedding(world, slices=None):
-    """The D34 rendered -> world embedding, displaying ZYX."""
+    """The ``rendered -> world`` embedding, displaying ZYX."""
     slices = {"T": 7.0, "C": 2.0} if slices is None else slices
     rendered = RenderedCoordinateSystem.from_world(world, ("Z", "Y", "X"), uuid4())
     return AffineTransform.from_axis_map(
@@ -141,12 +141,13 @@ def test_there_is_no_dims_editor_here():
 
 
 def test_a_bounded_displayed_axis_is_accepted():
-    """R3 permits bounding a displayed axis; the invariant must allow it.
+    """A displayed axis may be bounded; the invariant must allow it.
 
-    D43 states the invariant as "the transform's translation satisfies
-    every half-space".  The translation is zero on a displayed axis, so
-    that literal reading would reject this selection even though every
-    rendered point with ``Z`` in ``[11, 13]`` lands in the region.
+    One reading of the invariant is "the transform's translation
+    satisfies every half-space".  The translation is zero on a displayed
+    axis, so that literal reading would reject this selection even
+    though every rendered point with ``Z`` in ``[11, 13]`` lands in the
+    region.
     """
     world = tczyx()
     assert RegionSelection(
@@ -158,13 +159,13 @@ def test_a_bounded_displayed_axis_is_accepted():
 
 
 def test_an_embedding_with_broadcast_axes_is_rejected():
-    """The validator resolves D8's drop rule to "nothing to drop".
+    """The validator resolves the broadcast-axis drop to "nothing to drop".
 
     It holds axis **ids** and never the world ``CoordinateSystem``
     object, so it cannot resolve ``broadcast_axes`` to indices.  That is
     fine because a ``rendered -> world`` embedding records where the
     slice sits as ``constant_output_axes`` and never as a broadcast axis
-    (D34/D35) -- but the assumption is checked rather than assumed.
+    -- but the assumption is checked rather than assumed.
     """
     world = tczyx()
     rendered = RenderedCoordinateSystem.from_world(world, ("Z", "Y", "X"), uuid4())
@@ -182,7 +183,7 @@ def test_an_embedding_with_broadcast_axes_is_rejected():
 
 
 def test_a_selection_that_reaches_nothing_is_still_rejected():
-    """The generalisation must not weaken the check D43 was written for."""
+    """Allowing bounded displayed axes must not weaken the emptiness check."""
     world = tczyx()
     with pytest.raises(ValidationError, match="would select nothing"):
         RegionSelection(
@@ -194,7 +195,7 @@ def test_a_selection_that_reaches_nothing_is_still_rejected():
 # -- with_planes_at_slice ----------------------------------------------
 
 #: A slice position whose slab midpoint ``((p - 1) + (p + 1)) / 2`` is one ulp
-#: above ``p``: the value the H4 hand check's slider landed on.
+#: above ``p``: a value a slider landed on in a hand check.
 _ROUNDING_POSITION = 31.3796992481203
 
 

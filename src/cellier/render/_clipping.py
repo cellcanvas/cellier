@@ -407,8 +407,8 @@ class GeometryClippingMixin(ClippingPlanesMixin):
         """Whether an enabled plane has a component on a collapsed axis.
 
         Or whether the view draws the geometry in the world frame (an
-        ``OBLIQUE`` view, full affine design v2 Phase 6): the node's frame is
-        then not the data's, so the read clips every enabled plane.
+        ``OBLIQUE`` view): the node's frame is then not the data's, so
+        the read clips every enabled plane.
         """
         spaces = getattr(self, "_spaces", None)
         if spaces is None or not self._clipping_planes:

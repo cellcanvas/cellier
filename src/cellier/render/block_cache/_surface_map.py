@@ -3,12 +3,12 @@
 A MaskedImage that loads only the bricks near its surface has to know where
 the surface is before it plans its target.  It learns that from the mask's
 backstop: every backstop brick the atlas writes is copied into a
-:class:`SurfaceMap`, the backstop level as one array per slice (P0-14: the
-map *is* the coarse level, filled as its bricks land).  The plan then keeps
+:class:`SurfaceMap`, the backstop level as one array per slice (the map
+*is* the coarse level, filled as its bricks land).  The plan then keeps
 
 - the mask's target bricks that touch a coarse cell crossing the threshold
-  (the min and max over the cell and its 26 neighbours straddle it: the
-  margin of one coarse cell of design 3.1), and
+  (the min and max over the cell and its 26 neighbours straddle it: a margin of
+  one coarse cell), and
 - the value's target bricks within ``surface_thickness`` of one, mapped into
   the mask's grid.
 

@@ -380,7 +380,7 @@ async def test_a_mode_change_in_a_drag_closes_the_forwarded_scopes(make_ortho):
     )
 
 
-# -- two datasets linked by user code (L-D17, L12) ------------------------------
+# -- two datasets linked by user code -------------------------------------------
 
 
 def _link_xy(controller, a, b, *, forward_scope: bool):
@@ -537,7 +537,7 @@ def test_a_closed_linker_links_nothing(make_ortho):
     assert _at(visuals, 7.0) == {"vol"}
 
 
-# -- save and load (L-D18, L13) ---------------------------------------------------
+# -- save and load ----------------------------------------------------------------
 
 
 def _saved(make_ortho, tmp_path, mode, *, differ: bool):

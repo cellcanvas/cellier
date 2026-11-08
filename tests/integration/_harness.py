@@ -13,13 +13,9 @@ and no GPU device:
 * ``geometry_indices`` -- for the geometry families, the surviving original
   element indices from a real ``get_data`` call.
 
-Nothing here imports from the v1 transform package.  Phase 0 changes no
-behaviour; it only records it.
-
-The three sites where the design predicts a *deliberate* behaviour
-change in a later phase are marked ``XFAIL_CASES`` with the phase that
-owns the flip, so that phase turning them green is an ``xfail -> xpass``
-and not a silent divergence.
+The cases whose recorded values changed deliberately are listed in
+``XFAIL_GROUPS`` with the reason, which the baseline JSON stores beside each
+such case, so a change of behaviour is never a silent divergence.
 """
 
 from __future__ import annotations
@@ -72,8 +68,8 @@ def canon(obj: Any) -> Any:
     """Recursively convert *obj* to a JSON-stable structure.
 
     Rounds floats to a fixed number of digits (the node matrices are
-    float32 today, so 12 digits is well inside their precision and keeps
-    the comparison from tripping on the last ULP), turns numpy arrays and
+    float32, so 12 digits is well inside their precision and keeps the
+    comparison from tripping on the last ULP), turns numpy arrays and
     tuples into lists, and leaves ``None`` / ``str`` alone.  UUIDs are
     never passed in -- callers extract only the fields that do not vary
     per run.
@@ -125,10 +121,9 @@ def _axes(labels: tuple[str, ...]) -> tuple[Axis, ...]:
 class TransformSpec:
     """A named ``data -> world`` transform.
 
-    Recorded as a scale and a translation rather than a matrix, so the same
-    spec builds the v1 transform the baseline was captured with and the v2 one
-    the migrated code takes.  ``baseline/*.json`` stays the frozen invariant:
-    the harness changes shape, the recorded numbers do not.
+    Recorded as a scale and a translation rather than a matrix.
+    ``baseline/*.json`` stays the frozen invariant: the harness may change
+    shape, the recorded numbers do not.
     """
 
     name: str
@@ -160,13 +155,13 @@ class TransformSpec:
 
 @dataclass(frozen=True)
 class V2Context:
-    """The v2 transform and render spaces one case is driven with.
+    """The transform and render spaces one case is driven with.
 
-    Phase 3 retyped ``BaseVisual.transform``, so the harness has to build the
-    coordinate systems the render layer now composes through.  They are
-    synthetic -- there is no controller here -- but they are built exactly the
-    way the controller builds them: the world in cellier displayed order, the
-    rendered system from ``displayed_axes`` in that order, and the visual
+    ``BaseVisual.transform`` names its coordinate systems, so the harness has
+    to build the coordinate systems the render layer composes through.  They
+    are synthetic -- there is no controller here -- but they are built exactly
+    the way the controller builds them: the world in cellier displayed order,
+    the rendered system from ``displayed_axes`` in that order, and the visual
     system from the retained data axes **ascending**.
     """
 
@@ -178,14 +173,12 @@ class V2Context:
 def _v2_context(
     tspec: TransformSpec, dspec: DimsSpec, pyramid: PyramidSpec | None = None
 ) -> V2Context:
-    """Build the v2 transform and a spaces factory for one matrix cell.
+    """Build the transform and a spaces factory for one matrix cell.
 
     *pyramid* is supplied for the multiscale families and is what puts the
     per-level coordinate systems and their level-k -> level-0 transforms on
     ``RenderSpaces``.  Without them ``spaces.level_transforms`` is empty and
-    ``_level_box`` has nothing to pull the region back to -- which is how
-    every multiscale case in this baseline was recorded until Phase 8:
-    through the pre-migration fallback, not through the region.
+    ``_level_box`` has nothing to pull the region back to.
     """
     labels = dspec.axis_labels
     data = DataCoordinateSystem(name="data", axes=_axes(labels), datastore_id=uuid4())
@@ -346,14 +339,13 @@ DIMS_4D: dict[str, DimsSpec] = {
 
 
 # ---------------------------------------------------------------------------
-# Known behaviour changes -- design section 3.6
+# Known behaviour changes
 # ---------------------------------------------------------------------------
 
-# Keyed by (family_group, reason).  The replay harness marks every case for
-# a family in one of these groups xfail(strict=True): today the value in the
-# JSON is what the code produces now, and when the owning phase flips the
-# behaviour the assertion goes xpass, which is the signal to re-record the
-# JSON and drop the marker.
+# Keyed by (family_group, reason).  Every case for a family in one of these
+# groups changed its recorded value on purpose; the baseline JSON stores the
+# reason beside the case, and a replay failure on it names the reason.  The
+# registry stays as the audit trail.
 XFAIL_GROUPS: dict[str, str] = {
     "geometry_slicing": (
         "geometry visuals slice against the pulled-back region; a "
@@ -421,11 +413,9 @@ def _drive_slice_requests(
     label families, or ``[displayed_axes, retained_axes, region]`` for the
     geometry families (which do not resolve to voxel windows).
 
-    The geometry entry recorded ``slice_indices`` and ``thickness`` until
-    Phase 8 deleted both from the request.  What replaces them is the thing
-    that actually decides which vertices survive: the pulled-back region, as
-    its per-axis bounds.  Wider than what it replaced -- a region says where
-    the slab is *and* how thick -- and in **data** coordinates, which is the
+    The geometry entry records the thing that decides which vertices survive:
+    the pulled-back region, as its per-axis bounds.  A region says where the
+    slab is *and* how thick, and it is in **data** coordinates, which is the
     space the filter runs in.
     """
     if is_3d:

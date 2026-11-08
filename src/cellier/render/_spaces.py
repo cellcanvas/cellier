@@ -1,22 +1,18 @@
 """The coordinate systems a render visual places its geometry with.
 
-Today a node matrix is ``visual.transform.select_axes(displayed_axes)``
-followed by an axis reversal.  ``select_axes`` extracts a square sub-block,
-which is only correct when the linear block is block-diagonal with respect to
-the displayed set, and on an unequal-rank transform it does not even raise --
-it reads the homogeneous row and returns a plausible wrong matrix (design 3.8
-finding 2).
-
-The correct derivation composes three transforms:
+A node matrix composes three transforms:
 
     visual -> data   the collapsed voxel indices and the window origin
     data -> world    the visual's own transform
     world -> rendered  the inverse of the canvas embedding
 
-and only the ``(z, y, x) -> (x, y, z)`` reversal at the end survives from the
-old path.  :class:`RenderSpaces` is the bundle of systems that composition
-needs, built by the controller (which owns all of them) and handed to each
-render visual.
+and then reverses ``(z, y, x) -> (x, y, z)`` into pygfx order.  Reading a
+square sub-block off the visual's transform instead is only correct when the
+linear block is block-diagonal with respect to the displayed set, and on an
+unequal-rank transform it does not even raise -- it reads the homogeneous row
+and returns a plausible wrong matrix.  :class:`RenderSpaces` is the bundle of
+systems the composition needs, built by the controller (which owns all of them)
+and handed to each render visual.
 """
 
 from __future__ import annotations
@@ -55,11 +51,9 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 #
 # These operate on shape tuples, scale vectors and translation vectors -- not
-# on transforms.  They lived in v1's ``_axis_order`` module and shared their
-# names with the ``AffineTransform`` methods of the same name, which was a
-# coincidence: rank-reducing a transform and subsetting a shape tuple are
-# different operations.  The methods went with v1; these moved here, next to
-# the fetch-order invariant they serve.
+# on transforms: rank-reducing a transform and subsetting a shape tuple are
+# different operations.  They live here, next to the fetch-order invariant
+# they serve.
 #
 # ``select_axes`` picks a subset of entries from a per-data-axis sequence.
 # The result preserves the order in ``axes`` and is therefore still in *data
@@ -145,9 +139,9 @@ class RenderSpaces:
     level_transforms : tuple[AffineTransform, ...]
         Level ``k`` voxel space -> level ``0`` voxel space, one per entry in
         ``data_levels``.  Index 0 is the identity.  These are what a region
-        is pulled back through, level by level (design 3.11 A), replacing a
-        precomputed ``inv_level_k @ inv_visual`` list -- and unlike that list
-        they need no inverse at all.
+        is pulled back through, level by level, replacing a precomputed
+        ``inv_level_k @ inv_visual`` list -- and unlike that list they need
+        no inverse at all.
     visual : VisualCoordinateSystem
         The space this visual's GPU geometry is indexed in, for one render
         mode.
@@ -155,12 +149,13 @@ class RenderSpaces:
         The scene's world.
     rendered : RenderedCoordinateSystem
         The 2D or 3D scene one canvas draws, in **cellier displayed order**
-        (Part 5 D1).  The pygfx ``(x, y, z)`` reversal is not carried here; it
-        stays at the renderer boundary.
+        The pygfx ``(x, y, z)`` reversal is not carried here; it stays at
+        the renderer boundary.
     rendered_to_world : AffineTransform
-        The D34 embedding.  Its constant column carries the slice positions.
+        The ``rendered -> world`` embedding.  Its constant column carries the
+        slice positions.
     world_to_rendered : AffineTransform
-        The inverse of the D34 embedding.  Projection onto the displayed
+        The inverse of that embedding.  Projection onto the displayed
         world axes: it discards the collapsed ones, which the visual has
         already accounted for in ``visual_to_data``.
     retained_axes : tuple[int, ...]
@@ -257,8 +252,9 @@ def build_render_spaces(
     rendered_coordinate_system : RenderedCoordinateSystem
         The canvas's rendered system.
     rendered_to_world : AffineTransform
-        The D34 embedding.  Its left inverse is the projection the node matrix
-        ends with; an embedding always has one, so this never returns ``None``.
+        The ``rendered -> world`` embedding.  Its left inverse is the
+        projection the node matrix ends with; an embedding always has one, so
+        this never returns ``None``.
     data_to_world : AffineTransform
         The visual's own transform, read for its axis correspondence.
     retained_axes : Sequence[int]
@@ -392,10 +388,11 @@ def node_transform(
 ) -> AffineTransform:
     """Compose ``visual -> rendered``, the transform a node matrix expresses.
 
-    This is design 3.9's chain.  It is square by construction -- the visual
-    and rendered systems have the same rank whenever the visual retains
-    exactly the displayed axes -- and is handed to ``_pygfx_matrix``, which
-    reverses the axis order and narrows to float32.
+    The chain ``visual -> data -> world -> rendered``.  It is square by
+    construction -- the visual and rendered systems have the same rank
+    whenever the visual retains exactly the displayed axes -- and is handed
+    to ``_pygfx_matrix``, which reverses the axis order and narrows to
+    float32.
 
     Parameters
     ----------
@@ -420,10 +417,10 @@ def pygfx_to_cellier_order(coordinates: np.ndarray) -> np.ndarray:
     """Reverse the last axis: pygfx ``(x, y, z)`` -> cellier ``(z, y, x)``.
 
     One of the three places the reversal lives, and the only one that acts on
-    **coordinates** rather than on a matrix or a vertex buffer.  Part 5 D1
-    keeps the flip at the pygfx boundary rather than folding it into the
-    rendered coordinate system, and narrows it to named helpers so that
-    moving it later is a change to two functions rather than a hunt for
+    **coordinates** rather than on a matrix or a vertex buffer.  The flip
+    stays at the pygfx boundary rather than being folded into the rendered
+    coordinate system, and is narrowed to named helpers so that moving it
+    later is a change to two functions rather than a hunt for
     ``[[2, 1, 0]]``.
 
     ``ReslicingRequest.camera_pos`` and ``frustum_corners`` are pygfx
@@ -475,16 +472,17 @@ def pygfx_matrix(transform: AffineTransform) -> np.ndarray:
 
     Cellier order is ``(z, y, x)`` for 3D and ``(y, x)`` for 2D; pygfx uses
     ``(x, y, z)``, so the axes are reversed.  This is one of the three places
-    that reversal lives, and Part 5 D1 keeps it here rather than folding it
-    into the rendered coordinate system -- which stays legible against the
-    world precisely because it does not carry the flip.
+    that reversal lives; it is kept here rather than folded into the rendered
+    coordinate system -- which stays legible against the world precisely
+    because it does not carry the flip.
 
     The reversal is still correct when the displayed axes are **transposed**:
     it maps whatever order the rendered system is in onto pygfx's, so a
     rendered system of ``("X", "Y")`` reverses to pygfx ``(y, x)``.
 
-    This is also one of D6's three narrowing sites: the model layer is float64
-    throughout and float32 begins at the GPU boundary.
+    This is also one of the three places float64 narrows to float32: the
+    model layer is float64 throughout and float32 begins at the GPU
+    boundary.
 
     Parameters
     ----------
@@ -602,10 +600,11 @@ def node_matrix(
 ) -> np.ndarray:
     """The 4x4 float32 matrix that places one visual's geometry in the scene.
 
-    The whole of design 3.9 in one call: build ``visual -> data`` from this
-    request's collapsed indices and window origin, compose it through the
-    visual's ``data -> world`` and the canvas's ``world -> rendered``, then
-    reverse to pygfx order and narrow to float32.
+    The whole node-matrix composition in one call: build ``visual -> data``
+    from this request's collapsed indices and window origin, compose it
+    through the visual's ``data -> world`` and the canvas's
+    ``world -> rendered``, then reverse to pygfx order and narrow to
+    float32.
 
     Parameters
     ----------
@@ -641,8 +640,8 @@ def node_follows_slice(spaces: RenderSpaces | None) -> bool:
     True in a view whose sliced data axes reach a displayed world axis
     (``SLICE_SHIFT``, and ``OBLIQUE`` for the families that draw it): the
     collapsed constants the node matrix holds then move the drawn slab
-    across the view.  False otherwise, so an ``AXIS_ALIGNED`` or
-    ``IN_PLANE`` view keeps today's call pattern.
+    across the view.  False otherwise: an ``AXIS_ALIGNED`` or
+    ``IN_PLANE`` view does not re-place its nodes when the slice moves.
     """
     if spaces is None or spaces.classification is None:
         return False
@@ -687,8 +686,8 @@ class ElementFold:
     ) -> np.ndarray:
         """Fold *collapsed* into *retained*, column by column.
 
-        One multiply-add per non-zero entry of ``K`` (design 4.3: not a
-        general matmul, which costs four times as much at a million points).
+        One multiply-add per non-zero entry of ``K``, not a general matmul,
+        which costs four times as much at a million points.
 
         Parameters
         ----------
@@ -842,7 +841,7 @@ def visual_covers_position(
     """Whether a visual has data at the given per-axis **data** positions.
 
     **Where "out of range means nothing, not the edge sample" is decided.**
-    Before this check, a visual whose data ended before the scene's would
+    Without this check, a visual whose data ends before the scene's would
     pin its last plane and redraw it forever -- an acquisition ending at 9 s
     re-showing its 9 s frame at 10, 11 and 12 s as though it were data.
     Skipping the request leaves the visual empty instead.
@@ -852,8 +851,8 @@ def visual_covers_position(
     :func:`data_slice_positions`, which has already pulled the world
     selection back through this visual's own transform, and the extents come
     from its store.  Nothing here maps anything, so there is no opportunity
-    to compare a world number against a data one -- the defect this whole
-    design exists to prevent.
+    to compare a world number against a data one -- the defect slicing in
+    world space exists to prevent.
 
     Only **collapsed** axes are checked, because those are the only ones
     ``data_slice_positions`` returns: a displayed axis is a range the camera
@@ -1107,9 +1106,9 @@ def _anchor_discrete_axes(
         if world_axis is None:
             continue
         # A bound the selection did not ask for is not a slice.  Free axes
-        # pull back unbounded today, but centring on any finite range the
-        # pull-back might give one (a non-uniform axis once returned its
-        # index range) pinned every view to the middle sample.
+        # pull back unbounded, but centring on a finite range the pull-back
+        # might give (a non-uniform axis once returned its index range)
+        # would pin every view to the middle sample.
         if world_axis not in thickness:
             continue
         if positions is None:
@@ -1157,9 +1156,9 @@ def geometry_data_region(
 
     ``imap_region`` is ``A^T`` on the normals and needs no inverse, so a
     geometry visual whose transform is a non-invertible embedding still
-    slices -- which is the ``tzyx`` points in a ``TCZYX`` world of 3.13,
-    where D8 additionally drops the channel constraint the dataset has no
-    extent along.
+    slices -- which is the ``tzyx`` points in a ``TCZYX`` world, where
+    the broadcast-axis drop also removes the channel constraint the
+    dataset has no extent along.
 
     **The scene's thickness is the only thickness.**  An axis the user gave
     no thickness is a plane, and a continuous axis keeps pure containment:
@@ -1414,9 +1413,9 @@ def data_slice_positions(
 
     For the families whose own slab arithmetic the region does not replace --
     the graph, whose trail is an asymmetric window with a fade measured from
-    the slice (design 3.12's "per-family policy on top of the region").  They
-    need the position, not the extent, so this returns the centre of the
-    pulled-back region on every axis it bounds.
+    the slice, a per-family policy on top of the region.  They need the
+    position, not the extent, so this returns the centre of the pulled-back
+    region on every axis it bounds.
 
     Parameters
     ----------
@@ -1437,10 +1436,10 @@ def data_slice_positions(
     -----
     A slab tilted through the data -- a 2D view that is ``OBLIQUE`` for the
     visual -- bounds no single data axis: it is unbounded on every axis it
-    tilts across (``polytope_bounds`` reads it correctly since K13), or
-    bounded on one side where other constraints cut it.  Neither is a
-    position, so neither is reported; the geometry families place such a
-    slab's elements one by one instead.
+    tilts across (``polytope_bounds`` reads it correctly), or bounded on
+    one side where other constraints cut it.  Neither is a position, so
+    neither is reported; the geometry families place such a slab's elements
+    one by one instead.
     """
     box = data_to_world.imap_region(region, world).simplify().bounding_box()
     positions: dict[int, float] = {}

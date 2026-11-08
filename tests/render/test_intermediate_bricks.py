@@ -1,7 +1,7 @@
 """Intermediate loading stages: the ancestors of a target plan.
 
 The expected ancestors are stored in ``intermediate_bricks_cases.json``
-(reviewed with the design; never regenerated), not recomputed here.
+(reviewed by hand; never regenerated), not recomputed here.
 """
 
 from __future__ import annotations

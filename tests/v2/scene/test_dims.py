@@ -64,10 +64,10 @@ def test_axis_aligned_selection_to_state():
 
 
 def test_the_snapshot_does_not_carry_the_slice_positions():
-    """D5, landed in Phase 8.  The editable positions stay on the selection,
-    which the sliders write to and the region is built from; the snapshot the
-    render layer receives carries only what is still read from it.  Every
-    consumer of the positions takes the ``RegionSelection`` instead."""
+    """The editable positions stay on the selection, which the sliders write
+    to and the region is built from; the snapshot the render layer receives
+    carries only what is still read from it.  Every consumer of the positions
+    takes the ``RegionSelection`` instead."""
     sel = AxisAlignedSelection(displayed_axes=(1, 2), slice_indices={0: 42})
     assert sel.slice_indices == {0: 42}
     assert not hasattr(sel.to_state(), "slice_indices")

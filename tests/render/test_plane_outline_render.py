@@ -282,8 +282,8 @@ async def test_the_line_has_its_width_in_pixels_at_any_distance(controller):
 
 
 async def test_a_mesh_in_front_hides_the_line(controller):
-    """The line is depth tested (B-D7): a quad three units toward the
-    camera, over one corner of the polygon, hides the line behind it."""
+    """The line is depth tested: a quad three units toward the camera,
+    over one corner of the polygon, hides the line behind it."""
     scene, _visual, polygon = await _outlined_image(controller)
     size = (480, 480)
     gfx_scene = _scene_manager(controller, scene).scene

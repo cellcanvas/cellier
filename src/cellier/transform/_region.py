@@ -192,7 +192,7 @@ class ConvexRegion(BaseModel):
         Exact, not conservative: the bounds come from ``2 * ndim`` linear
         programs, or -- when every normal lies along a single axis -- are
         read off directly, which is roughly 1000x faster and covers every
-        axis-aligned selection shipping today.
+        axis-aligned selection, which is what the slicing path sends.
 
         An unconstrained axis comes back ``-inf`` / ``+inf``.
 
@@ -320,7 +320,8 @@ class ConvexRegion(BaseModel):
         """Build the region equivalent to an axis-aligned box.
 
         Infinite bounds contribute no constraint, since ``p_i <= inf``
-        excludes nothing (and an infinite offset is rejected by D44).
+        excludes nothing (and :class:`Plane` rejects an infinite
+        offset).
 
         Parameters
         ----------

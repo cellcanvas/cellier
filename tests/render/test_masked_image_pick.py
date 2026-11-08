@@ -390,7 +390,7 @@ def test_a_newer_move_cancels_a_lazy_pick_in_flight(tmp_path):
 
 
 def test_a_cut_face_pick_projects_into_the_kept_side(tmp_path):
-    """The cross section of Phase 6: a z ramp read along +z from z = 32.
+    """The cross section: a z ramp read along +z from z = 32.
 
     The samples are at z = 32.5 to 37.5, read at the nearest voxel: max 37
     or 38 and mean 34.5 or 35.5 by the hit's side of 32.  The wrong sign

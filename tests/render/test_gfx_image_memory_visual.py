@@ -504,7 +504,7 @@ def test_on_transform_changed_updates_node_after_initial_slice(mock_gfx):
         selection=ctx.selection,
     )
 
-    # Now change the transform, against the same coordinate systems: a v2
+    # Now change the transform, against the same coordinate systems: a
     # transform names its endpoints, so a replacement has to keep them.
     new_ctx = Context(
         3,

@@ -1,4 +1,4 @@
-"""``InteractionTracker``: one test per row of the design's 4.1 table."""
+"""``InteractionTracker``: one test per input it handles."""
 
 from __future__ import annotations
 
@@ -204,7 +204,7 @@ def test_cancel_while_idle_does_nothing_and_keeps_scopes() -> None:
 
 
 def test_no_input_returns_an_end_and_a_start_together() -> None:
-    """The list return leaves room for it; nothing produces it today."""
+    """The list return leaves room for it; nothing produces it yet."""
     tracker, clock = _tracker()
     holder = uuid4()
     results = [

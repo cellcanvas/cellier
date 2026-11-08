@@ -1,9 +1,8 @@
 """The per-view classifier.
 
-``plans/full_affine_transforms_design_v2.md`` sections 3.1 and 4.1, with
-decision D7's relative tolerance.  Every case is a ``data -> world``
-transform against one view; the expected cases follow section 3.1's rules
-and its worked checks.
+The classifier uses the relative tolerance that snaps near-zero couplings.
+Every case is a ``data -> world`` transform against one view, with the
+expected case worked out by hand.
 """
 
 from __future__ import annotations

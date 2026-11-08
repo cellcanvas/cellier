@@ -9,7 +9,7 @@ result) through a single-level
 - at most two reads are in flight per visual, the newest plan wins, and the
   filter runs in the loop's executor (``MEMORY_GEOMETRY_POLICY``);
 - the previous result stays on screen while the next one loads when the two
-  keys place their data the same way (``keeps_previous``, D1);
+  keys place their data the same way (``keeps_previous``);
 - a contents change keeps the old result drawn until its re-read lands.
 
 An upload is placed by its own request key, never by state the newest plan

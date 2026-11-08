@@ -354,8 +354,8 @@ class InMemoryImageRenderConfig(BaseModel):
     """Render-layer configuration of an in-memory image's brick route.
 
     Used only while a 2D view draws the image from 3D bricks (a tilted view,
-    or a projecting image; oblique 2D design v3, U1).  Nothing is allocated
-    for a visual that never takes that route.
+    or a projecting image).  Nothing is allocated for a visual that never
+    takes that route.
 
     Parameters
     ----------
@@ -396,7 +396,7 @@ class ImageVisual(BaseImageVisual):
         Composite mode's per-channel appearances.
     requires_camera_reslice : bool
         Always ``False``; frozen.  A view on the brick route reslices on
-        camera moves anyway (the controller decides per view, design v3 D6).
+        camera moves anyway (the controller decides per view).
     render_config : InMemoryImageRenderConfig
         The brick route's GPU configuration.
     """

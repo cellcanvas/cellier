@@ -139,7 +139,7 @@ async def test_a_clipping_plane_s_outline_follows_its_switches(controller):
     visual.appearance.visible = True
     assert len(_drawn(controller, scene)) == 1
 
-    # B-P8: 3D views only.
+    # 3D views only.
     controller.set_displayed_axes(scene.id, (1, 2))
     assert _drawn(controller, scene) == {}
     controller.set_displayed_axes(scene.id, (0, 1, 2))

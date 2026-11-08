@@ -608,8 +608,8 @@ def _staged(cache_id: int, backstop, stages, target, **kwargs):
 
 
 def test_progress_counts_each_stage_and_names_the_one_loading() -> None:
-    """Intermediate-level design v2, section 8: counts per class, and
-    ``stage`` as the most important class not all resident."""
+    """Counts per class, and ``stage`` as the most important class not
+    all resident."""
     core, _ = _core(max_in_flight=16, backstop_reserved=0)
     core.register(1, FakeResidency(32))
     events: list[int] = []

@@ -323,7 +323,7 @@ def test_channel_broadcast_broadcast_axis_is_unbounded_and_the_rest_exact():
 
 
 def test_without_broadcast_axes_the_c_extent_would_be_degenerate():
-    """The wrong answer D25 exists to prevent, pinned so it stays visible."""
+    """The wrong answer broadcast axes prevent, pinned so it stays visible."""
     linear, translation, _ = CHANNEL_BROADCAST
     lower, upper = np.full(4, -1.0), np.array([2.0, 3.0, 4.0, 5.0])
     got_lower, got_upper = affine_bounding_box(lower, upper, linear, translation)
@@ -382,12 +382,15 @@ def test_half_spaces_agree_with_the_direct_predicate():
 def test_a_broadcast_axis_constraint_is_vacuous_or_infeasible_not_an_error(
     offset, satisfiable
 ):
-    """D39 with no broadcast axes declared: contrast with D32, which raises.
+    """A zero pulled-back normal with no broadcast axes declared.
+
+    Vacuous or infeasible by its offset; contrast with a plane, which raises.
 
     This is the raw ``A^T`` behaviour, still reachable by passing no
-    ``broadcast_axes``.  Once the axis is declared broadcast, D8 drops
-    the constraint entirely rather than letting it become a zero normal;
-    see :func:`test_declaring_the_axis_broadcast_drops_the_constraint`.
+    ``broadcast_axes``.  Once the axis is declared broadcast, the
+    broadcast-axis drop removes the constraint entirely rather than
+    letting it become a zero normal; see
+    :func:`test_declaring_the_axis_broadcast_drops_the_constraint`.
     """
     linear, translation, _ = CHANNEL_BROADCAST
     normals = np.array([[0.0, 1.0, 0.0, 0.0, 0.0]])

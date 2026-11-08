@@ -246,12 +246,9 @@ def _level_scale_and_translation(
     (:func:`_fetch_order`).  Callers that feed these into shader-space
     geometry must reverse the local axis order via ``swap_axes`` first.
 
-    Until v1 was retired the projection was a separate step: the caller built
-    a rank-reduced ``select_axes(fetch_axes)`` transform and this read its
-    whole diagonal.  A v2 transform names its endpoints and cannot be
-    rank-reduced without minting two coordinate systems that describe nothing,
-    so the axis selection happens here instead -- reading the same entries
-    ``select_axes`` would have kept.
+    The axis selection happens here rather than in a rank-reduced transform: a
+    transform names its endpoints and cannot be rank-reduced without minting
+    two coordinate systems that describe nothing.
 
     Parameters
     ----------
@@ -297,13 +294,12 @@ def _norm_to_data_params_for(
     """The 3D node's ``visual -> data`` factors, keyed by data axis.
 
     The 3D node's geometry is a proxy box in **normalized** space, not in
-    voxel indices, which is what ``VisualCoordinateSystem`` names (design 3.11
-    B).  Its transform into data space is what ``compose_world_transform``
-    used to build by hand as ``norm_to_data``: the box ``[-norm/2, +norm/2]``
-    spans the voxel extent ``[-0.5, N - 0.5]``, so the scale is
-    ``dataset_size / norm_size`` and the translation ``0.5 * dataset_size -
-    0.5``.  The ``-0.5`` is the existing centre-at-integer convention,
-    unchanged.
+    voxel indices, which is what ``VisualCoordinateSystem`` names.  Its
+    transform into data space, ``norm_to_data``, follows from the box:
+    the box ``[-norm/2, +norm/2]`` spans the voxel extent
+    ``[-0.5, N - 0.5]``, so the scale is ``dataset_size / norm_size`` and
+    the translation ``0.5 * dataset_size - 0.5``.  The ``-0.5`` is the
+    existing centre-at-integer convention, unchanged.
 
     ``dataset_size`` and ``norm_size`` are in shader ``(x, y, z)`` order while
     the retained axes are ascending data axes, so the two are zipped in
@@ -366,21 +362,16 @@ def _displayed_submatrix(
 ) -> np.ndarray:
     """The square displayed-axes block of a ``data -> world`` transform.
 
-    A **bridge**, not an end state.  Two callers are left: the image
-    family's 2-D planner (``_plan_tiles_2d``) and the multiscale labels' own
-    ``_plan_tiles_2d`` (its ``voxel_width`` computation), both of which
-    still do the pre-migration ``select_axes`` + reverse +
-    ``imap_coordinates`` dance that the single-channel *3D* path replaced
-    with one ``rendered_to_level0.map_coordinates``.  Migrating either is
-    Phase 5 work that was never done and is not this phase's to do, so the
-    arithmetic is preserved exactly -- **float32 included**, which is what a
-    v1 transform stored.
+    Two callers use it: the image family's 2-D planner (``_plan_tiles_2d``) and
+    the multiscale labels' own ``_plan_tiles_2d`` (its ``voxel_width``
+    computation).  Both go through a square sub-block, a reversal and
+    ``imap_coordinates``, where the *3D* path uses one
+    ``rendered_to_level0.map_coordinates``; moving them onto that is not done.
+    The block is narrowed to **float32**, as those callers expect.
 
-    The numbers are identical to what ``select_axes(displayed_axes)``
-    produced on an equal-rank transform: row ``i`` is world axis
-    ``displayed_axes[i]``, column ``j`` is the data axis that feeds world axis
-    ``displayed_axes[j]``.  Unlike ``select_axes`` it does not read the
-    homogeneous row when the ranks disagree (design 3.8 finding 2) -- it
+    Row ``i`` is world axis ``displayed_axes[i]``, column ``j`` is the data
+    axis that feeds world axis ``displayed_axes[j]``.  Unlike a plain sub-block
+    read it does not read the homogeneous row when the ranks disagree -- it
     raises instead.
 
     Parameters
@@ -440,10 +431,9 @@ def _displayed_submatrix(
 def _imap_square(matrix: np.ndarray, coordinates: np.ndarray) -> np.ndarray:
     """Pull points back through a square homogeneous matrix.
 
-    The inverse half of what a v1 ``AffineTransform`` did, kept for
-    ``_plan_tiles_2d`` alone (see ``_displayed_submatrix``).  The inverse is
-    taken and then narrowed to float32, and the product is formed in float32,
-    because that is what v1 did and this phase changes no numbers.
+    Kept for ``_plan_tiles_2d`` alone (see ``_displayed_submatrix``).  The
+    inverse is taken and then narrowed to float32, and the product is formed in
+    float32, to match the float32 block ``_displayed_submatrix`` gives.
 
     Parameters
     ----------
@@ -477,19 +467,17 @@ def _restricted_affine_for_display(
     ``.linear`` off it directly fails for the plain reason that there is no
     matrix to read yet.
 
-    The fix mirrors the one the design doc gives for the GPU node-matrix
-    boundary ("The GPU still gets a matrix"): every data axis this
-    transform does *not* map to a displayed world axis is pinned via
-    ``restrict`` -- the container's job, since it evaluates a fully-fixed
-    non-affine block to a constant rather than delegating to the block's own
-    ``restrict`` -- and what remains is asked for its affine form.  The
-    value each axis is pinned to does not matter for the *scale* this is
-    used to compute: an axis that feeds no displayed axis contributes only
-    to translation, so ``0.0`` is as good as the real slice position.
+    The approach is the node matrix's, where the GPU still needs a matrix:
+    every data axis this transform does *not* map to a displayed world axis
+    is pinned via ``restrict`` -- the container's job, since it evaluates a
+    fully-fixed non-affine block to a constant rather than delegating to the
+    block's own ``restrict`` -- and what remains is asked for its affine
+    form.  The value each axis is pinned to does not matter for the *scale*
+    this is used to compute: an axis that feeds no displayed axis
+    contributes only to translation, so ``0.0`` is as good as the real slice
+    position.
 
-    A transform that is already affine is returned unchanged -- the only
-    case every existing call site was written against, so this is a pure
-    widening with no behaviour change for it.
+    A transform that is already affine is returned unchanged.
 
     Parameters
     ----------
@@ -560,8 +548,8 @@ def _is_axis_aligned_view(
     try:
         classification = classify_view(transform, displayed_axes)
     except ValueError:
-        # Displayed axes the transform has no rows for: today's branch
-        # raises the explanation callers expect.
+        # Displayed axes the transform has no rows for: the axis-aligned
+        # branch raises the explanation callers expect.
         return True
     if classification.alignment is not SliceAlignment.AXIS_ALIGNED:
         return False
@@ -583,8 +571,9 @@ def _displayed_linear_block(
 
     Rows are the displayed **world** axes in display order; columns are the
     retained data axes ascending, which is the order a fetched array carries
-    them (``_fetch_order``).  D7's snapped entries are zero.  Defined for
-    every alignment, unlike the bijection ``axis_correspondence`` answers.
+    them (``_fetch_order``).  Near-zero couplings are snapped to zero.
+    Defined for every alignment, unlike the bijection
+    ``axis_correspondence`` answers.
 
     Parameters
     ----------
@@ -701,9 +690,9 @@ def _norm_size_from_transform(
         )
     # The scale of one displayed world axis is the magnitude of the single
     # entry its data axis contributes.  On a square diagonal transform that is
-    # the column norm the old ``select_axes`` path computed, so the numbers are
-    # unchanged; unlike that path it is well defined when the two ranks differ,
-    # because it never asks for a square sub-block that does not exist.
+    # the column norm of the displayed sub-block; unlike a sub-block it is well
+    # defined when the two ranks differ, because it never asks for a square
+    # sub-block that does not exist.
     if transform is None:
         # Unplaced: every axis is at unit scale, which is what a placed
         # identity would have given.
@@ -860,8 +849,7 @@ class MultiscaleBrickLayout3D:
     fetch_axes : tuple[int, ...]
         The ascending data axes this grid is built over, which is the order
         the fetched array carries (:func:`_fetch_order`).  The transforms are
-        projected onto them here; before v1 was retired the caller projected
-        them with ``select_axes`` and passed a rank-reduced list.
+        projected onto them here.
     """
 
     def __init__(
@@ -950,8 +938,7 @@ class ImageGeometry3D:
         level-0.
     fetch_axes : tuple[int, ...]
         The ascending data axes this grid is built over.  The transforms are
-        projected onto them here; before v1 was retired the caller projected
-        them with ``select_axes`` and passed a rank-reduced list.
+        projected onto them here.
     """
 
     def __init__(
@@ -1079,8 +1066,8 @@ def _fetch_order(displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
     and a per-level transform projection all index the *fetch* order, and the
     display permutation lives entirely in the node matrix.
 
-    Before this, the grid was built in display order and a transposed tuple
-    rotated it against its own uploaded array.
+    A grid built in display order would rotate against its own uploaded array
+    under a transposed tuple.
 
     Parameters
     ----------
@@ -1101,7 +1088,7 @@ def _fetch_order(displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
 
 
 class MultiscaleRegionPlanner:
-    """Pulls the selected region back to each pyramid level (design 3.11 A).
+    """Pulls the selected region back to each pyramid level.
 
     Mixed into both multiscale families, which are near-copies of each other
     everywhere else too.
@@ -1185,8 +1172,8 @@ class MultiscaleRegionPlanner:
         (``_node_collapsed_world``), and the nodes are placed again.
         ``_collapsed_indices`` stays empty -- it is the pick path's, and
         ``pick_collapsed_indices`` answers picks from the plan -- so the two
-        cannot drift apart.  Any other view keeps today's call pattern and its
-        constants at zero.
+        cannot drift apart.  In any other view the nodes are not re-placed
+        per plan and the constants stay at zero.
         """
         if not node_follows_slice(self._spaces):
             if self._node_collapsed_world:
@@ -1201,7 +1188,7 @@ class MultiscaleRegionPlanner:
             self._update_node_matrix(self._last_displayed_axes)
 
     def _node_constants(self) -> dict[int, float]:
-        """The collapsed constants the node matrix holds (design 3.9, v2 4.3)."""
+        """The collapsed constants the node matrix holds."""
         source = (
             self._node_collapsed_world
             if node_follows_slice(self._spaces)
@@ -1401,26 +1388,23 @@ class MultiscaleRegionPlanner:
         also carries the collapsed axes -- the ``t`` the camera is looking
         at, say -- which are harmless and dropped here.
 
-        Design 3.11 C.  The camera and the frustum arrive in **pygfx**
-        coordinates -- ``ReslicingRequest`` says so in a docstring and nowhere
-        in the type system -- so they are reversed once, by name, mapped
-        **forward** to world through ``rendered_to_world`` (always affine, so
-        always a matrix), and pulled **back** to level-0 data through
+        The camera and the frustum arrive in **pygfx** coordinates --
+        ``ReslicingRequest`` says so in a docstring and nowhere in the type
+        system -- so they are reversed once, by name, mapped **forward** to
+        world through ``rendered_to_world`` (always affine, so always a
+        matrix), and pulled **back** to level-0 data through
         ``imap_coordinates`` rather than a materialized inverse.
 
-        That second step used to be one composed matrix,
-        ``rendered_to_world.then(data_to_world.inverse())``, built from
-        ``data_to_world.inverse()`` directly.  A ``ByDimensionTransform``
-        carrying a ``NonUniformAxisTransform`` block has no such inverse *as
-        a transform* -- the map is invertible, but its inverse is not itself
-        "a world position per data index", which is what that class models.
-        Every such transform still answers ``imap_coordinates`` directly,
-        which is the one path guaranteed to exist regardless of what blocks
-        the transform holds, so this composes in two steps instead of one --
-        exactly the two-step shape ``data_slice_positions`` and every other
-        post-Phase-4 consumer already uses, and the class of bug the
-        one-step matrix version reintroduced for any visual sharing the time
-        axis.
+        The second step is not one composed matrix,
+        ``rendered_to_world.then(data_to_world.inverse())``: a
+        ``ByDimensionTransform`` carrying a ``NonUniformAxisTransform``
+        block has no such inverse *as a transform* -- the map is invertible,
+        but its inverse is not itself "a world position per data index",
+        which is what that class models. Every such transform still answers
+        ``imap_coordinates`` directly, which is the one path guaranteed to
+        exist regardless of what blocks the transform holds, so this
+        composes in two steps instead of one -- the same two-step shape
+        ``data_slice_positions`` uses.
 
         Raises
         ------
@@ -1945,8 +1929,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         """Rebuild geometry if needed and return the node for *displayed_axes*.
 
         Calls ``self.rebuild_geometry`` internally using the already-stored
-        ``_full_level_shapes``.  The controller no longer needs to supply
-        level shapes or call ``rebuild_geometry`` directly.
+        ``_full_level_shapes``, so the controller supplies no level shapes
+        and never calls ``rebuild_geometry`` directly.
 
         Parameters
         ----------
@@ -2421,10 +2405,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
         """Recompute and apply the pygfx node matrices for *displayed_axes*.
 
-        Design 3.9's composition, ``visual -> data -> world -> rendered``,
-        replacing ``select_axes`` plus a hand-built ``norm_to_data``.  The
-        reversal now happens once, at the end, instead of in the middle.
-        A no-op until the controller supplies the systems.
+        The composition ``visual -> data -> world -> rendered``,
+        reversed into pygfx order once, at the end. A no-op until the
+        controller supplies the systems.
         """
         self._last_displayed_axes = displayed_axes
         if self._spaces is None or self._transform is None:
@@ -3083,13 +3066,21 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
     def on_data_store_contents_changed(
         self, event: DataStoreContentsChangedEvent
     ) -> None:
-        """Stub — brick eviction deferred to a future phase."""
+        """Do nothing: the controller invalidates the bricks a change touches.
+
+        It calls ``RenderManager.invalidate_store`` right after this event, so
+        the chunk scheduler reads those bricks again.
+        """
         pass
 
     def on_data_store_metadata_changed(
         self, event: DataStoreMetadataChangedEvent
     ) -> None:
-        """Stub — geometry rebuild deferred to a future phase."""
+        """Do nothing: a change of the level shapes does not rebuild the geometry.
+
+        The controller has already invalidated the bricks the store fed and
+        refreshed the visual's extents.
+        """
         pass
 
     def tick(self) -> None:
@@ -3404,8 +3395,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         # between the pool's slots: the pool is sized by ``max_channels`` so a
         # channel can be added later, but an unused slot's cache would only
         # take budget away from the ones drawing.  A visual with no channel
-        # axis, or none configured, keeps the whole budget -- which is what a
-        # single-channel image had before the pool existed.
+        # axis, or none configured, keeps the whole budget.
         n_budget = max(1, len(visual_model.channels))
         budget_3d = max(1, config.gpu_budget_bytes // n_budget)
         budget_2d = max(1, config.gpu_budget_bytes_2d // n_budget)
@@ -3809,8 +3799,8 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         """Put the 2D views of this visual on the brick route, or take them off.
 
         Called by the controller before it pushes the render spaces.  The
-        3D node is the slice node (D4: one atlas per slot), so a scene
-        built for 2D only gains the 3D mode here.
+        3D node is the slice node (one atlas per slot), so a scene built
+        for 2D only gains the 3D mode here.
 
         Parameters
         ----------
@@ -4371,12 +4361,20 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     def on_data_store_contents_changed(
         self, event: DataStoreContentsChangedEvent
     ) -> None:
-        """Stub -- brick eviction deferred to a future phase."""
+        """Do nothing: the controller invalidates the bricks a change touches.
+
+        It calls ``RenderManager.invalidate_store`` right after this event, so
+        the chunk scheduler reads those bricks again.
+        """
 
     def on_data_store_metadata_changed(
         self, event: DataStoreMetadataChangedEvent
     ) -> None:
-        """Stub -- geometry rebuild deferred to a future phase."""
+        """Do nothing: a change of the level shapes does not rebuild the geometry.
+
+        The controller has already invalidated the bricks the store fed and
+        refreshed the visual's extents.
+        """
 
     def tick(self) -> None:
         """Advance every slot's jitter seed."""

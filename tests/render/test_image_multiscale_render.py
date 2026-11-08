@@ -220,8 +220,8 @@ def _tzyx_store_with_a_nonuniform_t(controller, scene_id, tmp_path):
     real light-sheet viewer collapses in 3D too, which is what makes this
     the representative case rather than ``_nonuniform_z_transform``'s
     (which puts the leaf on an axis 3D mode would display, and correctly
-    raises ``NonAffineTransformError`` there -- see the design doc, "The GPU
-    still gets a matrix").
+    raises ``NonAffineTransformError`` there: the GPU gets a matrix only
+    once the non-uniform axis is sliced).
     """
     import tensorstore as ts
 

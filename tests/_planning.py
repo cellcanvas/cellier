@@ -29,9 +29,9 @@ if TYPE_CHECKING:
 def _target_alone():
     """Plan with no backstop: the target only, with every slot to itself.
 
-    The backstop cannot be switched off on a visual (plane rendering design
-    v3, D-P45), so a test that wants the target's requests alone plans with
-    the backstop planners and the backstop's slot cap stubbed out.
+    The backstop cannot be switched off on a visual, so a test that wants the
+    target's requests alone plans with the backstop planners and the backstop's
+    slot cap stubbed out.
     """
     from cellier.render.visuals import _image, _label_multiscale
 
@@ -211,8 +211,9 @@ def land_planned(visual: Any, data_for: Any) -> int:
     For each of the visual's caches whose newest plan names a key it does
     not hold, upload ``data_for(request_key)`` and mark the key held, the
     way ``LevelResidency.rebuild_draw`` does when the read is resident.  No
-    scheduler: for tests that plan by hand and then need the slice drawn
-    (the visibility rule, design v2 D16).  Returns the number landed.
+    scheduler: for tests that plan by hand and then need the slice drawn (a
+    slot draws only once its residency for the mode is drawable). Returns
+    the number landed.
     """
     landed = 0
     for residency in visual.residencies().values():

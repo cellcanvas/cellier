@@ -142,8 +142,9 @@ class DesiredSet:
     keys : np.ndarray
         ``int64``, unique, in load order: the backstop block first, then
         each intermediate stage, then the target.  A key's position is its
-        rank, which is its priority within its class.  At most
-        ``n_slots - 1`` keys (design 5.3, truncation).
+        rank, which is its priority within its class.  At most ``n_slots -
+        1`` keys, so that while one wanted record is being committed a
+        free or ``RECENT`` slot always exists.
     cls : np.ndarray
         ``uint8`` priority per key (:class:`ChunkClass`): ``BACKSTOP``,
         ``TARGET``, or a stage's offset.

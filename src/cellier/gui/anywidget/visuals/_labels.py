@@ -24,13 +24,12 @@ from cellier.visuals._label_memory import BaseLabelsAppearance
 class AnywidgetLabelsRenderModeCombo(AnywidgetChoice):
     """How label voxels are rendered in 3D.
 
-    Distinct from the image render-mode control: the labels models
-    spell this field ``iso_categorical``/``flat_categorical`` where
-    the image models spell it ``mip``/``iso``/``minip``.  Pass
+    Distinct from the image render-mode control: the labels models spell
+    this field ``iso_categorical``/``flat_categorical`` where the image
+    models spell it ``mip``/``iso``/``minip``.  Pass
     ``choices=literal_choices(appearance, 'render_mode')`` so the
     in-memory and multiscale variants each offer their own set and
-    ``gradient_debug`` is excluded (design section 6.5.1
-    proposal 4).
+    ``gradient_debug`` is excluded.
 
     Parameters
     ----------

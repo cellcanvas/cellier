@@ -105,10 +105,10 @@ def _sphere_scene(*, pick_write: bool = True):
 def test_cellier_blender_still_valid(offscreen_renderer):
     """A frame renders through ``CellierBlender`` and the target reads back.
 
-    This is the Stage 7 counterpart to ``test_pygfx_coupling_still_valid``.
-    If it fails after a pygfx upgrade, check
-    ``cellier.render._cellier_blender`` against the new ``Blender`` --
-    specifically the generated ``FragmentOutput`` text.
+    This is the ``CellierBlender`` counterpart to
+    ``test_pygfx_coupling_still_valid``. If it fails after a pygfx
+    upgrade, check ``cellier.render._cellier_blender`` against the new
+    ``Blender`` -- specifically the generated ``FragmentOutput`` text.
     """
     scene, camera = _sphere_scene()
     renderer, _frame = _render(scene, camera, with_target=True)
@@ -116,7 +116,7 @@ def test_cellier_blender_still_valid(offscreen_renderer):
     assert get_extra_target_view(renderer, OUTLINE_ID_TARGET) is not None
     values = _read_outline_id(renderer)
     assert values.shape == (64, 64)
-    # Nothing writes the field yet (that is Stage 7b), and WGSL
+    # Nothing in this scene writes the field, and WGSL
     # zero-initialises function-scope ``var``, so every pixel must be 0.
     # A nonzero value here means a shader is writing garbage into it.
     assert np.array_equal(np.unique(values), np.array([0], dtype=np.uint32))

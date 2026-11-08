@@ -118,7 +118,7 @@ def test_the_embedding_never_declares_a_broadcast_axis(viewer):
 
 
 def test_a_selection_whose_slice_misses_its_region_is_rejected():
-    """D43's invariant: pulling the region back through the transform must
+    """The invariant: pulling the region back through the transform must
     leave a non-empty set.  A selection whose own slice position selects
     nothing is incoherent."""
     from cellier.transform import AffineTransform, ConvexRegion

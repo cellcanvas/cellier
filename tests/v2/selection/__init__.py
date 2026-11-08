@@ -1,1 +1,1 @@
-"""Phase 4 of the transform integration: RegionSelection as the transport."""
+"""RegionSelection as the transport."""

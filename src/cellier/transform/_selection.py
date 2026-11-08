@@ -80,16 +80,16 @@ class RegionSelection(BaseModel):
         selection whose slice sits outside its own region is incoherent,
         and this is what catches it.
 
-        D43 states that invariant as "the transform's translation
-        satisfies every half-space".  That is the same test whenever the
-        region constrains only *collapsed* axes, because the translation
-        is exactly the slice position on those.  It is too strong as
-        soon as a **displayed** axis is bounded, which R3 explicitly
-        permits: the translation is zero on a displayed axis, so
-        ``Z in [11, 13]`` on a displayed ``Z`` would be rejected even
-        though every rendered point with ``Z in [11, 13]`` is in the
-        region.  The pull-back accepts exactly the selections that select
-        something and still rejects the case D43 names.
+        A simpler form of that invariant, "the transform's translation
+        satisfies every half-space", is the same test whenever the region
+        constrains only *collapsed* axes, because the translation is
+        exactly the slice position on those.  It is too strong as soon as
+        a **displayed** axis is bounded, which a selection may do: the
+        translation is zero on a displayed axis, so ``Z in [11, 13]`` on
+        a displayed ``Z`` would be rejected even though every rendered
+        point with ``Z in [11, 13]`` is in the region.  The pull-back
+        accepts exactly the selections that select something and still
+        rejects a slice outside its region.
 
         This is a consistency check on a hand-built selection, not a
         synchronisation mechanism.  Nothing here updates one half when
@@ -128,8 +128,8 @@ class RegionSelection(BaseModel):
                 "constant_output_axes instead of broadcast_output_axes."
             )
         # The embedding has no broadcast axes -- checked immediately above --
-        # so there is nothing for D8's drop rule to remove and the indices
-        # are empty.  This is the one caller that has the ids but not the
+        # so there is nothing for the broadcast-axis drop rule to remove and
+        # the indices are empty.  This is the one caller that has the ids but not the
         # world CoordinateSystem object needed to resolve them.
         if self.transform._imap_region(self.region, ()).is_empty():
             raise ValueError(

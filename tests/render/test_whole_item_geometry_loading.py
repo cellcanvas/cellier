@@ -1,8 +1,7 @@
 """In-memory geometry on the chunk scheduler, end to end through the controller.
 
-``plans/scheduler_only_loading_design_v2.md`` 4.3 and 4.4, Phases 1-2.  The
-points, lines and graph visuals load their whole filtered slice through a
-single-level ``LevelResidency``:
+The points, lines and graph visuals load their whole filtered slice
+through a single-level ``LevelResidency``:
 
 - an unchanged request reads nothing, and a scrub keeps at most two reads
   in flight per visual;

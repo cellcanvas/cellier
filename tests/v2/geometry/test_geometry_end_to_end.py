@@ -195,9 +195,6 @@ async def test_lines_require_both_endpoints_as_they_always_did():
 async def test_a_store_reached_without_a_controller_still_slices():
     """A store driven directly takes the region like any other caller.
 
-    Until Phase 8 a request could carry ``slice_indices`` plus ``thickness``
-    instead, which is what kept a headlessly constructed visual drivable --
-    at the cost of comparing a **world** value against **data** coordinates.
     The region is built in the store's own space here, so the same slab
     selects the same point.
     """

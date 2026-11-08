@@ -21,10 +21,9 @@ from cellier.gui.anywidget.visuals._base import (
 class AnywidgetSizeSpin(AnywidgetFloatSpin):
     """Uniform point size, in ``size_space`` units.
 
-    The default range is in screen pixels.  With
-    ``size_space="world"`` the useful range depends on the data
-    extent, and ``value_range=`` is the escape hatch (design
-    section 6.5.1 proposal 3).
+    The default range is in screen pixels.  With ``size_space="world"``
+    the useful range depends on the data extent, and ``value_range=`` is
+    the escape hatch.
 
     Parameters
     ----------

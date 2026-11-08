@@ -6,10 +6,11 @@ slab of elements.  The node matrix that places everything else maps the
 retained data axes to the view, and here no set of data axes spans the
 view: the map from data to the screen is a projection, and a node matrix
 holding it is singular (pygfx inverts it for picking and sizes).  So these
-visuals fall back to D4 as written: each element's **rendered** position is
-computed on the CPU from its full data coordinate and uploaded, and the
-node matrix is a translation only (the upload is relative to a rounded
-origin, so float32 keeps its precision far from zero).
+visuals place every element themselves: each element's **rendered**
+position is computed on the CPU from its full data coordinate and
+uploaded, and the node matrix is a translation only (the upload is
+relative to a rounded origin, so float32 keeps its precision far from
+zero).
 
 Selection is unchanged: ``geometry_data_region`` pulls the tilted world
 slab back exactly.  Clipping planes are applied by the read on the

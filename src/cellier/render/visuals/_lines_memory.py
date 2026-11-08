@@ -290,7 +290,7 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
             self._update_node_matrix(self._last_displayed_axes)
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place the node with the composition of design 3.9.
+        """Place the node with the node-matrix composition.
 
         ``visual -> data -> world -> rendered``, replacing the
         ``select_axes`` sub-block.  The two agree exactly for a
@@ -324,8 +324,8 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         """The selection in this visual's data coordinates.
 
         ``None`` when the visual has not been placed, in which case the
-        request falls back to the world-value comparison that D4 exists to
-        replace.
+        request falls back to comparing world values, which the
+        pulled-back region replaces.
         """
         if selection is None or self._spaces is None or self._transform is None:
             return None
@@ -408,8 +408,8 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
 
         ``color_mode`` is written from the *appearance*, never from the
         data.  A declared ``"vertex"`` with no colours in the store raises
-        here rather than silently falling back to uniform, which is the
-        exact class of behaviour D20 removes.
+        here rather than silently falling back to uniform: ``color_mode``
+        is a declaration, never inferred from the data.
 
         Coordinate convention (DO NOT reorder positions elsewhere):
         - 3D path: positions[:, [2, 1, 0]] reverses (z, y, x) → (x, y, z)

@@ -96,9 +96,9 @@ def test_edge_span_empty_graph():
 
 
 def test_store_json_roundtrip():
-    """The direct regression for Phase 0's P4 finding.
+    """The flat arrays, not a ``SpatialGraph``, are the serialized fields.
 
-    v1's layout held the SpatialGraph as a field and raised
+    A layout that held the SpatialGraph as a field raised
     ``PydanticSerializationError`` here.
     """
     store = _store(

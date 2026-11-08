@@ -50,7 +50,7 @@ SHAPE = (36, 44, 52)
 C = (np.asarray(SHAPE, dtype=np.float64) - 1.0) / 2.0
 R = 12.0
 SIZE = 320
-#: D10's shading threshold, from the Phase 0 readout (measured 0.94-0.96).
+#: The shading correlation threshold (measured 0.94-0.96).
 SHADING_MIN = 0.90
 
 ANISO_Z4 = np.diag([4.0, 1.0, 1.0])

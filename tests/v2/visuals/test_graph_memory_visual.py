@@ -19,11 +19,11 @@ def _visual(**kwargs) -> GraphVisual:
 def test_graph_appearance_is_flat():
     """Every node_*/edge_* field emits on ``appearance.events``.
 
-    The direct regression for the psygnal finding behind D9: nested
-    ``EventedModel`` changes are *not* propagated to a parent's event
-    group, and ``Controller._wire_appearance`` subscribes only to
-    ``visual.appearance.events``.  A composed appearance would drop every
-    one of these silently.
+    The direct regression for the psygnal finding behind the flat
+    appearance: nested ``EventedModel`` changes are *not* propagated to a
+    parent's event group, and ``Controller._wire_appearance`` subscribes
+    only to ``visual.appearance.events``.  A composed appearance would
+    drop every one of these silently.
     """
     appearance = GraphAppearance()
     seen: list[str] = []

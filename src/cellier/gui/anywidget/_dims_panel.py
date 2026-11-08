@@ -445,7 +445,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
             )
         except Exception:
             # Refused before the model changed (a composited axis cannot be
-            # displayed, design 3.4): go back.  Changed and then a later
+            # displayed): go back.  Changed and then a later
             # handler raised: keep what the model reported.
             reported = self._model_displayed_during_toggle
             self._apply_displayed(previous if reported is None else reported)

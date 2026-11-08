@@ -170,8 +170,8 @@ def backstop_bricks_3d(
         the whole volume (``"full"``).
     keep : np.ndarray or None
         A boolean mask over the level's grid rows: only those are the
-        backstop (a 2D slice node keeps the rows its plane reaches, oblique
-        2D design v3 D3).  ``None`` keeps every row.
+        backstop (a 2D slice node keeps the rows its plane reaches).
+        ``None`` keeps every row.
 
     Returns
     -------

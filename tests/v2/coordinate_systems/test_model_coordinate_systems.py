@@ -1,8 +1,7 @@
 """The world and data coordinate systems, and what they must survive.
 
-Phase 2 of the ``transform`` integration adds coordinate systems to the
-model and nothing that reads them.  These tests pin the three things that
-would otherwise be discovered much later:
+These tests pin the three things about the model's coordinate systems
+that would otherwise be discovered much later:
 
 * **ids survive a round trip.**  Every stored transform names its endpoints
   by UUID, so a system rebuilt on load with fresh ids silently orphans them.
@@ -98,24 +97,22 @@ def test_axis_labels_is_derived_and_unchanged_for_the_gui():
 
 
 def test_a_fractional_slice_position_is_kept(tmp_path):
-    """The bug D3 fixes: on a 0.5 unit-per-voxel axis, half the planes were
-    unreachable through an integer-valued slider."""
+    """A slice position is a float: on a 0.5 unit-per-voxel axis, half the
+    planes would be unreachable through an integer-valued slider."""
     selection = AxisAlignedSelection(displayed_axes=(1, 2), slice_indices={0: 2.5})
     assert selection.slice_indices[0] == 2.5
-    # The snapshot stopped carrying the positions in Phase 8; what reaches
-    # the render layer is the region built from them, and nothing on the way
+    # The snapshot does not carry the positions; what reaches the render
+    # layer is the region built from them, and nothing on the way
     # rounds or truncates.
     assert not hasattr(selection.to_state(), "slice_indices")
 
 
 def test_a_float_slice_position_reaches_the_voxel_mapper_unchanged():
-    """``round_world_to_voxel`` must survive this migration untouched.
+    """``round_world_to_voxel`` sees the float position unchanged.
 
-    Phase 8 deleted ``map_world_slice_to_voxel``, the v1-era wrapper this
-    originally went through; the surviving assembler is
-    ``axis_selections_from_box``, which calls the same rule.  A world position
-    of 2.5 on a 0.5 unit-per-voxel axis is voxel 5.0 exactly, and half-up
-    keeps 5.
+    The assembler is ``axis_selections_from_box``, which calls the rule.
+    A world position of 2.5 on a 0.5 unit-per-voxel axis is voxel 5.0
+    exactly, and half-up keeps 5.
     """
     data, _ = systems(3)
     box = AxisAlignedBoundingBox(
@@ -142,7 +139,7 @@ def test_an_absent_axis_has_no_thickness():
 
 def test_thickness_is_per_axis():
     """One number means three frames on a time axis and a quarter of a voxel
-    on a 2 um spatial one, which is why D4 is a mapping."""
+    on a 2 um spatial one, which is why thickness is a mapping."""
     selection = AxisAlignedSelection(
         displayed_axes=(2, 3),
         slice_indices={0: 0.0, 1: 0.0},

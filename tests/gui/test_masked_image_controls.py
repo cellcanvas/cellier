@@ -266,7 +266,7 @@ def test_the_viewer_records_the_list_and_refuses_a_bad_one():
 
 
 # ---------------------------------------------------------------------------
-# The dataset info: both images (design 10, audit row 36)
+# The dataset info: both images
 # ---------------------------------------------------------------------------
 
 
@@ -357,7 +357,7 @@ def test_qt_rows_write_the_model(qtbot, masked_viewer, field, drive, expected):
 
 
 def test_qt_target_bricks_row_writes_and_follows_the_appearance(qtbot, masked_viewer):
-    """The shared row of design 8.3: a combo on the appearance's field."""
+    """The shared target-bricks row: a combo on the appearance's field."""
     viewer, model = masked_viewer
     widget = _image_widget(viewer, QT_BACKEND)
     combo = widget._controls[("shared", None, "target_bricks")]

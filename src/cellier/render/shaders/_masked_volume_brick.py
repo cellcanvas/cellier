@@ -66,7 +66,8 @@ RESOURCES = {
     "s_cache": "s_value_cache",
 }
 #: ``sample_atlas``'s masked read past a level's end, and the line it
-#: stands for: the value side keeps the plain read (G2 clamps it already).
+#: stands for: the value side keeps the plain read (its lookup is already
+#: clamped to the level's voxel centres, ``value_read_pos``).
 _EXTENT_CLAMP = re.compile(
     r"    \$\$ if masked and extent_clamp and render_mode != 'plane'\n.*?\n"
     r"    \$\$ else\n"

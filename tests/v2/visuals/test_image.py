@@ -106,7 +106,7 @@ def test_requires_camera_reslice_is_frozen():
 
 
 def test_transform_defaults_to_unplaced():
-    """D18 forbids a coordinate-system-less identity.
+    """A transform always names both coordinate systems.
 
     A transform names its endpoints by id, and a visual built before it is
     added to a scene does not yet know which world it is going into -- so the

@@ -184,8 +184,8 @@ def initial_slice_indices(
     -------
     dict[int, float]
         One entry per axis in *axis_values*.  World positions, not voxel
-        indices: since D3 a slice position is a float, so the midpoint is no
-        longer rounded and a fine axis's odd-numbered planes are reachable.
+        indices: a slice position is a float, so the midpoint is not
+        rounded and a fine axis's odd-numbered planes are reachable.
     """
     known = {
         int(axis): float(value)

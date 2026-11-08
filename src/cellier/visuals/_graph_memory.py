@@ -43,7 +43,7 @@ class TrailConfig(EventedModel):
     fade : bool
         If True, elements fade with distance from the current index.  The
         fade rides its own per-element alpha buffer, so it composes with
-        either ``color_mode`` and never overwrites it (D19/D20).
+        either ``color_mode`` and never overwrites it.
     fade_before : float | None
         Falloff distance below the position, in **world** units.  ``None``
         uses ``before`` -- the window width is the only sensible falloff

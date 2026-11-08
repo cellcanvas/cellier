@@ -118,9 +118,9 @@ class AxisAlignedBoundingBox(BaseModel):
 class Plane(BaseModel):
     """The set of points where ``normal . p == offset``.
 
-    Point-normal form is deliberately not used: the transform rules of
-    design section 4.1 are stated directly on ``(normal, offset)``, and a
-    stored point would have to be re-derived on every map anyway.
+    Point-normal form is deliberately not used: the rules that map a
+    plane are stated directly on ``(normal, offset)``, and a stored
+    point would have to be re-derived on every map anyway.
 
     The normal is **not** required to be unit length.  It is required to
     be finite and non-zero: a zero normal does not describe a plane.

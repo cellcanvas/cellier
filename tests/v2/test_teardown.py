@@ -323,7 +323,7 @@ def test_a_container_closes_the_subtree_it_composed():
 # ``DisplayHandle`` whose ``close()`` unsubscribes the controls it built, while
 # the Qt path handed back a bare window and nothing else, so its controls
 # stayed subscribed (and kept receiving events) for as long as the controller
-# lived.  Design section 7.7 recorded this as a known gap.
+# lived.
 
 
 def _qt_viewer_with_window():

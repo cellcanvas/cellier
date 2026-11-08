@@ -25,9 +25,9 @@ class DimsChangedEvent(NamedTuple):
     ``slice_indices`` -- world axis to world position -- is here rather than
     on ``dims_state`` because the two have different audiences.  The render
     layer takes the ``RegionSelection`` the controller emits alongside and
-    never reads a raw position (D5, landed in Phase 8); the dims *editor*
-    widgets do need the positions, to resync their sliders when something
-    else moves them, and this is the channel they arrive on.
+    never reads a raw position; the dims *editor* widgets do need the
+    positions, to resync their sliders when something else moves them, and
+    this is the channel they arrive on.
 
     ``region_changed`` is ``False`` when the change moved only positions or
     thicknesses of **displayed** axes.  Every axis keeps a position while
@@ -1237,8 +1237,8 @@ class GraphNodePickInfo(NamedTuple):
         or string ids; this is the one place the graph pick payload is
         more weakly typed than the points one.
     node_row : int
-        Row of the node in the store's position array.  Stable under D7's
-        immutability and useful for indexing the store's own arrays.
+        Row of the node in the store's position array.  Stable because the
+        store is immutable, and useful for indexing the store's own arrays.
     """
 
     node_id: Any
@@ -1252,7 +1252,7 @@ class GraphEdgePickInfo(NamedTuple):
     ----------
     edge_index : int
         Row of the edge in the store's edge array, or ``-1`` when it could
-        not be resolved.  Stable only because D7 makes the store immutable.
+        not be resolved.  Stable only because the store is immutable.
     source_node_id : Any
         Original node id of the edge's first endpoint.  See
         ``GraphNodePickInfo.node_id`` on the dtype.
@@ -1814,7 +1814,7 @@ class _CanvasRawPointerEvent(NamedTuple):
         press, carried through moves, cleared on release.
     pick_details : VisualPickDetails or None
         Typed element-level pick identity extracted in the render layer, or
-        None on a miss or stubbed visual kind.
+        None on a miss or a visual kind with no pick details.
 
         For image and labels visuals the render layer stores the render-layer
         intermediate types ``_ImageDisplayedDataCoord`` or

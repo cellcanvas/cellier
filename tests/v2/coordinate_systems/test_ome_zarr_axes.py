@@ -3,7 +3,7 @@
 NGFF already carries names, types and units, and cellier discarded all but
 the names.  Populating ``data_coordinate_systems`` from them is close to free
 and is a strict information gain -- and it is the one store family that can
-answer D3's "what type is this axis" without asking the scene.
+answer "what type is this axis" without asking the scene.
 
 The systems are the stores' only record of that metadata, so a caller's own
 level-0 system replaces it outright rather than sitting beside it.
@@ -114,7 +114,8 @@ def test_the_systems_survive_a_round_trip_with_their_ids(ome_zarr_5d: str) -> No
 def test_an_empty_axis_type_raises_and_names_the_axis(ome_zarr_5d: str) -> None:
     """The metadata had a slot for the type and left it blank, which is a
     dataset defect.  ``AxisType`` is a closed six-value literal with no
-    honest fallback, so D3's "no silent default" is taken literally.
+    honest fallback, so "an axis type is never defaulted" is taken
+    literally.
 
     Reached through the label reader: the v0.5 image reader runs NGFF
     metadata through ``ome_zarr_models``, which rejects an untyped axis first

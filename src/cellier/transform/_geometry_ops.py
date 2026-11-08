@@ -4,11 +4,12 @@ Pure functions over numpy arrays.  Nothing here constructs a pydantic
 model, knows about a coordinate system, or touches a ``transformnd``
 type: every function takes a linear block ``A`` and a translation ``t``
 (or the pseudo-inverse of one) and returns arrays.  That is what makes
-every closed form in design section 4.1 testable on its own.
+every closed form testable on its own.
 
-The naming convention encodes which block a rule needs, which is the
-substance of D27 and D39.  ``map_*`` pushes forward, ``imap_*`` pulls
-back, and the argument name says whether that requires the inverse:
+The naming convention encodes which block a rule needs: a displacement
+maps by ``A`` and a plane normal by ``(A+)^T``, and pulling back needs
+no inverse.  ``map_*`` pushes forward, ``imap_*`` pulls back, and the
+argument name says whether that requires the inverse:
 
 - ``map_points``, ``map_directions``, ``imap_normals`` and
   ``imap_half_spaces`` take ``linear``, so they work on a transform whose
@@ -218,7 +219,7 @@ def imap_points(
 
 
 def map_directions(directions: np.ndarray, linear: np.ndarray) -> np.ndarray:
-    """Push displacement vectors forward: ``A v`` (contravariant, D27).
+    """Push displacement vectors forward: ``A v`` (contravariant).
 
     Nothing is normalized: a displacement's magnitude is meaningful.
 
@@ -282,7 +283,7 @@ def _check_non_degenerate(normals: np.ndarray) -> None:
 
 
 def map_normals(normals: np.ndarray, inverse_linear: np.ndarray) -> np.ndarray:
-    """Push plane normals forward: ``(A+)^T n`` (covariant, D27).
+    """Push plane normals forward: ``(A+)^T n`` (covariant).
 
     A normal is not a displacement.  Using ``A`` here is correct only for
     a rigid transform and is wrong for every scale.  Nothing is
@@ -623,7 +624,7 @@ def affine_bounding_box(
         The ``(D_out,)`` translation.
     unbounded_output_axes : tuple[int, ...]
         Output axis indices that are unbounded regardless of the
-        arithmetic -- the broadcast axes of D25.  These come back
+        arithmetic -- the transform's broadcast axes.  These come back
         ``(-inf, +inf)``.
 
     Returns
@@ -695,8 +696,8 @@ def axis_aligned_bounds(
     """Read the bounds of an axis-aligned polytope off directly.
 
     The fast path of :func:`polytope_bounds`, worth roughly 1000x and
-    covering every axis-aligned selection shipping today.  Requires
-    :func:`is_axis_aligned` to hold.
+    covering every axis-aligned selection, which is what the slicing
+    path sends.  Requires :func:`is_axis_aligned` to hold.
 
     Parameters
     ----------

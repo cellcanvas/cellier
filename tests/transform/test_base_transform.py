@@ -134,6 +134,6 @@ def test_spaced_is_not_used_anywhere_in_the_package():
 
 
 def test_matrices_are_float64():
-    """v1 coerced to float32; narrowing is the renderer's job at upload."""
+    """Narrowing to float32 is the renderer's job at upload."""
     _, _, transform = scale_only()
     assert transform.matrix.dtype == np.float64

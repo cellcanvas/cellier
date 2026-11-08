@@ -1,9 +1,8 @@
 """A mesh with two levels of detail, through the controller.
 
-``plans/mesh_refactor_v3.md`` Phase 6 (M3, M4's coarse child, L4).  A plan
-asks for the coarse and the fine level together; the coarse one is on screen
-first and the fine one replaces it, with no frame without the mesh between.
-Frames are real frames of an offscreen canvas.
+A plan asks for the coarse and the fine level together; the coarse one is
+on screen first and the fine one replaces it, with no frame without the
+mesh between. Frames are real frames of an offscreen canvas.
 """
 
 from __future__ import annotations

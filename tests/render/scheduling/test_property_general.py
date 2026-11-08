@@ -431,7 +431,7 @@ class _IgnoresTheCap(SchedulerCore):
 
 
 class _CapsEveryRead(SchedulerCore):
-    """The rule D22 replaced: a backstop is held by the cap too."""
+    """A wrong rule: a backstop is held by the cap too."""
 
     def _head(self, cache):
         cap = cache.policy.max_target_fetching

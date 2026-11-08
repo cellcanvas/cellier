@@ -21,12 +21,12 @@ by cellier's own shaders in the same pass as colour and pick.
     1.31 deg, so they write it here and the occlusion pass prefers it
     wherever it is present.
 
-**No upstream pygfx changes are needed.**  ``custom_targets`` is stubbed
-at ``blender.py:108``, but the three methods the pipeline actually asks the
-blender for are public, and a subclass assigned to ``renderer._blender`` is
-picked up end to end: ``renderer.py`` passes the blender into
-``get_renderstate``, and ``pipeline.py`` calls ``get_shader_kwargs`` and
-``get_color_descriptors`` on that instance.
+**No upstream pygfx changes are needed.**  ``custom_targets`` is a stub in
+pygfx's ``blender.py``, but the three methods the pipeline actually asks
+the blender for are public, and a subclass assigned to
+``renderer._blender`` is picked up end to end: ``renderer.py`` passes the
+blender into ``get_renderstate``, and ``pipeline.py`` calls
+``get_shader_kwargs`` and ``get_color_descriptors`` on that instance.
 
 Four things make this safe:
 

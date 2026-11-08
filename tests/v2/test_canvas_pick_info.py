@@ -61,7 +61,7 @@ def test_canvas_pick_info_reports_only_the_hit() -> None:
 def test_every_pick_event_shares_the_mouse_context_fields() -> None:
     """The pick events differ only in ``pick_info``.
 
-    Seven: the six of design 3.7 and the MaskedImage's (masked image 9.3).
+    Seven: one per visual family, the MaskedImage's included.
     """
     expected = (
         "source_id",

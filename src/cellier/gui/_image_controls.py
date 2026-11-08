@@ -267,8 +267,8 @@ def row_visible(
 def displayed_dimensions(dims_state: Any) -> int | None:
     """How many dimensions *dims_state* displays; ``None`` if it does not say.
 
-    A selection with no ``displayed_axes`` (the plane-selection stub) gives
-    ``None``, and the control keeps what it had.
+    A selection with no ``displayed_axes`` gives ``None``, and the control
+    keeps what it had.
     """
     axes = getattr(getattr(dims_state, "selection", None), "displayed_axes", None)
     return None if axes is None else len(axes)

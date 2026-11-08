@@ -1,8 +1,7 @@
 """Pre-refactor snapshots for the nD axis-handling refactor.
 
-These tests capture the values produced by today's hardcoded axis
-handling at the visual / geometry layer, for the two scenarios the
-existing demos cover:
+These tests capture the values produced by the axis handling at the
+visual / geometry layer, for the two scenarios the existing demos cover:
 
     - orthoviewer_3d : 3D OME-Zarr-shaped dataset, displayed_axes=(0,1,2)
     - multiscale_paint_2d : 2D dataset, displayed_axes=(0,1)
@@ -17,9 +16,8 @@ The snapshot files in ``snapshots/*.json`` are byte-compared against
 fresh runs.  Any drift after a refactor phase signals either a
 regression or an intentional value change requiring snapshot update.
 
-These snapshots are a temporary refactor scaffold and will be deleted
-at the end of Phase 6 once the unit tests and end-to-end nD test
-provide long-term coverage.
+These snapshots were written as a temporary refactor scaffold, to be deleted
+once the unit tests and end-to-end nD test provide long-term coverage.
 
 Run with the env var ``CELLIER_UPDATE_SNAPSHOTS=1`` to (re)write the
 JSON files in-place.
@@ -177,9 +175,8 @@ def test_snapshot_orthoviewer_3d():
         render_modes={"2d", "3d"},
     )
 
-    # Slice-request 3D sub-transform.  ``select_axes`` went with v1 in
-    # Phase 8; ``_displayed_submatrix`` reads the same entries off the v2
-    # transform and returns the same square block.
+    # Slice-request 3D sub-transform: ``_displayed_submatrix`` reads the
+    # displayed entries off the transform and returns the square block.
     full_transform = scale_and_translation((4.0, 1.0, 1.0), (10.0, 20.0, 30.0))
     sub_3d = _displayed_submatrix(full_transform, displayed_axes[-3:])
 

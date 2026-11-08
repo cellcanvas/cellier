@@ -45,7 +45,7 @@ def _sliced_world_axes(visual: Any) -> set[int]:
     axes = {int(axis) for axis in np.flatnonzero(coupling.any(axis=1))}
     channel_axis = getattr(visual, "channel_axis", None)
     if channel_axis is not None and getattr(visual, "composite", False):
-        # A channel axis is coupled to nothing (refused at assignment, D6).
+        # A channel axis is coupled to nothing (refused at assignment).
         world_axis = transform.exclusive_axis_correspondence().get(channel_axis)
         if world_axis is not None:
             axes.discard(world_axis)

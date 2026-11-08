@@ -1,4 +1,4 @@
-"""The clipping plane gizmo session (clipping plane gizmo design v2, 5.2 to 5.5).
+"""The clipping plane gizmo session.
 
 Headless, on the rig of ``test_plane_gizmo.py``: a drag is synthetic pointer
 input on an offscreen canvas, and what is checked is the model.
@@ -382,7 +382,7 @@ async def test_a_transform_change_moves_the_gizmo_with_the_visual(make_rig):
     assert rig.model_plane(item) == item.plane
 
 
-# -- self-closing (G-P5) and one per canvas ------------------------------------
+# -- self-closing and one per canvas -------------------------------------------
 
 
 async def test_removing_the_plane_closes_the_session(make_rig):

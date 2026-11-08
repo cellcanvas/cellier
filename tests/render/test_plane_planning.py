@@ -472,7 +472,7 @@ async def test_one_channel_fits_the_cache(controller, pyramid_root, normals):
 async def test_a_plan_over_the_budget_is_truncated_nearest_first(
     controller, pyramid_root
 ):
-    """D-P10: a plan over the budget is truncated; the part of the plane
+    """A plan over the budget is truncated; the part of the plane
     farthest from the camera, in world units, is left to the backstop."""
     normals = [POSES["oblique"]]
     full = await _plane_rig(controller, pyramid_root, fx.ANISO, normals)
@@ -530,7 +530,7 @@ async def test_foreshortening_plans_at_most_half_again_as_many_bricks(
         assert total >= totals[0.0], totals
 
 
-# -- orthographic (6.3, D-P47, D-P48) ------------------------------------------------
+# -- orthographic -----------------------------------------------------------------
 
 
 @pytest.mark.parametrize("pose", list(POSES))
@@ -563,7 +563,7 @@ async def test_an_orthographic_plane_takes_one_level_in_the_2d_rule_s_band(
 async def test_an_orthographic_plan_that_does_not_fit_takes_a_coarser_level(
     controller, pyramid_root
 ):
-    """P19 (D-P48): step to the next coarser level until the plan fits."""
+    """Step to the next coarser level until the plan fits."""
     normals = [POSES["oblique"]]
     kwargs = {"fov": 0.0, "appearance": {"settled_lod_bias": 0.25}}
     roomy = await _plane_rig(controller, pyramid_root, fx.ANISO, normals, **kwargs)

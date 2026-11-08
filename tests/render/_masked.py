@@ -253,7 +253,7 @@ SPIKE_LENGTH = 20
 def spiked_pair(side: int, spike: bool) -> tuple[np.ndarray, np.ndarray]:
     """:func:`band_pair`'s ellipsoid, optionally with a thin spike on +x.
 
-    The spike is the case design 3.1 documents: its coarse mean falls below
+    The spike is the coarse pass's known miss: its coarse mean falls below
     the threshold, so the coarse pass never sees it.  The value is the bands
     of the mask's own distance.
     """

@@ -1,7 +1,7 @@
-"""Smoke tests for the Phase 2 offscreen render harness (conftest fixtures).
+"""Smoke tests for the offscreen render harness (conftest fixtures).
 
 These verify the shared harness itself -- an offscreen frame can be drawn and
-read back as pixels -- so the per-visual Phase 3 tests can rely on it.
+read back as pixels -- so the per-visual render tests can rely on it.
 """
 
 from __future__ import annotations

@@ -1,10 +1,9 @@
 """Motion on the brick route.
 
-``plans/oblique_2d_raster_design_v3.md`` 5.1 (preparation), 5.2.3 (sticky
-routes, no handoff), 5.3.7 (the 2D rule) and D7 (``transform_interaction``).
-A tilted 2D view of a multiscale visual follows the 2D motion rule on every
-drag -- a dims scrub, or a transform drag inside ``transform_interaction``
--- never the 3D plane-drag hold.
+Covers preparation, sticky routes (no handoff), the 2D motion rule and
+``transform_interaction``.  A tilted 2D view of a multiscale visual follows the
+2D motion rule on every drag -- a dims scrub, or a transform drag inside
+``transform_interaction`` -- never the 3D plane-drag hold.
 """
 
 from __future__ import annotations
@@ -614,8 +613,9 @@ def _coverage(frame, camera, polygon) -> float:
 
 
 def test_mid_drag_coverage_with_z_never_downsampled(tmp_path):
-    """U11 / 8.4 at test scale: every tick of a transform drag from 0 degrees
-    draws at least 95% of the footprint, on a pyramid that keeps z."""
+    """Mid-drag coverage at test scale: every tick of a transform drag
+    from 0 degrees draws at least 95% of the footprint, on a pyramid
+    that keeps z."""
     viewer = _viewer()
     try:
         data = np.tile(_random_volume(4), (2, 4, 4))[:40, :128, :160]

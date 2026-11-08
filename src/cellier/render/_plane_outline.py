@@ -51,7 +51,7 @@ def voxel_edge_box(
     """The box a volume shader cuts a plane with, in level-0 data coordinates.
 
     The edges of the voxels, not their centres: ``-0.5`` to ``n - 0.5`` on
-    each axis, whatever level is drawn (design 5.3, measured).
+    each axis, whatever level is drawn (measured against the shader).
 
     Parameters
     ----------

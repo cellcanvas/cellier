@@ -43,11 +43,9 @@ class LinesSliceRequest(NamedTuple):
         coordinates.  It is the whole filter -- one ``contains`` call
         instead of a per-axis mask loop.
 
-        Until v1 was retired this was optional, and a request without one
-        fell back to comparing a **world** position from ``slice_indices``
-        against **data** coordinates -- the latent bug D4 exists to fix: on a
-        2 um z spacing it could show a vertex 24 um off the slice plane and
-        hide the ones that are on it.  There is no second path now.
+        Required: comparing a **world** position against **data** coordinates
+        instead could, on a 2 um z spacing, show a vertex 24 um off the slice
+        plane and hide the ones that are on it.
     clip_planes : tuple[tuple[tuple[float, ...], float], ...]
         Clipping planes the read applies on the CPU, as ``(normal, offset)``
         pairs in data coordinates, kept where ``normal . p >= offset``. Set

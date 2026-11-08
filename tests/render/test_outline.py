@@ -221,7 +221,7 @@ def _read_lut_texel(lut: VisualLut, object_id: int) -> tuple[int, int]:
 
 
 def test_the_default_depth_range_has_the_documented_codes():
-    """The codes the design names for ``(0.01, 0.06)``."""
+    """The codes for the default ``(0.01, 0.06)``."""
     assert encode_depth_range((0.01, 0.06)) == (655, 83)
 
 
@@ -1255,7 +1255,7 @@ def test_outline_survives_a_resize(offscreen_renderer):
 
 
 def test_outline_pass_precedes_temporal_accumulation(outline_controller):
-    """Ordering in the effect chain, which the design pins deliberately.
+    """Ordering in the effect chain, pinned deliberately.
 
     The volume raymarcher jitters per frame, so silhouette pixels shift
     sub-pixel between frames.  Compositing the outline *before*

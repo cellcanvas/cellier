@@ -6,9 +6,10 @@ whole ``mask`` slice path stays dependency-free.
 
 Reading goes through ``geff.GeffReader`` rather than
 ``geff.read(backend="spatial-graph")``.  The high-level call builds two
-R-trees keyed by *original node id*, which D18 requires this code to throw
-away and rebuild over row indices; the low-level reader skips that
-entirely and measured 5.2x faster at 100k nodes.
+R-trees keyed by *original node id*, which this code would have to throw
+away and rebuild over row indices (nodes are indexed by row); the
+low-level reader skips that entirely and measured 5.2x faster at 100k
+nodes.
 """
 
 from __future__ import annotations

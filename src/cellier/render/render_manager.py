@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import numpy as np
 
-import cellier._qtasyncio_compat  # noqa: F401  (PySide6 task patches, D8)
+import cellier._qtasyncio_compat  # noqa: F401  (PySide6 task patches)
 from cellier.events._events import AABBChangedEvent, ViewRay, _CanvasRawPointerEvent
 from cellier.render._cancellable_reads import CancellableReads
 from cellier.render._clipping import expand_rendered_plane, reduce_clipping_planes
@@ -869,9 +869,9 @@ class RenderManager:
                 n_excluded += 1
 
         # A plane gizmo is not a lit surface: its handles get no occlusion.
-        # Their ids belong to no visual, so they are added here (gizmo
-        # design v2, G-P4).  The count matters as much as the entries: the
-        # pass compiles its lookup away while nothing is excluded.
+        # Their ids belong to no visual, so they are added here.  The count
+        # matters as much as the entries: the pass compiles its lookup away
+        # while nothing is excluded.
         if ssao_on:
             for canvas in self._canvases.values():
                 for object_id in canvas.plane_gizmo_object_ids():
@@ -1426,8 +1426,8 @@ class RenderManager:
 
         All ``gfx.*`` and pick-dict access stays inside this helper so nothing
         leaks past the render layer.  Returns None when the hit object has no
-        element-level identity yet (stubbed visual kinds) or when there is no
-        usable index in the payload.
+        element-level identity (a visual kind with no pick details) or when
+        there is no usable index in the payload.
 
         For image and labels visuals this returns the intermediate
         ``_ImageDisplayedDataCoord`` / ``_LabelsDisplayedDataCoord`` types
@@ -1539,7 +1539,7 @@ class RenderManager:
             ID of the visual to remove.
         """
         scene_id = self._visual_to_scene.pop(visual_id)
-        # Drop its caches from the chunk scheduler (design 5.4 remove); a
+        # Drop its caches from the chunk scheduler; a
         # read still in flight lands on a forgotten cache and is dropped.
         self._slice_coordinator.forget_visual(visual_id)
         self._data_stores.pop(visual_id)
@@ -1946,7 +1946,7 @@ class RenderManager:
             )
         )
 
-    # -- plane gizmos (gizmo design v2, 5.1 to 5.4) ---------------------------
+    # -- plane gizmos ------------------------------------------------------------
 
     def _clip_frame(self, visual_id: UUID) -> tuple[Any, Any, dict[int, float]]:
         """``(spaces, data_to_world, constants)`` of a visual in a 3D view.

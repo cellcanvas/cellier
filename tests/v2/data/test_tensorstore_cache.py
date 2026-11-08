@@ -578,9 +578,9 @@ def test_committed_write_is_visible_through_the_cached_handle(
 
     The paint module writes through the same handle the render path reads
     from, so the cache has to see a committed transaction.  Tensorstore
-    guarantees this today; this pins it, because a regression here would
-    surface as painted voxels silently reverting on the next reslice rather
-    than as an error.
+    guarantees this; this pins it, because a regression here would surface
+    as painted voxels silently reverting on the next reslice rather than as
+    an error.
     """
     import tensorstore as ts
 

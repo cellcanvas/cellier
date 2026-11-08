@@ -5,7 +5,7 @@
 
 * the vectorised path equals the loop, on random non-power-of-2 pyramids
   (odd tails, ratios like 2.005), random resident sets and phases, and random
-  clips -- D6 ran the same check against today's tilemap rebuild;
+  clips;
 * the loop equals a per-cell oracle written from the cell -> brick rule.
 """
 

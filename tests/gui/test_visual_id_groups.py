@@ -43,7 +43,7 @@ def _image_values():
 
 
 def _qt_widgets(visual_id):
-    """One instance of every Qt widget stage 2 widened, with its edit driver.
+    """Every Qt widget that takes a visual id group, with its edit driver.
 
     Returns ``(name, widget, edit, expected_field)`` where ``edit()`` performs
     a single user-level change.

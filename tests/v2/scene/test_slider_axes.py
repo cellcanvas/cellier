@@ -20,7 +20,7 @@ from cellier.visuals import (
     PointsMarkerAppearance,
 )
 
-#: The lightsheet world of the design's section 3.5 example.
+#: A lightsheet world.
 _TCZYX = [("t", "time"), ("c", "channel"), *spatial_axes("z", "y", "x")]
 
 

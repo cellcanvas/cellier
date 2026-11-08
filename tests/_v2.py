@@ -7,8 +7,7 @@ visual directly, with no controller and no scene, so they have to say what the
 two spaces are themselves.
 
 These helpers build synthetic ones.  They are deliberately positional -- data
-axis *i* is world axis *i* -- which is what the v1 transforms these tests were
-written against always meant.
+axis *i* is world axis *i* -- which is what the tests that use them assume.
 """
 
 from __future__ import annotations
@@ -109,7 +108,7 @@ def scale_and_translation(
 def bound(controller, scene_id, store, scale, translation=None) -> AffineTransform:
     """A ``data -> world`` transform between the systems a live viewer uses.
 
-    A v2 transform names its endpoints by id, so one built against synthetic
+    A transform names its endpoints by id, so one built against synthetic
     systems cannot be handed to a real visual -- composing it would join two
     different worlds, and ``then`` refuses.  This builds one against the
     store's and scene's actual systems, which is what a caller who wants to
@@ -152,9 +151,8 @@ def bound(controller, scene_id, store, scale, translation=None) -> AffineTransfo
 def identity(ndim: int, labels=None) -> AffineTransform:
     """The identity ``data -> world`` transform of a given rank.
 
-    What v1's ``AffineTransform.identity(ndim=...)`` gave before
-    Phase 8, except that this one names the two spaces it maps between --
-    which is the whole difference between v1 and v2.
+    Data axis *i* maps to world axis *i*, between synthetic systems from
+    :func:`systems`.
     """
     data, world = systems(ndim, labels)
     return AffineTransform.from_axis_map(
@@ -168,7 +166,7 @@ def identity(ndim: int, labels=None) -> AffineTransform:
 def pyramid_levels(scales, translations=None) -> dict:
     """Store keyword arguments for a pyramid, as the raw per-level numbers.
 
-    Since Phase 8 a store states its pyramid as ``level_scales`` and
+    A store states its pyramid as ``level_scales`` and
     ``level_translations`` rather than as transforms: a transform names the
     two coordinate systems it sits between, and a store has none until its
     axes are known.  ``install_level_transforms`` builds the transforms once
@@ -237,9 +235,8 @@ def level_transforms(scales, translations=None, labels=None):
 def data_region(ndim: int, slabs=None, labels=None) -> ConvexRegion:
     """A region in a store's own **data** space, from per-axis slabs.
 
-    What a geometry slice request carries since Phase 8: the store's whole
-    filter, already pulled back, replacing the ``slice_indices`` plus
-    ``thickness`` pair that compared a world position against data
+    What a geometry slice request carries: the store's whole filter, already
+    pulled back, so a world position is never compared against data
     coordinates.
 
     Parameters
@@ -291,7 +288,7 @@ class Context:
         world: WorldCoordinateSystem | None = None,
     ) -> None:
         # *data* and *world* let a replacement transform be built against the
-        # systems a visual is already placed with; a v2 transform names its
+        # systems a visual is already placed with; a transform names its
         # endpoints, so a fresh pair would describe a different space.
         if data is None or world is None:
             data, world = systems(ndim, labels)
@@ -334,10 +331,9 @@ class Context:
     def selection(self) -> RegionSelection:
         """The region one canvas is showing, as the controller would emit it.
 
-        Every image and label family plans from this and nothing else: Phase 8
-        deleted the ``dims_state.slice_indices`` fallback each of them used to
-        have, so a render-layer test that builds a slice request has to supply
-        the region as well as the systems.
+        Every image and label family plans from this and nothing else, so a
+        render-layer test that builds a slice request has to supply the region
+        as well as the systems.
 
         Each collapsed axis gets a zero-thickness slab -- a plane -- which is
         what ``DimsManager.to_selection`` emits for an axis nobody gave a

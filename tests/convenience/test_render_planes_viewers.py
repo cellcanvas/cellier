@@ -292,7 +292,7 @@ def test_render_planes_go_to_the_3d_panel_only(make_viewer):
     for key in ("xy", "xz", "yz"):
         assert visuals[key].render_planes == ()
     # The mode is on every panel's model and acts in the 3D panel alone: a
-    # 2D view draws its slice whatever the mode (D-P19).
+    # 2D view draws its slice whatever the mode.
     controller = ortho.controller
     assert controller._draws_planes(visuals["vol"])
     assert not any(controller._draws_planes(visuals[key]) for key in ("xy", "xz", "yz"))
@@ -388,7 +388,7 @@ def test_turning_the_mode_on_writes_three_planes_at_the_slice_positions(make_vie
 
 
 def test_every_image_and_labels_vol_visual_gets_the_planes(make_viewer):
-    """D-P62: whatever its render mode; other visual types are left alone."""
+    """Whatever its render mode; other visual types are left alone."""
     ortho, visuals = _slices(make_viewer)
     volume = ortho.add_image(_image(), name="volume")  # in a volume mode
     labels = ortho.add_labels(LabelMemoryStore(data=np.ones(SHAPE, np.int32)))
@@ -431,7 +431,7 @@ def test_a_slider_moves_its_plane(make_viewer, panel, axis):
 
 
 def test_a_plane_moved_by_hand_moves_its_slider_and_the_other_visuals(make_viewer):
-    """D-P61: a change made on a visual is carried over, not thrown away."""
+    """A change made on a visual is carried over, not thrown away."""
     ortho, visuals = _slices(make_viewer)
     other = ortho.add_labels(LabelMemoryStore(data=np.ones(SHAPE, np.int32)))
     controller = ortho.controller

@@ -210,7 +210,7 @@ def test_array_holding_models_hash(name):
     assert len({instance, twin}) == 1
 
 
-# --- the wire format (section 11) ------------------------------------
+# --- the wire format ------------------------------------------------
 
 
 def test_the_dumped_affine_is_a_nested_list_of_floats():

@@ -3,10 +3,9 @@
 Pins the group titles the Qt appearance dock renders, in order, and that the
 panel actually paints.
 
-**Stage 1 landed here**: the "Bounding box" group is new in every list below.
-``QtAABBWidget`` already existed and the anywidget path already built one; only
-the Qt renderer did not, which was drift rather than a toolkit limit.  That
-change is the diff this module exists to show.
+The "Bounding box" group is in every list below: the Qt renderer once left it
+out although ``QtAABBWidget`` existed and the anywidget path built one, which
+was drift rather than a toolkit limit.
 """
 
 from __future__ import annotations

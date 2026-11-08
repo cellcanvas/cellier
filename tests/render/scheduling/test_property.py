@@ -1,6 +1,6 @@
-"""Randomised traces against the scheduler core, checking design section 7.
+"""Randomised traces against the scheduler core, checking its invariants.
 
-A port of ``scripts/progressive/model_check_chunk_machine.py`` (V1, with the
+A port of ``scripts/progressive/model_check_chunk_machine.py`` (with the
 class-first ``RECENT`` order) from the model to the real core.  The
 environment owns a simulated clock and store: each read takes a jittered
 latency and fails with a small probability, and each chunk has a data
@@ -10,7 +10,7 @@ bursts), reads landing, commit rounds (scene-scoped and fallback),
 invalidation, retire, remove and re-register -- and every so often the trace
 stops passing and runs to quiescence, which checks liveness.
 
-Invariants checked (numbered as in design section 7):
+Invariants checked:
 
 1. slot conservation;
 2. the in-flight budget and its lanes;
@@ -91,10 +91,10 @@ _BACKSTOP = int(ChunkClass.BACKSTOP)
 def importance(snap: tuple[int, int, int, int, int]) -> tuple:
     """The eviction order from a ``(key, tier, cls, wanted_gen, rank)`` snapshot.
 
-    Written from the design, independently of the core: ``VISIBLE`` outranks
-    ``RECENT``.  Among ``RECENT``: the backstop first, then the newer
-    generation, then the more important class, then the better rank.  For
-    two classes that is ``(cls, wanted_gen, -rank)``.
+    Written from the rule, independently of the core: ``VISIBLE``
+    outranks ``RECENT``.  Among ``RECENT``: the backstop first, then the
+    newer generation, then the more important class, then the better
+    rank.  For two classes that is ``(cls, wanted_gen, -rank)``.
     """
     _, tier, cls, gen, rank = snap
     if tier == _VISIBLE:
@@ -567,7 +567,7 @@ def test_invariants_hold_on_random_traces(seed: int) -> None:
 def test_invariants_hold_from_a_full_atlas(seed: int) -> None:
     stats = _RUN_STATS[seed] = _run(seed, STEPS, prefill=True)
     assert stats["prefill_full"] > 0
-    # From a full atlas, kept arrivals must evict to be placed (V1/V2).
+    # From a full atlas, kept arrivals must evict to be placed.
     assert stats["trace_evict"] > 0
 
 

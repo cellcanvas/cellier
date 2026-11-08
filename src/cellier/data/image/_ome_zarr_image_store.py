@@ -249,10 +249,9 @@ def _level_geometry(
 ) -> tuple[list[tuple[float, ...]], list[tuple[float, ...]], list[float], list[float]]:
     """Compose NGFF scales and translations into the store's pyramid numbers.
 
-    Implements the math from section 3.2 of the design document over all
-    axes.  Shared by both OME-Zarr readers: the image reader pulls the
-    per-dataset numbers out of yaozarrs models, the label reader out of raw
-    dicts.
+    Over all axes.  Shared by both OME-Zarr readers: the image reader pulls
+    the per-dataset numbers out of yaozarrs models, the label reader out of
+    raw dicts.
 
     Returns numbers rather than transforms: a transform names the two
     coordinate systems it sits between, and those are minted once the store

@@ -127,8 +127,8 @@ def viewport_prism(request: ReslicingRequest) -> np.ndarray:
     The 2D slice node is planned by the 3D brick planner, which culls with
     frustum corners.  A 2D request carries none, and the 2D camera's near
     and far planes must not cull: they would drop a slab's bricks to the
-    backstop (Phase 0c P-b).  So the corners are the viewport in ``(x, y)``
-    and +-``SLICE_PRISM_DEPTH`` in depth, in pygfx's order: ``[near, far] x
+    backstop.  So the corners are the viewport in ``(x, y)`` and
+    +-``SLICE_PRISM_DEPTH`` in depth, in pygfx's order: ``[near, far] x
     [(l, b), (r, b), (r, t), (l, t)]``, the near side at ``+z`` (the camera
     looks down ``-z``).
     """
@@ -197,15 +197,14 @@ def target_room(
 
     The room :func:`desired_bricks` truncates the target to, for a planner
     that would rather plan less than be truncated (an orthographic plane
-    plan, plane rendering design 6.3).
+    plan).
 
     It is asked before the target exists, and the intermediate stages are
     derived from the target, so their count is an estimate: per stage, the
     room divided by ``4 ** offset``, the share a plane's stage is of its
-    target where level ratios are 2, in 3D as well (intermediate-level
-    design v2, section 6); summed, and limited by the stages' cap.  Where
-    the estimate is low, :func:`desired_bricks` drops the farthest target
-    bricks, which the stage still covers.
+    target where level ratios are 2, in 3D as well; summed, and limited by
+    the stages' cap.  Where the estimate is low, :func:`desired_bricks`
+    drops the farthest target bricks, which the stage still covers.
 
     Parameters
     ----------
@@ -246,7 +245,7 @@ def desired_bricks(
     """Turn planned brick or tile arrays into the atlas's desired set.
 
     The backstop block comes first, then each intermediate stage, then the
-    target (intermediate-level design v2, section 6):
+    target:
 
     1. the backstop is truncated to *backstop_cap* (nearest first, as it is
        ordered) and to the budget;

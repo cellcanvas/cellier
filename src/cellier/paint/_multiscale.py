@@ -1,7 +1,7 @@
 """Paint controller for multiscale (zarr-backed) label data stores.
 
-Architecture (Phase 3 — pyramid rebuild + autosave loop)
----------------------------------------------------------
+Architecture (pyramid rebuild + autosave loop)
+----------------------------------------------
 Each brush application:
 
 1. Reads pre-paint values from the open ``WriteBuffer`` (read-your-writes
@@ -80,7 +80,7 @@ class MultiscalePaintController(AbstractPaintController):
     displayed_axes :
         The two data-array axes currently displayed in 2D for the bound
         canvas, in ``(row_axis, col_axis)`` order.  3D paint feedback is
-        a follow-up; passing a 3-tuple raises ``NotImplementedError``.
+        not supported; passing a 3-tuple raises ``NotImplementedError``.
     brush_value : int
     brush_radius_voxels :
     history_depth :

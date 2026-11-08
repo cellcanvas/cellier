@@ -1,4 +1,4 @@
-"""``MultiscaleMeshStore``: a mesh at several levels (plan M3).
+"""``MultiscaleMeshStore``: a mesh at several levels.
 
 Each level is read by the same code as a ``MeshMemoryStore``; what is new is
 the validation across levels, which level a request reads, and that the

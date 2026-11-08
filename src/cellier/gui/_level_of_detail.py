@@ -56,7 +56,7 @@ def level_of_detail_values(appearance: Any) -> dict[str, Any]:
     ----------
     appearance : appearance model
         A multiscale image or labels appearance, or an in-memory one (whose
-        levels are its brick route's, oblique 2D design v3 U1).
+        levels are its brick route's).
 
     Returns
     -------

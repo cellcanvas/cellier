@@ -635,7 +635,7 @@ class GFXMultiscaleLabelVisual(
         """Put the 2D views of this visual on the brick route, or take them off.
 
         Called by the controller before it pushes the render spaces.  The 3D
-        node is the slice node (D4: one atlas), so a scene built for 2D only
+        node is the slice node (one atlas), so a scene built for 2D only
         gains the 3D mode here.
 
         Parameters
@@ -1065,7 +1065,7 @@ class GFXMultiscaleLabelVisual(
         self._apply_render_planes()
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place the nodes with the composition of design 3.9.
+        """Place the nodes with the node-matrix composition.
 
         The 3D node's geometry is a proxy box in normalized space, so its
         ``visual -> data`` carries the ``norm_to_data`` factors that

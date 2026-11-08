@@ -378,7 +378,7 @@ def data_axes_from_world(
 
 
 def install_level_transforms(store: object) -> None:
-    """Give a multi-level store its ``level k -> level 0`` transforms, as v2.
+    """Give a multi-level store its ``level k -> level 0`` transforms.
 
     The per-level numbers are model state: the readers derive them from
     OME-NGFF metadata and keep them as ``level_scales`` and
@@ -390,10 +390,6 @@ def install_level_transforms(store: object) -> None:
 
     A no-op when the store already has one transform per system: a store
     restored from JSON keeps the ones it was serialized with, ids included.
-
-    Until Phase 8 the readers built these as v1 matrices, which name no
-    endpoints, and the region pull-back derived a named form alongside
-    them.  There is one list now.
 
     Parameters
     ----------
@@ -453,9 +449,9 @@ def default_data_to_world(
 ) -> AffineTransform:
     """Build the ``data -> world`` transform a visual gets when none is given.
 
-    D18 forbids a coordinate-system-less identity, so there is no default on
-    the model field: the controller builds this one at ``add_visual``, when
-    both systems are finally known.
+    A transform always names both coordinate systems, so there is no
+    default on the model field: the controller builds this one at
+    ``add_visual``, when both systems are finally known.
 
     The correspondence is by **trailing position**, the same alignment the
     rest of cellier already assumes.  The two ranks are usually equal, in
@@ -524,12 +520,8 @@ def scale_and_translation_transform(
     For a store that states its own geometry as raw numbers -- a geff file's
     per-axis ``scale`` and ``offset`` -- and so has said *what* the map is
     without saying *between which spaces*.  The controller knows both, so
-    this is where they get attached.
-
-    This replaced ``transform_from_v1``, which did the same job for a bare v1
-    matrix and went with v1 in Phase 8.  The difference is that a caller now
-    supplies numbers rather than an object that looked like a transform while
-    naming nothing.
+    this is where they get attached.  The caller supplies numbers, not an
+    object that would look like a transform while naming nothing.
 
     Parameters
     ----------
@@ -580,11 +572,9 @@ def scale_and_translation_transform(
 def store_level_transforms(store: object) -> list[AffineTransform]:
     """The level ``k`` -> level ``0`` transforms of a store.
 
-    A thin read since Phase 8.  The store holds one v2 transform per
-    coordinate system, built by :func:`install_level_transforms` from its own
-    ``level_scales`` and ``level_translations`` as soon as the systems exist.
-    Until then the readers held v1 matrices, the region pull-back needed a v2
-    form, and this derived one alongside them.
+    A thin read.  The store holds one transform per coordinate system, built by
+    :func:`install_level_transforms` from its own ``level_scales`` and
+    ``level_translations`` as soon as the systems exist.
 
     Parameters
     ----------

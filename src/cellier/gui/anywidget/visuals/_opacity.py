@@ -29,7 +29,7 @@ class AnywidgetOpacitySlider(AnywidgetBoundedSlider):
     ``BaseAppearance``.  It is also the **only** appearance field
     carrying ``ge``/``le``, which is why it is the only
     ``BoundedSlider``: the range is read off the model rather than
-    picked (design section 6.5.1 proposal 3).
+    picked.
 
     Parameters
     ----------

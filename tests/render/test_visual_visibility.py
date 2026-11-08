@@ -13,8 +13,7 @@ history texture whose ``reset()`` was called from exactly one place, guarded
 by "did the camera move". A content change left the history in place, so the
 hidden visual lingered as a ghost -- and dragging the camera cleared it, which
 is what made this look like a redraw bug. Fixed by
-``CanvasView.invalidate_accumulation``; see
-``plans/temporal_accumulation_fix.md``.
+``CanvasView.invalidate_accumulation``.
 
 **Read the paths these tests use carefully.** ``render_scene`` builds a
 *fresh* offscreen renderer per call, with no effect passes and no history, so

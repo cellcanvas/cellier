@@ -702,8 +702,9 @@ class GraphMemoryStore(BaseDataStore):
         Used only to give an ROI-sliced edge pick the same ``edge_index``
         a mask-sliced one carries.  The ROI index returns endpoint pairs
         rather than edge rows, and translating a whole candidate set every
-        reslice is exactly the per-frame ``searchsorted`` D18 removes -- so
-        the translation happens here, for one edge, on a pick.
+        reslice is exactly the per-frame ``searchsorted`` that indexing
+        nodes by row removes -- so the translation happens here, for one
+        edge, on a pick.
 
         Backed by a sorted key array built on first call and cached.
 
@@ -868,7 +869,9 @@ class GraphMemoryStore(BaseDataStore):
 
         if self.n_edges:
             # Two fancy-index gathers over (E,) and an OR.  This is the whole
-            # of D5; there is no special case for a trail axis, which is D13.
+            # edge rule (an edge draws when either endpoint passes); a trail
+            # axis gets no special case, so trail edges dangle one step past
+            # the window.
             edge_mask = node_mask[self.edges[:, 0]] | node_mask[self.edges[:, 1]]
             edge_rows = np.flatnonzero(edge_mask)
             edge_endpoints = self.edges[edge_rows]
@@ -890,12 +893,12 @@ class GraphMemoryStore(BaseDataStore):
         ``query_edges_in_roi`` is a different matter: it reports every edge
         whose segment AABB intersects the box, which includes edges crossing
         the slab with *neither* endpoint inside.  The O(k) refinement below
-        restores D5 exactly and is not redundant.
+        restores the either-endpoint edge rule exactly and is not redundant.
 
         Returns ``None`` for the edge rows: the index yields endpoint pairs,
         and translating the whole candidate set here is the per-frame
-        ``searchsorted`` D18 exists to avoid.  A pick resolves its one edge
-        through ``edge_row_for_endpoints``.
+        ``searchsorted`` that indexing nodes by row exists to avoid.  A pick
+        resolves its one edge through ``edge_row_for_endpoints``.
         """
         dtype = self.positions.dtype
         roi_min = np.full(self.ndim, -np.inf, dtype=dtype)
@@ -979,8 +982,7 @@ class GraphMemoryStore(BaseDataStore):
         # transform.  ``displayed_axes`` indexes the **world**, so using it
         # here would raise on a store of lower rank than the world and
         # silently upload the wrong columns on a transform that permutes its
-        # axes; it was the fallback for a headlessly constructed visual until
-        # v1 was retired.
+        # axes.
         displayed = list(request.retained_axes)
         # The collapsed columns a coupled view folds in.
         folded = list(request.fold_axes)

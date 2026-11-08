@@ -271,7 +271,7 @@ def test_from_data_rejects_a_repeated_data_axis():
 
 
 def test_visual_system_has_no_rank_restriction_unlike_rendered():
-    """A rendered system is 2D or 3D by R1; a visual system is what the
+    """A rendered system is 2D or 3D; a visual system is what the
     request retained, which may be 1, 4 or more axes.
     """
     data = tzyx_data()

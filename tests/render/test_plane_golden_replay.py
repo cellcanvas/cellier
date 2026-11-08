@@ -236,8 +236,8 @@ def _recorded_class(cls: np.ndarray) -> np.ndarray:
     The request class became a priority with the backstop at 255; the golden
     holds it as 1.  The integer changed and no plan did, so it is translated
     back here and the golden is untouched, as ``scheduling/_trace.py`` does
-    for the trace baseline.  Both translations go when that plan's Phase 7
-    recaptures the class arrays.
+    for the trace baseline.  Both translations go when the class arrays are
+    re-recorded.
     """
     out = np.array(cls)
     out[out == int(ChunkClass.BACKSTOP)] = RECORDED_BACKSTOP

@@ -40,7 +40,7 @@ def flat_2d(name="flat"):
 
 
 def reducing_transform():
-    """A 3D -> 2D projection: D24 case 3, inverse() is None."""
+    """A 3D -> 2D projection: neither square nor an embedding, so inverse() is None."""
     data = CoordinateSystem(name="data", axes=(space("z"), space("y"), space("x")))
     flat = flat_2d()
     matrix = np.array(
@@ -259,7 +259,7 @@ def test_there_is_no_map_vector():
 
 
 def test_nothing_is_normalised():
-    """v1 returned unit normals; v2 returns the raw transformed vector."""
+    """The raw transformed vector, not a unit normal."""
     _, _, transform = scale_only()  # scale (0.5, 0.1, 0.1)
     vector = np.array([3.0, 0.0, 0.0])
     # a displacement scales by A, and its magnitude is meaningful
@@ -439,12 +439,12 @@ def test_imap_region_works_without_an_inverse():
 def test_imap_region_agrees_with_the_direct_predicate():
     """Without broadcast axes the pull-back is exactly the forward predicate.
 
-    This is D39's original property, and D8 must not disturb it: for a
-    transform with no broadcast axes the drop rule removes nothing, so
-    ``imap_region`` is still raw ``A^T``.  ``channel_passthrough`` is
-    used rather than ``channel_broadcast`` because a *broadcast* axis
-    deliberately breaks this equivalence -- the forward map puts the data
-    at ``C = 0``, which is not where it is, and pinning that is
+    The broadcast-axis drop must not disturb this: for a transform with
+    no broadcast axes the drop rule removes nothing, so ``imap_region``
+    is still raw ``A^T``.  ``channel_passthrough`` is used rather than
+    ``channel_broadcast`` because a *broadcast* axis deliberately breaks
+    this equivalence -- the forward map puts the data at ``C = 0``,
+    which is not where it is, and pinning that is
     :func:`test_imap_region_drops_constraints_on_a_broadcast_axis`.
     """
     _, world, transform = channel_passthrough()
@@ -499,7 +499,7 @@ def _channel_broadcast_oblique_through_c(world):
 
 
 def test_imap_region_drops_constraints_on_a_broadcast_axis():
-    """The failure D8 exists to fix, on the case the viewer hits first.
+    """The failure the broadcast-axis drop fixes, on the case the viewer hits first.
 
     Selecting a channel the dataset has no axis for must not empty the
     region: the dataset is declared broadcast over ``C``, so it exists at
@@ -529,7 +529,7 @@ def test_imap_region_without_the_broadcast_drop_would_have_been_empty():
     """Pin the old answer, so the fix cannot silently regress."""
     _, world, transform = channel_broadcast()
     region = ConvexRegion.from_axis_slabs(world, {"T": (7.0, 0.5), "C": (2.0, 0.5)})
-    # the shipped-before-D8 arithmetic: raw A^T with nothing dropped
+    # the raw A^T arithmetic, with nothing dropped
     unamended = transform._imap_region(region, ())
     assert unamended.is_empty()
     assert transform.imap_region(region, world).is_empty() is False
@@ -626,7 +626,7 @@ def test_the_drop_leaves_a_transform_without_broadcast_axes_bit_identical(name):
 
 
 def test_a_constant_output_axis_is_not_a_broadcast_one_under_imap_region():
-    """D8 must not erase D39's vacuous / infeasible distinction.
+    """The broadcast-axis drop must not erase the vacuous / infeasible split.
 
     A *constant* zero row means "the source sits at exactly this
     position", so a selection elsewhere on that axis genuinely selects
@@ -662,8 +662,7 @@ def test_map_region_is_not_given_the_broadcast_drop():
 
     ``map_region`` keeps its single-argument signature.  Forward,
     ``broadcast_axes`` shows up as an unbounded extent
-    (:meth:`map_bounding_box`), not as a dropped constraint, and D31
-    draws that line.
+    (:meth:`map_bounding_box`), not as a dropped constraint.
     """
     import inspect
 
@@ -995,10 +994,10 @@ def test_a_mapped_output_axis_cannot_also_be_declared():
 def _node_matrix_for_rendered_order(displayed):
     """Compose visual -> data -> world -> rendered, as the renderer does.
 
-    Design section 3.14's worked case: a ``zyx`` image in a ``ZYX``
-    world with scales ``z=2.0, y=0.5, x=0.25``, displaying ``Y``/``X``
-    sliced at ``Z``.  The only thing that varies between calls is the
-    order of ``displayed``.
+    The worked case: a ``zyx`` image in a ``ZYX`` world with scales
+    ``z=2.0, y=0.5, x=0.25``, displaying ``Y``/``X`` sliced at ``Z``.
+    The only thing that varies between calls is the order of
+    ``displayed``.
     """
     data = DataCoordinateSystem(
         name="image",

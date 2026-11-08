@@ -2,7 +2,7 @@
 
 * the mirror fix in the in-memory image volume shader;
 * ``norm_size`` and the 2D multiscale LOD off the axis-aligned branch,
-  which equal today's values for scaled permutations.
+  which equal the axis-aligned values for scaled permutations.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ SCALED_PERMUTATIONS = {
 
 @pytest.mark.parametrize("name", sorted(SCALED_PERMUTATIONS))
 def test_norm_size_general_branch_equals_the_axis_aligned_one(name, monkeypatch):
-    """For a scaled permutation the column norms are today's ``|entry|``."""
+    """For a scaled permutation the column norms are the axis-aligned ``|entry|``."""
     import cellier.render.visuals._image as image_module
 
     transform = _affine(SCALED_PERMUTATIONS[name])

@@ -495,8 +495,8 @@ async def test_a_plane_just_past_a_cell_face_is_drawn_from_the_brick_that_owns_i
 async def test_the_part_of_a_plane_the_cache_has_no_room_for_draws_the_backstop(
     controller, tmp_path
 ):
-    """Truncation as shipped (D-P10): the near part of the plane is fine,
-    the part dropped from the plan draws the backstop, and nothing is blank."""
+    """Truncation: the near part of the plane is fine, the part dropped from
+    the plan draws the backstop, and nothing is blank."""
     spec = ISO
     rig = await make_rig(
         controller,

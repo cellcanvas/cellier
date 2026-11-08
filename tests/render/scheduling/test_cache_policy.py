@@ -160,8 +160,9 @@ def test_an_uncapped_cache_issues_every_target() -> None:
 
 
 def test_a_coarse_read_starts_while_a_fine_read_is_in_flight() -> None:
-    """The gap D22 closes: a slider moved again while the fine read of the
-    position it left is still running must get its coarse read at once."""
+    """The cap holds fine reads only: a slider moved again while the fine
+    read of the position it left is still running must get its coarse read
+    at once."""
     core, _ = _core()
     core.register(1, _residency(policy=LEVELS))
     store = FakeStore()

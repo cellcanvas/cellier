@@ -1,1 +1,1 @@
-"""Phase 5 of the transform integration: the multiscale families."""
+"""The multiscale families under a transform."""

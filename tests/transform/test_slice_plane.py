@@ -1,9 +1,9 @@
 """The geometry of one 2D slice through raster data.
 
-``plans/oblique_2d_raster_design_v3.md`` sections 4.1, 4.2 and 5.2.2, and
-D15's footprint.  The transforms are v1 6.1's (``id``, ``rot_yx``,
-``shear_x_by_z``, ``rot_zx``, ``general``, ``drift_rot``), tried against
-every 2D view of a ``zyx`` and a ``tzyx`` world.
+Covers the plane, its route and ``slice_footprint``.  The transforms of the
+oblique test set (``id``, ``rot_yx``, ``shear_x_by_z``, ``rot_zx``,
+``general``, ``drift_rot``) are tried against every 2D view of a ``zyx`` and a
+``tzyx`` world.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def _shear(row: int, column: int, amount: float = 0.5, n: int = 3) -> np.ndarray
     return m
 
 
-#: v1 6.1's spatial transforms, as ``zyx -> zyx`` linear blocks.
+#: The oblique test set's spatial transforms, as ``zyx -> zyx`` linear blocks.
 SPATIAL = {
     "id": np.eye(3),
     "rot_yx": _rot(1, 2, 30.0),
@@ -107,7 +107,7 @@ def _drift_rot() -> np.ndarray:
     return linear
 
 
-#: The same, as ``tzyx -> tzyx`` (``id`` and ``drift_rot`` of v1 6.1 for 4D).
+#: The same, as ``tzyx -> tzyx`` (``id`` and ``drift_rot`` for 4D).
 TEMPORAL = {
     "id": np.eye(4),
     "rot_zx": np.block(
@@ -130,7 +130,7 @@ def _temporal(name: str):
 
 
 def _selection(world, displayed, position, thickness=None):
-    """A D43 selection displaying *displayed*, sliced at *position*."""
+    """A region selection displaying *displayed*, sliced at *position*."""
     names = [axis.name for axis in world.axes]
     shown = [names[axis] for axis in displayed]
     rendered = RenderedCoordinateSystem.from_world(world, shown, uuid4())
@@ -306,7 +306,7 @@ def test_a_volume_broadcast_into_a_channel_world():
 
 
 def test_a_coupling_above_the_snap_is_varying():
-    """A small coupling D7 keeps (``1e-4``) makes its axis vary."""
+    """A coupling above the snap tolerance (``1e-4``) makes its axis vary."""
     linear = np.eye(3)
     linear[0, 1] = 1e-4  # world z reads data y, a little
     classification = classify_view(_affine(linear, None, "zyx", _world("zyx")), (1, 2))

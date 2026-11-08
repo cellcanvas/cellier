@@ -2,9 +2,9 @@
 
 The band is compared with the exact in-plane truth stored in
 ``masked_band_truth.json`` (``tests/render/_masked_band.py`` has the scenes;
-``scripts/masked_image/freeze_band_truth.py`` wrote the truth).  The bar is
-the design's: no extra pixel, edges within a pixel, and the fan's known
-shortfall (a few percent of a band's far edge at 16 rays).
+``scripts/masked_image/freeze_band_truth.py`` wrote the truth).  The bar: no
+extra pixel, edges within a pixel, and the fan's known shortfall (a few
+percent of a band's far edge at 16 rays).
 """
 
 from __future__ import annotations

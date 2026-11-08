@@ -7,8 +7,8 @@ such view on, an *inner* multiscale render visual
 :class:`~cellier.data._in_memory_bricks.InMemoryBrickSource`, in the 3D mode
 only.  While the route is taken the in-memory visual hands the scene the
 inner visual's slice node, plans through it, and forwards its events to it;
-aligned 2D views and 3D views keep the whole-slice caches (I4: one
-implementation of each piece).  Both paths load through the chunk scheduler.
+aligned 2D views and 3D views keep the whole-slice caches, so each piece has
+one implementation.  Both paths load through the chunk scheduler.
 
 :class:`BrickRouteHost` is that delegation, mixed in ahead of the in-memory
 visual's own class.  The inner visual reads the in-memory model through
@@ -90,7 +90,10 @@ class _RoutedModel:
 
 
 def _without_backstop(desired: DesiredSet) -> DesiredSet:
-    """*desired* with its backstop keys dropped (target-only planning, U8)."""
+    """*desired* with its backstop keys dropped, for target-only planning.
+
+    A visual plans target-only until its in-memory coarse level is built.
+    """
     keep = desired.cls != np.uint8(ChunkClass.BACKSTOP)
     return dataclasses.replace(
         desired,
@@ -108,7 +111,7 @@ class BrickRouteHost:
     The host class names the inner multiscale visual's class
     (:meth:`_build_inner`).  The controller hands it its brick source
     (:meth:`set_brick_source`) when the visual is added, and its route
-    before its render spaces (:meth:`set_slice_route`, design v3 C3).
+    before its render spaces (:meth:`set_slice_route`).
     """
 
     _brick_source: InMemoryBrickSource | None = None

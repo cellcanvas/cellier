@@ -18,10 +18,9 @@ class AxisAlignedSelectionState(NamedTuple):
     ``thickness`` is a per-axis world-unit **half**-thickness; an axis absent
     from it has thickness 0, a plane.
 
-    **Where the slice positions went.**  This carried ``slice_indices`` -- a
-    mapping of world axis to world position -- until Phase 8 (D5, deferred by
-    D4.1 and D6.1).  Every consumer now takes the ``RegionSelection`` the
-    controller emits instead: it says the same thing in a form that survives a
+    **There are no slice positions here.**  Every consumer takes the
+    ``RegionSelection`` the controller emits instead of a mapping of world
+    axis to world position: it says the same thing in a form that survives a
     slab, a viewport crop or an oblique plane, and it is pulled back through
     each visual's own transform rather than compared against data coordinates
     as though it were already in them.  The editable positions are still on

@@ -2,8 +2,8 @@
 
 The anywidget half of ``tests/gui/qt/test_qt_visible_toggle.py``; same
 structure, same assertions, so the two toolkits stay in step.  Only the trait
-layer is covered here -- the ``toggle.js`` half is verified through the browser
-procedure in section 6.1.1 of ``plans/convenience_cleanup.md``.
+layer is covered here -- the ``toggle.js`` half is checked by hand in a
+browser.
 """
 
 from __future__ import annotations

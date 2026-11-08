@@ -31,13 +31,12 @@ class SliceCoordinator:
     Given a ``ReslicingRequest``, it looks up the target ``SceneManager``,
     plans every targeted visual into desired sets and hands them to the
     shared :class:`~cellier.render.scheduling.ChunkScheduler`, which never
-    cancels (``plans/scheduler_only_loading_design_v2.md``; every visual is
-    a chunked visual).  The coordinator keeps the scheduler's cache
-    registrations in step with each visual's caches, retires the caches of a
-    visual that draws nothing (and those of the mode not drawn), and turns
-    the scheduler's per-cache completion into ``ResliceCompletedEvent``, and
-    its per-cache progress into ``ResliceProgressEvent`` and
-    ``BackstopCompleteEvent`` per visual.
+    cancels (every visual is a chunked visual).  The coordinator keeps the
+    scheduler's cache registrations in step with each visual's caches,
+    retires the caches of a visual that draws nothing (and those of the
+    mode not drawn), and turns the scheduler's per-cache completion into
+    ``ResliceCompletedEvent``, and its per-cache progress into
+    ``ResliceProgressEvent`` and ``BackstopCompleteEvent`` per visual.
 
     With two canvases on one scene, a visual's caches follow the last plan
     made, whichever canvas made it.
@@ -202,7 +201,7 @@ class SliceCoordinator:
         current = self._sync_caches(request.scene_id, visual_id, visual)
         store = self._data_stores[visual_id]
         # A visual that reads through a source of its own (an in-memory
-        # visual's brick pyramid, oblique 2D design v3 5.4) names it.
+        # visual's brick pyramid) names it.
         sets = [
             ds if ds.store is not None else dataclasses.replace(ds, store=store)
             for ds in desired_sets
@@ -371,5 +370,5 @@ class SliceCoordinator:
     # ── EventBus handler methods ─────────────────────────────────────────
 
     def _on_appearance_changed(self, event) -> None:
-        """Dormant stub — not yet subscribed to the bus."""
+        """Not subscribed to the bus; does nothing."""
         pass

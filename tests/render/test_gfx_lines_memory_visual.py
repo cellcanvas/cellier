@@ -1,4 +1,3 @@
-# tests/v2/render/test_gfx_lines_memory_visual.py
 """Tests for GFXLinesMemoryVisual."""
 
 import asyncio
@@ -317,9 +316,9 @@ def _colored_lines_data():
 def test_commit_uploads_colors_without_touching_color_mode():
     """A store's colours are uploaded; the declared color_mode is untouched.
 
-    Inverted at the D20 migration.  This test previously asserted the
-    opposite -- that incoming vertex-coloured data overrode a declared
-    ``"uniform"`` on the live material.
+    Inverted when ``color_mode`` became a declaration.  This test
+    previously asserted the opposite -- that incoming vertex-coloured
+    data overrode a declared ``"uniform"`` on the live material.
     """
     v = _visual(_store(), appearance=LinesMemoryAppearance(color_mode="vertex"))
     _commit(v, [(None, _colored_lines_data())])

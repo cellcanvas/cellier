@@ -44,10 +44,6 @@ class GraphSliceRequest(NamedTuple):
         changed: the centre is the region pulled back through the visual's
         transform, and ``extents`` / ``fades`` are divided by their axis's
         world-units-per-data-unit, so the store compares data against data.
-
-        Named ``slice_indices`` until Phase 8, which was doubly misleading:
-        they are positions rather than indices, and by then they were in data
-        rather than world coordinates.
     retained_axes : tuple[int, ...]
         The **data** axes this visual's geometry keeps, ascending.
 
@@ -78,8 +74,8 @@ class GraphSliceRequest(NamedTuple):
     region : ConvexRegion or None
         An exact filter in data coordinates on top of the windows: a node
         is selected only inside it.  Set for a slab tilted through the data
-        (an ``OBLIQUE`` view, full affine design v2 Phase 6) and for an axis
-        no window can be converted for; ``None`` otherwise.
+        (an ``OBLIQUE`` view) and for an axis no window can be converted
+        for; ``None`` otherwise.
     """
 
     slice_request_id: UUID
@@ -153,8 +149,9 @@ class GraphData:
         full edge array.  Populated by the ``"mask"`` strategy only: the
         ``"roi"`` strategy's index returns endpoint pairs rather than edge
         rows, and translating the whole candidate set every reslice is
-        exactly the per-frame ``searchsorted`` D18 exists to avoid.  A pick
-        on an ROI-sliced edge resolves its single pair to a row on demand.
+        exactly the per-frame ``searchsorted`` that indexing nodes by row
+        exists to avoid.  A pick on an ROI-sliced edge resolves its single
+        pair to a row on demand.
     nodes_empty : bool
         True when the node filter produced zero rows and placeholder
         geometry was returned.

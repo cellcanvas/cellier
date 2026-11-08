@@ -1,11 +1,11 @@
 """3D multiscale labels: a pick just inside a label's edge names that label.
 
-``plans/multiscale_level_transform_v2.md``, R3 (3D).  Before Phase 6 the 3D
-labels shader drew every voxel half a level-0 voxel low on each axis, while
-the pick decode names the voxel in the centre convention, so a click just
-inside a label's silhouette on its low side reported the background behind
-it.  Draw and pick go through one renderer without anti-aliasing, so the
-drawn pixel is exactly what the shader wrote.
+A regression test: the 3D labels shader once drew every voxel half a
+level-0 voxel low on each axis, while the pick decode names the voxel in
+the centre convention, so a click just inside a label's silhouette on its
+low side reported the background behind it.  Draw and pick go through one
+renderer without anti-aliasing, so the drawn pixel is exactly what the
+shader wrote.
 """
 
 from __future__ import annotations

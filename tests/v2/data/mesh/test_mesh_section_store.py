@@ -141,7 +141,7 @@ def test_a_time_between_frames_cuts_nothing():
 
 
 def test_the_candidate_subset_equals_the_full_pass():
-    """S4's overlap query against no cache at all: the same cut, exactly."""
+    """The bounds-index overlap query against no cache at all: the same cut."""
     positions, indices = _series_arrays()
     arrays = MeshLevelArrays(positions, indices)
     cache = LevelCache()

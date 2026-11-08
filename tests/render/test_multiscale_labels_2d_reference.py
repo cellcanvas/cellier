@@ -180,7 +180,7 @@ async def test_every_pixel_matches_the_reference(
     expected = sample_nearest(
         plane, positions.reshape(-1, 2), (sy, sx), (ty, tx), outside=0
     ).reshape(drawn.shape)
-    # Inside level 0's extent only (D3: the rendering domain).
+    # Inside level 0's extent only (the rendering domain).
     inside = (
         (positions[..., 0] > -0.5)
         & (positions[..., 0] < SHAPES[0][1] - 0.5)

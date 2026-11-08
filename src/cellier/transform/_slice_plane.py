@@ -11,7 +11,7 @@ world axes, ``S`` the sliced ones and ``s`` the slice position:
   slab over one sliced world axis ``a``: the data axes it varies over and
   the data direction of a pixel's ray, which runs along world ``a``;
 * the **ray step** (:func:`ray_step`) is one drawn-level voxel along that
-  ray, the Euclidean voxel length (never the max-norm, K6);
+  ray, the Euclidean voxel length (never the max-norm);
 * the **footprint** (:func:`slice_footprint`) is the data box cut by the
   slice or the slab, as a convex polygon in the displayed world axes;
 * :func:`projection_axis` and :func:`choose_slice_route` are the rules of
@@ -78,9 +78,10 @@ _SOLVE_TOLERANCE = 1e-9
 class _AffineParts:
     """``L`` and ``t`` of a transform, with its non-affine leaves set apart.
 
-    ``linear`` and ``translation`` hold the affine blocks only (snapped,
-    D7); a non-affine block's rows and columns are zero there and the block
-    is listed in ``leaves`` as ``(data axis, world axis, transform)``.
+    ``linear`` and ``translation`` hold the affine blocks only (with
+    near-zero couplings snapped); a non-affine block's rows and columns
+    are zero there and the block is listed in ``leaves`` as
+    ``(data axis, world axis, transform)``.
     """
 
     linear: np.ndarray
@@ -299,8 +300,8 @@ def slice_plane_frame(
     Raises
     ------
     ValueError
-        If the view is not 2D, or the pullback is not 2D (a tilted 2D store,
-        O18), or the displayed axes do not parameterise it.
+        If the view is not 2D, or the pullback is not 2D (a tilted 2D store),
+        or the displayed axes do not parameterise it.
     NonAffineTransformError
         If a displayed axis maps through a non-affine transform.
     """
@@ -390,7 +391,8 @@ class ProjectionGeometry:
         ``V_h``, ascending: the data axes the slab varies over.
     ray_direction_data : np.ndarray
         ``d``, ``(n_data,)``: the data step per world unit along ``a`` with
-        every other world coordinate held (snapped, D7).
+        every other world coordinate held (with near-zero couplings
+        snapped).
     """
 
     projection_world_axis: int
@@ -410,7 +412,8 @@ def classify_projection(
     Parameters
     ----------
     transform : BaseTransform
-        A visual's ``data -> world`` transform; D7's snapping applies.
+        A visual's ``data -> world`` transform; near-zero couplings are
+        snapped.
     displayed_world_axes : Sequence[int]
         The view's displayed world axes.
     projection_world_axis : int
@@ -586,7 +589,7 @@ def projection_axis(
     -------
     int or None or ProjectionRefusal
         The axis index when the visual projects; ``None`` when it draws the
-        plane by today's rule with no status (no operator, no axis, or zero
+        plane as usual, with no status (no operator, no axis, or zero
         thickness); a refusal when it draws the plane with a status.
     """
     if slab_projection == "none" or not projection_axes:
@@ -657,7 +660,7 @@ def choose_slice_route(
     classification: ViewClassification,
     projection: ProjectionGeometry | None = None,
 ) -> RouteDecision:
-    """The route for a raster visual in one view (5.2.2's table).
+    """The route for a raster visual in one view.
 
     Parameters
     ----------

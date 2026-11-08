@@ -339,8 +339,8 @@ def test_dims_bridge_emits_event():
 
     controller.get_scene(scene.id).dims.selection.slice_indices = {0: 5}
     assert len(fired) == 1
-    # The snapshot stopped carrying the positions in Phase 8; they stay on
-    # the selection the sliders write to.
+    # The snapshot does not carry the positions; they stay on the selection
+    # the sliders write to.
     assert controller.get_scene(scene.id).dims.selection.slice_indices == {0: 5}
 
 

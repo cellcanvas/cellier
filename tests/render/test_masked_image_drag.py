@@ -40,7 +40,7 @@ DRAG_SHAPE = (75, 143, 143)
 DRAG_LEVELS = 4
 DRAG_SIZE = 384
 DRAG_YAWS = [6.0 * k for k in range(1, 9)]
-#: Settled silhouettes are dilated by this, as in the design's evidence.
+#: Settled silhouettes are dilated by this.
 DRAG_MARGIN_PX = 25
 
 

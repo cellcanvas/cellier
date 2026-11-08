@@ -285,8 +285,8 @@ class AxisAlignedSelection(EventedModel):
 class DimsManager(EventedModel):
     """Tracks which axes are displayed and the slice index for non-displayed axes.
 
-    Single source of truth for render dimensionality, and -- since D2 -- the
-    owner of the scene's world coordinate system.  One ``DimsManager`` per
+    Single source of truth for render dimensionality, and the owner of
+    the scene's world coordinate system.  One ``DimsManager`` per
     ``Scene``, so there is no second claimant for the world to arbitrate
     against.
 
@@ -396,16 +396,16 @@ class DimsManager(EventedModel):
         one plane within it, a geometry visual what lies in it.
 
         Displayed axes are left unbounded, although they keep a stored
-        position.  Bounding one is the viewport-crop follow-up; the
-        region type already expresses it.
+        position.  The region type can express a bound on one (a
+        viewport crop); nothing sets it.
 
         Parameters
         ----------
         rendered_coordinate_system : RenderedCoordinateSystem
             The system the canvas draws in, in cellier displayed order.
         rendered_to_world : AffineTransform
-            The D34 embedding.  Its constant column carries the slice
-            positions.
+            The ``rendered -> world`` embedding.  Its constant column
+            carries the slice positions.
 
         Returns
         -------

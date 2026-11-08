@@ -395,11 +395,9 @@ _NOT_OBLIQUE = frozenset(
     {SliceAlignment.AXIS_ALIGNED, SliceAlignment.IN_PLANE, SliceAlignment.SLICE_SHIFT}
 )
 
-#: Which view alignments each visual family draws.  Each phase enabled
-#: cells (Phase 4 ``AXIS_ALIGNED`` and ``IN_PLANE``, Phase 5
-#: ``SLICE_SHIFT``, Phase 6 ``OBLIQUE`` for the geometry families); a
-#: view whose cell is not enabled draws nothing of the visual and says
-#: why, never something wrong.
+#: Which view alignments each visual family draws.  A view whose cell is
+#: not enabled draws nothing of the visual and says why, never something
+#: wrong.
 _EVERY_ALIGNMENT = frozenset(SliceAlignment)
 
 #: Raster OBLIQUE (a 2D image or labels view on a tilted slice) is out of
@@ -417,11 +415,10 @@ _DRAWABLE: dict[str, frozenset[SliceAlignment]] = {
     "graph": _EVERY_ALIGNMENT,
 }
 
-#: The families whose tilted 2D views the brick route draws: multiscale
-#: images from Phase 2, multiscale labels from Phase 3, in-memory images and
-#: labels from Phase 4.  A raster view the route table refuses (a slice
-#: along a line, or through too many data axes) draws nothing whatever its
-#: family and alignment.
+#: The families whose tilted 2D views the brick route draws: images and
+#: labels, in memory and multiscale.  A raster view the route table refuses
+#: (a slice along a line, or through too many data axes) draws nothing
+#: whatever its family and alignment.
 _BRICK_ROUTE_FAMILIES = frozenset(
     {"image_multiscale", "labels_multiscale", "image", "labels"}
 )
@@ -663,10 +660,10 @@ def _image_pick_positions(
 ) -> tuple[tuple[float, ...], dict[int, tuple[float, ...]]]:
     """The reported coordinate and where to read each channel's value.
 
-    Implements the channel rows of design 3.7: no channel axis reads ``{0}``;
-    single mode reads the drawn plane the coordinate already names; composite
-    mode moves the channel component to the pick-buffer winner and reads
-    every drawn channel on a 2D canvas, or only the winner on a 3D one.
+    By channel mode: no channel axis reads ``{0}``; single mode reads the
+    drawn plane the coordinate already names; composite mode moves the
+    channel component to the pick-buffer winner and reads every drawn channel
+    on a 2D canvas, or only the winner on a 3D one.
 
     Returns
     -------
@@ -1210,7 +1207,7 @@ class CellierController:
         self._slider_axes_cache: dict[UUID, tuple[int, ...]] = {}
         # id -> coordinate system, for every system this session knows about:
         # the stored ones (world, per-level data) and the runtime ones
-        # (rendered, visual).  Three v2 methods -- map_bounding_box, then and
+        # (rendered, visual).  Three transform methods -- map_bounding_box, then and
         # validate_against -- take system *objects* while a transform stores
         # only ids, so a lookup is required.  Deliberately a plain dict: no
         # edges, no path finding, no automatic composition.
@@ -1544,7 +1541,7 @@ class CellierController:
         self._widget_parent = parent
 
     # ------------------------------------------------------------------
-    # Construction class methods (stubs)
+    # Construction class methods
     # ------------------------------------------------------------------
 
     @classmethod
@@ -1830,8 +1827,8 @@ class CellierController:
         invalidate the GPU bricks the chunk scheduler read from the store,
         both at once: the scheduler reads what is still wanted again.
         Finally, for an ``"extent"`` change, reslice the visuals reading the
-        store, so a caller that changes a store no longer has to reslice by
-        hand, at most ``SchedulerConfig.store_change_max_hz`` times a second
+        store, so a caller that changes a store need not reslice by hand,
+        at most ``SchedulerConfig.store_change_max_hz`` times a second
         per store (:meth:`_request_store_reslice`).
         """
         readers = [
@@ -2720,7 +2717,7 @@ class CellierController:
             store's own transform is used if it has one -- a geff file's
             per-axis ``scale`` / ``offset`` -- and identity otherwise.  An
             explicit argument always wins, as it does for every other
-            visual: D23 constrains construction, not composition.
+            visual: the store's transform is a default, not a constraint.
         trail : dict[int, TrailConfig] or None
             Axis index -> window configuration.  Keys are validated against
             the store's ``ndim``; an out-of-range axis raises
@@ -3219,7 +3216,7 @@ class CellierController:
             or visual.transform is None
         ):
             return None
-        # A channel axis is uncoupled (refused at assignment otherwise, D6).
+        # A channel axis is uncoupled (refused at assignment otherwise).
         return visual.transform.exclusive_axis_correspondence().get(visual.channel_axis)
 
     def _check_image_axes(self, scene_id: UUID, visual: BaseImageVisual) -> None:
@@ -5026,10 +5023,10 @@ class CellierController:
         cannot say, so it takes the trailing axes of the scene's world: their
         names, types and units, with fresh ids.
 
-        That is not the silent default D3 forbids.  The world was declared
-        explicitly by the caller, axis types included; inheriting from it is
-        what makes the ``data -> world`` transform typecheck by construction
-        rather than by luck.
+        That is not a silent default (an axis type is never defaulted).  The
+        world was declared explicitly by the caller, axis types included;
+        inheriting from it is what makes the ``data -> world`` transform
+        typecheck by construction rather than by luck.
         """
         if data_store.data_coordinate_systems:
             install_level_transforms(data_store)
@@ -5128,10 +5125,10 @@ class CellierController:
     ) -> tuple[RenderedCoordinateSystem, AffineTransform]:
         """Build one canvas's rendered system and its embedding into the world.
 
-        The rendered system is built in **cellier displayed order** (Part 5,
-        D1): for a ``TZYX`` world displayed as ``ZYX`` its axes are
-        ``("Z", "Y", "X")``, so ``displayed_axes``, the ``slice_indices``
-        keys, the GUI sliders and ``axis_names()`` all agree.  The
+        The rendered system is built in **cellier displayed order**: for a
+        ``TZYX`` world displayed as ``ZYX`` its axes are ``("Z", "Y", "X")``,
+        so ``displayed_axes``, the ``slice_indices`` keys, the GUI sliders and
+        ``axis_names()`` all agree.  The
         ``(z, y, x) -> (x, y, z)`` reversal is not carried here; it stays at
         the pygfx boundary.
 
@@ -6300,11 +6297,11 @@ class CellierController:
         """Why a labels visual cannot be painted in its current view, or ``None``.
 
         The brush is a ball of data voxels round the pulled-back pick.  Under
-        a rotation times a per-axis scale it lands as today's (anisotropic)
-        brush does; a shear would paint a slanted shape the user did not ask
-        for.  So painting is allowed where the view draws the visual and is
-        ``AXIS_ALIGNED``, or ``IN_PLANE`` with mutually orthogonal columns in
-        the displayed block ``L[D, R]``.
+        a rotation times a per-axis scale it is anisotropic in world, as on
+        an unrotated anisotropic dataset; a shear would paint a slanted shape
+        the user did not ask for.  So painting is allowed where the view
+        draws the visual and is ``AXIS_ALIGNED``, or ``IN_PLANE`` with
+        mutually orthogonal columns in the displayed block ``L[D, R]``.
 
         Parameters
         ----------
@@ -6352,7 +6349,7 @@ class CellierController:
         )
 
     def _draw_status_lines(self, scene_id: UUID) -> list[str]:
-        """One line per visual on *scene_id* its view does not draw (D8 B)."""
+        """One line per visual on *scene_id* its view does not draw."""
         scene = self._model.scenes.get(scene_id)
         if scene is None:
             return []
@@ -8436,11 +8433,6 @@ class CellierController:
         world.  This is the short way to say "this dataset is 4 um in z and
         sits 10 um along it" without assembling an axis map by hand.
 
-        Before Phase 8 the same thing was said with a bare
-        v1 ``AffineTransform``, which stated the numbers and
-        named nothing; ``add_*`` accepted one and attached the endpoints
-        itself.  That went with v1, and this replaces it.
-
         Parameters
         ----------
         scene_id : UUID
@@ -10110,7 +10102,7 @@ class CellierController:
         """Whether a drag of *visual*'s transform plans it ``BACKSTOP_ONLY``.
 
         In a 2D view, while the drag is on, for a visual whose 2D moving
-        setting is on (the 2D rule, design v3 5.3.7).
+        setting is on (the 2D motion rule).
         """
         if not self._transform_interaction_driver.is_active(visual.id):
             return False
@@ -11630,7 +11622,7 @@ class CellierController:
         self._after_programmatic_camera_move(canvas_id, interactive=interactive)
 
     # ------------------------------------------------------------------
-    # Stubs for future features
+    # Painting and removal
     # ------------------------------------------------------------------
 
     def add_paint_controller(
@@ -12204,8 +12196,7 @@ class CellierController:
             The visual that was hit.  When it cannot be resolved to a model
             with a transform -- a background miss, or a removed visual -- there
             is nothing to pull the world positions back through, so the world
-            positions are returned on their world axes as they were before this
-            pull-back existed.
+            positions are returned on their world axes, unchanged.
         collapsed_data_indices : Sequence[tuple[int, int]] or None
             ``(data axis, level-0 voxel index)`` from the visual's last plan.
 
@@ -12267,7 +12258,7 @@ class CellierController:
 
         if collapsed_data_indices is not None:
             # A slice node draws all three of its layout's axes, its depth
-            # included (a slab's winning sample, O12): none is collapsed.
+            # included (a slab's winning sample): none is collapsed.
             drawn = (
                 set(self._slice_route_entry(hit_visual_id)[2])
                 if slice_axes is not None

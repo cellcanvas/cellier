@@ -109,7 +109,7 @@ def test_the_cut_matches_the_stored_cut(case, expected):
 
 @pytest.mark.parametrize(("case", "expected"), CUTS)
 def test_a_candidate_superset_gives_the_same_cut(case, expected):
-    """S4's overlap query hands the kernel a subset; the cut must not change."""
+    """The overlap query hands the kernel a subset; the cut must not change."""
     positions = np.array(case["positions"], dtype=np.float32)
     indices = np.array(case["indices"], dtype=np.int32)
     normal = np.array(expected["normal"])

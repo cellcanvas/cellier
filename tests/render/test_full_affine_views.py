@@ -2,7 +2,7 @@
 
 Every family draws under any spatial affine in 3D and under an in-plane
 rotation or shear in 2D; a view that cannot draw a visual draws nothing of
-it and says why.  Oracles are the D10 kinds: analytic landmarks
+it and says why.  Oracles are analytic landmarks
 (``tests/render/_affine.py``), in-cellier equivalences, picks and
 structural checks.
 """
@@ -71,7 +71,7 @@ THREE_D += ["flip_x"]
 @pytest.mark.parametrize("family", FAMILIES)
 @pytest.mark.parametrize("name", THREE_D)
 def test_3d_landmark_every_family(tmp_path, name, family):
-    """The landmark lands where ``L p + t`` projects (D10, 0.5 px at 960 px)."""
+    """The landmark lands where ``L p + t`` projects (0.5 px at 960 px)."""
     assert landmark_error(family, name, "3d", tmp_path) < LANDMARK_PX
 
 
@@ -198,7 +198,7 @@ def _f_volume() -> np.ndarray:
 def test_rot90_equals_transposed_and_flipped_data(dim, kind):
     """``world_y = 35 - x``, ``world_x = y + 4`` against the same data moved.
 
-    Pixel identical in 2D; in 3D within D10's equivalence threshold.
+    Pixel identical in 2D; in 3D within the equivalence threshold.
     """
     data = _f_volume()
     if kind == "labels":
@@ -242,7 +242,7 @@ def test_rot90_equals_transposed_and_flipped_data(dim, kind):
         return
     # A raymarch meets the box faces with different rounding when the data
     # is stored the other way round: a few silhouette pixels (15 of 32k
-    # measured) differ.  D10's equivalence threshold, plus a cap on how many.
+    # measured) differ.  The equivalence threshold, plus a cap on how many.
     diff = np.abs(frames[0] - frames[1]).max(-1)
     either = drawn(frames[0]) | drawn(frames[1])
     assert np.percentile(diff[either], 99) <= 8
@@ -303,8 +303,7 @@ def _status_events(viewer) -> list:
 
 def test_rot_zx_image_status_follows_the_view(tmp_path, caplog):
     """3D draws, a ``(y, x)`` view cuts it at an angle and draws it on the
-    brick route (oblique 2D design v3, Phase 4: a pre-approved flip of
-    "draws nothing"), 3D draws again."""
+    brick route, 3D draws again."""
     matrix = world_matrix(LINEARS["rot_zx"])
     viewer = new_viewer("3d")
     try:
@@ -343,7 +342,7 @@ def test_rot_zx_image_status_follows_the_view(tmp_path, caplog):
 
 @pytest.mark.parametrize("family", FAMILIES)
 def test_a_slice_shift_view_draws(tmp_path, family):
-    """``SLICE_SHIFT`` is drawn by every family (Phase 5; Phase 4 drew none)."""
+    """``SLICE_SHIFT`` is drawn by every family."""
     viewer = new_viewer("2d")
     try:
         visual = add_landmark(
@@ -356,9 +355,7 @@ def test_a_slice_shift_view_draws(tmp_path, family):
 
 
 def test_the_orthoviewer_under_rot_zx_reports_its_panels():
-    """Every panel draws the image -- ``xy`` and ``yz`` on the brick route
-    (oblique 2D design v3, Phase 4: a pre-approved flip of "``xy``/``yz``
-    don't")."""
+    """Every panel draws the image -- ``xy`` and ``yz`` on the brick route."""
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui="offscreen")
     try:
         store = ImageMemoryStore(data=block_volume(np.float32), name="F image")
@@ -384,11 +381,10 @@ def test_the_orthoviewer_under_rot_zx_reports_its_panels():
 
 
 def test_the_status_overlay_draws_in_a_capture(tmp_path):
-    """D8 B: the canvas text shows in a screenshot (captures carry overlays)."""
+    """The canvas text shows in a screenshot (captures carry overlays)."""
     viewer = new_viewer("2d")
     try:
-        # A view that still draws nothing: a flat yx store cut along a line.
-        # A tilted volume draws since Phase 4.
+        # A view that draws nothing: a flat yx store cut along a line.
         store = ImageMemoryStore(data=np.ones((32, 40), np.float32), name="flat")
         matrix = np.zeros((4, 3))
         matrix[0, 1] = 0.5
@@ -610,7 +606,7 @@ def test_a_singular_transform_is_refused_at_assignment():
 
 
 def test_axis_correspondence_is_only_called_where_the_design_allows():
-    """Design v2 I2 (the Phase 4 grep).
+    """Nothing calls it to decide whether something *can* draw.
 
     Outside the transform package it is called only by helpers that run
     after the classifier: the axis-aligned branches of the image helpers and
@@ -644,8 +640,8 @@ def test_axis_correspondence_is_only_called_where_the_design_allows():
 
 
 # ---------------------------------------------------------------------------
-# D7 end to end: a rotation built with cos/sin is drawn as the axis-aligned
-# view it is
+# Snapped couplings end to end: a rotation built with cos/sin is drawn as the
+# axis-aligned view it is
 # ---------------------------------------------------------------------------
 
 

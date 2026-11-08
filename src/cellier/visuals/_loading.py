@@ -1,8 +1,4 @@
-"""Progressive loading settings for the multiscale visuals.
-
-See ``plans/progressive_loading_design_v3.md`` 5.9 and 5.11, and
-``plans/mesh_refactor_v3.md`` 5.7 for :class:`GeometryLodConfig`.
-"""
+"""Progressive loading settings for the multiscale visuals."""
 
 from __future__ import annotations
 

@@ -31,8 +31,8 @@ class PointsMemoryStore(BaseDataStore):
     """In-memory point-cloud data store backed by numpy arrays.
 
     ``get_data`` runs the filter in the event loop's default executor, so
-    a large cloud does not stall the loop (``plans/scheduler_only_loading_
-    design_v2.md`` D4); :meth:`read` is the same filter, synchronous.
+    a large cloud does not stall the loop; :meth:`read` is the same
+    filter, synchronous.
 
     Positions are stored in *data-axis order*: column 0 is axis 0 (z),
     column 1 is axis 1 (y), column 2 is axis 2 (x).  The render layer
@@ -232,8 +232,7 @@ class PointsMemoryStore(BaseDataStore):
         # transform.  ``displayed_axes`` indexes the **world**, so using it
         # here would raise on a store of lower rank than the world and
         # silently upload the wrong columns on a transform that permutes its
-        # axes; it was the fallback for a headlessly constructed visual until
-        # v1 was retired.
+        # axes.
         displayed = list(request.retained_axes)
 
         # ── Phase 1: build proximity mask ────────────────────────────

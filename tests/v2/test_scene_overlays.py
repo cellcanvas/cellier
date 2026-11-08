@@ -1,8 +1,8 @@
 """Scene overlays end to end: model -> controller -> render layer.
 
 Covers the world bounds a ``SceneBoundingBox`` is built from, every rebuild
-trigger in ``plans/scene_overlay_implementation.md``, the overlay event pair,
-removal and teardown, and restoring overlays from a serialized model.
+trigger, the overlay event pair, removal and teardown, and restoring
+overlays from a serialized model.
 """
 
 from __future__ import annotations

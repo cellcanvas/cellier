@@ -1,8 +1,8 @@
 """Tests for the Qt appearance-field base and ``QtVisibleToggle``.
 
-The reference widget of ``plans/convenience_cleanup.md`` section 6.4.  The base
-contract (layer 1) is tested once here against a stub subclass, so the 47
-layer-3 classes stage 4 adds need only the thin tests at the bottom.
+``QtVisibleToggle`` is the reference widget.  The base contract (layer 1) is
+tested once here against a stub subclass, so the layer-3 classes need only the
+thin tests at the bottom.
 """
 
 from __future__ import annotations

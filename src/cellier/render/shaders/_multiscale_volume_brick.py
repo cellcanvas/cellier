@@ -86,9 +86,8 @@ VOL_PARAMS_DTYPE = np.dtype(
 
 # Per level: the float downscale factor, then the integer cell -> brick rule
 # (base cells per brick, brick count) as exact small floats, then the level's
-# translation in level-0 voxels (level -> data is ``p = scale * u + offset``,
-# plan v2 D1).  Shared by the
-# image and label brick shaders; see cellier.brick_rule.wgsl.
+# translation in level-0 voxels (level -> data is ``p = scale * u + offset``).
+# Shared by the image and label brick shaders; see cellier.brick_rule.wgsl.
 BLOCK_SCALES_DTYPE = np.dtype(
     [(f"scale_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
     + [(f"span_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]

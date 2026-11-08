@@ -57,7 +57,7 @@ def test_half_space_has_no_inside_field():
 
 
 def test_half_space_allows_a_zero_normal():
-    """Contrast with Plane, which rejects it: D39 needs both outcomes."""
+    """Contrast with Plane, which rejects it: a pull-back needs both outcomes."""
     vacuous = HalfSpace(normal=[0.0, 0.0], offset=5.0)
     infeasible = HalfSpace(normal=[0.0, 0.0], offset=-5.0)
     assert vacuous.is_vacuous() and not vacuous.is_infeasible()
@@ -375,7 +375,7 @@ def _pull_into_data_space(region, data):
 
 
 def test_simplify_cuts_the_oblique_channel_broadcast_region_to_eight_constraints():
-    """Design section 10.3's figure, for a C slab the data actually satisfies.
+    """An oblique channel-broadcast region, for a C slab the data satisfies.
 
     Both constraints on the broadcast axis pull back to a zero normal with a
     non-negative offset, so both are vacuous and both are dropped.
@@ -390,7 +390,7 @@ def test_simplify_cuts_the_oblique_channel_broadcast_region_to_eight_constraints
 
 
 def test_a_channel_slab_off_the_data_makes_the_pulled_region_empty():
-    """The other branch of D39, and where the probe's count came from.
+    """The infeasible branch, and where the probe's count came from.
 
     ``scripts/transform_region_probe.py`` selects ``C`` in ``[1.5, 2.5]``
     and drops every zero-normal row, reaching 8.  One of those rows is

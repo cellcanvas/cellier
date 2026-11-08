@@ -1,10 +1,10 @@
 """The spec builders build what the old ``appearance_specs`` built.
 
-``plans/ordered_controls_list_implementation.md`` (Phase 2, item 6).  The
-golden, ``data/appearance_specs_golden.json``, holds what ``appearance_specs``
-returned for 14 visuals before the controls list replaced the config
-classes.  Each case here asks for the same controls as a list, in the order
-the old code built them, and must get the same specs back.
+The golden, ``data/appearance_specs_golden.json``, holds what
+``appearance_specs`` returned for 14 visuals before the controls list
+replaced the config classes.  Each case here asks for the same controls as
+a list, in the order the old code built them, and must get the same specs
+back.
 
 The golden is never regenerated: the code that wrote it is gone.  A
 difference is a bug in a spec builder.

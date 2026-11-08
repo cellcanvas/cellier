@@ -200,8 +200,8 @@ async def test_an_outline_is_shown_only_on_the_plane_s_own_axes(controller):
 
 
 async def test_an_outline_does_not_wait_for_data(controller):
-    """B-D6: a labels plane that is all background draws nothing and still
-    has its outline."""
+    """A labels plane that is all background draws nothing and still has
+    its outline."""
     scene, world = _scene(controller)
     _labels(controller, scene, [_plane(world)], data=np.zeros(SHAPE, dtype=np.int32))
     controller.add_canvas(scene_id=scene.id)
@@ -210,7 +210,7 @@ async def test_an_outline_does_not_wait_for_data(controller):
 
 
 async def test_a_pyramid_s_outline_is_there_before_any_brick(controller, tmp_path):
-    """B-D6: nothing has been planned or loaded."""
+    """Nothing has been planned or loaded."""
 
     def make(world, centre):
         return [h.plane_zyx(world, centre, (1.0, 0.0, 0.0), outline=RED)]

@@ -2,9 +2,9 @@
 
 A multiscale labels visual whose transform tilts a 2D view's slice is
 drawn by its 3D node in the plane render mode (the slice node), as
-multiscale images are from Phase 2.  The labels rule: every drawn pixel
-shows the label of the voxel under its centre, and no label that is not
-in the data.
+multiscale images are.  The labels rule: every drawn pixel shows the
+label of the voxel under its centre, and no label that is not in the
+data.
 
 Expectations are analytic (the transform, the camera) or properties of the
 data -- never another library's rendering (memory: no cross-library tests).
@@ -243,7 +243,7 @@ def test_a_2d_only_scene_gains_the_3d_mode_for_labels(tmp_path):
 
 @pytest.mark.parametrize("fraction", [0.02, 0.98])
 def test_the_2d_camera_never_clips_the_labels_slice_node(tmp_path, fraction):
-    """K26 for labels: a narrow explicit depth range still draws it all."""
+    """For labels: a narrow explicit depth range still draws it all."""
     matrix = world_matrix(rot(0, 2, 30.0))
     data = np.tile(_random_labels(2), (12, 1, 1))[:256]
     viewer = new_viewer("2d")

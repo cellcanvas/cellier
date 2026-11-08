@@ -1,11 +1,10 @@
 """Feature parity in tilted views.
 
-``plans/oblique_2d_raster_design_v3.md`` 5.7 (clipping), 5.9 (progressive
-display), multichannel composite, and the orthoviewer under ``rot_zx`` and
-``general`` with every panel drawing.
+Covers clipping, progressive display, multichannel composite, and the
+orthoviewer under ``rot_zx`` and ``general`` with every panel drawing.
 
 Expectations are analytic (the transform, the camera) or properties of the
-data -- never another library's rendering (memory: no cross-library tests).
+data -- never another library's rendering.
 """
 
 from __future__ import annotations
@@ -131,7 +130,7 @@ def test_a_clipping_plane_cuts_the_tilted_slice_where_it_meets_it(tmp_path, fami
 
 
 # ---------------------------------------------------------------------------
-# Composite (O13 for plain slices)
+# Composite (per channel, then composited, for plain slices)
 # ---------------------------------------------------------------------------
 
 

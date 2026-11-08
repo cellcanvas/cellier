@@ -331,8 +331,8 @@ class GFXMeshVisual(GeometryClippingMixin):
 
     ``get_node_for_dims`` returns the node for the current dimensionality,
     so the scene manager swaps them on a 2D/3D toggle.  The user's
-    visibility is on the two nodes; the display rule (plan L3) sets the
-    level children's.
+    visibility is on the two nodes; the display rule (a level is drawable
+    when it holds the key of the newest plan) sets the level children's.
 
     Parameters
     ----------
@@ -566,7 +566,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         self._refresh_aabb()
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place the node with the composition of design 3.9.
+        """Place the node with the node-matrix composition.
 
         ``visual -> data -> world -> rendered``.  A no-op until the
         controller supplies the systems.
@@ -640,9 +640,10 @@ class GFXMeshVisual(GeometryClippingMixin):
         (``geometry_data_region``), and faces are kept whole.
 
         In a 2D view the constraint along a spatial, continuous axis is not
-        a filter: it is the plane the mesh is cut with (X1,
-        ``geometry_section_region``).  Cut mode cuts at the slice position,
-        whatever the thickness; slab mode cuts at the slab's two faces.
+        a filter: it is the plane the mesh is cut with
+        (``geometry_section_region``).  Cut mode cuts at the slice
+        position, whatever the thickness; slab mode cuts at the slab's two
+        faces.
         """
         if selection is None or self._spaces is None or self._transform is None:
             raise RuntimeError(
@@ -651,7 +652,7 @@ class GFXMeshVisual(GeometryClippingMixin):
                 "selection."
             )
         section = None
-        # A view that tilts the slice (OBLIQUE, design v2 Phase 6) cuts the
+        # A view that tilts the slice (OBLIQUE) cuts the
         # mesh with a tilted plane and places the cut in the world frame.
         oblique = world_frame_active(self._spaces)
         if len(self._spaces.retained_axes) == 2 or oblique:
@@ -905,7 +906,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
             # A view the slice moves the mesh in (``SLICE_SHIFT``): one
             # collapsed coordinate per draw, so the node follows the slice
-            # (full affine design v2, 4.3; D4 -- no per-vertex placement).
+            # (no per-vertex placement).
             self._update_node_matrix(self._last_displayed_axes)
         if is_2d:
             self._section_drawn = isinstance(data, MeshSectionData)

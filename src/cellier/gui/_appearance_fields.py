@@ -213,7 +213,7 @@ class VisualIdGroup:
 # an RGBA colour maps to the hex string every colour input speaks.  Deriving
 # them rather than restating them is what keeps a control from drifting away
 # from the field it drives -- adding a render mode to a model, or tightening a
-# bound, needs no edit here (design section 6.5.1 proposals 3 and 4).
+# bound, needs no edit here.
 
 DEBUG_FIELD_VALUES: dict[str, frozenset[str]] = {
     "render_mode": frozenset({"gradient_debug"}),
@@ -222,9 +222,9 @@ DEBUG_FIELD_VALUES: dict[str, frozenset[str]] = {
 
 ``gradient_debug`` renders ``abs(normalize(gradient))`` as RGB to diagnose
 brick-boundary normal discontinuities -- a diagnostic, not a rendering choice,
-and a user who picks it sees a broken-looking image (design section 6.5.1
-proposal 4).  Denylisting rather than allowlisting keeps the combo in sync
-with the model automatically: a new *real* mode appears with no change here.
+and a user who picks it sees a broken-looking image.  Denylisting rather than
+allowlisting keeps the combo in sync with the model automatically: a new
+*real* mode appears with no change here.
 """
 
 

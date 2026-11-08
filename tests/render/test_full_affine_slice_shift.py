@@ -234,15 +234,15 @@ def _scrub_z(viewer, z: float) -> None:
 
 
 # ---------------------------------------------------------------------------
-# D11: "model" sizes are the same on the fold path
+# "model" sizes are the same on the fold path
 # ---------------------------------------------------------------------------
 
 
 def test_model_sizes_are_equal_across_the_two_paths(tmp_path):
     """The fold keeps the node matrix, so a pygfx ``"model"`` size is unchanged.
 
-    ``L = diag(1, 2, 1)`` draws a point through today's path (axis aligned);
-    the same with ``x += 0.5 z`` draws it through the fold.  The displayed
+    ``L = diag(1, 2, 1)`` draws a point through the axis-aligned path; the
+    same with ``x += 0.5 z`` draws it through the fold.  The displayed
     block is the same, so the spot must be the same size.
     """
     areas = []

@@ -1,16 +1,12 @@
 """What planning from the region selects, on every in-memory family.
 
-Design 3.7's claim: because this phase bounds only the collapsed axes at zero
-thickness, ``bounding_box()`` returns ``lo == hi`` on a collapsed axis -- the
-slice position pulled into voxel space, rounded by
-``round_world_to_voxel`` -- and ``(-inf, +inf)`` on a displayed one, clamped
-to the full extent.
+Because a plain slice bounds only the collapsed axes at zero thickness,
+``bounding_box()`` returns ``lo == hi`` on a collapsed axis -- the slice
+position pulled into voxel space, rounded by ``round_world_to_voxel`` -- and
+``(-inf, +inf)`` on a displayed one, clamped to the full extent.
 
-These tests were originally written as an equality against planning from
-``dims_state``, which was the path the region replaced.  Phase 8 deleted that
-path, so the agreement they recorded is now pinned as the expected selection
-itself -- the same numbers, asserted against the rule rather than against a
-second implementation of it.
+The expected selection is pinned directly, asserted against the rule rather
+than against a second implementation of it.
 """
 
 from __future__ import annotations
@@ -114,7 +110,7 @@ async def test_a_slice_outside_the_data_draws_nothing(kind, slice_position):
     gfx = controller._render_manager._scenes[scene.id].get_visual(visual.id)
     controller.update_slice_indices(scene.id, {0: 3.0})
     assert _plan(controller, scene, visual) == [(3, (0, 20), (0, 30), (0, 40))]
-    # Shown once the planned slice is uploaded (scheduler-only v2, D16).
+    # Shown once the planned slice is uploaded.
     assert gfx._inner_node_3d.visible is False
     assert land_planned(gfx, lambda key: np.zeros((20, 30, 40), np.float32)) == 1
     assert gfx._inner_node_3d.visible is True
@@ -150,15 +146,14 @@ async def test_an_awkward_transform_still_rounds_half_up(kind):
         kind, ((0.5, 2.0, 0.5, 0.5), (0.25, 10.0, 0.0, 0.0))
     )
     controller.update_slice_indices(scene.id, {0: 1.0})
-    # world T = 1 -> voxel t = 1.5 -> half-up -> 2, and the design says so.
+    # world T = 1 -> voxel t = 1.5 -> half-up -> 2.
     assert _plan(controller, scene, visual) == [(2, (0, 20), (0, 30), (0, 40))]
 
 
 @pytest.mark.parametrize("kind", ["image", "labels", "multichannel"])
 async def test_planning_without_a_region_is_now_an_error(kind):
-    """Until v1 was retired, a request carrying no region fell back to
-    reading ``dims_state.slice_indices`` as world positions.  There is no
-    second path now, and a caller who reaches this has a bug upstream."""
+    """A request carrying no region is an error: there is no second path, and a
+    caller who reaches this has a bug upstream."""
     controller, scene, visual = _viewer(kind)
     with pytest.raises(RuntimeError, match="no region to plan from"):
         _plan(controller, scene, visual, with_region=False)
@@ -191,7 +186,7 @@ async def test_a_thickness_too_thin_to_reach_the_data_draws_nothing(kind):
 
 
 async def test_a_sheared_transform_is_accepted_and_the_view_draws_nothing():
-    """Full affine design v2, which flipped this from a refusal.
+    """Accepted, where it was once refused.
 
     World ``T`` picks up a little of data ``z``: a time-space coupling, which
     is allowed at assignment.  In the ``zyx`` view the sliced ``T`` row reads

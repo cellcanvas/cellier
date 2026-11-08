@@ -1,4 +1,3 @@
-# tests/v2/render/test_gfx_points_memory_visual.py
 """Tests for GFXPointsMemoryVisual."""
 
 import asyncio
@@ -412,10 +411,11 @@ def test_plan_2d_updates_matrix_on_axis_change():
 def test_commit_uploads_colors_and_sizes_without_touching_color_mode():
     """A store's colours are uploaded; the declared color_mode is untouched.
 
-    Inverted at the D20 migration.  This test previously asserted the
-    opposite -- that incoming vertex-coloured data overrode a declared
-    ``"uniform"`` on the live material.  ``color_mode`` is now a caller
-    declaration of where RGB comes from, never inferred from the data.
+    Inverted when ``color_mode`` became a declaration.  This test
+    previously asserted the opposite -- that incoming vertex-coloured
+    data overrode a declared ``"uniform"`` on the live material.
+    ``color_mode`` is now a caller declaration of where RGB comes from,
+    never inferred from the data.
     """
     from cellier.data.points._points_requests import PointsData
 

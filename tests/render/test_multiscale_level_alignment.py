@@ -115,15 +115,15 @@ THRESHOLD = 100.0
 
 #: Pass threshold, in level-0 voxels per axis.  Every convention error this
 #: test exists to catch is at least half a level-0 voxel.  Measured noise
-#: (Phase 0, at 960 px): 2D <= 0.06; 3D <= 0.10 once ray steps are adequate
-#: (with today's step starvation, S1, up to 0.27 at level 2).  0.2 is twice
-#: the 3D noise and 2.5x below the smallest error.
+#: (at 960 px): 2D <= 0.06; 3D <= 0.10 once ray steps are adequate (up to
+#: 0.27 at level 2 when steps are starved).  0.2 is twice the 3D noise and
+#: 2.5x below the smallest error.
 TOL_VOXELS = 0.2
 
 PATHS = ("3d_image", "3d_labels", "2d_image", "2d_labels")
 
-#: Paths whose shaders apply the level transform: 2D in Phase 5, 3D in
-#: Phase 6.  ``expected_before`` documents what they drew before.
+#: Paths whose shaders apply the level transform (all of them).
+#: ``expected_before`` documents what they drew before they did.
 FIXED_PATHS = frozenset(PATHS)
 
 
@@ -529,8 +529,8 @@ def test_every_sphere_drawn(renders, kind, key):
     """Each sphere draws one blob, at least a third of its level-0 area.
 
     Area, not just a blob count: a starved ray march (too few steps along the
-    ray, plan finding S1) leaves slivers and speckle, which count as blobs,
-    and erodes the spheres.  Blocky coarse spheres vary in area, never by 3x.
+    ray) leaves slivers and speckle, which count as blobs, and erodes the
+    spheres.  Blocky coarse spheres vary in area, never by 3x.
     """
     frames = renders(kind)
     frame, matrix, spheres = frames[key]

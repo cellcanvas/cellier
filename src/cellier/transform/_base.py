@@ -96,10 +96,11 @@ class BaseTransform(BaseModel, ABC):
     ) -> None:
         """Check this transform against the two systems it claims to join.
 
-        The four checks of D9: both ids match, and both axis counts match
-        the wrapped transform's dimensionality.  A future registry calls
-        this on insertion; defining it now means the registry inherits a
-        decided rule rather than inventing one.
+        Four checks: both ids match, and both axis counts match the wrapped
+        transform's dimensionality, which is the one place the number of axes
+        is stored.  :meth:`compose` runs it on its second operand; anything
+        that files transforms under a pair of systems should run it too, rather
+        than invent its own rule.
 
         Parameters
         ----------
@@ -304,7 +305,7 @@ class BaseTransform(BaseModel, ABC):
     def axis_coupling(self) -> np.ndarray:
         """Return which output axes each input axis reaches, as booleans.
 
-        The non-zero pattern of the linear block under decision D7's relative
+        The non-zero pattern of the linear block under the relative coupling
         tolerance (``cellier.transform._alignment.coupling_pattern``):
         ``coupling[o, i]`` is whether input axis ``i`` contributes to output
         axis ``o``.  Unlike :meth:`axis_correspondence` it never raises -- a
@@ -338,7 +339,7 @@ class BaseTransform(BaseModel, ABC):
     def exclusive_axis_correspondence(self) -> dict[int, int]:
         """Return ``{input axis: output axis}`` for the **uncoupled** pairs only.
 
-        An input axis is in the result when, under D7's pattern
+        An input axis is in the result when, under the coupling pattern
         (:meth:`axis_coupling`), it reaches exactly one output axis and that
         output axis is reached by nothing else.  Where
         :meth:`axis_correspondence` holds it is that mapping; under a

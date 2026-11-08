@@ -290,7 +290,7 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
         self._apply_render_planes()
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place the nodes with the composition of design 3.9.
+        """Place the nodes with the node-matrix composition.
 
         ``visual -> data -> world -> rendered``, replacing the ``select_axes``
         sub-block.  A no-op until the controller supplies the systems.
@@ -690,8 +690,8 @@ class GFXLabelMemoryVisual(BrickRouteHost, _GFXLabelMemoryCore):
     """Render-layer visual for an in-memory labels visual.
 
     The planar path and 3D views (:class:`_GFXLabelMemoryCore`), and the brick
-    route for a tilted 2D view (oblique 2D design v3, 5.4,
-    :class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
+    route for a tilted 2D view
+    (:class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
     """
 
     def _build_inner(self, model, axes):

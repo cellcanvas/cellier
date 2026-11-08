@@ -1,9 +1,7 @@
 """Tests for the axis-order primitives in cellier.render._spaces.
 
-They lived in v1's ``cellier.transform._axis_order`` until Phase 8 and moved
-v1's retirement: they subset and permute plain value sequences -- shape
-tuples, scale vectors -- and only shared their names with the
-``AffineTransform`` methods, which went with v1.
+They subset and permute plain value sequences -- shape tuples, scale vectors --
+and are not transform operations.
 """
 
 from __future__ import annotations

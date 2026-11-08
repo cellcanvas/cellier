@@ -77,7 +77,7 @@ class AnywidgetLevelOfDetailControls(VisualIdGroup, anywidget.AnyWidget):
     coarsest_while_moving_3d = traitlets.Bool(True).tag(sync=True)
     coarsest_while_moving_2d = traitlets.Bool(False).tag(sync=True)
     #: Whether the appearance has the 3D setting; the checkbox hides in 3D
-    #: when it does not (an in-memory visual, oblique 2D design v3 U1).
+    #: when it does not (an in-memory visual).
     has_moving_3d = traitlets.Bool(True).tag(sync=True)
     n_displayed_dimensions = traitlets.Int(3).tag(sync=True)
 

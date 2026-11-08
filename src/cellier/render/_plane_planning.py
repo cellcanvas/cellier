@@ -420,8 +420,8 @@ def plan_plane_bricks(
         The visible world height of an orthographic view (``fov_y_rad`` 0).
     max_bricks : int or None
         The room the atlas has for the target.  An orthographic plan over
-        it takes the next coarser level until it fits (D-P48); a
-        perspective plan is left to the truncation that follows.
+        it takes the next coarser level until it fits; a perspective plan
+        is left to the truncation that follows.
 
     Returns
     -------

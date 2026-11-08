@@ -288,7 +288,7 @@ def test_a_mip_pick_returns_the_winning_sample(tmp_path, family):
 
 
 # ---------------------------------------------------------------------------
-# Edge cases (O9, zero thickness) and the slab's reach
+# Edge cases (samples outside the data, zero thickness) and the slab's reach
 # ---------------------------------------------------------------------------
 
 
@@ -309,9 +309,9 @@ def test_samples_outside_the_data_are_skipped(tmp_path, family):
 
 @pytest.mark.parametrize("family", FAMILIES)
 def test_a_slab_thinner_than_a_coarse_voxel_reads_one_coarse_sample(tmp_path, family):
-    """4.2, level of detail: a window that holds no centre of the drawn
-    level's voxels reads the voxel its centre plane is in.  Phase 8 found the
-    backstop drawing nothing under a thin slab while moving."""
+    """Level of detail: a window that holds no centre of the drawn level's
+    voxels reads the voxel its centre plane is in.  The backstop once drew
+    nothing under a thin slab while moving."""
     data = _random_volume(36)
     viewer = new_viewer("2d")
     try:
@@ -388,7 +388,7 @@ def test_a_wide_slab_reaches_beyond_the_unfitted_cameras_range(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Routing and O14
+# Routing, and projection per visual
 # ---------------------------------------------------------------------------
 
 

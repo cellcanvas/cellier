@@ -555,7 +555,7 @@ def _lerp_attribute(
 
 @dataclass(frozen=True)
 class SectionParts:
-    """A section, in the kernel's three-column space (X4, before flattening).
+    """A section, in the kernel's three-column space, before flattening.
 
     Attributes
     ----------

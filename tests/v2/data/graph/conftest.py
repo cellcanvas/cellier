@@ -32,8 +32,8 @@ def make_request():
             scale_index=0,
             displayed_axes=displayed,
             retained_axes=tuple(sorted(displayed)),
-            # Named ``slice_indices`` until Phase 8; the graph keeps its own
-            # slab and the positions are in **data** coordinates.
+            # The graph keeps its own slab and the positions are in **data**
+            # coordinates.
             slice_positions={a: float(v) for a, v in dict(sliced).items()},
             extents=dict(extents or {}),
             fades=dict(fades or {}),
@@ -48,7 +48,7 @@ def tracking_lineage():
 
     Five tracks x ten timepoints; every edge spans ``t`` -> ``t + 1``, which
     is the topology that renders nothing at all under a both-endpoints edge
-    rule and is why D5 says either.
+    rule and is why the edge rule says either.
     """
     n_tracks, n_time = 5, 10
     positions = np.zeros((n_tracks * n_time, 4), dtype=np.float32)

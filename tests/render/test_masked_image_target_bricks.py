@@ -1,11 +1,11 @@
 """``target_bricks="surface"``: load only the bricks near the surface.
 
-The read counts are checked against design 3.1's coarse pass, frozen in
+The read counts are checked against the coarse pass, frozen in
 ``masked_surface_counts.json`` by
 ``scripts/masked_image/phase9_surface_counts.py`` (never re-frozen to make a
 test pass).  The scenes are the probe's: a 128 cubed EDT ellipsoid in 16-voxel
 bricks over a four-level pyramid, so the backstop is the 8x level and a coarse
-cell is half a brick, as 3.1's 16x pass over 32-voxel bricks.
+cell is half a brick, as a 16x pass over 32-voxel bricks.
 """
 
 from __future__ import annotations
@@ -368,7 +368,7 @@ def test_the_target_waits_for_the_coarse_mask_then_plans(tmp_path):
 
 @pytest.mark.parametrize("kind", ["memory", "lazy"])
 def test_surface_draws_what_visible_draws(tmp_path, kind):
-    """The filter keeps every brick the picture needs (MI-D3: both stores)."""
+    """The filter keeps every brick the picture needs, for both stores."""
     side = 64
     mask, value = spiked_pair(side, False)
     counts = {}

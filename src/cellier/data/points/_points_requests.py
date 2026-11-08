@@ -43,11 +43,9 @@ class PointsSliceRequest(NamedTuple):
         coordinates.  It is the whole filter -- one ``contains`` call
         instead of a per-axis mask loop.
 
-        Until v1 was retired this was optional, and a request without one
-        fell back to comparing a **world** position from ``slice_indices``
-        against **data** coordinates -- the latent bug D4 exists to fix: on a
-        2 um z spacing it could show a point 24 um off the slice plane and
-        hide the three that are on it.  There is no second path now.
+        Required: comparing a **world** position against **data** coordinates
+        instead could, on a 2 um z spacing, show a point 24 um off the slice
+        plane and hide the three that are on it.
     fold_axes : tuple[int, ...]
         Collapsed data axes whose columns the store also returns, for the
         render layer's per-element fold.  Empty in every view where no

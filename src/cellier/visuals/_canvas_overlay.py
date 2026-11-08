@@ -121,11 +121,11 @@ class CenteredAxes2D(CanvasOverlay):
 class DrawStatusOverlay(CanvasOverlay):
     """Lists, in a canvas corner, the visuals its view does not draw.
 
-    Full affine design v2, decision D8 (variant B).  A 2D view whose slice
-    cuts a rotated image at an angle draws nothing of it rather than
-    something wrong; this overlay says so where the user is looking, one
-    line per visual: ``Not shown: <name> (OBLIQUE)``.  It draws nothing
-    while every visual draws.  The full reason is on
+    A 2D view whose slice cuts a rotated image at an angle draws nothing
+    of it rather than something wrong; this overlay says so where the
+    user is looking, one line per visual:
+    ``Not shown: <name> (OBLIQUE)``.  It draws nothing while every
+    visual draws.  The full reason is on
     :meth:`~cellier.CellierController.draw_status`.
 
     The convenience viewers add one to every canvas by default

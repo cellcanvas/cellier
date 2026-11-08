@@ -293,9 +293,10 @@ def test_empty_slice_does_not_raise_on_declared_vertex():
 def test_declared_vertex_node_size_mode_reaches_the_material():
     """node_size_mode is a declaration, applied at construction.
 
-    The graph visual previously *inferred* this from the data, which is the
-    pattern D20 removed for colour.  It is now declared on the appearance
-    like every other mode field.
+    The graph visual previously *inferred* this from the data, the
+    pattern already removed for colour (``color_mode`` is declared,
+    never inferred).  It is now declared on the appearance like every
+    other mode field.
     """
     store = _store()
     visual = _visual(store, appearance=GraphAppearance(node_size_mode="vertex"))
@@ -385,7 +386,7 @@ def test_shared_appearance_fields_reach_both_materials():
 
 
 def test_nodes_draw_over_coplanar_edges(offscreen_renderer):
-    """The direct regression for D22.
+    """Nodes win ties with coplanar edges through the depth compare.
 
     Under the original design -- rely on insertion order, or set
     ``render_order`` -- the centre pixel came back green (the edge).  It is

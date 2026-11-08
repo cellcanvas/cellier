@@ -1,1 +1,1 @@
-"""Phase 6 of the transform integration: the geometry visuals."""
+"""The geometry visuals under a transform."""

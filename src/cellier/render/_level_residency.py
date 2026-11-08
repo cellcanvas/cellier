@@ -109,9 +109,9 @@ class LevelResidency:
         is released when the plan is made, so no frame draws the position
         just left.  A visual returns ``True`` for a change that leaves the
         old result in the right place and only behind (a clipping plane
-        moved; clipping planes design 5.2, D31).  The level is then kept,
-        and a superseded read of the same kind that lands is shown too, so
-        a drag faster than the reads still updates.
+        moved).  The level is then kept, and a superseded read of the same
+        kind that lands is shown too, so a drag faster than the reads still
+        updates.
     policy : CachePolicy or None
         How the scheduler treats the cache's reads; ``None`` (the default)
         is the class's :attr:`policy`, :data:`LEVEL_CACHE_POLICY` (a

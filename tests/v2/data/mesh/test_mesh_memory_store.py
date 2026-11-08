@@ -22,8 +22,7 @@ def _req(displayed=(1, 2), sliced=None, thickness=0.5, ndim=3):
     """One request, with the filter as the region the store now takes.
 
     ``sliced`` maps axis to a **data**-space position; each becomes a slab of
-    half-width *thickness*, which is exactly what ``slice_indices`` plus
-    ``thickness`` meant before Phase 8 deleted them.
+    half-width *thickness*.
     """
     if sliced is None:
         sliced = {0: 0}

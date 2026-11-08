@@ -2,9 +2,8 @@
 
 ``test_render_controls_parity.py`` pins that both front ends draw the same
 *controls*; this pins that they compose them the same way.  Every assertion
-here failed when it was written -- see ``plans/gui_backend_unification.md``
-section 2.1 -- so each one names a real difference between what a Qt user and
-a notebook user saw from identical code.
+here failed when it was written, so each one names a real difference
+between what a Qt user and a notebook user saw from identical code.
 
 The two renderers cannot share a construction path (one builds ``QWidget``s,
 the other serialises to traits), so nothing but a test can hold them

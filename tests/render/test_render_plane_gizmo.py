@@ -659,7 +659,7 @@ def _record_plans(monkeypatch) -> list[str]:
 async def test_a_gizmo_drag_holds_the_plan_and_loads_once_at_release(
     make_rig, pyramid_root, monkeypatch
 ):
-    """B1, through the real gizmo callbacks: counts only."""
+    """The held plan, through the real gizmo callbacks: counts only."""
     rig = make_rig(MultiscaleRig, pyramid_root=pyramid_root)
     plane = rig.plane()
     rig.controller.set_render_planes(rig.visual.id, (plane,))

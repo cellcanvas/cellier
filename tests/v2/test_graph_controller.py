@@ -1,4 +1,4 @@
-"""Controller wiring for graph visuals: add_graph, trail, D21.
+"""Controller wiring for graph visuals: add_graph, trail, axis warnings.
 
 Every test here attaches a canvas.  A reslice fans out across the canvases
 attached to a scene, so with none attached ``_build_request`` never runs and
@@ -254,8 +254,8 @@ async def test_two_visuals_same_bad_axis_both_warn(graph_setup):
     """Guards against relying on the warnings module's process-global dedup.
 
     That dedup keys on (message, category, module, lineno), so two visuals
-    with the same misconfigured axis would produce only one warning.  D21
-    requires one per (visual, axis), which is why the set lives on the GFX
+    with the same misconfigured axis would produce only one warning.  The
+    rule is one per (visual, axis), which is why the set lives on the GFX
     visual.
     """
     controller, scene, store = graph_setup

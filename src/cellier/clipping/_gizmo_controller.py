@@ -7,7 +7,7 @@ from anywhere else.  ``PlaneGizmoController`` is the session; its two
 kinds differ only in the plane they edit:
 
 - ``ClippingPlaneGizmoController``: a ``ClippingPlane``, in the visual's
-  data coordinates (clipping plane gizmo design v2, 5.2 to 5.5).
+  data coordinates.
 - ``RenderPlaneGizmoController``: a ``RenderPlane``, in world coordinates,
   with its whole frame and its extents.
 

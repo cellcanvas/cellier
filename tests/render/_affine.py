@@ -2,8 +2,7 @@
 
 Every expectation here is numpy on the transform and the camera, or a
 property of the data -- nothing is rendered by another library and no
-silhouette is stored (decision D10, thresholds from the Phase 0 readout,
-section 4):
+silhouette is stored (thresholds measured on the renderer's own noise):
 
 * **landmark** -- a small block / point / cross at a known data position
   ``P0``; its rendered centroid must sit where the camera's own
@@ -474,7 +473,7 @@ def landmark_error(
 
 
 # ---------------------------------------------------------------------------
-# Time series: a drift ``x += v t`` (full affine design v2, SLICE_SHIFT)
+# Time series: a drift ``x += v t`` (a ``SLICE_SHIFT`` view)
 # ---------------------------------------------------------------------------
 
 #: Frames in the drifting series, and the drift in world x per frame.

@@ -281,7 +281,7 @@ def test_a_visual_added_with_bad_planes_is_refused(controller, image_volume):
     assert controller._model.scenes[scene.id].visuals == []
 
 
-# -- C9, as decided 2026-10-06: every channel has the same render mode ------------
+# -- every channel has the same render mode ----------------------------------------
 
 
 def _channel_events(controller, visual) -> list:
@@ -536,7 +536,7 @@ async def test_a_change_outside_plane_mode_is_inert(
 async def test_plane_mode_is_ignored_in_a_2d_view(
     controller, pyramid_root, monkeypatch
 ):
-    """D-P19: a 2D view shows the normal slice, planes or not."""
+    """A 2D view shows the normal slice, planes or not."""
     scene, visual = _multiscale_image(controller, pyramid_root, dim="2d")
     assert visual.plane_mode() is True
     assert controller._draws_planes(visual) is False
@@ -736,7 +736,7 @@ async def test_a_render_plane_drag_holds_the_plan(
 async def test_a_render_plane_and_a_clipping_plane_share_one_drag(
     controller, pyramid_root, monkeypatch
 ):
-    """One tracker per visual serves both kinds of plane (D-P17)."""
+    """One tracker per visual serves both kinds of plane."""
     from cellier.visuals import ClippingPlane
 
     scene, visual = _multiscale_image(controller, pyramid_root)

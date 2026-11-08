@@ -47,8 +47,7 @@ class CacheRegistry:
         ``int64``, sorted ascending, unique among live rows.
     state, tier, cls, rank, slot, slice_id, wanted_gen, attempts, retry_at,
     stale : np.ndarray
-        One entry per row; see design 5.1.  ``state == DEAD`` marks a
-        deleted row.
+        One entry per row.  ``state == DEAD`` marks a deleted row.
     """
 
     def __init__(self) -> None:

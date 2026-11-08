@@ -1,4 +1,4 @@
-"""In-memory image and labels on the chunk scheduler (Phase 3 acceptance).
+"""In-memory image and labels on the chunk scheduler.
 
 Each slot of an in-memory image (the labels visual has one) owns a
 whole-slice cache per mode (``LevelResidency``): a plan wants the full slice

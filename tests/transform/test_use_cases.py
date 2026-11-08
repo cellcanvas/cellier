@@ -1,8 +1,7 @@
-"""End-to-end acceptance: design sections 4.2 and 9.3, composed.
+"""End-to-end acceptance: every geometric operation in every use case.
 
-Section 4.2's feasibility table claims all eight geometric operations work
-in all four use cases, with three cells needing special handling.  Every
-cell of that table is asserted here.
+All eight geometric operations work in all four use cases, with three cells
+needing special handling.  Every cell of that table is asserted here.
 """
 
 from uuid import uuid4
@@ -31,7 +30,7 @@ def space(name):
     return Axis(name=name, axis_type="space", unit="micrometer")
 
 
-# --- section 4.2, row by row -----------------------------------------
+# --- the table, row by row --------------------------------------------
 
 
 @pytest.mark.parametrize("name", CASE_IDS)
@@ -262,7 +261,7 @@ def test_a_world_selection_pulls_back_into_data_space():
     assert in_data.ndim == 4
     assert not in_data.is_empty()
 
-    # the two constraints on the broadcast axis were dropped by D8's rule
+    # the two constraints on the broadcast axis were dropped by the drop rule
     # before A^T was applied, so they never reach the pulled-back region
     assert len(selection.region.half_spaces) == 6
     assert len(in_data.half_spaces) == 4
@@ -276,11 +275,11 @@ def test_a_world_selection_pulls_back_into_data_space():
 
 
 def test_bounding_the_displayed_axes_culls_to_the_viewport():
-    """R3, and the reason it matters: "only fetch what is on screen".
+    """A displayed axis may be bounded: "only fetch what is on screen".
 
     A region may bound **any** axis, displayed ones included.  Bounding
     the displayed axes is how a selection expresses a viewport crop, and
-    it is the same argument D41 makes about not collapsing a region
+    it is the same argument as for not collapsing a region to a box
     early -- on a different axis and with a much bigger number.
     """
     volume = 1000.0  # the datastore is 1000^3 voxels at 0.1 um/voxel
@@ -326,7 +325,7 @@ def test_bounding_the_displayed_axes_culls_to_the_viewport():
     assert voxels(with_viewport) == 40 * 200 * 200
     assert voxels(slice_only) / voxels(with_viewport) == pytest.approx(625.0)
 
-    # and the selection that carries it validates (D43 vs R3)
+    # and the selection that carries it validates
     rendered = RenderedCoordinateSystem.from_world(world, ("Z", "Y", "X"), uuid4())
     assert RegionSelection(
         transform=AffineTransform.from_axis_map(

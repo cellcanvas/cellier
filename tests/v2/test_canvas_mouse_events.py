@@ -613,7 +613,7 @@ def _press_image_pick(controller, scene, visual, displayed_data_coord):
 
 
 def test_the_slice_position_is_pulled_back_through_the_transform():
-    """D3 made slice_indices a world position; a data coordinate must not hold one.
+    """slice_indices is a world position; a data coordinate must not hold one.
 
     The image sits at ``Z = 2 z + 10``, so the world plane ``Z = 30`` is data
     plane ``z = 10``.  Reporting ``30`` would index eleven planes past the end

@@ -263,7 +263,7 @@ class AffineTransform(BaseTransform):
         return ops.imap_directions(direction, inverse_linear)
 
     def map_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Map plane normals forward by ``(A+)^T`` (covariant, D27).
+        """Map plane normals forward by ``(A+)^T`` (covariant).
 
         A normal is not a displacement: it transforms by the inverse
         transpose, and using ``A`` is correct only for a rigid transform.
@@ -290,7 +290,7 @@ class AffineTransform(BaseTransform):
         return ops.map_normals(normal, inverse_linear)
 
     def imap_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Map plane normals back by ``A^T`` (covariant, D27).
+        """Map plane normals back by ``A^T`` (covariant).
 
         Needs no inverse, so it works on a transform whose
         :meth:`inverse` is ``None``.  Not injective: a normal tilted
@@ -555,9 +555,8 @@ class AffineTransform(BaseTransform):
         :meth:`ConvexRegion.simplify` to drop the vacuous ones.
 
         ``map_region`` is deliberately **not** given the symmetric
-        treatment: the asymmetry is D31's, and ``broadcast_axes``
-        affects the forward direction as unboundedness rather than as a
-        dropped constraint.
+        treatment: ``broadcast_axes`` affects the forward direction as
+        unboundedness rather than as a dropped constraint.
 
         Parameters
         ----------
@@ -603,8 +602,9 @@ class AffineTransform(BaseTransform):
         Split out of :meth:`imap_region` for the one caller that knows
         the indices without holding the coordinate system object:
         :class:`~cellier.transform.RegionSelection`, whose validator
-        runs on a ``rendered -> world`` embedding that carries no
-        broadcast axes at all (D34/D35).
+        runs on a ``rendered -> world`` embedding, which states the slice
+        position as constant output axes and so carries no broadcast axes at
+        all.
 
         Parameters
         ----------
@@ -975,7 +975,7 @@ class AffineTransform(BaseTransform):
         return self.broadcast_axes
 
     def axis_coupling(self) -> np.ndarray:
-        """The linear block's non-zero pattern under D7's tolerance.
+        """The linear block's non-zero pattern under the coupling tolerance.
 
         Returns
         -------

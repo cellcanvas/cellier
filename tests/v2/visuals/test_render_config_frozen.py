@@ -1,4 +1,4 @@
-"""Verify render_config classes are frozen after Phase 2."""
+"""Verify render_config classes are frozen."""
 
 from __future__ import annotations
 

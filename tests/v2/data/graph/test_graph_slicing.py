@@ -1,4 +1,4 @@
-"""The mask slice path: node window, D5's either-endpoint rule, gathers."""
+"""The mask slice path: node window, the either-endpoint edge rule, gathers."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from tests._v2 import data_region
 async def test_slab_equivalence_with_points_store(make_request):
     """A trail-free graph selects the same node set as the points store.
 
-    The regression anchor for D5's generalization of the scalar
-    ``thickness`` into a per-axis ``(before, after)`` extent: given the same
-    slab, the graph selects what points and lines select.
+    The regression anchor for generalizing the scalar ``thickness`` into
+    a per-axis ``(before, after)`` extent: given the same slab, the
+    graph selects what points and lines select.
     """
     rng = np.random.default_rng(0)
     positions = (rng.random((200, 3)) * 10).astype(np.float32)

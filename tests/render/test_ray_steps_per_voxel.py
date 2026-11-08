@@ -32,7 +32,7 @@ SCALES = [tuple(s0 / sk for s0, sk in zip(SHAPES[0], shape)) for shape in SHAPES
 #: side in x.  Samples two voxels apart land in exactly one of two adjacent
 #: voxels, so at 0.5 samples per voxel exactly one slab draws, whatever the
 #: sampling phase.  (A single slab is hit all or nothing, depending on where
-#: the brick entry puts the samples -- which Phase 6 of plan v2 moved.)
+#: the brick entry puts the samples.)
 SLAB_Z = (15, 16)
 
 

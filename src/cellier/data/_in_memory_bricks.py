@@ -7,8 +7,8 @@ route, whose chunk scheduler reads bricks from a multiscale source.
 - **level 1** (index 0) is the array itself, read by the store's own
   ``get_data``;
 - **level 2** (index 1) is a stored coarse level, built once, block-wise, on
-  a worker thread (E, G1): a ``4 x`` block mean for images, a stride at
-  phase 1 for labels (never a mean, which would invent label ids).
+  a worker thread: a ``4 x`` block mean for images, a stride at phase 1
+  for labels (never a mean, which would invent label ids).
 
 Only the data axes section cutting would cut are downsampled: every world
 axis the axis maps to, and the axis itself, typed ``space``, and its

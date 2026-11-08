@@ -1,10 +1,8 @@
 """Offscreen render harness and shared data fixtures for ``cellier.render``.
 
-Phase 2 of the render-coverage plan.  The suite historically tests visual
-*construction* and *request planning* but never renders a frame or asserts a
-pixel; the whole slice-response -> texture-upload -> ``build_material`` -> draw
-half of every visual was uncovered.  This module supplies the shared pieces the
-per-visual render tests build on:
+Covers the slice-response -> texture-upload -> ``build_material`` -> draw half
+of every visual, which construction and request-planning tests never reach.
+This module supplies the shared pieces the per-visual render tests build on:
 
 - ``offscreen_renderer`` -- probes for a working ``wgpu`` adapter once per
   session and skips cleanly when none is available (matching how the existing
@@ -15,8 +13,8 @@ per-visual render tests build on:
 - ``drive_reslice`` -- drives the chunk scheduler to quiescence so its
   reads commit to the GPU before a frame is drawn.
 - Small reusable data fixtures: an in-memory image volume, a labels volume, and
-  a 2-level multiscale zarr store (``small_zarr_store`` is copied here because
-  the render tests moved out of ``tests/v2/`` and no longer see that conftest).
+  a 2-level multiscale zarr store (``small_zarr_store`` is a copy of the one in
+  ``tests/v2/conftest.py``, which the render tests do not see).
 
 Every helper that touches the GPU funnels through ``offscreen_renderer`` so a
 machine without an adapter skips the render tests instead of erroring.
@@ -272,8 +270,8 @@ def labels_volume() -> LabelMemoryStore:
 def small_zarr_store(tmp_path):
     """A minimal 2-level multiscale zarr v3 store on disk (zeros).
 
-    Copied from ``tests/v2/conftest.py`` — the render tests moved out of
-    ``tests/v2/`` and no longer inherit that fixture.
+    A copy of the fixture in ``tests/v2/conftest.py``, which the render tests
+    do not inherit.
     """
     for name, shape in [("s0", (8, 8, 8)), ("s1", (4, 4, 4))]:
         level_path = tmp_path / name

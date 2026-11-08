@@ -1,9 +1,9 @@
-"""The node matrix stops being ``select_axes`` (design 3.6 site E, 3.9).
+"""The node matrix is a composition, not ``select_axes``.
 
 The golden baseline proves the composition agrees with ``select_axes`` on
-every transform shipping today.  These tests pin *why* the composition is the
+every transform in the baseline.  These tests pin *why* the composition is the
 right one: the two cases where ``select_axes`` was silently wrong, and the two
-things design 3.9 says are easy to get wrong on the way there.
+things that are easy to get wrong in the composition.
 """
 
 from __future__ import annotations
@@ -52,12 +52,10 @@ def _spaces(ctx: Context, retained=None):
 def test_the_composition_refuses_a_displayed_axis_with_no_data_behind_it():
     """Where ``select_axes`` invented a row, the composition raises.
 
-    Design 3.8 finding 2, and the reason the call sites had to go.
-    ``select_axes`` did not raise on a transform whose ranks disagreed: asked
-    for "displayed" axes ``(2, 3, 4)`` of a 4-D ``tzyx`` transform it read the
-    **homogeneous row** as if it were data and returned a plausible wrong
-    matrix.  A second test asserted that misbehaviour directly until Phase 8
-    deleted the method with v1; this is the half that outlives it.
+    The reason the call sites had to go. ``select_axes`` did not raise on a
+    transform whose ranks disagreed: asked for "displayed" axes ``(2, 3, 4)``
+    of a 4-D ``tzyx`` transform it read the **homogeneous row** as if it were
+    data and returned a plausible wrong matrix.
     """
     from cellier.render.visuals._image import _displayed_submatrix
 
@@ -102,7 +100,7 @@ def test_a_collapsed_axis_index_enters_the_translation():
 
 
 # ---------------------------------------------------------------------------
-# The two things design 3.9 says are easy to get wrong
+# The two things that are easy to get wrong
 # ---------------------------------------------------------------------------
 
 

@@ -37,7 +37,7 @@ _FAMILIES = ("image", "labels")
 
 
 def _rotated_anisotropic() -> np.ndarray:
-    """H7's transform: 30 degrees in ``(y, x)`` with ``y`` voxels 2x tall."""
+    """30 degrees in ``(y, x)`` with ``y`` voxels 2x tall."""
     theta = np.deg2rad(30.0)
     linear = np.eye(3)
     linear[1:, 1:] = [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]

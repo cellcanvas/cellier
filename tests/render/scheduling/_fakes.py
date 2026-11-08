@@ -1,7 +1,7 @@
 """Fakes for the chunk scheduler tests: keys, a residency and stores.
 
-Geometry is 2D with one collapsed axis ``t``, as in the design's model
-(``scripts/progressive/_chunk_machine.py``): a ``BASE x BASE`` grid of
+Geometry is 2D with one collapsed axis ``t``, as in the model in
+``scripts/progressive/_chunk_machine.py``: a ``BASE x BASE`` grid of
 level-1 cells, levels ``1 .. N_LEVELS`` where a level-``l`` tile covers
 ``2 ** (l - 1)`` cells a side.
 """

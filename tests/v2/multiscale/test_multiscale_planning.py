@@ -114,8 +114,7 @@ async def test_the_collapsed_axis_is_the_rounded_plane_at_every_level(
     selects is the same integer at every level -- and it is the world position
     rounded half-up, because the scene's transform is the identity.
 
-    This was originally an equality against planning from ``dims_state``.
-    Phase 8 deleted that path; the numbers it agreed on are asserted directly.
+    The numbers are asserted directly.
     """
     controller, scene, visual = _viewer(anisotropic_zarr)
     controller.update_slice_indices(scene.id, {0: slice_position})
@@ -127,8 +126,7 @@ async def test_the_collapsed_axis_is_the_rounded_plane_at_every_level(
 
 
 async def test_planning_without_a_region_is_now_an_error(anisotropic_zarr):
-    """The multiscale fallback -- ``_build_world_to_level_transforms`` plus
-    ``_build_axis_selections_multiscale`` -- is gone with v1."""
+    """There is no fallback that plans a multiscale visual without a region."""
     controller, scene, visual = _viewer(anisotropic_zarr)
     with pytest.raises(RuntimeError, match="no pulled-back region"):
         _plan(controller, scene, visual, with_region=False)
@@ -164,10 +162,9 @@ async def test_a_level_transform_that_leaves_an_axis_alone_is_honoured(
 
 
 async def test_the_visual_carries_its_stores_level_systems(anisotropic_zarr):
-    """The pull-back needs a coordinate system per level, and a v2 transform
-    between them.  The store still holds its level transforms as v1 matrices,
-    which its brick grid and shader uniforms also read; the v2 form is derived
-    against the store's stored per-level systems, so the ids are stable."""
+    """The pull-back needs a coordinate system per level, and a transform
+    between them.  The store holds both, built from its per-level scales and
+    translations, so the ids are stable."""
     controller, _scene, visual = _viewer(anisotropic_zarr)
     spaces = controller.render_spaces(visual.id)
     assert len(spaces.data_levels) == 3

@@ -1,6 +1,6 @@
 """Label outlines: the per-label key and the selection layer.
 
-Covers the two demo checklist items Phase 1 could not reach:
+Covers two demo checklist items:
 
 13. two touching labels show a boundary between them;
 14. selecting one label outlines exactly that label.

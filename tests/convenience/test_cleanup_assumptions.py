@@ -1,12 +1,11 @@
-"""Load-bearing assumptions of ``plans/convenience_cleanup.md``.
+"""Load-bearing assumptions of the convenience layer.
 
-Stage 0 section 6.2 pins the facts that later stages rest on, so an unrelated
-change (an anywidget upgrade, a widget refactor, a model edit) surfaces here as
-a failing test rather than as a broken stage.  Each test names the assumption
-and the stage that assumes it.
+These pin the facts the convenience layer rests on, so an unrelated change (an
+anywidget upgrade, a widget refactor, a model edit) surfaces here as a failing
+test rather than as a broken control.  Each test names the assumption.
 
-If one of these fails, the corresponding stage rests on a false premise -- the
-plan needs revisiting, not the test.
+If one of these fails, the code that rests on it needs revisiting, not the
+test.
 """
 
 from __future__ import annotations
@@ -100,7 +99,7 @@ def _all_visual_models() -> list[type[BaseVisual]]:
 
 # ---------------------------------------------------------------------------
 # Assumption: a shared ``_esm`` works across anywidget subclasses
-# Assumed by: stage 4 asset sharing (one .js per control type, many field
+# Relied on by: asset sharing (one .js per control type, many field
 # classes).
 # ---------------------------------------------------------------------------
 
@@ -108,11 +107,11 @@ def _all_visual_models() -> list[type[BaseVisual]]:
 def test_esm_path_is_shared_by_subclasses_and_read_as_source():
     """One ``_esm`` on a base is the *same* object on every subclass.
 
-    Stage 4's layer-2 control-type base declares ``_esm``; its layer-3 field
-    classes inherit it.  ``AnyWidget.__init_subclass__`` only coerces ``_esm``
-    for classes that declare it in their own ``__dict__``, so the subclasses
-    share the base's single ``FileContents`` -- which is what makes one asset
-    per control type possible.
+    A layer-2 control-type base declares ``_esm``; its layer-3 field classes
+    inherit it.  ``AnyWidget.__init_subclass__`` only coerces ``_esm`` for
+    classes that declare it in their own ``__dict__``, so the subclasses share
+    the base's single ``FileContents`` -- which is what makes one asset per
+    control type possible.
     """
 
     class _Base(anywidget.AnyWidget):
@@ -143,16 +142,15 @@ def test_esm_path_is_shared_by_subclasses_and_read_as_source():
 
 # ---------------------------------------------------------------------------
 # Assumption: the echo filter drops all N echoes under fan-out
-# Assumed by: stage 2 (appearance fan-out to the four ortho panels).
-# Status before stage 0: proven for channels, not for appearance.
+# Relied on by: the appearance fan-out to the four ortho panels.
 # ---------------------------------------------------------------------------
 
 
 def test_appearance_echo_filter_drops_every_echo_under_fanout():
     """A group write stamped with the widget's id re-emits nothing.
 
-    Stage 2 makes one appearance widget drive N visuals, so a single user edit
-    produces N ``AppearanceChangedEvent`` echoes instead of one.  The
+    The fan-out makes one appearance widget drive N visuals, so a single user
+    edit produces N ``AppearanceChangedEvent`` echoes instead of one.  The
     ``source_id`` filter must drop all N -- otherwise each echo re-enters the
     widget and emits again.
 
@@ -167,7 +165,7 @@ def test_appearance_echo_filter_drops_every_echo_under_fanout():
 
     emitted: list = []
     widget.changed.connect(emitted.append)
-    # Subscribe-to-all: the shape stage 2 gives every appearance widget.
+    # Subscribe-to-all: the shape every appearance widget has.
     owner = uuid4()
     for visual in visuals:
         viewer.controller._outgoing_events.subscribe(
@@ -248,7 +246,7 @@ def test_aabb_echo_filter_drops_every_echo_under_fanout():
 # ---------------------------------------------------------------------------
 # Assumption: AABB travels on ``AABBChangedEvent`` / ``update_aabb_field``,
 # not on ``AppearanceChangedEvent``.
-# Assumed by: stage 2 (AABB needs its own group helper and fan-out test).
+# Relied on by: the AABB fan-out, which has its own group helper and test.
 # ---------------------------------------------------------------------------
 
 
@@ -296,8 +294,8 @@ def test_every_visual_model_has_an_aabb_field():
 
 
 # ---------------------------------------------------------------------------
-# ``appearance=True`` (stage 5's "default panel") is gone: ``controls=`` is an
-# explicit list.
+# There is no ``appearance=True`` default panel: ``controls=`` is an explicit
+# list.
 # ---------------------------------------------------------------------------
 
 
@@ -347,9 +345,7 @@ def test_a_bool_is_not_a_controls_value(value):
 
 
 # ---------------------------------------------------------------------------
-# Not one of the six section 6.2 rows -- found while drafting the section 6.5
-# proposals, and pinned here because stage 4 section 10.4 lists a
-# ``*ColormapModeCombo`` among the labels defaults.
+# Why the labels controls have no ``*ColormapModeCombo``.
 # ---------------------------------------------------------------------------
 
 
@@ -371,7 +367,7 @@ def test_labels_colormap_mode_is_frozen_so_no_widget_can_write_it():
         with pytest.raises(ValidationError):
             appearance.colormap_mode = "direct"
 
-        # The neighbouring fields stage 4 wants controls for are writable.
+        # The neighbouring fields the labels controls edit are writable.
         appearance.render_mode = "flat_categorical"
         appearance.salt = 7
         appearance.background_label = 3
@@ -381,8 +377,8 @@ def test_labels_colormap_mode_is_frozen_so_no_widget_can_write_it():
 def test_writing_color_map_poisons_model_equality_process_wide():
     """Writing ``color_map`` permanently breaks ``==`` on the appearance class.
 
-    Not a section 6.2 assumption -- a latent bug found while writing them, and
-    the reason the fan-out tests above drive ``clim`` instead.
+    Not an assumption the layer rests on -- a latent bug, and the reason the
+    fan-out tests above drive ``clim`` instead.
 
     ``cmap.Colormap.__eq__`` compares LUT arrays and raises ``ValueError`` when
     the two colormaps have different LUT lengths (``"grays"`` is 9 colors,
@@ -393,9 +389,9 @@ def test_writing_color_map_poisons_model_equality_process_wide():
     so ``ViewerModel.__eq__`` (and therefore every serialization round-trip
     assertion) fails for the rest of the process.
 
-    That makes it an ordering bomb: today ``tests/convenience`` runs before
-    ``tests/gui/qt/test_qt_colormap.py``, which is the only place that writes
-    the field, so nothing notices.
+    That makes it an ordering bomb: whether a round-trip assertion fails
+    depends on whether a test that writes the field ran earlier in the same
+    process.
 
     Run against a throwaway model so this test cannot poison the real classes.
     """

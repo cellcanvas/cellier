@@ -729,7 +729,7 @@ def test_layout_single_preset_with_docks():
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 - appearance controls (split gui.anywidget.visuals sub-widgets)
+# Appearance controls (split gui.anywidget.visuals sub-widgets)
 # ---------------------------------------------------------------------------
 
 
@@ -849,9 +849,8 @@ def test_build_appearance_widgets_anywidget_from_visual():
     """Builds one widget per spec, in the order of the list.
 
     Names come from the shared ``appearance_specs`` layer so the two front
-    ends name the same control the same way (stage 1, section 7.3), and each
-    widget carries its own -- ``label`` on a single-field control, ``title``
-    on a multi-row one.
+    ends name the same control the same way, and each widget carries its own
+    -- ``label`` on a single-field control, ``title`` on a multi-row one.
     """
     import numpy as np
 

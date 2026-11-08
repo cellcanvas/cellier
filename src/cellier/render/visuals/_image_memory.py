@@ -836,7 +836,7 @@ class _GFXImageMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
         self._apply_render_planes()
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place both groups with the composition of design 3.9.
+        """Place both groups with the node-matrix composition.
 
         One matrix for every slot: the slots differ in which channel they
         carry, not in where they sit.  In a ``SLICE_SHIFT`` view the node
@@ -984,7 +984,7 @@ class _GFXImageMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
         """Single mode draws from slot 0; its key follows the channel.
 
         The request key carries the channel, so a channel scrub is a key
-        change on one cache (kept on screen while it loads, D1), not a move
+        change on one cache (kept on screen while it loads), not a move
         to another slot that has to load before anything is drawn.
         """
         self._clock += 1
@@ -1243,8 +1243,8 @@ class GFXImageMemoryVisual(BrickRouteHost, _GFXImageMemoryCore):
     """Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
     The planar path and 3D views (:class:`_GFXImageMemoryCore`), and the brick
-    route for a tilted 2D view (oblique 2D design v3, 5.4,
-    :class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
+    route for a tilted 2D view
+    (:class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
     """
 
     def _build_inner(self, model, axes):

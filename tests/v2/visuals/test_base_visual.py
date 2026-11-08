@@ -1,4 +1,4 @@
-"""Tests for BaseVisual field normalisation after Phase 2."""
+"""Tests for BaseVisual field normalisation."""
 
 from __future__ import annotations
 

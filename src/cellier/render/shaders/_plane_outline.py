@@ -41,7 +41,7 @@ __all__ = [
 ]
 
 #: How far the line's depth is moved toward the camera, in logical pixels'
-#: worth of world distance at the line's depth (design B-D7).
+#: worth of world distance at the line's depth.
 OUTLINE_DEPTH_OFFSET_PX = 8.0
 
 #: After every visual: pygfx's opaque queues end at 2600 and the volume

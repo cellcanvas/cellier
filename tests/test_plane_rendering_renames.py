@@ -1,4 +1,4 @@
-"""The hard break of plane rendering design v3 7.6.
+"""The plane-rendering renames are a hard break.
 
 The old names are removed, not aliased: each is refused, and none is left in
 ``src`` or ``examples``.
@@ -144,7 +144,7 @@ def test_the_old_controls_key_is_refused() -> None:
         ("multiscale_image", ImageControl),
         ("multiscale_labels", FieldControls),
     ):
-        # The Phase 2 key went too, when the level of detail control came;
+        # The ``settled_`` key went too, when the level of detail control came;
         # and that is its own item of the controls list now, not a field.
         for old in (LOD_BIAS, "settled_" + LOD_BIAS, "level_of_detail"):
             with pytest.raises(ValueError, match=r"add LevelOfDetailControl\(\)"):
@@ -157,7 +157,7 @@ def test_the_old_controls_key_is_refused() -> None:
 # --------------------------------------------------------------------------- #
 
 #: Files where the bias is a planner argument (the settled bias is what it
-#: carries) or an in-memory visual's unused argument: Phase 0 inventory, "keep".
+#: carries) or an in-memory visual's unused argument: these keep the name.
 _BIAS_ARGUMENT_FILES = {
     "src/cellier/render/_level_of_detail.py",
     "src/cellier/render/_level_of_detail_2d.py",
@@ -170,7 +170,7 @@ _BIAS_ARGUMENT_FILES = {
     "src/cellier/render/visuals/_points_memory.py",
     "src/cellier/render/visuals/_graph_memory.py",
 }
-#: The mesh keeps its own ``GeometryLodConfig`` setting of this name (D-P26).
+#: The mesh keeps its own ``GeometryLodConfig`` setting of this name.
 _MESH_DRAG_FILES = {
     "src/cellier/visuals/_loading.py",
     "src/cellier/visuals/_mesh_memory.py",
@@ -251,7 +251,7 @@ def test_no_other_old_name_is_left(pattern) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The controls config classes are gone (ordered controls list, design D4)
+# The controls config classes are gone (``controls=`` is an ordered list)
 # --------------------------------------------------------------------------- #
 
 

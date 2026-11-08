@@ -285,7 +285,7 @@ class SchedulerCore:
             If the cache is not registered.
         ValueError
             If the keys repeat, or there are more than ``n_slots - 1`` of them
-            (the planner must truncate, design 5.3).
+            (the planner must truncate).
         """
         cache = self._caches.get(desired.cache_id)
         if cache is None:

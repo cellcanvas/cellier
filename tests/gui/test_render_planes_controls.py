@@ -1020,7 +1020,7 @@ def test_the_image_rows_that_mean_nothing_in_plane_mode_are_hidden():
     for field in ("iso_threshold", "attenuation"):
         assert not row_visible(field, ["plane"], 3)
     assert row_visible("render_mode", ["plane"], 3)
-    assert not row_visible("render_mode", ["plane"], 2)  # 3D only, as today
+    assert not row_visible("render_mode", ["plane"], 2)  # 3D only
     assert row_visible("iso_threshold", ["iso"], 3)
 
 
@@ -1112,7 +1112,7 @@ def test_a_labels_combo_adds_a_plane_too(controller):
 
 
 def test_one_channels_combo_moves_every_channel_and_adds_one_plane(controller):
-    """Composite: the combos move together (D-P53), and one plane is added."""
+    """Composite: the combos move together, and one plane is added."""
     scene = controller.add_scene(
         coordinate_system=[("c", "channel"), *spatial_axes(*AXES)],
         displayed_axes=("z", "y", "x"),

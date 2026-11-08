@@ -43,8 +43,8 @@ class LinesMemoryStore(BaseDataStore):
     applies the ``[:, [2, 1, 0]]`` reversal before uploading to pygfx.
 
     ``get_data`` runs the filter in the event loop's default executor, so
-    a large set of segments does not stall the loop (``plans/scheduler_only_
-    loading_design_v2.md`` D4); :meth:`read` is the same filter, synchronous.
+    a large set of segments does not stall the loop; :meth:`read` is the
+    same filter, synchronous.
 
     Parameters
     ----------

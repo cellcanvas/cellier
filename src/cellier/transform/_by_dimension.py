@@ -212,8 +212,9 @@ class ByDimensionTransform(BaseTransform):
 
         Every argument but ``axis_transforms`` keeps the meaning it has in
         :meth:`AffineTransform.from_axis_map`, so a caller who needs no
-        per-axis block writes exactly today's call and the non-uniform case
-        is a one-key diff rather than a different idiom.
+        per-axis block writes exactly the ``from_axis_map`` call and the
+        non-uniform case is a one-key diff rather than a different
+        idiom.
 
         Blocks are assembled as one 1-D block per ``axis_transforms`` entry,
         plus one affine block covering every remaining input axis -- which
@@ -640,7 +641,7 @@ class ByDimensionTransform(BaseTransform):
     ) -> BaseTransform:
         """Pin input axes, deciding per block what that means.
 
-        Three cases, per the design:
+        Three cases:
 
         * **Block entirely fixed** -- evaluated at the fixed value, giving a
           constant that is folded into the remaining translation.  Legal
@@ -843,7 +844,7 @@ class ByDimensionTransform(BaseTransform):
     ) -> ConvexRegion:
         """Map a convex region back, exactly.
 
-        Two cases, and the split is the design's:
+        Two cases:
 
         * **Axis-aligned** -- every half-space normal lies along a single
           axis, which is what ``AxisAlignedSelection`` produces and so what

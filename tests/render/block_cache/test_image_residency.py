@@ -344,7 +344,6 @@ def test_2d_keys_in_region_uses_voxel_centres_on_a_translated_level() -> None:
 
 
 # -- 2D: tiles of the slice on screen stay above the backstop ----------------
-# plans/2d_current_slice_paint_order.md, section 2.
 
 # A 32^2 plane with 4 levels: an 8 x 8 grid of base cells; level 4 is one tile.
 SHAPES_4 = [(32, 32), (16, 16), (8, 8), (4, 4)]
