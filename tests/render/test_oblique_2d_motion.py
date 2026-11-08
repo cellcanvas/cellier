@@ -445,7 +445,7 @@ def test_opening_a_transform_drag_prepares_the_atlas(tmp_path):
         viewer.controller.begin_transform_interaction(visual.id, source_id=source)
         try:
             assert _atlas_on_gpu(gfx_visual)
-            # Prepared off the scene graph: today's node still draws.
+            # Prepared off the scene graph: the planar node still draws.
             assert _active_node(viewer, visual) is node_2d
             assert gfx_visual.slice_axes is None
             assert render(viewer)[0][..., :3].max() > 0

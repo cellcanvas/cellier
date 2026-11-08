@@ -612,7 +612,7 @@ def projection_axis(
 class SliceRoute(str, Enum):
     """Which path draws a raster visual in a view (5.2.2)."""
 
-    TODAY = "today"
+    PLANAR = "planar"
     BRICK = "brick"
     NONE = "none"
 
@@ -671,7 +671,8 @@ def choose_slice_route(
     Returns
     -------
     RouteDecision
-        ``TODAY`` for 3D views and for aligned slices that do not project;
+        ``PLANAR`` for aligned slices that do not project, and for 3D
+        views (the controller routes 2D views only);
         ``BRICK`` for a tilted slice through three data axes or any
         projection over a three-axis slab; ``NONE`` with a reason otherwise.
 
@@ -679,11 +680,11 @@ def choose_slice_route(
     -----
     A plain 2D slice whose pullback is a line or a point (``pullback_dim <
     2``: a tilted 2D store, or a flat one seen edge-on) is refused in every
-    alignment (O18, U13). It has no area to draw, and today's path raises
+    alignment (O18, U13). It has no area to draw, and the planar path raises
     on it when the render spaces are pushed.
     """
     if len(_displayed(classification)) != 2:
-        return RouteDecision(SliceRoute.TODAY)
+        return RouteDecision(SliceRoute.PLANAR)
     if projection is not None:
         decision = _brick_or_refusal(
             projection.slab_pullback_dim, projection.slab_varying_axes, 3
@@ -700,7 +701,7 @@ def choose_slice_route(
             classification.pullback_dim,
         )
     if classification.alignment is not SliceAlignment.OBLIQUE:
-        return RouteDecision(SliceRoute.TODAY)
+        return RouteDecision(SliceRoute.PLANAR)
     decision = _brick_or_refusal(
         classification.pullback_dim, classification.varying_data_axes, 2
     )

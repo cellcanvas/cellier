@@ -258,7 +258,7 @@ def _flat_store_linear(z_reads_x: float = 0.0) -> np.ndarray:
 )
 def test_every_slice_along_a_line_is_refused(linear, view, alignment):
     """O18, U13: a 2D slice that meets the data along a line is refused in
-    every alignment (today's path raises on it when spaces are pushed)."""
+    every alignment (the planar path raises on it when spaces are pushed)."""
     classification = classify_view(_affine(linear, None, "yx", _world("zyx")), view)
     assert classification.alignment is alignment
     assert classification.pullback_dim == 1
@@ -268,19 +268,19 @@ def test_every_slice_along_a_line_is_refused(linear, view, alignment):
     assert decision.dimension == 1
 
 
-def test_a_flat_2d_store_in_its_own_plane_stays_on_todays_path():
+def test_a_flat_2d_store_in_its_own_plane_stays_on_the_planar_path():
     classification = classify_view(
         _affine(_flat_store_linear(), None, "yx", _world("zyx")), (1, 2)
     )
     assert classification.pullback_dim == 2
-    assert choose_slice_route(classification).route is SliceRoute.TODAY
+    assert choose_slice_route(classification).route is SliceRoute.PLANAR
 
 
-def test_a_flat_2d_store_in_3d_stays_on_todays_path():
+def test_a_flat_2d_store_in_3d_stays_on_the_planar_path():
     classification = classify_view(
         _affine(_flat_store_linear(0.5), None, "yx", _world("zyx")), (0, 1, 2)
     )
-    assert choose_slice_route(classification).route is SliceRoute.TODAY
+    assert choose_slice_route(classification).route is SliceRoute.PLANAR
 
 
 def test_a_projecting_tilted_2d_store_is_refused():
@@ -601,7 +601,7 @@ def test_the_route_of_a_plain_slice(name, view):
     if classification.alignment is A.OBLIQUE:
         assert decision.route is SliceRoute.BRICK
     else:
-        assert decision.route is SliceRoute.TODAY
+        assert decision.route is SliceRoute.PLANAR
     assert decision.reason is None
 
 
@@ -630,9 +630,9 @@ def test_a_projection_names_its_axis_as_the_normal():
     assert decision.normal_world_axis == 0
 
 
-def test_a_3d_view_stays_on_todays_path():
+def test_a_3d_view_stays_on_the_planar_path():
     classification = classify_view(_spatial("general"), (0, 1, 2))
-    assert choose_slice_route(classification).route is SliceRoute.TODAY
+    assert choose_slice_route(classification).route is SliceRoute.PLANAR
 
 
 def test_any_projection_takes_the_brick_route():

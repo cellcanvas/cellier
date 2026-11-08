@@ -348,7 +348,7 @@ class BrickRouteHost:
         own = getattr(super(), "drawn_channel_indices", None)
         return () if own is None else own()
 
-    # ── Events: today's nodes, and the inner visual when it exists ───────
+    # ── Events: the visual's own nodes, and the inner visual when it exists
 
     def _forward(self, name: str, event) -> None:
         handler = getattr(self._brick_inner, name, None)

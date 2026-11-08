@@ -350,7 +350,7 @@ def test_a_slab_thinner_than_a_coarse_voxel_reads_one_coarse_sample(tmp_path, fa
 
 
 @pytest.mark.parametrize("family", FAMILIES)
-def test_zero_thickness_draws_the_plane_on_todays_path(tmp_path, family):
+def test_zero_thickness_draws_the_plane_on_the_planar_path(tmp_path, family):
     data = _random_volume(34)
     viewer = new_viewer("2d")
     try:

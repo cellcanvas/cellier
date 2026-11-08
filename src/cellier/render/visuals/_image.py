@@ -3463,7 +3463,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self._clock = 0
         # The brick route (oblique 2D design v3, 5.3): the three world axes
         # a 2D view's slice node draws, the slice normal first, or ``None``
-        # on today's path.  Set by the controller (``set_slice_route``).
+        # on the planar path.  Set by the controller (``set_slice_route``).
         self._slice_axes: tuple[int, int, int] | None = None
         # The slab projection the slice node draws (design v3, 4.2), or
         # ``None`` for the plane.  Set by the controller (``set_slab``).
@@ -3824,7 +3824,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         ----------
         axes : tuple[int, int, int] or None
             The slice normal's world axis, then the two displayed world
-            axes; ``None`` for today's path.
+            axes; ``None`` for the planar path.
 
         Returns
         -------

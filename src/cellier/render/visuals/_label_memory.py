@@ -66,7 +66,7 @@ def _make_placeholder_label_params() -> gfx.Buffer:
     return build_label_params_buffer(background_label=0, salt=0, n_entries=0)
 
 
-class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
+class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
     """Render-layer visual for a LabelMemoryVisual backed by LabelMemoryStore.
 
     Owns gfx.Image (2D) and/or gfx.Volume (3D) nodes with custom label shaders.
@@ -689,10 +689,10 @@ class _GFXLabelMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         pass
 
 
-class GFXLabelMemoryVisual(BrickRouteHost, _GFXLabelMemoryToday):
+class GFXLabelMemoryVisual(BrickRouteHost, _GFXLabelMemoryCore):
     """Render-layer visual for an in-memory labels visual.
 
-    Today's whole-slice path (:class:`_GFXLabelMemoryToday`), and the brick
+    The planar path and 3D views (:class:`_GFXLabelMemoryCore`), and the brick
     route for a tilted 2D view (oblique 2D design v3, 5.4,
     :class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
     """

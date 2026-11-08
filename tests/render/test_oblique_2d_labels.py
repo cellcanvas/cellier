@@ -215,7 +215,7 @@ def test_labels_move_to_and_from_the_route_with_the_transform(tmp_path):
         asyncio.run(_assign(world_matrix(np.eye(3))))
         assert gfx_visual.slice_axes is None
         assert _active_node(viewer, visual) is gfx_visual.node_2d
-        # Back on today's path the 3D material is in the model's mode again.
+        # Back on the planar path the 3D material is in the model's mode again.
         assert gfx_visual.material_3d.render_mode == "iso_categorical"
         assert not gfx_visual.material_3d.slice_2d
         assert render(viewer)[0][..., :3].max() > 0
@@ -415,12 +415,12 @@ def test_depth_threshold_draws_as_all_boundaries_on_the_slice_node(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Stacking (U9): labels on the brick node over today's image
+# Stacking (U9): labels on the brick node over a planar image
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("labels_on_top", [True, False])
-def test_brick_labels_over_todays_image_follow_render_order(tmp_path, labels_on_top):
+def test_brick_labels_over_a_planar_image_follow_render_order(tmp_path, labels_on_top):
     matrix = world_matrix(LINEARS["rot_zx"])
     viewer = new_viewer("2d")
     try:

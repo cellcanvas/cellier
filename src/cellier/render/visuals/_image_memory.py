@@ -537,8 +537,8 @@ class _ImageMemorySlot:
                 material.threshold = mode_appearance.iso_threshold
 
 
-class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
-    """Today's path of :class:`GFXImageMemoryVisual`: whole-slice textures.
+class _GFXImageMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
+    """:class:`GFXImageMemoryVisual` without the brick route: whole-slice textures.
 
     Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
@@ -1242,10 +1242,10 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         """No per-frame state to advance."""
 
 
-class GFXImageMemoryVisual(BrickRouteHost, _GFXImageMemoryToday):
+class GFXImageMemoryVisual(BrickRouteHost, _GFXImageMemoryCore):
     """Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
-    Today's whole-slice path (:class:`_GFXImageMemoryToday`), and the brick
+    The planar path and 3D views (:class:`_GFXImageMemoryCore`), and the brick
     route for a tilted 2D view (oblique 2D design v3, 5.4,
     :class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
     """

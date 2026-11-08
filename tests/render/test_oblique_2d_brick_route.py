@@ -581,7 +581,7 @@ def _target_levels(viewer: Viewer, visual) -> set[int]:
 
 
 @pytest.mark.parametrize("pixels_per_voxel", [2.0, 1.0, 0.5, 0.25])
-def test_the_level_is_todays_2d_level_at_the_same_zoom(tmp_path, pixels_per_voxel):
+def test_the_level_is_the_planar_2d_level_at_the_same_zoom(tmp_path, pixels_per_voxel):
     """K29: the plane's orthographic rule picks the aligned 2D level."""
     big = np.tile(_random_volume(3), (4, 8, 8))[:64, :256, :320]
     levels = {}

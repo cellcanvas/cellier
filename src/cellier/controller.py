@@ -405,7 +405,7 @@ _NOT_OBLIQUE = frozenset(
 _EVERY_ALIGNMENT = frozenset(SliceAlignment)
 
 #: Raster OBLIQUE (a 2D image or labels view on a tilted slice) is out of
-#: scope for today's paths (D1): those views draw nothing and say why --
+#: scope for the planar path (D1): those views draw nothing and say why --
 #: except a 2D view the brick route draws (``_BRICK_ROUTE_FAMILIES``).
 _DRAWABLE: dict[str, frozenset[SliceAlignment]] = {
     "image": _NOT_OBLIQUE,
@@ -448,7 +448,7 @@ _RASTER_VISUALS = (BaseImageVisual, BaseLabelsVisual)
 
 
 def _has_bijection(transform: Any) -> bool:
-    """Whether *transform* has the axis correspondence today's paths read."""
+    """Whether *transform* has the axis correspondence the planar path reads."""
     try:
         transform.axis_correspondence()
     except ValueError:
@@ -730,8 +730,8 @@ def _visual_render_config(visual: BaseVisual) -> VisualRenderConfig:
             loading=visual.render_config.loading,
         )
     if isinstance(visual, (ImageVisual, LabelMemoryVisual)):
-        # Read by the brick route only (oblique 2D design v3, U1); today's
-        # whole-slice path ignores them.
+        # Read by the brick route only (oblique 2D design v3, U1); the planar
+        # path ignores them.
         return VisualRenderConfig(
             settled_lod_bias=visual.appearance.settled_lod_bias,
             force_level=visual.appearance.force_level,
@@ -5625,7 +5625,7 @@ class CellierController:
 
         **Sticky** (design v3, 5.2.3, D17): while a scope that moves the
         visual is open, a visual on the brick route stays on it when the
-        table would now pick today's path, with the same layout axes, as
+        table would now pick the planar path, with the same layout axes, as
         long as its three world axes still read those data axes.  A tilt
         through a different three axes re-lays it out.  The scope's end
         drops the entry (:meth:`_release_sticky_route`).
@@ -5656,7 +5656,9 @@ class CellierController:
             visual, scene, displayed, classification
         )
         decision = choose_slice_route(classification, projection)
-        if decision.route is SliceRoute.TODAY and isinstance(visual, MaskedImageVisual):
+        if decision.route is SliceRoute.PLANAR and isinstance(
+            visual, MaskedImageVisual
+        ):
             # Every 2D view of a MaskedImage is drawn by the slice node
             # (masked image design 6.3): the normal is the one sliced world
             # axis of type space (a time axis is sliced too).
@@ -5681,7 +5683,7 @@ class CellierController:
         axes: tuple[int, int, int] | None = None
         retained: tuple[int, ...] = ()
         if (
-            decision.route is SliceRoute.TODAY
+            decision.route is SliceRoute.PLANAR
             and cached is not None
             and cached.displayed == displayed
             and cached.axes is not None
@@ -5769,7 +5771,7 @@ class CellierController:
         -------
         RouteDecision or None
             ``None`` for a visual that is not an image or labels visual, or
-            is not in a 2D view; otherwise today's path, the brick route, or
+            is not in a 2D view; otherwise the planar path, the brick route, or
             nothing with a reason.
         """
         entry = self._slice_route_entry(visual_id)
@@ -5779,7 +5781,7 @@ class CellierController:
         """The slice node's world axes when the visual is drawn on the route.
 
         The slice normal's world axis, then the two displayed axes in the
-        view's order; ``None`` on today's path, when the route refuses the
+        view's order; ``None`` on the planar path, when the route refuses the
         view, or when the family does not draw the route yet (5.2.1).
         """
         entry = self._slice_route_entry(visual_id)
@@ -5969,7 +5971,7 @@ class CellierController:
 
         A visual that says so (``requires_camera_reslice``), or one a 2D view
         draws on the brick route -- an in-memory visual too, whose model
-        says ``False`` because today's path loads whole slices.
+        says ``False`` because the planar path loads whole slices.
         """
         if visual.requires_camera_reslice:
             return True
@@ -6080,7 +6082,7 @@ class CellierController:
     def _apply_slice_route(self, scene_manager: Any, visual_id: UUID) -> None:
         """Give a visual its route, and swap its node in if the route changed.
 
-        Before its render spaces are pushed (C3): today's 2D placement must
+        Before its render spaces are pushed (C3): the planar path's 2D placement must
         never see a tilted raster view.
         """
         gfx_visual = scene_manager.get_visual(visual_id)
@@ -6201,7 +6203,7 @@ class CellierController:
     def _push_slice_route_spaces(self, scene_id: UUID) -> None:
         """After a slice or thickness move, re-place every slice node on a scene.
 
-        Today's 2D nodes keep their matrix across a scrub; a slice node's
+        The planar path's 2D nodes keep their matrix across a scrub; a slice node's
         embedding carries the slice position (5.3.2), so it is pushed again.
         A thickness change can move a projecting image onto the route or off
         it (5.2.2), and changes its slab.

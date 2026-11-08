@@ -274,7 +274,7 @@ class GFXMultiscaleLabelVisual(
         self._last_displayed_axes: tuple[int, ...] | None = displayed_axes
         # The brick route (oblique 2D design v3, 5.3): the three world axes
         # a 2D view's slice node draws, the slice normal first, or ``None``
-        # on today's path.  Set by the controller (``set_slice_route``).
+        # on the planar path.  Set by the controller (``set_slice_route``).
         self._slice_axes: tuple[int, int, int] | None = None
         # On the route the scene draws ``_slice_group``: an unplaced group
         # holding the placed 3D node and the slice footprint's outline, and
@@ -642,7 +642,7 @@ class GFXMultiscaleLabelVisual(
         ----------
         axes : tuple[int, int, int] or None
             The slice normal's world axis, then the two displayed world
-            axes; ``None`` for today's path.
+            axes; ``None`` for the planar path.
 
         Returns
         -------
