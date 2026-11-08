@@ -1,5 +1,4 @@
-// Slab projection: one value per ray from the samples inside a slab
-// (oblique 2D design v3, 4.2 and 5.3.8).
+// Slab projection: one value per ray from the samples inside a slab.
 //
 // Included by the multiscale image brick shader when it is built with a
 // ``slab_op`` other than "none" (the image's ``slab_projection``).  Labels
@@ -9,9 +8,10 @@
 // (where the ray meets the slab's centre plane), the half-open window in
 // slab depth ``[-h, +h)``, and the rate ``depth_per_t`` at which the slab
 // depth grows along the ray.  The depth is measured along an explicit
-// direction (D10), never derived from a cross product in pygfx order.  The
-// include takes the window rather than the scene's thickness, so a 3D render
-// plane can use it later with the view ray's own interval (10.2).
+// direction, never derived from a cross product in pygfx order (an odd axis
+// permutation flips its sign).  The include takes the window rather than the
+// scene's thickness, so a 3D render plane could use it with the view ray's
+// own interval.
 //
 // Requires from the including shader: ``setup_brick``, ``sample_atlas``,
 // ``norm_to_voxel``, ``index_to_norm``, ``BrickInfo`` and ``u_wobject``.
@@ -42,7 +42,7 @@ fn slab_sample(acc: ptr<function, SlabAccumulator>, value: f32, t: f32) {
     (*acc).count = (*acc).count + 1.0;
 }
 
-// ``(value, t of the pick)``: the winning sample for max and min (O12), the
+// ``(value, t of the pick)``: the winning sample for max and min, the
 // anchor (the centre plane) for the mean.
 fn slab_end(acc: SlabAccumulator, t_anchor: f32) -> vec2<f32> {
     $$ if slab_op == 'max'
@@ -66,14 +66,14 @@ fn slab_depth_of(norm_pos: vec3<f32>, direction: vec3<f32>, depth_origin: f32) -
     return dot(world, direction) - depth_origin;
 }
 
-// Reduce the samples of one ray inside the slab (the loop of K4).
+// Reduce the samples of one ray inside the slab.
 //
 // Samples are one ray step apart -- the Euclidean length of one voxel of the
-// anchor's drawn level along the ray, over ``steps_per_voxel`` (K6) --
+// anchor's drawn level along the ray, over ``steps_per_voxel`` --
 // anchored on the centre plane, or, for a ray along one data axis
 // (``along_axis``), shifted onto that axis's voxel centres so the reduction
 // is exact.  A sample counts when it lies in the box-and-clip interval
-// ``[t_lo, t_hi]`` and is resident (O9), and, with nearest sampling, when
+// ``[t_lo, t_hi]`` and is resident, and, with nearest sampling, when
 // the centre of the voxel it reads is inside the window; with linear
 // sampling, when the sample itself is.  The brick is looked up again only
 // when a sample leaves the current one.  A window that holds no counted
@@ -166,8 +166,8 @@ fn slab_reduce(
     }
     if (acc.count < 0.5) {
         // A slab thinner than one voxel of the drawn level can hold no
-        // voxel centre: it reads the one voxel its centre plane is in (4.2,
-        // level of detail), if that point is inside the data and resident.
+        // voxel centre: it reads the one voxel its centre plane is in, if
+        // that point is inside the data and resident.
         if (t_anchor < t_lo || t_anchor > t_hi) { return result; }
         let at = setup_brick(
             near_pos, ray_dir, inv_ray_dir, t_anchor, t_hi, norm_size, dataset_size);

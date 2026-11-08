@@ -23,7 +23,6 @@ from cellier.render._cellier_blender import (
     NORMAL_TARGET,
     OUTLINE_ID_TARGET,
     ensure_extra_targets,
-    install_cellier_blender,
 )
 from cellier.render._outline import OutlinePass
 from cellier.render._pick_buffer import enable_pick_texture_binding
@@ -196,7 +195,7 @@ class CanvasView:
         #
         # This runs *before* the pick grant: installing replaces the whole
         # blender, so granting first would throw the grant away.
-        # ``install_cellier_blender`` also copies usage bits across, so the
+        # ``ensure_extra_targets`` also copies usage bits across, so the
         # order is belt-and-braces rather than load-bearing.
         extra_targets: list[str] = []
         if outline_enabled:
@@ -204,7 +203,7 @@ class CanvasView:
         if ambient_occlusion_enabled:
             extra_targets.append(NORMAL_TARGET)
         installed = (
-            install_cellier_blender(self._renderer, extra_targets)
+            ensure_extra_targets(self._renderer, extra_targets)
             if extra_targets
             else False
         )

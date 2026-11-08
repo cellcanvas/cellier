@@ -153,7 +153,7 @@ def shoot(
     """
     from rendercanvas.offscreen import RenderCanvas
 
-    from cellier.render._cellier_blender import install_cellier_blender
+    from cellier.render._cellier_blender import ensure_extra_targets
 
     controller.update_background_field(scene.id, "visible", False)
     canvas_view = controller._render_manager._canvases[
@@ -174,7 +174,7 @@ def shoot(
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
     if blender_targets:
-        assert install_cellier_blender(renderer, list(blender_targets)) is True
+        assert ensure_extra_targets(renderer, list(blender_targets)) is True
     errors: list[BaseException] = []
 
     def _draw() -> None:

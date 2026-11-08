@@ -341,7 +341,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         self._value_spaces: RenderSpaces | None = None
         # target_bricks="surface": the slice whose coarse level a target
         # waits for, and this plan's crossing cells for the value.
-        self._surface_owed: Any = None
+        self._deferred_surface_selection: Any = None
         self._surface_crossing: tuple | None = None
         self._value.target_filter = self._filter_value_target
         self._bind_materials()
@@ -438,7 +438,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         self._surface_crossing = None
         if mode is PlanMode.FULL:
             # Set again by the mask's filter if the target has to wait.
-            self._surface_owed = None
+            self._deferred_surface_selection = None
         mask_sets = super().plan(request, config, mode)
         if not mask_sets:
             # The mask draws nothing here: the value has nothing to colour.
@@ -464,7 +464,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         so its progress is not complete; the controller re-plans on the
         visual's ``BackstopCompleteEvent`` (:meth:`settle_surface`).
         """
-        return self._surface_owed is not None
+        return self._deferred_surface_selection is not None
 
     def settle_surface(self) -> bool:
         """The backstop landed: plan from the coarse mask the map now holds.
@@ -472,14 +472,15 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         Returns
         -------
         bool
-            True if a target was owed, so the caller re-plans.
+            True if a target was deferred, so the caller re-plans.
         """
-        owed, self._surface_owed = self._surface_owed, None
-        if owed is None or not self._slots:
+        selection = self._deferred_surface_selection
+        self._deferred_surface_selection = None
+        if selection is None or not self._slots:
             return False
         residency = self._slots[0]._residency_3d
         if residency is not None and residency.surface_map is not None:
-            residency.surface_map.settle(owed)
+            residency.surface_map.settle(selection)
         return True
 
     def clear_surface(self) -> None:
@@ -497,7 +498,8 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         mask already there: a backstop already resident is not written
         again.  Under "surface" the target waits until the mask's coarse
         level for this slice is known: ``None`` (no target) until then, and
-        the plan is owed a re-plan.  Every other plan keeps ``arr``.
+        the visual is planned again when it is.  Every other plan keeps
+        ``arr``.
         """
         residency = planner.residency_3d()
         surface_map = None if residency is None else residency.surface_map
@@ -512,7 +514,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
             return arr
         selection = planner._level_slice_selection(level - 1, fill)
         if not surface_map.ready(selection):
-            self._surface_owed = selection
+            self._deferred_surface_selection = selection
             return None
         crossing = surface_map.crossing(
             selection, self._visual_model.single.iso_threshold
@@ -539,7 +541,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
         """Keep the value's target bricks within reach of the surface."""
         if self._visual_model.appearance.target_bricks != "surface" or arr is None:
             return arr
-        if self._surface_owed is not None:
+        if self._deferred_surface_selection is not None:
             return None
         if self._surface_crossing is None or not self._slots:
             return arr

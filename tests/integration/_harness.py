@@ -14,7 +14,7 @@ and no GPU device:
   element indices from a real ``get_data`` call.
 
 The cases whose recorded values changed deliberately are listed in
-``XFAIL_GROUPS`` with the reason, which the baseline JSON stores beside each
+``BEHAVIOUR_CHANGES`` with the reason, which the baseline JSON stores beside each
 such case, so a change of behaviour is never a silent divergence.
 """
 
@@ -346,7 +346,7 @@ DIMS_4D: dict[str, DimsSpec] = {
 # groups changed its recorded value on purpose; the baseline JSON stores the
 # reason beside the case, and a replay failure on it names the reason.  The
 # registry stays as the audit trail.
-XFAIL_GROUPS: dict[str, str] = {
+BEHAVIOUR_CHANGES: dict[str, str] = {
     "geometry_slicing": (
         "geometry visuals slice against the pulled-back region; a "
         "non-identity transform then selects different elements"
@@ -973,7 +973,7 @@ def _geom_positions(ndim: int) -> np.ndarray:
     a second axis at 0 for ``2d_two_sliced``).  Under an identity transform
     a half-thickness-0.5 slab at each of those must be non-empty; under the
     scaled transforms it may legitimately empty out, which is exactly the
-    behaviour the geometry-slicing xfail records.
+    behaviour the geometry-slicing change records.
     """
     if ndim == 3:
         pts = [
@@ -1056,7 +1056,7 @@ class Family:
     kind: str  # "image" | "geometry" | "multiscale"
     make_visual: Callable
     store_factory: Callable
-    xfail_groups: tuple[str, ...] = ()
+    changed_groups: tuple[str, ...] = ()
 
 
 FAMILIES: list[Family] = [
@@ -1066,7 +1066,7 @@ FAMILIES: list[Family] = [
         "image",
         _make_label_memory_visual,
         _label_store,
-        xfail_groups=("labels_one_plane",),
+        changed_groups=("labels_one_plane",),
     ),
     Family(
         "GFXMultichannelImageMemoryVisual",
@@ -1079,28 +1079,28 @@ FAMILIES: list[Family] = [
         "geometry",
         _make_points_visual,
         _points_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
+        changed_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXLinesMemoryVisual",
         "geometry",
         _make_lines_visual,
         _lines_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
+        changed_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXGraphMemoryVisual",
         "geometry",
         _make_graph_visual,
         _graph_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
+        changed_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXMeshMemoryVisual",
         "geometry",
         _make_mesh_visual,
         _mesh_store,
-        xfail_groups=(
+        changed_groups=(
             "geometry_slicing",
             "geometry_thickness",
             "explicit_thickness",
@@ -1135,8 +1135,8 @@ class Case:
     tspec: TransformSpec
     dspec: DimsSpec
     pyramid: PyramidSpec | None
-    is_xfail: bool
-    xfail_reason: str | None
+    behaviour_changed: bool
+    change_reason: str | None
 
 
 _MULTISCALE_TRANSFORMS = {
@@ -1178,12 +1178,14 @@ def iter_cases():
                     identity = tname in ("identity", "identity4")
                     groups = [
                         g
-                        for g in family.xfail_groups
+                        for g in family.changed_groups
                         if not identity or g in _EVERY_TRANSFORM_GROUPS
                     ]
-                    is_xfail = bool(groups)
+                    behaviour_changed = bool(groups)
                     reason = (
-                        "; ".join(XFAIL_GROUPS[g] for g in groups) if is_xfail else None
+                        "; ".join(BEHAVIOUR_CHANGES[g] for g in groups)
+                        if behaviour_changed
+                        else None
                     )
                     yield Case(
                         family,
@@ -1191,7 +1193,7 @@ def iter_cases():
                         tspec,
                         dspec,
                         None,
-                        is_xfail,
+                        behaviour_changed,
                         reason,
                     )
 

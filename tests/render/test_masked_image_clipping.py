@@ -28,7 +28,7 @@ from pygfx.renderers.wgpu import get_shared
 from rendercanvas.offscreen import RenderCanvas
 
 from cellier.convenience.capture import _wait_until_loaded
-from cellier.render._cellier_blender import NORMAL_TARGET, install_cellier_blender
+from cellier.render._cellier_blender import NORMAL_TARGET, ensure_extra_targets
 from cellier.render.scheduling import ChunkClass
 from cellier.render.visuals._masked_image import value_clipping_planes
 from cellier.visuals import ClippingPlane, MaskedImageSingleAppearance
@@ -83,7 +83,7 @@ def _render(viewer, targets=()):
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
     if targets:
-        assert install_cellier_blender(renderer, list(targets)) is True
+        assert ensure_extra_targets(renderer, list(targets)) is True
     canvas.request_draw(lambda: renderer.render(scene, view.camera))
     return np.asarray(canvas.draw()), renderer
 

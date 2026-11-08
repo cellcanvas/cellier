@@ -1,8 +1,4 @@
 {
-  "axes_2d": [
-    1,
-    2
-  ],
   "axes_3d": [
     0,
     1,
@@ -13,92 +9,6 @@
     1,
     2
   ],
-  "image_geometry_2d": {
-    "base_layout_block_size": 32,
-    "base_layout_grid_dims": [
-      8,
-      8
-    ],
-    "base_layout_volume_shape": [
-      256,
-      256
-    ],
-    "level_scale_factors": [
-      1.0,
-      5.656854,
-      32.0
-    ],
-    "level_shapes": [
-      [
-        256,
-        256
-      ],
-      [
-        128,
-        128
-      ],
-      [
-        64,
-        64
-      ]
-    ],
-    "scale_vecs_data": [
-      [
-        1.0,
-        1.0
-      ],
-      [
-        4.0,
-        8.0
-      ],
-      [
-        16.0,
-        64.0
-      ]
-    ],
-    "scale_vecs_shader": [
-      [
-        1.0,
-        1.0
-      ],
-      [
-        8.0,
-        4.0
-      ],
-      [
-        64.0,
-        16.0
-      ]
-    ],
-    "translation_vecs_data": [
-      [
-        0.0,
-        0.0
-      ],
-      [
-        1.5,
-        2.5
-      ],
-      [
-        3.0,
-        5.0
-      ]
-    ],
-    "translation_vecs_shader": [
-      [
-        0.0,
-        0.0
-      ],
-      [
-        2.5,
-        1.5
-      ],
-      [
-        5.0,
-        3.0
-      ]
-    ]
-  },
   "scenario": "orthoviewer_3d",
   "slice_request_sub_3d_matrix": [
     [

@@ -505,7 +505,7 @@ def test_a_scrub_ending_while_the_camera_moves_holds_back_a_tilted_target(
                 await asyncio.sleep(0)
 
         asyncio.run(_scrub())
-        assert visual.id in controller._camera_handoff.get(viewer.scene.id, set())
+        assert visual.id in controller._replan_on_camera_end.get(viewer.scene.id, set())
     finally:
         viewer.controller.close()
 

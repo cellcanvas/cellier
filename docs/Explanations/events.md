@@ -477,7 +477,7 @@ class AppearanceChangedEvent(NamedTuple):
 
     Primary consumers:
     - ``GFX*Visual``: update material / shader parameters
-    - External ``on_visual_changed`` callbacks
+    - External ``on_appearance_changed`` callbacks
 
     Parameters
     ----------
@@ -2094,7 +2094,7 @@ object registration time.
 | `GFX*Visual` | `TransformChangedEvent` | `visual_id` | Update scene-graph node matrix |
 | External callback | `DimsChangedEvent` | `scene_id` | Fire `on_dims_changed` user callback |
 | External callback | `CameraChangedEvent` | `scene_id` | Fire `on_camera_changed` user callback |
-| External callback | `AppearanceChangedEvent` | `visual_id` | Fire `on_visual_changed` user callback |
+| External callback | `AppearanceChangedEvent` | `visual_id` | Fire `on_appearance_changed` user callback |
 | External callback | `AABBChangedEvent` | `visual_id` | Fire `on_aabb_changed` user callback |
 | External callback | `ResliceStartedEvent` | `scene_id` | Fire `on_reslice_started` user callback |
 | External callback | `ResliceCompletedEvent` | `visual_id` | Fire `on_reslice_completed` user callback |
@@ -2214,7 +2214,7 @@ def _on_appearance_psygnal(info: EmissionInfo) -> None:
 
 1. `GFXMultiscaleImageVisual.on_appearance_changed` — registered with
    `entity_id=visual_id`
-2. Any external `on_visual_changed` callback registered by the application
+2. Any external `on_appearance_changed` callback registered by the application
 
 The widget that triggered the change also has a subscription to
 `AppearanceChangedEvent`. It checks `if event.source_id == self._id: return` and

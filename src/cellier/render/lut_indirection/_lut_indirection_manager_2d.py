@@ -37,7 +37,7 @@ class LutIndirectionManager2D:
         ``(scale_row, scale_col)`` for the tile grid.  When provided the
         LUT fill uses the actual per-axis downsampling factor instead of
         assuming a uniform ``2^(level-1)`` factor.  Pass
-        ``ImageGeometry2D._scale_vecs_data`` here.
+        ``ImageGeometry3D._scale_vecs_data`` here.
     level_shapes : list of tuple of int or None
         Per-level ``(H, W)`` shapes.  Gives each level's tile count, so the
         last tile owns the grid's tail cells (see ``_cell_brick_rule``).

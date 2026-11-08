@@ -1,6 +1,6 @@
 // Level placement: the translation half of each level's level -> data map.
 //
-// Plan v2 D1 (level-0 centre coordinates, cellier.render._level_mapping):
+// Level-0 centre coordinates (as in cellier.render._level_mapping):
 //
 //     p = s_k * u + t_k        u = (p - t_k) / s_k
 //

@@ -74,7 +74,7 @@
       ],
       "status": "ok",
       "transform": "aniso",
-      "xfail_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=3|t=aniso|dims=2d_lead_sliced_zero": {
       "dims": "2d_lead_sliced_zero",
@@ -150,7 +150,7 @@
       ],
       "status": "ok",
       "transform": "aniso",
-      "xfail_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=3|t=aniso|dims=3d_all": {
       "dims": "3d_all",
@@ -218,7 +218,7 @@
       ],
       "status": "ok",
       "transform": "aniso",
-      "xfail_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=3|t=identity|dims=2d_lead_sliced_nonzero": {
       "dims": "2d_lead_sliced_nonzero",
@@ -292,7 +292,7 @@
       ],
       "status": "ok",
       "transform": "identity",
-      "xfail_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=3|t=identity|dims=2d_lead_sliced_zero": {
       "dims": "2d_lead_sliced_zero",
@@ -368,7 +368,7 @@
       ],
       "status": "ok",
       "transform": "identity",
-      "xfail_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=3|t=identity|dims=3d_all": {
       "dims": "3d_all",
@@ -436,7 +436,7 @@
       ],
       "status": "ok",
       "transform": "identity",
-      "xfail_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=3|t=scale_trans|dims=2d_lead_sliced_nonzero": {
       "dims": "2d_lead_sliced_nonzero",
@@ -510,7 +510,7 @@
       ],
       "status": "ok",
       "transform": "scale_trans",
-      "xfail_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=3|t=scale_trans|dims=2d_lead_sliced_zero": {
       "dims": "2d_lead_sliced_zero",
@@ -584,7 +584,7 @@
       ],
       "status": "ok",
       "transform": "scale_trans",
-      "xfail_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=3|t=scale_trans|dims=3d_all": {
       "dims": "3d_all",
@@ -652,7 +652,7 @@
       ],
       "status": "ok",
       "transform": "scale_trans",
-      "xfail_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=4|t=identity4|dims=2d_two_sliced": {
       "dims": "2d_two_sliced",
@@ -733,7 +733,7 @@
       ],
       "status": "ok",
       "transform": "identity4",
-      "xfail_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=4|t=identity4|dims=3d_all_but_time": {
       "dims": "3d_all_but_time",
@@ -804,7 +804,7 @@
       ],
       "status": "ok",
       "transform": "identity4",
-      "xfail_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=4|t=identity4|dims=3d_time_sliced_nonzero": {
       "dims": "3d_time_sliced_nonzero",
@@ -875,7 +875,7 @@
       ],
       "status": "ok",
       "transform": "identity4",
-      "xfail_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=4|t=tzyx|dims=2d_two_sliced": {
       "dims": "2d_two_sliced",
@@ -954,7 +954,7 @@
       ],
       "status": "ok",
       "transform": "tzyx",
-      "xfail_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=4|t=tzyx|dims=3d_all_but_time": {
       "dims": "3d_all_but_time",
@@ -1023,7 +1023,7 @@
       ],
       "status": "ok",
       "transform": "tzyx",
-      "xfail_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     },
     "rank=4|t=tzyx|dims=3d_time_sliced_nonzero": {
       "dims": "3d_time_sliced_nonzero",
@@ -1092,7 +1092,7 @@
       ],
       "status": "ok",
       "transform": "tzyx",
-      "xfail_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
+      "change_reason": "design 3.12 / D4 -- geometry visuals slice against the pulled-back region in phase 6; a non-identity transform then selects different elements; design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit half-thickness in phase 6; mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an axis with no thickness is a plane, and a discrete axis selects the sample the slider is on; mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: the constraint along a spatial, continuous axis leaves the filter region and becomes the request's section, and the read returns the faces the plane crosses or that lie in it"
     }
   },
   "drivable": {

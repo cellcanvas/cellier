@@ -38,8 +38,8 @@ def test_json_roundtrip():
 
 
 def test_an_old_slicing_field_is_ignored():
-    """``slicing`` configured the retired async slicer: it is dropped,
-    without a warning or an error."""
+    """``slicing`` configured the retired async slicer.  The model ignores
+    unknown keys, so it is dropped without a warning or an error."""
     old = {
         "slicing": {"batch_size": 32, "render_every": 4},
         "temporal": {"enabled": False},

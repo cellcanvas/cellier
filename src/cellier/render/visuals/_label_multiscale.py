@@ -81,7 +81,7 @@ from cellier.render.visuals._chunked import (
     log_intermediate_cap_once,
     make_residency_2d,
     make_residency_3d,
-    target_room,
+    max_target_bricks,
     viewport_2d,
     viewport_prism,
 )
@@ -1410,7 +1410,7 @@ class GFXMultiscaleLabelVisual(
                 # backstop leaves.  Planned again below, once the target
                 # has adopted the request.
                 self._adopt_request_3d(request)
-                max_bricks = target_room(
+                max_bricks = max_target_bricks(
                     self.residency_3d(),
                     self._plan_backstop_3d(
                         request.camera_pos,

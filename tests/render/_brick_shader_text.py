@@ -8,6 +8,12 @@ every template variable it was generated with, so the test can make the code
 again from the source alone.  ``brick_shader_text_baseline.json`` holds that
 record made at commit ``7e1b683f``, before any MaskedImage change; it must
 never be regenerated to make the test pass.
+
+The hash is of the code without its comments (:func:`strip_comments`), so a
+comment can be reworded without touching the baseline.  The record first
+hashed the full text; its digests were converted once, while the full text
+still matched ``7e1b683f`` byte for byte, so they are the comment-free hashes
+of that commit's code.
 """
 
 from __future__ import annotations
@@ -37,9 +43,39 @@ SCENES = [
 ]
 
 
+def strip_comments(code: str) -> str:
+    """WGSL *code* without comments, trailing whitespace or blank lines.
+
+    WGSL has no string literals, so ``//`` always starts a line comment.
+    Block comments nest, as WGSL allows.  What is left is the code alone: a
+    comment that is reworded, re-wrapped, added or deleted leaves it as it is.
+    """
+    out = []
+    depth = 0
+    i = 0
+    while i < len(code):
+        pair = code[i : i + 2]
+        if pair == "/*":
+            depth += 1
+            i += 2
+        elif depth and pair == "*/":
+            depth -= 1
+            i += 2
+        elif depth:
+            i += 1
+        elif pair == "//":
+            end = code.find("\n", i)
+            i = len(code) if end == -1 else end
+        else:
+            out.append(code[i])
+            i += 1
+    lines = (line.rstrip() for line in "".join(out).split("\n"))
+    return "\n".join(line for line in lines if line)
+
+
 def code_hash(code: str) -> str:
-    """The SHA-256 of generated WGSL."""
-    return hashlib.sha256(code.encode()).hexdigest()
+    """The SHA-256 of generated WGSL with its comments stripped."""
+    return hashlib.sha256(strip_comments(code).encode()).hexdigest()
 
 
 def generate(source: str, template_vars: dict) -> str:

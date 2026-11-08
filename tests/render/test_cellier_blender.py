@@ -26,8 +26,8 @@ from cellier.render._cellier_blender import (
     EXTRA_TARGETS,
     OUTLINE_ID_TARGET,
     CellierBlender,
+    ensure_extra_targets,
     get_extra_target_view,
-    install_cellier_blender,
 )
 
 _ALPHA_CONFIGS = {
@@ -52,7 +52,7 @@ def _render(scene, camera, *, with_target: bool, size=(64, 64)):
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
     if with_target:
-        assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
+        assert ensure_extra_targets(renderer, [OUTLINE_ID_TARGET]) is True
 
     errors: list[BaseException] = []
 
@@ -292,7 +292,7 @@ def test_pick_and_depth_flags_are_preserved(offscreen_renderer):
     renderer = gfx.WgpuRenderer(canvas)
     renderer._blender = Blender(enable_pick=False)
 
-    assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
+    assert ensure_extra_targets(renderer, [OUTLINE_ID_TARGET]) is True
     assert "pick" not in renderer._blender.texture_info
     assert OUTLINE_ID_TARGET in renderer._blender.texture_info
 
@@ -308,7 +308,7 @@ def test_install_degrades_on_unexpected_objects():
     class _NoBlender:
         pass
 
-    assert install_cellier_blender(_NoBlender(), [OUTLINE_ID_TARGET]) is False
+    assert ensure_extra_targets(_NoBlender(), [OUTLINE_ID_TARGET]) is False
     assert get_extra_target_view(_NoBlender(), OUTLINE_ID_TARGET) is None
 
 
@@ -319,9 +319,9 @@ def test_install_is_idempotent(offscreen_renderer):
     canvas = RenderCanvas(size=(16, 16), pixel_ratio=1)
     renderer = gfx.WgpuRenderer(canvas)
 
-    assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
+    assert ensure_extra_targets(renderer, [OUTLINE_ID_TARGET]) is True
     first = renderer._blender
-    assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
+    assert ensure_extra_targets(renderer, [OUTLINE_ID_TARGET]) is True
     assert renderer._blender is first
 
 

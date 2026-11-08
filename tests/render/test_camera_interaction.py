@@ -865,7 +865,7 @@ async def test_a_camera_reslice_during_a_scrub_plans_coarse(make_rig, how):
             )
         (reslice,) = rig.camera_reslices()
         assert reslice["modes"][visual_id] == "BACKSTOP_ONLY"
-        assert visual_id in controller._dims_scrub_pending[rig.scene.id]
+        assert visual_id in controller._replan_on_dims_end[rig.scene.id]
         rig.clear()
 
     # The scrub's end plans it in full, once.
@@ -892,7 +892,7 @@ async def test_a_scrub_ending_during_camera_motion_leaves_the_target_to_the_came
     # The scrub ended while the camera moves: no full plan from a camera
     # that is still moving.  The visual keeps its backstop.
     assert rig.reslices == []
-    assert controller._camera_handoff == {rig.scene.id: {visual_id}}
+    assert controller._replan_on_camera_end == {rig.scene.id: {visual_id}}
     controller.reslice_scene(rig.scene.id)  # any reslice meanwhile stays coarse
     assert rig.reslices[-1]["modes"][visual_id] == "BACKSTOP_ONLY"
     rig.clear()
@@ -901,7 +901,7 @@ async def test_a_scrub_ending_during_camera_motion_leaves_the_target_to_the_came
     # The camera end plans it in full, once.
     (reslice,) = rig.reslices
     assert reslice["modes"][visual_id] == "FULL"
-    assert controller._camera_handoff == {}
+    assert controller._replan_on_camera_end == {}
     await drain_loading(controller)
 
 
@@ -914,7 +914,7 @@ async def test_a_scrub_ending_with_no_camera_moving_plans_the_target(make_rig):
         rig.clear()
     (reslice,) = rig.reslices
     assert reslice["modes"][rig.visual.id] == "FULL"
-    assert controller._camera_handoff == {}
+    assert controller._replan_on_camera_end == {}
     await drain_loading(controller)
 
 
@@ -931,7 +931,7 @@ async def test_a_handed_over_visual_is_planned_even_with_camera_reslicing_off(
         controller.update_slice_indices(rig.scene.id, {0: 6.0})
     rig.clear()
     await rig.release(x)
-    (reslice,) = rig.reslices  # it is owed its full plan
+    (reslice,) = rig.reslices  # it still needs its full plan
     assert reslice["targets"] == frozenset({rig.visual.id})
     assert reslice["modes"][rig.visual.id] == "FULL"
     await drain_loading(controller)

@@ -304,31 +304,6 @@ class CellierBlender(Blender):
 # ---------------------------------------------------------------------------
 
 
-def install_cellier_blender(
-    renderer: gfx.WgpuRenderer, extra_targets: Iterable[str]
-) -> bool:
-    """Install a blender carrying *extra_targets*, if one is not already there.
-
-    Thin wrapper over :func:`ensure_extra_targets` kept for callers that
-    install once at construction and never revisit the decision.  Both do
-    the same thing; this name reads better at a construction site.
-
-    Parameters
-    ----------
-    renderer : gfx.WgpuRenderer
-        The renderer whose blender should be replaced.
-    extra_targets : Iterable[str]
-        Names from :data:`EXTRA_TARGETS`.  An empty iterable installs
-        nothing and returns ``False``.
-
-    Returns
-    -------
-    bool
-        ``True`` if a blender carrying every requested target is in place.
-    """
-    return ensure_extra_targets(renderer, extra_targets)
-
-
 def ensure_extra_targets(
     renderer: gfx.WgpuRenderer, extra_targets: Iterable[str]
 ) -> bool:

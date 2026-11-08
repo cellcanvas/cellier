@@ -1247,7 +1247,7 @@ class CellierController:
         # Per scene: camera-sensitive visuals a scrub left planned coarse
         # because a camera of the scene was moving when it ended.  That
         # camera's end plans them in full.
-        self._camera_handoff: dict[UUID, set[UUID]] = {}
+        self._replan_on_camera_end: dict[UUID, set[UUID]] = {}
         # True while this controller emits the ``CameraChangedEvent`` of a
         # programmatic move, which it has already acted on.
         self._announcing_camera_move: bool = False
@@ -1259,25 +1259,25 @@ class CellierController:
             lambda: self._render_manager.config.scheduler.dims_settle_s,
             self._on_dims_transition,
         )
-        self._dims_scrub_pending: dict[UUID, set[UUID]] = {}
+        self._replan_on_dims_end: dict[UUID, set[UUID]] = {}
         self._dims_scrub_axes: dict[UUID, set[int]] = {}
         self._dims_ticks: dict[UUID, bool] = {}
-        # Plane drags, one tracker per visual.  ``_plane_plan_owed`` holds
+        # Plane drags, one tracker per visual.  ``_replan_on_plane_end`` holds
         # the visuals a drag left without a plan: the drag's end plans
         # them.
         self._plane_interaction_driver = _InteractionDriver(
             lambda: self._render_manager.config.scheduler.dims_settle_s,
             self._on_plane_transition,
         )
-        self._plane_plan_owed: set[UUID] = set()
-        # Transform drags, one tracker per visual. ``_transform_plan_owed``
+        self._replan_on_plane_end: set[UUID] = set()
+        # Transform drags, one tracker per visual. ``_replan_on_transform_end``
         # holds the visuals a drag planned coarse or held: the drag's end
         # plans them.
         self._transform_interaction_driver = _InteractionDriver(
             lambda: self._render_manager.config.scheduler.dims_settle_s,
             self._on_transform_transition,
         )
-        self._transform_plan_owed: set[UUID] = set()
+        self._replan_on_transform_end: set[UUID] = set()
         # Render planes.  Per visual: whether a 3D view shows it in plane
         # mode, the render mode its channels share (to put a refused one
         # back), and whether it has been warned that a plane's axes are not
@@ -4924,8 +4924,8 @@ class CellierController:
         The one place a plan mode is decided, so every reslice path agrees:
         while the scene's dims are being scrubbed, a visual with
         ``plans_coarse_while_moving`` for the scene's view (2D or 3D) plans
-        ``BACKSTOP_ONLY`` and joins the scene's pending set, which the
-        scrub's end plans in full.  A visual that scrub handed to a camera
+        ``BACKSTOP_ONLY`` and joins the scene's ``_replan_on_dims_end`` set,
+        which the scrub's end plans in full.  A visual that scrub handed to a camera
         end stays ``BACKSTOP_ONLY`` until then.
 
         A drag of the visual's planes has no plan mode: while it holds the
@@ -4947,14 +4947,14 @@ class CellierController:
         if self._dims_driver.is_active(scene_id) and visual.plans_coarse_while_moving(
             self._n_displayed_dims(scene_id)
         ):
-            self._dims_scrub_pending.setdefault(scene_id, set()).add(visual.id)
+            self._replan_on_dims_end.setdefault(scene_id, set()).add(visual.id)
             return dataclasses.replace(config, plan_mode=PlanMode.BACKSTOP_ONLY)
         if self._transform_drag_plans_coarse(visual):
             # A tick of a transform drag in a 2D view: the drag's end
             # plans the target.
-            self._transform_plan_owed.add(visual.id)
+            self._replan_on_transform_end.add(visual.id)
             return dataclasses.replace(config, plan_mode=PlanMode.BACKSTOP_ONLY)
-        if visual.id in self._camera_handoff.get(scene_id, ()):
+        if visual.id in self._replan_on_camera_end.get(scene_id, ()):
             # Left to a camera end by the scrub that just ended.
             return dataclasses.replace(config, plan_mode=PlanMode.BACKSTOP_ONLY)
         return config
@@ -5982,7 +5982,7 @@ class CellierController:
         -------
         bool
             Whether the route changed; the visual is then placed again (its
-            node swapped, its spaces pushed) and is owed a plan.
+            node swapped, its spaces pushed) and needs a plan.
         """
         cached = self._slice_routes.pop(visual_id, None)
         if cached is None or visual_id not in self._visual_to_scene:
@@ -8516,10 +8516,10 @@ class CellierController:
         tracked = scene_id in self._dims_ticks
         if event.displayed_axes_changed:
             self._dims_driver.cancel(scene_id, event.source_id)
-            # The reslice below plans every visual, so no drag is owed one.
+            # The reslice below plans every visual, so no drag end needs to.
             scene = self._model.scenes.get(scene_id)
             for visual in scene.visuals if scene is not None else ():
-                self._plane_plan_owed.discard(visual.id)
+                self._replan_on_plane_end.discard(visual.id)
                 self._plane_interaction_driver.cancel(visual.id, event.source_id)
                 self._refresh_plane_mode(visual.id, reslice=False)
         elif not tracked:
@@ -8544,7 +8544,7 @@ class CellierController:
         self._render_manager.set_dims_scrubbing(scene_id, transition.phase == "start")
         if transition.phase == "end":
             self._dims_scrub_axes.pop(scene_id, None)
-            pending = self._dims_scrub_pending.pop(scene_id, set())
+            pending = self._replan_on_dims_end.pop(scene_id, set())
             # The finest level returns in the next frame, with no input.
             for canvas_id in self._scene_to_canvases.get(scene_id, ()):
                 self._render_manager.request_frame(canvas_id)
@@ -8577,7 +8577,7 @@ class CellierController:
             # replaces.  They keep their backstop until that end plans them.
             handed = {vid for vid in target if self._camera_sensitive(live[vid])}
             if handed:
-                self._camera_handoff.setdefault(scene_id, set()).update(handed)
+                self._replan_on_camera_end.setdefault(scene_id, set()).update(handed)
                 target -= handed
         # A visual whose planes are still dragged keeps its backstop: the
         # target is planned when every motion has stopped.
@@ -8602,7 +8602,7 @@ class CellierController:
         """Drop *scene_id*'s scrub state; no event, and its timer is cancelled."""
         self._dims_driver.drop(scene_id)
         self._render_manager.set_dims_scrubbing(scene_id, False)
-        self._dims_scrub_pending.pop(scene_id, None)
+        self._replan_on_dims_end.pop(scene_id, None)
         self._dims_scrub_axes.pop(scene_id, None)
 
     # ------------------------------------------------------------------
@@ -9920,9 +9920,9 @@ class CellierController:
         )
         if transition.phase != "end":
             return
-        owed = visual_id in self._plane_plan_owed
-        self._plane_plan_owed.discard(visual_id)
-        if owed and transition.reason in ("release", "settle"):
+        needs_plan = visual_id in self._replan_on_plane_end
+        self._replan_on_plane_end.discard(visual_id)
+        if needs_plan and transition.reason in ("release", "settle"):
             self._plan_after_plane_drag(visual_id)
 
     def _plane_drag_holds_plan(self, visual: BaseVisual) -> bool:
@@ -9943,7 +9943,7 @@ class CellierController:
     def _hold_plan_for_plane_drag(self, visual: BaseVisual) -> bool:
         """Whether to skip a plan of *visual* because its planes are dragged.
 
-        When ``True`` the visual is owed a plan, made when the drag ends
+        When ``True`` the visual needs a plan, made when the drag ends
         (:meth:`_on_plane_transition`).  The last plan stays the desired set
         meanwhile, so the bricks already loaded are still drawn; a
         ``BACKSTOP_ONLY`` plan would drop them.
@@ -9952,11 +9952,11 @@ class CellierController:
             return False
         if not self._plane_drag_holds_plan(visual):
             return False
-        self._plane_plan_owed.add(visual.id)
+        self._replan_on_plane_end.add(visual.id)
         return True
 
     def _leave_to_plane_drags(self, visuals: Iterable[BaseVisual]) -> set[UUID]:
-        """Ids of *visuals* whose plan a drag holds; each is now owed one.
+        """Ids of *visuals* whose plan a drag holds; each is planned at its end.
 
         A drag of the visual's planes, or of its transform in a 3D view.
         """
@@ -9981,7 +9981,7 @@ class CellierController:
         if self._dims_driver.is_active(scene_id) and visual.plans_coarse_while_moving(
             self._n_displayed_dims(scene_id)
         ):
-            self._dims_scrub_pending.setdefault(scene_id, set()).add(visual_id)
+            self._replan_on_dims_end.setdefault(scene_id, set()).add(visual_id)
             return
         if (
             self._camera_sensitive(visual)
@@ -9998,10 +9998,10 @@ class CellierController:
         A visibility or render mode change is a jump.  If the drag left the
         visual without a plan it is planned now, in full.
         """
-        owed = visual_id in self._plane_plan_owed
-        self._plane_plan_owed.discard(visual_id)
+        needs_plan = visual_id in self._replan_on_plane_end
+        self._replan_on_plane_end.discard(visual_id)
         self._plane_interaction_driver.cancel(visual_id, source_id)
-        if owed and visual_id in self._visual_to_scene:
+        if needs_plan and visual_id in self._visual_to_scene:
             self.reslice_visual(visual_id)
 
     def begin_plane_interaction(self, visual_id: UUID, *, source_id: UUID) -> None:
@@ -10116,14 +10116,14 @@ class CellierController:
 
         ``True`` for a multiscale image or labels visual in a 3D view with
         ``coarsest_while_moving_3d`` on, while the drag is on: it keeps
-        drawing the bricks it has, which move with the node matrix, and is
-        owed a plan, made when the drag ends.
+        drawing the bricks it has, which move with the node matrix, and
+        needs a plan, made when the drag ends.
         """
         if not self._transform_interaction_driver.is_active(visual.id):
             return False
         if not self._plane_drag_holds_plan(visual):
             return False
-        self._transform_plan_owed.add(visual.id)
+        self._replan_on_transform_end.add(visual.id)
         return True
 
     def _on_transform_transition(self, visual_id: UUID, transition: Transition) -> None:
@@ -10144,12 +10144,12 @@ class CellierController:
         )
         if transition.phase != "end":
             return
-        owed = visual_id in self._transform_plan_owed
-        self._transform_plan_owed.discard(visual_id)
+        needs_plan = visual_id in self._replan_on_transform_end
+        self._replan_on_transform_end.discard(visual_id)
         rerouted = self._release_sticky_route(visual_id)
         if transition.reason not in ("release", "settle"):
             return
-        if owed or rerouted:
+        if needs_plan or rerouted:
             self._plan_after_transform_drag(visual_id)
 
     def _plan_after_transform_drag(self, visual_id: UUID) -> None:
@@ -10161,7 +10161,7 @@ class CellierController:
         if self._plane_interaction_driver.is_active(visual_id):
             visual = self._model_visual_or_none(visual_id)
             if visual is not None and self._plane_drag_holds_plan(visual):
-                self._plane_plan_owed.add(visual_id)
+                self._replan_on_plane_end.add(visual_id)
                 return
         self._plan_after_plane_drag(visual_id)
 
@@ -11172,7 +11172,7 @@ class CellierController:
         # input.  Not ``CanvasView.request_draw``, which resets accumulation.
         self._render_manager.request_frame(canvas_id)
         if transition.reason == "cancel":
-            self._camera_handoff.pop(scene_id, None)
+            self._replan_on_camera_end.pop(scene_id, None)
         elif transition.reason != "jump":
             self._camera_reslice(scene_id, queue=self._drawing())
 
@@ -11247,12 +11247,12 @@ class CellierController:
         scrub.
 
         With camera reslicing disabled only the visuals a scrub handed over
-        are planned: they are owed their full plan.
+        are planned: they still need their full plan.
         """
         scene = self._model.scenes.get(scene_id)
         if scene is None:
             return
-        handed = self._camera_handoff.pop(scene_id, set())
+        handed = self._replan_on_camera_end.pop(scene_id, set())
         if self._render_manager.config.camera.reslice_enabled:
             target_ids = frozenset(
                 visual.id for visual in scene.visuals if self._camera_sensitive(visual)
@@ -11351,8 +11351,8 @@ class CellierController:
         self._camera_driver.drop(canvas_id)
 
     def _forget_scene_camera_reslices(self, scene_id: UUID) -> None:
-        """Drop what is queued or owed for *scene_id*'s cameras."""
-        self._camera_handoff.pop(scene_id, None)
+        """Drop what is queued or waiting for *scene_id*'s cameras to stop."""
+        self._replan_on_camera_end.pop(scene_id, None)
         task = self._camera_reslice_tasks.pop(scene_id, None)
         if task is not None and not task.done():
             task.cancel()
@@ -11910,9 +11910,9 @@ class CellierController:
         self._outgoing_events.unsubscribe_all(visual_id)
         self._cancel_visual_pick_reads(visual_id)
         self._plane_interaction_driver.drop(visual_id)
-        self._plane_plan_owed.discard(visual_id)
+        self._replan_on_plane_end.discard(visual_id)
         self._transform_interaction_driver.drop(visual_id)
-        self._transform_plan_owed.discard(visual_id)
+        self._replan_on_transform_end.discard(visual_id)
         self._plane_mode_shown.pop(visual_id, None)
         self._channel_render_modes.pop(visual_id, None)
         self._render_plane_axes_warned.discard(visual_id)
@@ -13044,26 +13044,6 @@ class CellierController:
             weak=weak,
         )
 
-    def on_visual_changed(
-        self,
-        visual_id: UUID,
-        callback: Callable[[AppearanceChangedEvent], None],
-        *,
-        owner_id: UUID,
-        weak: bool = False,
-    ) -> SubscriptionHandle:
-        """Deprecated. Use ``on_appearance_changed`` instead."""
-        import warnings
-
-        warnings.warn(
-            "on_visual_changed is deprecated; use on_appearance_changed instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.on_appearance_changed(
-            visual_id, callback, owner_id=owner_id, weak=weak
-        )
-
     def on_visibility_changed(
         self,
         visual_id: UUID,
@@ -13502,13 +13482,13 @@ class CellierController:
             session.close()
         self._camera_driver.close()
         self._cancel_queued_camera_reslices()
-        self._camera_handoff.clear()
+        self._replan_on_camera_end.clear()
         self._dims_driver.close()
         self._plane_interaction_driver.close()
-        self._plane_plan_owed.clear()
+        self._replan_on_plane_end.clear()
         self._transform_interaction_driver.close()
-        self._transform_plan_owed.clear()
-        self._dims_scrub_pending.clear()
+        self._replan_on_transform_end.clear()
+        self._replan_on_dims_end.clear()
         self._dims_scrub_axes.clear()
         for task in self._store_reslice_tasks.values():
             task.cancel()

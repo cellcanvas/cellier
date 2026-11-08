@@ -335,7 +335,7 @@ async def test_a_jump_ends_a_scrub(controller, multiscale_image_store, monkeypat
     assert _modes(plans) == ["BACKSTOP_ONLY", "FULL"]
     assert not _timers(controller)
     assert not controller._deferred_reslice_tasks()
-    assert not controller._dims_scrub_pending
+    assert not controller._replan_on_dims_end
     await drain_loading(controller)
 
 
@@ -592,11 +592,11 @@ async def test_a_reslice_during_a_scrub_plans_coarse_and_the_end_in_full(
         await asyncio.sleep(0)
         assert len(plans) > ticked, "the trigger did not reslice"
         assert set(_modes(plans, visual.id)) == {"BACKSTOP_ONLY"}
-        assert visual.id in controller._dims_scrub_pending[scene.id]
+        assert visual.id in controller._replan_on_dims_end[scene.id]
         during = len(plans)
 
     assert _modes(plans, visual.id)[during:] == ["FULL"]  # once, at the end
-    assert not controller._dims_scrub_pending
+    assert not controller._replan_on_dims_end
     await drain_loading(controller)
 
 
@@ -697,14 +697,14 @@ async def test_removing_the_scene_or_closing_drops_the_scrub(
     assert task.cancelled()
     assert events == [("start", None)]  # dropped: no end event
     assert controller.dims_interaction_state(scene.id) == "idle"
-    assert scene.id not in controller._dims_scrub_pending
+    assert scene.id not in controller._replan_on_dims_end
     assert _timers(controller) == [other_task]
 
     controller.close()
     await asyncio.sleep(0)
     assert other_task.cancelled()
     assert not _timers(controller)
-    assert not controller._dims_scrub_pending
+    assert not controller._replan_on_dims_end
 
 
 async def test_the_settle_time_is_read_at_each_tick(controller, multiscale_image_store):

@@ -37,7 +37,12 @@ class Tier(enum.IntEnum):
     (``tests/render/scheduling/trace_baseline.json``), so they stay fixed.
     """
 
+    #: An earlier pass wanted the record and the latest one did not.  A
+    #: resident is kept until a commit needs its slot.  Backstop bricks are
+    #: evicted last, the rest least recently wanted first
+    #: (``recent_importance`` in ``_core``).
     RECENT = 0
+    #: The latest pass wants the record.
     VISIBLE = 2
 
 

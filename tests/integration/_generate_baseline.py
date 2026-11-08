@@ -41,8 +41,8 @@ def build() -> dict[str, dict]:
         entry["dims"] = case.dspec.name
         if case.pyramid is not None:
             entry["pyramid"] = case.pyramid.name
-        if case.is_xfail:
-            entry["xfail_reason"] = case.xfail_reason
+        if case.behaviour_changed:
+            entry["change_reason"] = case.change_reason
         per_family[case.family.name]["cases"][case.case_id] = entry
 
         if result.status == "ok":

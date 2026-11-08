@@ -73,7 +73,7 @@ def test_visual_json_roundtrip(tmp_path):
     assert v2.name == "segments"
 
 
-# ── visual_type rename + migration validator ──────────────────────────────────
+# ── visual_type ───────────────────────────────────────────────────────────────
 
 
 def test_visual_type_is_lines_memory():
@@ -81,18 +81,6 @@ def test_visual_type_is_lines_memory():
 
     v = LinesVisual(name="l", data_store_id=str(uuid4()))
     assert v.visual_type == "lines_memory"
-
-
-def test_visual_type_migration():
-    """Serialised JSON with old 'lines' discriminator should still load."""
-    import json
-    from uuid import uuid4
-
-    v = LinesVisual(name="l", data_store_id=str(uuid4()))
-    d = json.loads(v.model_dump_json())
-    d["visual_type"] = "lines"  # simulate old serialised data
-    v2 = LinesVisual.model_validate(d)
-    assert v2.visual_type == "lines_memory"
 
 
 def test_appearance_type_field_removed():

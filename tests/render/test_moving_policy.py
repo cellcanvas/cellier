@@ -187,7 +187,7 @@ async def test_a_drag_plans_nothing_and_its_release_plans_once(
     await drain_loading(rig.controller)
     after = rig.wanted()
     assert after[int(ChunkClass.TARGET)] != before[int(ChunkClass.TARGET)]
-    assert not rig.controller._plane_plan_owed
+    assert not rig.controller._replan_on_plane_end
 
 
 async def test_a_held_drag_always_has_the_backstop_to_draw(make_rig, monkeypatch):
@@ -281,7 +281,7 @@ def test_with_no_event_loop_each_change_plans(make_rig, monkeypatch):
         rig.move(8.0)
         rig.move(20.0)
     assert _modes(plans, rig.visual.id) == ["FULL"] * 2
-    assert not rig.controller._plane_plan_owed
+    assert not rig.controller._replan_on_plane_end
 
 
 async def test_the_setting_is_read_at_each_tick(make_rig, monkeypatch):
@@ -295,7 +295,7 @@ async def test_the_setting_is_read_at_each_tick(make_rig, monkeypatch):
         assert plans == []
         rig.move(20.0)  # eager now
         assert _modes(plans, rig.visual.id) == ["FULL"]
-    # The held tick was still owed its plan at the end.
+    # The held tick still needed its plan at the end.
     assert _modes(plans, rig.visual.id) == ["FULL", "FULL"]
     await drain_loading(rig.controller)
 
@@ -321,7 +321,7 @@ async def test_a_visibility_or_mode_change_ends_a_drag(make_rig, monkeypatch, ch
     assert rig.controller.plane_interaction_state(rig.visual.id) == "idle"
     # The plan the drag held back was made by the jump.
     assert "FULL" in _modes(plans, rig.visual.id)
-    assert not rig.controller._plane_plan_owed
+    assert not rig.controller._replan_on_plane_end
     n_plans = len(plans)
     rig.controller.end_plane_interaction(rig.visual.id, source_id=source)
     assert len(plans) == n_plans  # nothing more at the scope's end
@@ -337,7 +337,7 @@ async def test_a_displayed_axes_change_ends_a_drag(make_rig, monkeypatch):
     plans = _record_plans(monkeypatch)
     rig.controller.set_displayed_axes(rig.scene.id, (1, 2))
     assert rig.events == [("start", None), ("end", "cancel")]
-    assert not rig.controller._plane_plan_owed
+    assert not rig.controller._replan_on_plane_end
     await drain_loading(rig.controller)
     assert set(_modes(plans, rig.visual.id)) <= {"FULL"}
     rig.controller.end_plane_interaction(rig.visual.id, source_id=source)
@@ -349,9 +349,9 @@ async def test_removing_a_visual_mid_drag_forgets_what_it_was_owed(make_rig):
     await rig.loaded()
     rig.controller.begin_plane_interaction(rig.visual.id, source_id=uuid4())
     rig.move(20.0)
-    assert rig.visual.id in rig.controller._plane_plan_owed
+    assert rig.visual.id in rig.controller._replan_on_plane_end
     rig.controller.remove_visual(rig.visual.id)
-    assert not rig.controller._plane_plan_owed
+    assert not rig.controller._replan_on_plane_end
     assert rig.controller._plane_interaction_driver.tasks() == []
 
 
@@ -541,5 +541,5 @@ async def test_a_2d_view_plans_a_clipping_change_on_every_tick(
         controller.set_clipping_planes(visual.id, (plane(20.0),))
         # Not held: a 2D view's only motion is a dims scrub.
         assert reslices == ([visual.id] if affects else [])
-    assert not controller._plane_plan_owed
+    assert not controller._replan_on_plane_end
     await drain_loading(controller)

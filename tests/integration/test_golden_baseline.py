@@ -8,7 +8,7 @@ selections are byte-for-byte what ``baseline/<family>.json`` recorded.
 **It must pass on the unmodified tree.**  The JSON stores what the code
 produces -- not what a design predicts.  A change that deliberately
 alters a behaviour re-records the JSON for exactly the affected cases
-and registers them in ``_harness.XFAIL_GROUPS`` with the reason.
+and registers them in ``_harness.BEHAVIOUR_CHANGES`` with the reason.
 ``test_known_behaviour_changes_are_registered`` keeps the list of those
 cases visible so the change is never silent.
 """
@@ -71,12 +71,12 @@ def test_replay_matches_baseline(case: Case, baselines: dict[str, dict]):
             f"{result[field]!r}\n"
             + (
                 "This case is a registered behaviour change "
-                f"({recorded.get('xfail_reason')}). If a change flips it "
+                f"({recorded.get('change_reason')}). If a change flips it "
                 "deliberately, re-record the baseline for this family and "
                 "update its readout."
-                if recorded.get("xfail_reason")
+                if recorded.get("change_reason")
                 else "This case is NOT a registered behaviour change -- only "
-                "the groups in _harness.XFAIL_GROUPS change behaviour, and "
+                "the groups in _harness.BEHAVIOUR_CHANGES change behaviour, and "
                 "everything else must match bit for bit."
             )
         )
@@ -88,13 +88,13 @@ def test_known_behaviour_changes_are_registered():
     Each of these cases matches the JSON, which holds the changed value; the
     registry entry stays as the audit trail.
     """
-    flips = [c for c in _ALL_CASES if c.is_xfail]
+    flips = [c for c in _ALL_CASES if c.behaviour_changed]
     assert flips, "expected the geometry-slicing / thickness cases to be marked"
 
     by_family: dict[str, int] = {}
     for case in flips:
         by_family[case.family.name] = by_family.get(case.family.name, 0) + 1
-        assert case.xfail_reason  # a human-readable why
+        assert case.change_reason  # a human-readable why
 
     # points, lines, graph and mesh each contribute non-identity cases
     # and, since the thickness floor went, identity ones too; in-memory

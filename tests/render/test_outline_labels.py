@@ -23,7 +23,7 @@ from pygfx.renderers.wgpu.engine.shared import get_shared
 
 from cellier.render._cellier_blender import (
     OUTLINE_ID_TARGET,
-    install_cellier_blender,
+    ensure_extra_targets,
 )
 from cellier.render._config import (
     OutlineConfig,
@@ -133,7 +133,7 @@ def _render(
     # Order matters and is the subject of its own test below: installing
     # replaces the blender, so a pick grant made first would be discarded.
     if with_target:
-        install_cellier_blender(renderer, [OUTLINE_ID_TARGET])
+        ensure_extra_targets(renderer, [OUTLINE_ID_TARGET])
     enable_pick_texture_binding(renderer)
 
     camera = controller.get_canvas_view(controller.get_canvas_ids(scene.id)[0]).camera
@@ -490,7 +490,7 @@ def test_selection_update_is_in_place(label_scene):
 def test_installing_the_blender_preserves_the_pick_grant(offscreen_renderer):
     """Installing must not discard TEXTURE_BINDING on pick, in either order.
 
-    ``install_cellier_blender`` replaces the whole blender, so a grant made
+    ``ensure_extra_targets`` replaces the whole blender, so a grant made
     beforehand lived on the object being thrown away.  The symptom was
     silent: ``get_pick_view`` returned None, the outline pass took its
     passthrough branch, and enabling outlines made them stop working
@@ -513,9 +513,9 @@ def test_installing_the_blender_preserves_the_pick_grant(offscreen_renderer):
         renderer = gfx.WgpuRenderer(canvas)
         if grant_first:
             assert enable_pick_texture_binding(renderer) is True
-            assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
+            assert ensure_extra_targets(renderer, [OUTLINE_ID_TARGET]) is True
         else:
-            assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
+            assert ensure_extra_targets(renderer, [OUTLINE_ID_TARGET]) is True
             assert enable_pick_texture_binding(renderer) is True
 
         canvas.request_draw(lambda r=renderer: r.render(scene, camera))

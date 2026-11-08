@@ -21,7 +21,7 @@ import pytest
 
 from cellier.render._cellier_blender import (
     OUTLINE_ID_TARGET,
-    install_cellier_blender,
+    ensure_extra_targets,
 )
 
 # The 3D packing cellier's label and multiscale volume shaders write:
@@ -106,7 +106,7 @@ def test_outline_target_does_not_disturb_the_pick_payload(offscreen_renderer):
         renderer.pixel_scale = 1
         renderer.ppaa = "none"
         if with_target:
-            assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
+            assert ensure_extra_targets(renderer, [OUTLINE_ID_TARGET]) is True
         canvas.request_draw(lambda: renderer.render(scene, camera))
         canvas.draw()
         results = []

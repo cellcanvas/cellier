@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DEFAULT_CAMERA_SETTLE_THRESHOLD_S: float = 0.3
 
@@ -360,15 +358,3 @@ class RenderManagerConfig(BaseModel):
         default_factory=AmbientOcclusionConfig
     )
     draw_hold_ms: float = Field(default=50.0, ge=0.0)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _drop_slicing(cls, data: Any) -> Any:
-        """Ignore ``slicing``, the settings of the retired async slicer.
-
-        A viewer file saved before every visual loaded through the chunk
-        scheduler carries it; it configures nothing now.
-        """
-        if isinstance(data, dict) and "slicing" in data:
-            data = {key: value for key, value in data.items() if key != "slicing"}
-        return data

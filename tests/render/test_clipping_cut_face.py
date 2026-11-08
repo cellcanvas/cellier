@@ -13,7 +13,7 @@ import pytest
 from pygfx.renderers.wgpu import get_shared
 from rendercanvas.offscreen import RenderCanvas as OffscreenRenderCanvas
 
-from cellier.render._cellier_blender import NORMAL_TARGET, install_cellier_blender
+from cellier.render._cellier_blender import NORMAL_TARGET, ensure_extra_targets
 from cellier.render._clipping import reduce_clipping_planes
 from tests.render import _clipping as h
 from tests.render._pick import PickFrame
@@ -131,7 +131,7 @@ async def test_the_cut_face_is_on_the_plane_with_its_normal(
     renderer = gfx.WgpuRenderer(canvas)
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
-    install_cellier_blender(renderer, [NORMAL_TARGET])
+    ensure_extra_targets(renderer, [NORMAL_TARGET])
     canvas.request_draw(lambda: renderer.render(gfx_scene, camera))
     frame = np.asarray(canvas.draw())
     normals = _read_normal_target(renderer, SIZE)

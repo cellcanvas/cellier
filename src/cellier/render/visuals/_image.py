@@ -92,7 +92,7 @@ from cellier.render.visuals._chunked import (
     log_intermediate_cap_once,
     make_residency_2d,
     make_residency_3d,
-    target_room,
+    max_target_bricks,
     viewport_2d,
     viewport_prism,
 )
@@ -824,7 +824,7 @@ def _world_axes_to_data_axes(
 
 
 # ---------------------------------------------------------------------------
-# VolumeGeometry
+# MultiscaleBrickLayout3D
 # ---------------------------------------------------------------------------
 
 
@@ -922,7 +922,7 @@ class MultiscaleBrickLayout3D:
 class ImageGeometry3D:
     """Pre-built metadata cache for a multiscale 2-D image.
 
-    Analogous to ``VolumeGeometry`` but for 2D tile grids.
+    Analogous to ``MultiscaleBrickLayout3D`` but for 2D tile grids.
 
     Parameters
     ----------
@@ -4114,7 +4114,9 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                     max_bricks=(
                         None
                         if planes is None
-                        else target_room(planner.residency_3d(), backstop, loading)
+                        else max_target_bricks(
+                            planner.residency_3d(), backstop, loading
+                        )
                     ),
                 )
                 if not slice_node:

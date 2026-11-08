@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field
 
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
 
@@ -47,11 +47,3 @@ class LinesVisual(BaseVisual):
     visual_type: Literal["lines_memory"] = "lines_memory"
     appearance: LinesMemoryAppearance = Field(default_factory=LinesMemoryAppearance)
     requires_camera_reslice: bool = Field(default=False, frozen=True)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_visual_type(cls, data: Any) -> Any:
-        if isinstance(data, dict) and data.get("visual_type") == "lines":
-            data = dict(data)
-            data["visual_type"] = "lines_memory"
-        return data

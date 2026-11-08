@@ -308,7 +308,7 @@ def _draw_outlined(viewer: Viewer, size: int = 320) -> tuple[np.ndarray, object]
 
     from cellier.render._cellier_blender import (
         OUTLINE_ID_TARGET,
-        install_cellier_blender,
+        ensure_extra_targets,
     )
     from cellier.render._outline import OutlinePass
     from cellier.render._pick_buffer import enable_pick_texture_binding
@@ -325,7 +325,7 @@ def _draw_outlined(viewer: Viewer, size: int = 320) -> tuple[np.ndarray, object]
     renderer = gfx.WgpuRenderer(canvas)
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
-    install_cellier_blender(renderer, [OUTLINE_ID_TARGET])
+    ensure_extra_targets(renderer, [OUTLINE_ID_TARGET])
     enable_pick_texture_binding(renderer)
     outline = OutlinePass(renderer, get_shared_visual_lut(), lambda: camera)
     outline.apply_config(controller.render_config.outline)

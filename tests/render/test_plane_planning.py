@@ -577,9 +577,9 @@ async def test_an_orthographic_plan_that_does_not_fit_takes_a_coarser_level(
     rows = target_rows(desired)
     plan = tight.planner._last_plane_plan
     # The rule's level does not fit this atlas ...
-    from cellier.render.visuals._chunked import target_room
+    from cellier.render.visuals._chunked import max_target_bricks
 
-    assert len(target_rows(wanted)) > target_room(
+    assert len(target_rows(wanted)) > max_target_bricks(
         tight.planner.residency_3d(), None, None
     )
     # ... so a coarser one is drawn, whole.
