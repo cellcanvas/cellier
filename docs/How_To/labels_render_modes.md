@@ -121,8 +121,8 @@ InMemoryLabelsAppearance(render_mode="smooth_geometry", smooth_geometry_level=0.
 controller.update_appearance_field(visual.id, "smooth_geometry_level", 0.4)
 ```
 
-The share of the weight a label must carry for a point to belong to it, in
-[0.05, 0.95].
+The share of the weight a label must carry for a point to belong to it, between
+0.05 and 0.95.
 
 - **0.5**, the default, keeps flat sides on the voxel faces.
 - **Lower** grows every label. Voxels that touch only along an edge or at a
