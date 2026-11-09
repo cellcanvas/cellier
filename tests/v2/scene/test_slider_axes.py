@@ -1,4 +1,4 @@
-"""``Scene.slider_axes`` and ``DimsManager.slider_overrides`` (design 3.5)."""
+"""``Scene.slider_axes`` and ``DimsManager.slider_overrides``."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from cellier.visuals import (
     PointsMarkerAppearance,
 )
 
-#: The lightsheet world of the design's section 3.5 example.
+#: A lightsheet world.
 _TCZYX = [("t", "time"), ("c", "channel"), *spatial_axes("z", "y", "x")]
 
 
@@ -162,7 +162,7 @@ def _tzyx_points(linear):
 
 
 def test_slider_axes_under_a_rotation_come_from_the_coupling_pattern():
-    """Full affine design v2: every world axis some data axis reaches.
+    """Every world axis some data axis reaches.
 
     A rotation in ``(z, x)`` couples two spatial axes; ``T`` is still read by
     data ``t`` alone.
@@ -224,7 +224,7 @@ def test_a_direct_composite_assignment_emits():
 
 
 def test_an_empty_composite_still_composites_its_axis():
-    """D16: no drawn channel, but ``c`` is still not a derived slider axis."""
+    """No drawn channel, but ``c`` is still not a derived slider axis."""
     controller, scene, image = _lightsheet(composite=True)
     controller.remove_channel(image.id, 0)
     controller.remove_channel(image.id, 1)

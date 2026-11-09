@@ -1,4 +1,4 @@
-"""The chunk scheduler wired into the viewer: 3D multiscale loads (design v3).
+"""The chunk scheduler wired into the viewer: 3D multiscale loads.
 
 Routing, cache registration, retire / remove, invalidation, frame-paced
 commits and the reslice events, through a real controller and store.

@@ -1,14 +1,13 @@
 """Shared base for the single-field Qt appearance widgets.
 
-Layer 1 of the three-layer design in ``plans/convenience_cleanup.md`` section
-10.2: everything about talking to the cellier v2 bus, written once.  Layer 2
-(one class per control type -- toggle, slider, spin, combo, colour) implements
-the ``_build`` / ``_read`` / ``_apply`` seam; layer 3 binds a field name and a
-label and is a few lines per field.
+Layer 1 of the appearance widgets' three layers: everything about talking to
+the event bus, written once.  Layer 2 (one class per control type -- toggle,
+slider, spin, combo, colour) implements the ``_build`` / ``_read`` /
+``_apply`` seam; layer 3 binds a field name and a label and is a few lines per
+field.
 
 Layer 1 also builds the **label row**: a control names itself, here, rather
-than being named by whatever lays it out
-(``plans/label_ownership_unification.md``).  Before that, five of the six
+than being named by whatever lays it out.  Before that, five of the six
 layer-2 types rendered a bare control and were named only by the ``QGroupBox``
 the appearance renderer wrapped them in -- so a widget used anywhere else was
 anonymous, and the one type that *did* label itself (``QtToggle``) showed its
@@ -165,7 +164,7 @@ class QtAppearanceField:
 
         Subscribing to every id rather than only the first means the widget
         stays correct when a sibling is written by something other than this
-        widget -- see ``multichannel_widget_design.md`` section 11.3.
+        widget.
         """
         return [
             SubscriptionSpec(
@@ -250,10 +249,9 @@ class QtBoundedSlider(QtAppearanceField):
 
     The range comes from the field's ``ge``/``le`` metadata and there is
     deliberately no keyword to widen it: a wider slider would build a control
-    that emits values pydantic then rejects (design section 6.5.1 proposal 3).
-    Layer 3 binds ``_default_range`` by calling
-    ``cellier.gui._appearance_fields.field_bounds`` on the model, so the two
-    cannot drift.
+    that emits values pydantic then rejects. Layer 3 binds ``_default_range``
+    by calling ``cellier.gui._appearance_fields.field_bounds`` on the model,
+    so the two cannot drift.
 
     One documented exception: ``QtIsoThresholdSlider``.  ``iso_threshold``
     carries no ``ge``/``le`` -- a threshold is bounded relative to the data's
@@ -303,10 +301,10 @@ class QtFloatSpin(QtAppearanceField):
     Only ``opacity`` carries ``ge``/``le``; every other float on the seven
     non-image appearance models is unconstrained, so the range here is a
     *widget* bound someone picked rather than a model constraint.  Layer 3
-    binds a sensible default per field (design section 6.5.1 proposal 3) and
-    every one is overridable at construction -- which is the escape hatch for
-    the four ``*_space`` fields whose ``"world"`` setting makes screen-pixel
-    bounds meaningless.
+    binds a sensible default per field and every one is overridable at
+    construction -- which is the escape hatch for the four ``*_space``
+    fields whose ``"world"`` setting makes screen-pixel bounds
+    meaningless.
     """
 
     _default_value: ClassVar[Any] = 1.0
@@ -354,7 +352,7 @@ class QtIntSpin(QtAppearanceField):
 
     ``_shuffle`` adds a button writing a random value in range, for fields
     where the *number* is meaningless and only the resulting difference
-    matters -- the labels colormap ``salt`` (design section 10.4).
+    matters -- the labels colormap ``salt``.
     """
 
     _default_value: ClassVar[Any] = 0
@@ -469,8 +467,7 @@ class QtColorPicker(QtAppearanceField):
     Every appearance ``color`` field is float RGBA, and both toolkits' colour
     inputs are RGB-only, so alpha needs its own control and the float-RGBA to
     hex conversion has to happen somewhere.  Written once here rather than per
-    field class -- which is what section 10.3 warns is the cost this control
-    type understates.
+    field class.
     """
 
     _default_value: ClassVar[Any] = (1.0, 1.0, 1.0, 1.0)

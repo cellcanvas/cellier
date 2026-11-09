@@ -1,9 +1,9 @@
 """The "Level of detail" control: toolkit-neutral logic.
 
-One control per multiscale image or labels visual (plane rendering design
-v3, 9.3): a slider for ``appearance.settled_lod_bias`` and a checkbox for
-"coarsest while moving".  The checkbox edits the setting of the view the
-control is shown in: ``coarsest_while_moving_3d`` in a 3D view and
+One control per multiscale image or labels visual: a slider for
+``appearance.settled_lod_bias`` and a checkbox for "coarsest while
+moving".  The checkbox edits the setting of the view the control is shown
+in: ``coarsest_while_moving_3d`` in a 3D view and
 ``coarsest_while_moving_2d`` in a 2D one.
 
 The Qt and anywidget controls import everything that is not toolkit from
@@ -56,7 +56,7 @@ def level_of_detail_values(appearance: Any) -> dict[str, Any]:
     ----------
     appearance : appearance model
         A multiscale image or labels appearance, or an in-memory one (whose
-        levels are its brick route's, oblique 2D design v3 U1).
+        levels are its brick route's).
 
     Returns
     -------

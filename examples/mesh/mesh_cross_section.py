@@ -22,13 +22,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from cellier.convenience import (
-    AppearanceControls,
-    ContinuousAxisValues,
-    Layout,
-    Viewer,
-    run,
-)
+from cellier.convenience import AppearanceControls, Layout, Viewer, run
 from cellier.convenience.gui import (
     BoundingBoxControl,
     FieldControls,
@@ -36,6 +30,7 @@ from cellier.convenience.gui import (
     build_canvas_widget,
 )
 from cellier.data.mesh import MeshMemoryStore
+from cellier.gui import ContinuousAxisValues
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import MeshPhongAppearance, MeshSectionConfig
 

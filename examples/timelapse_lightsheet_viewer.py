@@ -49,7 +49,6 @@ from cellier.convenience import (
     VStack,
     axis_values_from_viewer,
     run,
-    spatial_axes,
 )
 from cellier.convenience.gui import build_canvas_widget
 from cellier.data import (
@@ -62,7 +61,7 @@ from cellier.render import (
     OutlineLayerConfig,
     RenderManagerConfig,
 )
-from cellier.scene import BackgroundAppearance
+from cellier.scene import BackgroundAppearance, spatial_axes
 from cellier.transform import (
     AffineTransform,
     Axis,

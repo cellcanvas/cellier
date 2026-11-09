@@ -1,4 +1,4 @@
-"""Render + commit tests for ``GFXMultiscaleLabelVisual`` (Phase 3).
+"""Render + commit tests for ``GFXMultiscaleLabelVisual``.
 
 Drives a real multiscale label pyramid through the controller: reslice commits
 bricks/tiles to the GPU (the ``on_data_ready`` / material-build path that the

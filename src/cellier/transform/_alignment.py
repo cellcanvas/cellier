@@ -1,4 +1,4 @@
-"""How a transform lines data up with one view (full affine design v2, 3.1 and 4.1).
+"""How a transform lines data up with one view.
 
 Whether a ``data -> world`` transform is easy to draw is a question about a
 **view**: which world axes are displayed and which are sliced.  The same
@@ -27,14 +27,13 @@ by the ``R`` axes exactly when ``|R| = n_data - rank(L[S, :])``.  Then:
                    placement of the fetched slab changes.
 =================  =========================================================
 
-The slice pulls back to a flat set of dimension
-``pullback_dim = n_data - rank(L[S, :])``; the data axes it moves along --
-those with a non-zero component in the null space of ``L[S, :]`` -- are the
-**varying** data axes ``V`` (oblique 2D design v3, 4.1).  ``V`` is ``R``
-unless the view is ``OBLIQUE``, where it has more axes than the pullback has
-dimensions.
+The slice pulls back to a flat set of dimension ``pullback_dim = n_data -
+rank(L[S, :])``; the data axes it moves along -- those with a non-zero
+component in the null space of ``L[S, :]`` -- are the **varying** data axes
+``V``.  ``V`` is ``R`` unless the view is ``OBLIQUE``, where it has more
+axes than the pullback has dimensions.
 
-**"Non-zero" follows decision D7**: an entry counts as zero when
+**"Non-zero" is relative**: an entry counts as zero when
 ``|L_ij| <= tau * min(max|L[i, :]|, max|L[:, j]|)`` with
 ``tau = COUPLING_TOLERANCE``.  Floating-point noise -- a 90 degree rotation
 built from ``cos`` and ``sin`` carries ``6e-17`` -- would otherwise turn an
@@ -72,7 +71,7 @@ __all__ = [
     "null_space_support",
 ]
 
-#: D7: the relative size below which a matrix entry counts as zero.  Float32
+#: The relative size below which a matrix entry counts as zero.  Float32
 #: pipelines need at least ``1e-6``; a snapped genuine coupling moves a world
 #: axis by at most ``tau * extent`` voxels (0.1 voxel across 100k voxels).
 COUPLING_TOLERANCE = 1e-6
@@ -102,9 +101,9 @@ class ViewClassification:
     sliced_world_axes : tuple[int, ...]
         ``S``, ascending: every world axis that is not displayed.
     effective_transform : BaseTransform
-        The transform with D7's snapped entries set to exactly zero -- the
-        one consumers place and slice with.  The very same object as the
-        input when nothing snaps.
+        The transform with the snapped entries set to exactly zero --
+        the one consumers place and slice with.  The very same object as
+        the input when nothing snaps.
     pullback_dim : int
         ``n_data - rank(L[S, :])``: the dimension of the set of data points
         the slice selects.  Raster draws only when it is 2.
@@ -124,7 +123,7 @@ class ViewClassification:
 def coupling_pattern(
     linear: np.ndarray, tolerance: float = COUPLING_TOLERANCE
 ) -> np.ndarray:
-    """The non-zero pattern of a linear block under D7's relative tolerance.
+    """The non-zero pattern of a linear block under the coupling tolerance.
 
     Parameters
     ----------
@@ -181,7 +180,8 @@ def _rank_of_rows(transform: BaseTransform, rows: Sequence[int]) -> int:
 
 #: The size, relative to 1, below which a component of an orthonormal
 #: null-space basis counts as zero.  Far above SVD noise (``1e-15``) on the
-#: column-normalised block, far below any coupling D7 keeps.
+#: column-normalised block, far below any coupling ``COUPLING_TOLERANCE``
+#: keeps.
 _NULL_SPACE_TOLERANCE = 1e-9
 
 
@@ -251,7 +251,7 @@ def _varying_axes(transform: BaseTransform, rows: Sequence[int]) -> tuple[int, .
 
 
 def _effective(transform: BaseTransform) -> BaseTransform:
-    """*transform* with D7's snapped entries zeroed; itself if none snap."""
+    """*transform* with near-zero couplings zeroed; itself if none snap."""
     from cellier.transform._affine import AffineTransform
     from cellier.transform._by_dimension import ByDimensionTransform
 
@@ -292,7 +292,7 @@ def _effective(transform: BaseTransform) -> BaseTransform:
 
 
 def effective_transform(transform: BaseTransform | None) -> BaseTransform | None:
-    """*transform* with D7's snapped entries set to exactly zero.
+    """*transform* with near-zero couplings set to exactly zero.
 
     What every render and slicing consumer places and slices with, so that
     they agree with :func:`classify_view` -- a 90 degree rotation built from
@@ -343,7 +343,7 @@ def classify_view(
 
     Notes
     -----
-    "Zero" follows decision D7: an entry is a coupling only when it exceeds
+    "Zero" is relative: an entry is a coupling only when it exceeds
     ``COUPLING_TOLERANCE`` (``1e-6``) times the smaller of its row's and its
     column's largest magnitude, so a rotation built with ``cos`` and ``sin``
     (``6e-17`` off) or a float32 pipeline (``1e-7`` off) classifies as the

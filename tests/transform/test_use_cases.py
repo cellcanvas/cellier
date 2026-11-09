@@ -1,8 +1,7 @@
-"""End-to-end acceptance: design sections 4.2 and 9.3, composed.
+"""End-to-end acceptance: every geometric operation in every use case.
 
-Section 4.2's feasibility table claims all eight geometric operations work
-in all four use cases, with three cells needing special handling.  Every
-cell of that table is asserted here.
+All eight geometric operations work in all four use cases, with three cells
+needing special handling.  Every cell of that table is asserted here.
 """
 
 from uuid import uuid4
@@ -22,7 +21,7 @@ from cellier.transform import (
     RenderedCoordinateSystem,
     WorldCoordinateSystem,
 )
-from tests.transform._use_cases import MODEL_USE_CASES, uc1, uc3
+from tests.transform._use_cases import MODEL_USE_CASES, channel_broadcast, scale_only
 
 CASE_IDS = list(MODEL_USE_CASES)
 
@@ -31,7 +30,7 @@ def space(name):
     return Axis(name=name, axis_type="space", unit="micrometer")
 
 
-# --- section 4.2, row by row -----------------------------------------
+# --- the table, row by row --------------------------------------------
 
 
 @pytest.mark.parametrize("name", CASE_IDS)
@@ -88,7 +87,7 @@ def test_bounding_boxes_both_ways(name):
     mapped = transform.map_bounding_box(box, world)
     assert mapped.coordinate_system == world.id
     back = transform.imap_bounding_box(mapped)
-    # the round trip is a superset, never smaller (D30)
+    # the round trip is a superset, never smaller
     assert np.all(back.min_coordinate <= box.min_coordinate + 1e-9)
     assert np.all(back.max_coordinate >= box.max_coordinate - 1e-9)
 
@@ -96,16 +95,16 @@ def test_bounding_boxes_both_ways(name):
 # --- the three cells the table marks as needing handling -------------
 
 
-def test_uc3_reverse_normal_parallel_to_c_degenerates():
-    """Section 4.2, 'normal w->d': degenerate if n is parallel to C (E1)."""
-    _, _, transform = uc3()
+def test_channel_broadcast_reverse_normal_parallel_to_c_degenerates():
+    """Section 4.2, 'normal w->d': degenerate if n is parallel to C."""
+    _, _, transform = channel_broadcast()
     with pytest.raises(DegenerateNormalError):
         transform.imap_normal(np.array([0.0, 1.0, 0.0, 0.0, 0.0]))
 
 
-def test_uc3_reverse_plane_parallel_to_c_degenerates():
+def test_channel_broadcast_reverse_plane_parallel_to_c_degenerates():
     """Section 4.2, 'plane w->d'."""
-    _, world, transform = uc3()
+    _, world, transform = channel_broadcast()
     plane = Plane(
         coordinate_system=world.id, normal=[0.0, 1.0, 0.0, 0.0, 0.0], offset=3.0
     )
@@ -113,9 +112,9 @@ def test_uc3_reverse_plane_parallel_to_c_degenerates():
         transform.imap_plane(plane)
 
 
-def test_uc3_forward_bounding_box_needs_broadcast_axes():
-    """Section 4.2, 'bbox d->w': needs broadcast_axes (D31)."""
-    data, world, transform = uc3()
+def test_channel_broadcast_forward_bounding_box_needs_broadcast_axes():
+    """Section 4.2, 'bbox d->w': needs broadcast_axes."""
+    data, world, transform = channel_broadcast()
     box = AxisAlignedBoundingBox(
         coordinate_system=data.id,
         min_coordinate=np.zeros(4),
@@ -130,16 +129,16 @@ def test_uc3_forward_bounding_box_needs_broadcast_axes():
     assert without.min_coordinate[1] == without.max_coordinate[1] == 0.0
 
 
-def test_uc3_forward_normal_has_a_zero_channel_component_e2():
+def test_channel_broadcast_forward_normal_has_a_zero_channel_component():
     """The world hyperplane contains the C direction, for free."""
-    _, _, transform = uc3()
+    _, _, transform = channel_broadcast()
     mapped = transform.map_normal(np.array([0.3, -1.2, 0.7, 2.0]))
     assert mapped[1] == pytest.approx(0.0, abs=1e-12)
 
 
-def test_uc3_reverse_plane_tilted_in_c_loses_the_tilt():
+def test_channel_broadcast_reverse_plane_tilted_in_c_loses_the_tilt():
     """Not injective, and pinned as intended rather than fixed into an error."""
-    _, world, transform = uc3()
+    _, world, transform = channel_broadcast()
     plane = Plane(
         coordinate_system=world.id, normal=[0.0, 1.0, 0.0, 0.0, 1.0], offset=0.0
     )
@@ -212,7 +211,7 @@ def test_the_projection_drops_the_sliced_axes():
     assert np.allclose(inverse.linear[:, :2], 0.0)
 
 
-def test_a_world_point_off_the_slice_still_maps_onto_it_d36():
+def test_a_world_point_off_the_slice_still_maps_onto_it():
     world = tczyx()
     _, transform = embedding(world, ("Z", "Y", "X"), {"T": 7.0, "C": 2.0})
     on_slice = np.array([7.0, 2.0, 3.0, 4.0, 5.0])
@@ -227,7 +226,7 @@ def test_a_world_point_off_the_slice_still_maps_onto_it_d36():
 
 def test_data_to_rendered_composes_and_behaves():
     """The chain reads data -> world <- rendered; compose through the inverse."""
-    data, world, data_to_world = uc1()
+    data, world, data_to_world = scale_only()
     rendered, rendered_to_world = embedding(world, ("Z", "Y", "X"), {})
     world_to_rendered = rendered_to_world.inverse()
     assert world_to_rendered is not None
@@ -250,7 +249,7 @@ def test_data_to_rendered_composes_and_behaves():
 
 def test_a_world_selection_pulls_back_into_data_space():
     """The operation the slicer runs, end to end."""
-    data, world, data_to_world = uc3()
+    data, world, data_to_world = channel_broadcast()
     selection = RegionSelection(
         transform=embedding(world, ("Z", "Y", "X"), {"T": 7.0, "C": 0.0})[1],
         region=ConvexRegion.from_axis_slabs(
@@ -262,7 +261,7 @@ def test_a_world_selection_pulls_back_into_data_space():
     assert in_data.ndim == 4
     assert not in_data.is_empty()
 
-    # the two constraints on the broadcast axis were dropped by D8's rule
+    # the two constraints on the broadcast axis were dropped by the drop rule
     # before A^T was applied, so they never reach the pulled-back region
     assert len(selection.region.half_spaces) == 6
     assert len(in_data.half_spaces) == 4
@@ -275,12 +274,12 @@ def test_a_world_selection_pulls_back_into_data_space():
     assert box.min_coordinate[2] == -np.inf
 
 
-def test_bounding_the_displayed_axes_culls_to_the_viewport_r3():
-    """R3, and the reason it matters: "only fetch what is on screen".
+def test_bounding_the_displayed_axes_culls_to_the_viewport():
+    """A displayed axis may be bounded: "only fetch what is on screen".
 
     A region may bound **any** axis, displayed ones included.  Bounding
     the displayed axes is how a selection expresses a viewport crop, and
-    it is the same argument D41 makes about not collapsing a region
+    it is the same argument as for not collapsing a region to a box
     early -- on a different axis and with a much bigger number.
     """
     volume = 1000.0  # the datastore is 1000^3 voxels at 0.1 um/voxel
@@ -326,7 +325,7 @@ def test_bounding_the_displayed_axes_culls_to_the_viewport_r3():
     assert voxels(with_viewport) == 40 * 200 * 200
     assert voxels(slice_only) / voxels(with_viewport) == pytest.approx(625.0)
 
-    # and the selection that carries it validates (D43 vs R3)
+    # and the selection that carries it validates
     rendered = RenderedCoordinateSystem.from_world(world, ("Z", "Y", "X"), uuid4())
     assert RegionSelection(
         transform=AffineTransform.from_axis_map(

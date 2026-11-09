@@ -17,8 +17,6 @@ import numpy as np
 import pytest
 
 from cellier.convenience import (
-    ContinuousAxisValues,
-    DiscreteAxisValues,
     OrthoViewer,
     Viewer,
     axis_values_from_ortho,
@@ -26,6 +24,7 @@ from cellier.convenience import (
 )
 from cellier.convenience import _geometry as geometry
 from cellier.data import ImageMemoryStore, OMEZarrImageDataStore, PointsMemoryStore
+from cellier.gui import ContinuousAxisValues, DiscreteAxisValues
 from cellier.transform import AffineTransform, Axis, DataCoordinateSystem
 from cellier.visuals import (
     InMemoryImageAppearance,

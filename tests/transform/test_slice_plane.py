@@ -1,9 +1,9 @@
-"""The geometry of one 2D slice through raster data (oblique 2D design v3, Phase 1).
+"""The geometry of one 2D slice through raster data.
 
-``plans/oblique_2d_raster_design_v3.md`` sections 4.1, 4.2 and 5.2.2, and
-D15's footprint.  The transforms are v1 6.1's (``id``, ``rot_yx``,
-``shear_x_by_z``, ``rot_zx``, ``general``, ``drift_rot``), tried against
-every 2D view of a ``zyx`` and a ``tzyx`` world.
+Covers the plane, its route and ``slice_footprint``.  The transforms of the
+oblique test set (``id``, ``rot_yx``, ``shear_x_by_z``, ``rot_zx``,
+``general``, ``drift_rot``) are tried against every 2D view of a ``zyx`` and a
+``tzyx`` world.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def _shear(row: int, column: int, amount: float = 0.5, n: int = 3) -> np.ndarray
     return m
 
 
-#: v1 6.1's spatial transforms, as ``zyx -> zyx`` linear blocks.
+#: The oblique test set's spatial transforms, as ``zyx -> zyx`` linear blocks.
 SPATIAL = {
     "id": np.eye(3),
     "rot_yx": _rot(1, 2, 30.0),
@@ -107,7 +107,7 @@ def _drift_rot() -> np.ndarray:
     return linear
 
 
-#: The same, as ``tzyx -> tzyx`` (``id`` and ``drift_rot`` of v1 6.1 for 4D).
+#: The same, as ``tzyx -> tzyx`` (``id`` and ``drift_rot`` for 4D).
 TEMPORAL = {
     "id": np.eye(4),
     "rot_zx": np.block(
@@ -130,7 +130,7 @@ def _temporal(name: str):
 
 
 def _selection(world, displayed, position, thickness=None):
-    """A D43 selection displaying *displayed*, sliced at *position*."""
+    """A region selection displaying *displayed*, sliced at *position*."""
     names = [axis.name for axis in world.axes]
     shown = [names[axis] for axis in displayed]
     rendered = RenderedCoordinateSystem.from_world(world, shown, uuid4())
@@ -204,7 +204,7 @@ def test_every_2d_view_of_a_timelapse_pulls_back_to_a_plane(name, view):
     ("view", "varying"),
     [
         ((0, 1), (0, 1, 3)),
-        ((0, 2), (0, 1, 2, 3)),  # x is sliced and reads t: |V| = 4 (O19)
+        ((0, 2), (0, 1, 2, 3)),  # x is sliced and reads t: |V| = 4
         ((0, 3), (0, 1, 3)),
         ((1, 2), (1, 2, 3)),
         ((1, 3), (1, 3)),
@@ -216,14 +216,14 @@ def test_the_varying_axes_of_drift_rot(view, varying):
 
 
 def test_the_drift_kymograph_varies_over_time_and_two_space_axes():
-    """K7, K16: the ``(t, x)`` view of ``drift_rot`` is ``V = tzx``."""
+    """The ``(t, x)`` view of ``drift_rot`` is ``V = tzx``."""
     classification = classify_view(_temporal("drift_rot"), (0, 3))
     assert classification.alignment is A.OBLIQUE
     assert classification.varying_data_axes == (0, 1, 3)
 
 
 def test_a_tilted_2d_store_pulls_back_to_a_line():
-    """O18: a ``yx`` image tilted in a ``zyx`` world (world z reads both data
+    """A ``yx`` image tilted in a ``zyx`` world (world z reads both data
     axes), seen in ``yx``: OBLIQUE, and the slice meets it along a line."""
     linear = np.zeros((3, 2))
     linear[0] = [0.25, 0.5]
@@ -257,8 +257,8 @@ def _flat_store_linear(z_reads_x: float = 0.0) -> np.ndarray:
     ],
 )
 def test_every_slice_along_a_line_is_refused(linear, view, alignment):
-    """O18, U13: a 2D slice that meets the data along a line is refused in
-    every alignment (today's path raises on it when spaces are pushed)."""
+    """A 2D slice that meets the data along a line is refused in every
+    alignment (the planar path raises on it when spaces are pushed)."""
     classification = classify_view(_affine(linear, None, "yx", _world("zyx")), view)
     assert classification.alignment is alignment
     assert classification.pullback_dim == 1
@@ -268,23 +268,23 @@ def test_every_slice_along_a_line_is_refused(linear, view, alignment):
     assert decision.dimension == 1
 
 
-def test_a_flat_2d_store_in_its_own_plane_stays_on_todays_path():
+def test_a_flat_2d_store_in_its_own_plane_stays_on_the_planar_path():
     classification = classify_view(
         _affine(_flat_store_linear(), None, "yx", _world("zyx")), (1, 2)
     )
     assert classification.pullback_dim == 2
-    assert choose_slice_route(classification).route is SliceRoute.TODAY
+    assert choose_slice_route(classification).route is SliceRoute.PLANAR
 
 
-def test_a_flat_2d_store_in_3d_stays_on_todays_path():
+def test_a_flat_2d_store_in_3d_stays_on_the_planar_path():
     classification = classify_view(
         _affine(_flat_store_linear(0.5), None, "yx", _world("zyx")), (0, 1, 2)
     )
-    assert choose_slice_route(classification).route is SliceRoute.TODAY
+    assert choose_slice_route(classification).route is SliceRoute.PLANAR
 
 
 def test_a_projecting_tilted_2d_store_is_refused():
-    """G0-4: the slab meets a tilted 2D store in a strip (10.4), deferred."""
+    """The slab meets a tilted 2D store in a strip, deferred."""
     transform = _affine(_flat_store_linear(0.5), None, "yx", _world("zyx"))
     geometry = classify_projection(transform, (1, 2), 0)
     decision = choose_slice_route(classify_view(transform, (1, 2)), geometry)
@@ -305,8 +305,8 @@ def test_a_volume_broadcast_into_a_channel_world():
     np.testing.assert_allclose(world[0, 1:], [4.0, 1.0, 2.0], atol=1e-12)
 
 
-def test_a_coupling_d7_keeps_is_varying():
-    """A small coupling D7 keeps (``1e-4``) makes its axis vary."""
+def test_a_coupling_above_the_snap_is_varying():
+    """A coupling above the snap tolerance (``1e-4``) makes its axis vary."""
     linear = np.eye(3)
     linear[0, 1] = 1e-4  # world z reads data y, a little
     classification = classify_view(_affine(linear, None, "zyx", _world("zyx")), (1, 2))
@@ -314,7 +314,7 @@ def test_a_coupling_d7_keeps_is_varying():
     assert classification.varying_data_axes == (0, 1, 2)
 
 
-def test_noise_d7_snaps_does_not_vary():
+def test_noise_below_the_snap_does_not_vary():
     linear = np.eye(3)
     linear[0, 1] = 1e-9
     classification = classify_view(_affine(linear, None, "zyx", _world("zyx")), (1, 2))
@@ -365,7 +365,7 @@ def test_timelapse_frame_points_satisfy_the_slice(name, view):
 
 
 def test_the_frame_reads_the_snapped_transform():
-    """D7: a trig-built quarter turn's ``6e-17`` never reaches the frame."""
+    """A trig-built quarter turn's ``6e-17`` never reaches the frame."""
     transform = _affine(_rot(1, 2, 90.0), None, "zyx", _world("zyx"))
     frame = slice_plane_frame(classify_view(transform, (1, 2)), np.array([4.0, 0, 0]))
     assert np.count_nonzero(frame.axes) == 2
@@ -519,7 +519,7 @@ def test_the_step_follows_the_world_scale_and_the_level():
     assert ray_step(direction, steps_per_voxel=2.0) == pytest.approx(1.0)
 
 
-def test_the_step_is_the_euclidean_voxel_length_k6():
+def test_the_step_is_the_euclidean_voxel_length():
     """``shear_x_by_z`` moves the ray one voxel in z and half a voxel in x per
     world unit: ``|d| = sqrt(1.25)``, where the max-norm would say 1."""
     direction = classify_projection(
@@ -601,7 +601,7 @@ def test_the_route_of_a_plain_slice(name, view):
     if classification.alignment is A.OBLIQUE:
         assert decision.route is SliceRoute.BRICK
     else:
-        assert decision.route is SliceRoute.TODAY
+        assert decision.route is SliceRoute.PLANAR
     assert decision.reason is None
 
 
@@ -630,13 +630,13 @@ def test_a_projection_names_its_axis_as_the_normal():
     assert decision.normal_world_axis == 0
 
 
-def test_a_3d_view_stays_on_todays_path():
+def test_a_3d_view_stays_on_the_planar_path():
     classification = classify_view(_spatial("general"), (0, 1, 2))
-    assert choose_slice_route(classification).route is SliceRoute.TODAY
+    assert choose_slice_route(classification).route is SliceRoute.PLANAR
 
 
 def test_any_projection_takes_the_brick_route():
-    """G0-2: aligned or tilted."""
+    """Aligned or tilted."""
     for name in ("id", "rot_zx"):
         transform = _spatial(name)
         classification = classify_view(transform, (1, 2))
@@ -645,7 +645,7 @@ def test_any_projection_takes_the_brick_route():
 
 
 def test_a_slice_through_four_data_axes_draws_nothing():
-    """O19: world t reads data x, world z is tilted through x: ``|V| = 4``."""
+    """World t reads data x, world z is tilted through x: ``|V| = 4``."""
     linear = np.eye(4)
     linear[0, 3] = 0.2
     linear[1:, 1:] = _rot(0, 2, 30.0)
@@ -806,7 +806,7 @@ def test_a_slab_footprint_contains_the_slice_and_is_the_slab_cut():
 
 
 def test_the_thickness_of_a_plain_slice_does_not_widen_it():
-    """Without a projection the plane is drawn, whatever the slab (4.2)."""
+    """Without a projection the plane is drawn, whatever the slab."""
     world = _world("zyx")
     transform = _affine(SPATIAL["rot_zx"], TRANSLATION_3D, "zyx", world)
     classification = classify_view(transform, (1, 2))
@@ -819,7 +819,7 @@ def test_the_thickness_of_a_plain_slice_does_not_widen_it():
 
 
 def test_a_bound_on_a_displayed_axis_cuts_the_footprint():
-    """R3: a region may bound a displayed axis; the polygon honours it."""
+    """A region may bound a displayed axis; the polygon honours it."""
     world = _world("zyx")
     transform = _affine(np.eye(3), None, "zyx", world)
     selection = _selection(world, (1, 2), [3.0, 0, 0])

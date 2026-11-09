@@ -3,7 +3,6 @@
 The motivating case is a time axis whose frames were not acquired at a
 regular interval, but nothing here mentions time: an irregular ``z`` step or
 any other monotonic, unevenly sampled axis uses the same class unchanged.
-See ``plans/nonuniform_time_axis_transform_design.md``.
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from pydantic import (
-    BaseModel,
     ConfigDict,
     field_serializer,
     model_validator,
@@ -25,6 +23,7 @@ from transformnd.transforms.bijection import Bijection
 from transformnd.transforms.grid import GridInterpolation
 from typing_extensions import Self
 
+from cellier._model import CellierModel
 from cellier._rounding import round_half_up_clamped
 from cellier.transform._base import BaseTransform
 from cellier.transform._geometry import AxisAlignedBoundingBox
@@ -40,7 +39,7 @@ if TYPE_CHECKING:
 __all__ = ["AxisCoordinates", "NonUniformAxisTransform"]
 
 
-class AxisCoordinates(BaseModel):
+class AxisCoordinates(CellierModel):
     """The sample positions of one irregularly-spaced axis.
 
     ``values`` are the world positions of the sample **centres** -- one per
@@ -194,12 +193,11 @@ class NonUniformAxisTransform(BaseTransform):
     truncates an integer input array.
 
     **Out of range does not clamp.**  Outside the axis's span the result is
-    ``nan`` -- there is no preimage, and a store has no data there.  Earlier
-    revisions of the design clamped to the edge sample, which meant an
-    acquisition ending at 9 s re-showed its 9 s frame at 10, 11 and 12 s as
-    though it were data.  ``nan`` rather than an exception because a call
-    maps a whole array and some of its points may be in range while others
-    are not.
+    ``nan`` -- there is no preimage, and a store has no data there.
+    Clamping to the edge sample would make an acquisition ending at 9 s
+    re-show its 9 s frame at 10, 11 and 12 s as though it were data.
+    ``nan`` rather than an exception because a call maps a whole array and
+    some of its points may be in range while others are not.
 
     **Point and interval queries differ deliberately.**
     :meth:`map_coordinates` / :meth:`imap_coordinates` are point queries and

@@ -1,6 +1,6 @@
-"""``BaseVisual.transform`` is a v2 ``data -> world`` transform (Phase 3).
+"""``BaseVisual.transform`` is a ``data -> world`` transform.
 
-D18 forbids a coordinate-system-less identity, so the model field has no
+A transform always names both coordinate systems, so the model field has no
 default: a visual built before it reaches a scene does not yet know which
 world it is going into.  ``CellierController.add_visual`` decides, and these
 tests pin what it decides.
@@ -26,7 +26,7 @@ from tests._v2 import bound, scale_and_translation, systems
 
 
 def _appearance():
-    return InMemoryImageAppearance(color_map="gray", clim=(0.0, 1.0))
+    return InMemoryImageAppearance()
 
 
 def _controller_and_scene(axes=None):
@@ -66,8 +66,11 @@ def test_add_visual_builds_the_identity_between_the_two_systems():
 
 
 def test_a_sub_rank_dataset_is_broadcast_over_the_leading_world_axes():
-    """Design 3.8 / D25: "exists at every T" is not the same claim as "sits at
-    T = 0", and a zero row alone cannot tell them apart."""
+    """A missing axis is broadcast, not pinned at zero.
+
+    "Exists at every T" is not the same claim as "sits at T = 0", and a zero
+    row alone cannot tell them apart.
+    """
     data, _ = systems(3, ("z", "y", "x"))
     _, world = systems(4, ("t", "z", "y", "x"))
     transform = default_data_to_world(data, world)
@@ -91,10 +94,8 @@ def test_a_wider_dataset_projects_its_leading_axes_away():
 # Naming the endpoints of a bare scale and offset
 # ---------------------------------------------------------------------------
 #
-# ``transform_from_v1`` did this for a v1 matrix and went with v1 in Phase 8.
-# What is left is the case that was never a migration affordance: a store that
-# states its geometry as raw numbers -- a geff file's per-axis scale and
-# offset (D23) -- and cannot name the scene's world itself.
+# A store that states its geometry as raw numbers -- a geff file's per-axis
+# scale and offset -- and cannot name the scene's world itself.
 
 
 def test_a_scale_and_offset_gets_its_endpoints_named():
@@ -115,7 +116,7 @@ def test_a_scale_of_the_wrong_rank_is_refused_with_a_reason():
 
 
 def test_a_transform_built_against_other_systems_is_refused():
-    """A v2 transform names its endpoints, so a foreign one describes a
+    """A transform names its endpoints, so a foreign one describes a
     different space -- and composing it would silently join two worlds."""
     controller, scene = _controller_and_scene()
     store = ImageMemoryStore(data=np.zeros((4, 5, 6), dtype=np.float32))
@@ -143,9 +144,8 @@ def test_a_transform_built_against_the_right_systems_is_kept():
 
 
 # ---------------------------------------------------------------------------
-# The shader helpers, redefined for a non-square transform (P10 / F0.6).
-# The rotation guard and its three tests went with full affine design v2,
-# Phase 4: the brick shaders take any affine (K3, K5).
+# The shader helpers, redefined for a non-square transform.  The brick
+# shaders take any affine.
 # ---------------------------------------------------------------------------
 
 

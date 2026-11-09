@@ -58,8 +58,8 @@ def test_build_tile_grids_isotropic_centres(base_layout, level_shapes):
     arr = grids[0]["arr"]
     centres = grids[0]["centres"]
     gy, gx = arr[:, 1], arr[:, 2]
-    # x <- W (gx), y <- H (gy).  Centre convention (plan v2, D1): tile g
-    # covers level-0 voxels [8g, 8g + 8), centred on (g + 0.5) * 8 - 0.5.
+    # x <- W (gx), y <- H (gy).  Centre convention: tile g covers level-0
+    # voxels [8g, 8g + 8), centred on (g + 0.5) * 8 - 0.5.
     np.testing.assert_allclose(centres[:, 0], (gx + 0.5) * 8 - 0.5)
     np.testing.assert_allclose(centres[:, 1], (gy + 0.5) * 8 - 0.5)
 

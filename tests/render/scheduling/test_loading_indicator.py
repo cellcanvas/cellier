@@ -1,4 +1,4 @@
-"""The loading indicators on both toolkits (design v3 5.13, Phase 6).
+"""The loading indicators on both toolkits.
 
 Lives with the scheduler tests because the interesting cases need a real
 load: the indicator is fed by ``ResliceProgressEvent`` from the controller.

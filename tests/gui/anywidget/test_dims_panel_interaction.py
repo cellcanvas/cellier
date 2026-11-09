@@ -1,10 +1,10 @@
-"""The anywidget dims panel's press and release messages (tracker design 4.8).
+"""The anywidget dims panel's press and release messages.
 
 The browser sends ``{"type": "interaction", "phase": "begin"}`` on a slider's
 ``pointerdown`` and ``{"type": "interaction", "phase": "end",
 "slice_indices": {...}}`` on its release.  The end **carries the final
-position**: a custom message can overtake the traitlet sync sent before it
-(Phase 0 D2), so Python applies the position itself before ending the scrub.
+position**: a custom message can overtake the traitlet sync sent before it,
+so Python applies the position itself before ending the scrub.
 
 The browser side is stood in for the way ``tests/v2/test_anywidget.py`` does
 it: a trait assignment is a model sync, and ``_handle_custom_msg`` is a

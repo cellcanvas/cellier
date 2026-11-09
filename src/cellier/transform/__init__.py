@@ -5,11 +5,6 @@ than carrying only a matrix.  That is what lets the viewer refuse one built
 against a look-alike pair of spaces, what makes a pyramid's per-level maps
 compose without a downsampling assumption, and what a region needs in order
 to be pulled back through anything at all.
-
-Built alongside an earlier, unnamed transform layer under this same path --
-the two were deliberately independent, neither importing from the other (D1)
--- and took the name over when that layer was retired in Phase 8 of the
-integration.
 """
 
 from cellier.transform._affine import AffineTransform

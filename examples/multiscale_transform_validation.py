@@ -27,9 +27,10 @@ import zarr
 from qtpy import QtWidgets
 from skimage.measure import label
 
-from cellier.convenience import Viewer, axis_values_from_viewer, launch, spatial_axes
+from cellier.convenience import Viewer, axis_values_from_viewer, launch
 from cellier.convenience.gui import build_canvas_widget
 from cellier.data import OMEZarrImageDataStore, OMEZarrLabelDataStore
+from cellier.scene import spatial_axes
 from cellier.transform import AffineTransform
 from cellier.visuals import (
     MultiscaleImageAppearance,

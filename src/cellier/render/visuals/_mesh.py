@@ -1,9 +1,8 @@
 """The render-layer mesh visual: level children loaded by the chunk scheduler.
 
-``plans/mesh_refactor_v3.md`` 5.3 and 5.8.  ``GFXMeshVisual`` loads through
-``ChunkScheduler`` (``chunked = True``): a plan is a
-:class:`~cellier.render.scheduling.DesiredSet` of whole levels, the read runs
-in an executor (``MeshMemoryStore.get_data``), and
+``GFXMeshVisual`` loads through ``ChunkScheduler`` (``chunked = True``): a
+plan is a :class:`~cellier.render.scheduling.DesiredSet` of whole levels, the
+read runs in an executor (``MeshMemoryStore.get_data``), and
 :class:`~cellier.render._level_residency.LevelResidency` decides what is
 uploaded and what may be drawn.
 
@@ -157,8 +156,8 @@ def _placeholder_geometry(corner: np.ndarray) -> gfx.Geometry:
     """A degenerate triangle at *corner*: what a level that holds nothing has.
 
     pygfx's scene bounding box counts hidden nodes, so the placeholder sits
-    inside the store's extent (M5) and not at the origin, where it would
-    stretch a camera fit.
+    inside the store's extent and not at the origin, where it would stretch
+    a camera fit.
     """
     return gfx.Geometry(
         positions=np.tile(np.asarray(corner, dtype=np.float32), (3, 1)),
@@ -332,8 +331,8 @@ class GFXMeshVisual(GeometryClippingMixin):
 
     ``get_node_for_dims`` returns the node for the current dimensionality,
     so the scene manager swaps them on a 2D/3D toggle.  The user's
-    visibility is on the two nodes; the display rule (plan L3) sets the
-    level children's.
+    visibility is on the two nodes; the display rule (a level is drawable
+    when it holds the key of the newest plan) sets the level children's.
 
     Parameters
     ----------
@@ -380,14 +379,14 @@ class GFXMeshVisual(GeometryClippingMixin):
         self.render_modes: set[str] = render_modes
         self._transform: BaseTransform | None = effective_transform(transform)
         # A tilted section's kernel columns and the origin of its world-frame
-        # upload (full affine design v2, Phase 6); None otherwise.
+        # upload; None otherwise.
         self._section_columns: tuple[int, int, int] | None = None
         self._world_origin: np.ndarray | None = None
         # The systems this visual's geometry is placed with, pushed by
         # the controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
         # Where the collapsed axes sit in **data** units, from the last
-        # planned request.  The node matrix reads it (design 3.9).
+        # planned request.  The node matrix reads it.
         self._last_data_positions: dict[int, float] = {}
         self._last_displayed_axes: tuple[int, ...] | None = None
         self._axis_extents: tuple[tuple[float, float], ...] | None = (
@@ -412,7 +411,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         self._material_outline.pick_write = visual_model.pick_write
         # The declared color_mode, honoured verbatim.  It is a caller
         # declaration of where RGB comes from and is never inferred from
-        # the data nor written back at commit time (D20).
+        # the data nor written back at commit time.
         self._color_mode: str = appearance.color_mode
         self._render_order = appearance.render_order
 
@@ -567,7 +566,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         self._refresh_aabb()
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place the node with the composition of design 3.9.
+        """Place the node with the node-matrix composition.
 
         ``visual -> data -> world -> rendered``.  A no-op until the
         controller supplies the systems.
@@ -581,8 +580,8 @@ class GFXMeshVisual(GeometryClippingMixin):
         if node is self.node_2d and (
             self._world_origin is not None or world_frame_active(self._spaces)
         ):
-            # A tilted section is placed in the world frame (Phase 6): in such
-            # a view no node matrix maps the data to the screen.
+            # A tilted section is placed in the world frame: in such a view no
+            # node matrix maps the data to the screen.
             origin = self._world_origin
             set_node_matrix(
                 node, translation_matrix(origin if origin is not None else (0, 0, 0))
@@ -595,7 +594,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         self._apply_clipping_planes()
 
     def _clip_targets(self):
-        """Every material, at the slice the node is drawn at (design 4.6)."""
+        """Every material, at the slice the node is drawn at."""
         constants = self._collapsed_origin() if self._spaces is not None else {}
         yield (
             (
@@ -607,7 +606,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         )
 
     def _data_region(self, selection):
-        """The selection in this visual's data coordinates (design 3.12)."""
+        """The selection in this visual's data coordinates."""
         if selection is None or self._spaces is None or self._transform is None:
             return None
         return geometry_data_region(
@@ -615,7 +614,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         )
 
     def _collapsed_origin(self) -> dict[int, float]:
-        """Where the dropped data axes sit, for the node matrix (design 3.9).
+        """Where the dropped data axes sit, for the node matrix.
 
         Taken from the selection where there is one -- the plane's depth
         matters to a 3-D rendered system -- and the origin otherwise.  For a
@@ -629,7 +628,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         return dict.fromkeys(self._spaces.collapsed_axes, 0.0)
 
     # ------------------------------------------------------------------
-    # Planning (L1, L4)
+    # Planning
     # ------------------------------------------------------------------
 
     def _build_request(self, dims_state: DimsState, selection=None) -> MeshSliceRequest:
@@ -641,9 +640,10 @@ class GFXMeshVisual(GeometryClippingMixin):
         (``geometry_data_region``), and faces are kept whole.
 
         In a 2D view the constraint along a spatial, continuous axis is not
-        a filter: it is the plane the mesh is cut with (X1,
-        ``geometry_section_region``).  Cut mode cuts at the slice position,
-        whatever the thickness; slab mode cuts at the slab's two faces.
+        a filter: it is the plane the mesh is cut with
+        (``geometry_section_region``).  Cut mode cuts at the slice
+        position, whatever the thickness; slab mode cuts at the slab's two
+        faces.
         """
         if selection is None or self._spaces is None or self._transform is None:
             raise RuntimeError(
@@ -652,7 +652,7 @@ class GFXMeshVisual(GeometryClippingMixin):
                 "selection."
             )
         section = None
-        # A view that tilts the slice (OBLIQUE, design v2 Phase 6) cuts the
+        # A view that tilts the slice (OBLIQUE) cuts the
         # mesh with a tilted plane and places the cut in the world frame.
         oblique = world_frame_active(self._spaces)
         if len(self._spaces.retained_axes) == 2 or oblique:
@@ -673,9 +673,9 @@ class GFXMeshVisual(GeometryClippingMixin):
         self._last_data_positions = data_slice_positions(
             selection.region, self._transform, self._spaces.world
         )
-        # The clip line follows the slice (clipping planes design 4.1).  A
-        # slab section is flattened, so the read clips it (design 5.2); a
-        # cut section and a 3D mesh are clipped by the shader.
+        # The clip line follows the slice.  A slab section is flattened,
+        # so the read clips it; a cut section and a 3D mesh are clipped by
+        # the shader.
         self._slab_section = section is not None and section.mode == "slab"
         clip_planes = self._section_clip_planes(self._begin_request_clipping(), section)
         shared_id = uuid4()
@@ -713,7 +713,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         """Whether two request keys differ in their clipping planes alone.
 
         Then the held result is in the right place and only behind, so it
-        stays on screen until the new one is uploaded (D31).  Any other
+        stays on screen until the new one is uploaded.  Any other
         difference (the slice, the section, the axes) hides it, as before.
         """
         return held[:-1] == planned[:-1] and held[-1] != planned[-1]
@@ -753,7 +753,7 @@ class GFXMeshVisual(GeometryClippingMixin):
 
     @staticmethod
     def request_key(request: MeshSliceRequest) -> Hashable:
-        """Everything a read depends on except the store's contents (L1).
+        """Everything a read depends on except the store's contents.
 
         ``(retained axes, filter region, section key)``; the level is added
         by ``LevelResidency``.  A transform change, a displayed-axes change
@@ -817,7 +817,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         return {self._residency.cache_id: self._residency}
 
     # ------------------------------------------------------------------
-    # Upload and display (L2, L3)
+    # Upload and display
     # ------------------------------------------------------------------
 
     def _placeholder_corner(self) -> np.ndarray:
@@ -854,7 +854,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         """Refuse a colour layout the appearance does not declare.
 
         ``color_mode`` is written from the *appearance*, never from the
-        data (D20).  Two ways it can disagree with the store, both raised
+        data.  Two ways it can disagree with the store, both raised
         rather than silently corrected:
 
         - declaring ``"vertex"`` or ``"face"`` when the store carries no
@@ -906,14 +906,14 @@ class GFXMeshVisual(GeometryClippingMixin):
         if node_follows_slice(self._spaces) and self._last_displayed_axes is not None:
             # A view the slice moves the mesh in (``SLICE_SHIFT``): one
             # collapsed coordinate per draw, so the node follows the slice
-            # (full affine design v2, 4.3; D4 -- no per-vertex placement).
+            # (no per-vertex placement).
             self._update_node_matrix(self._last_displayed_axes)
         if is_2d:
             self._section_drawn = isinstance(data, MeshSectionData)
             self._sync_2d_color_modes()
 
     def _placed_section(self, data: MeshData | MeshSectionData):
-        """A section cut by a tilted plane, in the world frame (Phase 6).
+        """A section cut by a tilted plane, in the world frame.
 
         The read keeps each vertex's section-axis coordinate; with the two
         output columns and the slice positions of every other collapsed axis
@@ -985,7 +985,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         self._levels[level].release(self._placeholder_corner())
 
     def _apply_display(self, prefer_coarse: bool = False) -> tuple[int, int] | None:
-        """Apply the display rule (L3): draw one drawable level, or nothing."""
+        """Apply the display rule: draw one drawable level, or nothing."""
         level = self._residency.level_to_draw(prefer_coarse=prefer_coarse)
         for nodes in self._levels.values():
             nodes.show(nodes.level == level)
@@ -1040,11 +1040,11 @@ class GFXMeshVisual(GeometryClippingMixin):
     def _prefers_coarse(self, camera_moving: bool, dims_scrubbing: bool) -> bool:
         """Whether the coarse level is preferred now; a single level has none.
 
-        During a dims scrub with ``lod.dims_drag_draw == "coarse"`` (D23),
-        and, in a 3D view, while this canvas's camera moves with
-        ``lod.camera_motion == "coarse"`` (I2).  A 2D view never switches
-        level on camera motion.  It is a preference: when the coarse level
-        is not drawable the fine one is drawn, and the reverse.
+        During a dims scrub with ``lod.dims_drag_draw == "coarse"``, and,
+        in a 3D view, while this canvas's camera moves with
+        ``lod.camera_motion == "coarse"``.  A 2D view never switches level
+        on camera motion.  It is a preference: when the coarse level is
+        not drawable the fine one is drawn, and the reverse.
         """
         if self._lod is None or len(self._levels) < 2:
             return False
@@ -1147,7 +1147,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         """Apply appearance field changes to live materials.
 
         ``color_mode`` is applied straight to both materials; nothing at
-        upload time overwrites it (D20).
+        upload time overwrites it.
         """
         name = event.field_name
         val = event.new_value
@@ -1161,7 +1161,7 @@ class GFXMeshVisual(GeometryClippingMixin):
                 mat.opacity = val
             elif name == "side":
                 mat.side = val
-        # The outline shares the mesh's appearance (D3).
+        # The outline shares the mesh's appearance.
         if name == "color":
             self._material_outline.color = val
         elif name == "opacity":
@@ -1230,7 +1230,7 @@ class GFXMeshVisual(GeometryClippingMixin):
         self._material_outline.pick_write = event.pick_write
 
     # ------------------------------------------------------------------
-    # Bounds (M5)
+    # Bounds
     # ------------------------------------------------------------------
 
     def set_axis_extents(

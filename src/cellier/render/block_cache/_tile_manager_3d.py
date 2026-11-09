@@ -1,11 +1,11 @@
 """Brick keys, slots, and the 3D atlas's slot geometry.
 
 Which brick occupies which slot, what is evicted and what is drawn is the
-chunk scheduler's business (``cellier.render.scheduling``, design
-``plans/progressive_loading_design_v3.md``); the image residency adapter
-(``_image_residency``) writes bricks and paints the LUT.  What is left here
-is the part both need: the key and slot records, the flat-slot -> cache grid
-position rule, and ``tilemap``, a read-only view of the bricks the LUT draws.
+chunk scheduler's business (``cellier.render.scheduling``); the image
+residency adapter (``_image_residency``) writes bricks and paints the
+LUT. What is left here is the part both need: the key and slot records,
+the flat-slot -> cache grid position rule, and ``tilemap``, a read-only
+view of the bricks the LUT draws.
 """
 
 from __future__ import annotations
@@ -62,15 +62,12 @@ class TileSlot:
         Flat slot index (0 = reserved, never used for data).
     grid_pos : tuple[int, int, int]
         ``(sz, sy, sx)`` in the cache grid.
-    timestamp : int
-        Unused; kept for callers that construct slots by keyword.
     brick_max : float
         Maximum value in the brick, for the MIP early-out.
     """
 
     index: int
     grid_pos: tuple[int, int, int]
-    timestamp: int = 0
     brick_max: float = 0.0
 
 

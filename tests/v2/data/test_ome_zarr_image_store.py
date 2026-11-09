@@ -182,7 +182,7 @@ def test_ndim(ome_zarr_5d: str) -> None:
 
 
 def test_level_geometry_level0_is_the_identity(ome_zarr_5d: str) -> None:
-    """Phase 8: the store states the pyramid as numbers.  What makes them a
+    """The store states the pyramid as numbers.  What makes them a
     transform is the pair of level coordinate systems, which
     ``install_level_transforms`` attaches once the axes are known."""
     store = OMEZarrImageDataStore.from_path(ome_zarr_5d)

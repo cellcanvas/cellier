@@ -18,7 +18,7 @@ from cellier.render._clipping import (
     drawn_materials,
 )
 from cellier.render._frustum import (
-    bricks_in_frustum_arr,
+    bricks_in_frustum,
     frustum_planes_from_corners,
 )
 from cellier.render._gpu_lifetime import destroy_textures, weak_callback
@@ -27,10 +27,10 @@ from cellier.render._level_of_detail import (
     build_level_grids,
     cull_masks,
     orthographic_voxels_per_pixel,
+    select_forced_level,
     select_level_orthographic,
-    select_levels_arr_forced,
     select_levels_from_cache,
-    sort_arr_by_distance,
+    sort_bricks_by_distance,
 )
 from cellier.render._level_of_detail_2d import (
     build_tile_grids_2d,
@@ -49,13 +49,16 @@ from cellier.render._plane_planning import (
 from cellier.render._render_planes import RenderPlanesMixin, SlabSettings
 from cellier.render._spaces import (
     RenderSpaces,
+    affine_for_node,
     axis_correspondence,
     cellier_to_pygfx_order,
     node_follows_slice,
     node_matrix,
+    node_transform,
     pygfx_to_cellier_order,
     select_axes,
     swap_axes,
+    visual_to_data_transform,
 )
 from cellier.render.block_cache import (
     BlockCache3D,
@@ -92,7 +95,7 @@ from cellier.render.visuals._chunked import (
     log_intermediate_cap_once,
     make_residency_2d,
     make_residency_3d,
-    target_room,
+    max_target_bricks,
     viewport_2d,
     viewport_prism,
 )
@@ -146,10 +149,9 @@ if TYPE_CHECKING:
 import cellier.render.shaders._multiscale_volume_brick as _brick_reg  # noqa: F401
 
 #: How far past a sample position each image path reads, in level-k voxels,
-#: at the default ``ray_steps_per_voxel`` (plan v2, "Padding budgets"): the
-#: brick-rule padding warning subtracts it from the ghost border.  3D: the
-#: gradient probe (+-1.5) outreaches one bisection step (1 at K = 1); 2D:
-#: linear filtering.
+#: at the default ``ray_steps_per_voxel``: the brick-rule padding warning
+#: subtracts it from the ghost border.  3D: the gradient probe (+-1.5)
+#: outreaches one bisection step (1 at K = 1); 2D: linear filtering.
 _IMAGE_SAMPLING_MARGIN_3D = 1.5
 _IMAGE_SAMPLING_MARGIN_2D = 0.5
 
@@ -247,12 +249,9 @@ def _level_scale_and_translation(
     (:func:`_fetch_order`).  Callers that feed these into shader-space
     geometry must reverse the local axis order via ``swap_axes`` first.
 
-    Until v1 was retired the projection was a separate step: the caller built
-    a rank-reduced ``select_axes(fetch_axes)`` transform and this read its
-    whole diagonal.  A v2 transform names its endpoints and cannot be
-    rank-reduced without minting two coordinate systems that describe nothing,
-    so the axis selection happens here instead -- reading the same entries
-    ``select_axes`` would have kept.
+    The axis selection happens here rather than in a rank-reduced transform: a
+    transform names its endpoints and cannot be rank-reduced without minting
+    two coordinate systems that describe nothing.
 
     Parameters
     ----------
@@ -298,13 +297,12 @@ def _norm_to_data_params_for(
     """The 3D node's ``visual -> data`` factors, keyed by data axis.
 
     The 3D node's geometry is a proxy box in **normalized** space, not in
-    voxel indices, which is what ``VisualCoordinateSystem`` names (design 3.11
-    B).  Its transform into data space is what ``compose_world_transform``
-    used to build by hand as ``norm_to_data``: the box ``[-norm/2, +norm/2]``
-    spans the voxel extent ``[-0.5, N - 0.5]``, so the scale is
-    ``dataset_size / norm_size`` and the translation ``0.5 * dataset_size -
-    0.5``.  The ``-0.5`` is the existing centre-at-integer convention,
-    unchanged.
+    voxel indices, which is what ``VisualCoordinateSystem`` names.  Its
+    transform into data space, ``norm_to_data``, follows from the box:
+    the box ``[-norm/2, +norm/2]`` spans the voxel extent
+    ``[-0.5, N - 0.5]``, so the scale is ``dataset_size / norm_size`` and
+    the translation ``0.5 * dataset_size - 0.5``.  The ``-0.5`` is the
+    existing centre-at-integer convention, unchanged.
 
     ``dataset_size`` and ``norm_size`` are in shader ``(x, y, z)`` order while
     the retained axes are ascending data axes, so the two are zipped in
@@ -343,8 +341,8 @@ def _general_displayed_submatrix(
 
     Rows are the displayed world axes in display order; columns are the
     retained data axes ascending (``_displayed_linear_block``); the last
-    column is the translation with every collapsed data axis at zero, which
-    is all the 2D planners read it for (a view and its LOD, not a slice).
+    column is the translation with every collapsed data axis at zero.  The
+    2D planners read only the linear block, for the LOD.
     Float32, as the axis-aligned branch.
     """
     block = _displayed_linear_block(affine, displayed_axes)
@@ -367,22 +365,16 @@ def _displayed_submatrix(
 ) -> np.ndarray:
     """The square displayed-axes block of a ``data -> world`` transform.
 
-    A **bridge**, not an end state.  Two callers are left: the image
-    family's 2-D planner (``_plan_tiles_2d``) and the multiscale labels'
-    own ``_plan_tiles_2d`` (its ``voxel_width`` computation), both of which
-    still do the pre-migration
-    ``select_axes`` + reverse + ``imap_coordinates`` dance that the
-    single-channel *3D* path replaced with one
-    ``rendered_to_level0.map_coordinates`` (F8.1).  Migrating either is
-    Phase 5 work that was never done and is not this phase's to do, so the
-    arithmetic is preserved exactly -- **float32 included**, which is what a
-    v1 transform stored.
+    The 2D planners (the image slot's and the multiscale labels' ``_view_2d``)
+    read its linear block for the LOD's voxels per world unit
+    (``_world_to_voxel_scale_2d``).  The camera and the viewport are pulled
+    back by ``_to_level0_displayed`` instead, which carries the slice
+    position; the translation column here holds the collapsed axes at zero.
+    The block is narrowed to **float32**, as those callers expect.
 
-    The numbers are identical to what ``select_axes(displayed_axes)``
-    produced on an equal-rank transform: row ``i`` is world axis
-    ``displayed_axes[i]``, column ``j`` is the data axis that feeds world axis
-    ``displayed_axes[j]``.  Unlike ``select_axes`` it does not read the
-    homogeneous row when the ranks disagree (design 3.8 finding 2) -- it
+    Row ``i`` is world axis ``displayed_axes[i]``, column ``j`` is the data
+    axis that feeds world axis ``displayed_axes[j]``.  Unlike a plain sub-block
+    read it does not read the homogeneous row when the ranks disagree -- it
     raises instead.
 
     Parameters
@@ -403,7 +395,7 @@ def _displayed_submatrix(
     ValueError
         If a displayed world axis has no data axis feeding it.
     """
-    # D7: read the snapped matrix, as the classifier does.
+    # Read the snapped matrix, as the classifier does.
     transform = effective_transform(transform)
     # ``.linear`` / ``.translation`` exist only on ``AffineTransform``; a
     # ``ByDimensionTransform`` (any visual sharing the time-axis leaf) has
@@ -439,34 +431,6 @@ def _displayed_submatrix(
     return matrix.astype(np.float32)
 
 
-def _imap_square(matrix: np.ndarray, coordinates: np.ndarray) -> np.ndarray:
-    """Pull points back through a square homogeneous matrix.
-
-    The inverse half of what a v1 ``AffineTransform`` did, kept for
-    ``_plan_tiles_2d`` alone (see ``_displayed_submatrix``).  The inverse is
-    taken and then narrowed to float32, and the product is formed in float32,
-    because that is what v1 did and this phase changes no numbers.
-
-    Parameters
-    ----------
-    matrix : np.ndarray
-        A square ``(n + 1, n + 1)`` homogeneous matrix.
-    coordinates : np.ndarray
-        ``(m, n)`` points in the matrix's output space.
-
-    Returns
-    -------
-    np.ndarray
-        ``(m, n)`` points in its input space.
-    """
-    ndim = matrix.shape[0] - 1
-    inverse = np.linalg.inv(matrix).astype(np.float32)
-    points = np.atleast_2d(coordinates)
-    if points.shape[1] == ndim:
-        points = np.pad(points, pad_width=((0, 0), (0, 1)), constant_values=1)
-    return np.dot(points, inverse.T)[:, :ndim]
-
-
 def _restricted_affine_for_display(
     transform: AffineTransform, displayed_axes: tuple[int, ...]
 ) -> AffineTransform:
@@ -479,19 +443,17 @@ def _restricted_affine_for_display(
     ``.linear`` off it directly fails for the plain reason that there is no
     matrix to read yet.
 
-    The fix mirrors the one the design doc gives for the GPU node-matrix
-    boundary ("The GPU still gets a matrix"): every data axis this
-    transform does *not* map to a displayed world axis is pinned via
-    ``restrict`` -- the container's job, since it evaluates a fully-fixed
-    non-affine block to a constant rather than delegating to the block's own
-    ``restrict`` -- and what remains is asked for its affine form.  The
-    value each axis is pinned to does not matter for the *scale* this is
-    used to compute: an axis that feeds no displayed axis contributes only
-    to translation, so ``0.0`` is as good as the real slice position.
+    The approach is the node matrix's, where the GPU still needs a matrix:
+    every data axis this transform does *not* map to a displayed world axis
+    is pinned via ``restrict`` -- the container's job, since it evaluates a
+    fully-fixed non-affine block to a constant rather than delegating to the
+    block's own ``restrict`` -- and what remains is asked for its affine
+    form.  The value each axis is pinned to does not matter for the *scale*
+    this is used to compute: an axis that feeds no displayed axis
+    contributes only to translation, so ``0.0`` is as good as the real slice
+    position.
 
-    A transform that is already affine is returned unchanged -- the only
-    case every existing call site was written against, so this is a pure
-    widening with no behaviour change for it.
+    A transform that is already affine is returned unchanged.
 
     Parameters
     ----------
@@ -512,10 +474,9 @@ def _restricted_affine_for_display(
     ------
     NonAffineTransformError
         If a non-affine block reaches a *displayed* axis.  There is no
-        matrix that expresses that, which is the honest outcome (design
-        doc, "The GPU still gets a matrix").
+        matrix that expresses that, which is the honest outcome.
     """
-    # D7: read the snapped matrix, as the classifier does.
+    # Read the snapped matrix, as the classifier does.
     transform = effective_transform(transform)
     from cellier.transform import AffineTransform as _AffineTransform
     from cellier.transform import NonAffineTransformError
@@ -553,18 +514,18 @@ def _is_axis_aligned_view(
 ) -> bool:
     """Whether *transform* is ``AXIS_ALIGNED`` in the view of *displayed_axes*.
 
-    The branch every placement helper here takes (design v2, I1): the
-    axis-aligned branch runs the expression it always ran, bit for bit, and
-    only the other alignments take the general one.  An unplaced visual
-    (``None``) counts as axis-aligned.
+    The branch every placement helper here takes: the axis-aligned branch
+    runs the expression it always ran, bit for bit, and only the other
+    alignments take the general one.  An unplaced visual (``None``) counts
+    as axis-aligned.
     """
     if transform is None:
         return True
     try:
         classification = classify_view(transform, displayed_axes)
     except ValueError:
-        # Displayed axes the transform has no rows for: today's branch
-        # raises the explanation callers expect.
+        # Displayed axes the transform has no rows for: the axis-aligned
+        # branch raises the explanation callers expect.
         return True
     if classification.alignment is not SliceAlignment.AXIS_ALIGNED:
         return False
@@ -585,9 +546,9 @@ def _displayed_linear_block(
     """``L[D, R]`` of the effective transform, as one block.
 
     Rows are the displayed **world** axes in display order; columns are the
-    retained data axes (design v2 3.1) ascending, which is the order a
-    fetched array carries them (``_fetch_order``).  D7's snapped entries are
-    zero.  Defined for every alignment, unlike the bijection
+    retained data axes ascending, which is the order a fetched array carries
+    them (``_fetch_order``).  Near-zero couplings are snapped to zero.
+    Defined for every alignment, unlike the bijection
     ``axis_correspondence`` answers.
 
     Parameters
@@ -607,7 +568,7 @@ def _displayed_linear_block(
     NonAffineTransformError
         If a non-affine block reaches a displayed axis.
     """
-    # D7: read the snapped matrix, as the classifier does.
+    # Read the snapped matrix, as the classifier does.
     transform = effective_transform(transform)
     from cellier.transform import AffineTransform as _AffineTransform
     from cellier.transform import NonAffineTransformError
@@ -641,7 +602,7 @@ def _world_to_voxel_scale_2d(sub_2d: np.ndarray, axis_aligned: bool) -> float:
     always was.  Otherwise the diagonal is meaningless (a rotation by
     ``theta`` reads ``cos(theta)``), and the orientation-free equivalent is
     ``|det|^(-1/n)`` -- the geometric mean of the singular values, which
-    equals the diagonal product for a scaled permutation (design v2 K10).
+    equals the diagonal product for a scaled permutation.
 
     Parameters
     ----------
@@ -696,7 +657,7 @@ def _norm_size_from_transform(
         Normalised physical size in shader order, with the longest axis
         equal to 1.0.
     """
-    # D7: read the snapped matrix, as the classifier does.
+    # Read the snapped matrix, as the classifier does.
     transform = effective_transform(transform)
     if len(displayed_axes) != 3:
         raise ValueError(
@@ -705,10 +666,9 @@ def _norm_size_from_transform(
         )
     # The scale of one displayed world axis is the magnitude of the single
     # entry its data axis contributes.  On a square diagonal transform that is
-    # the column norm the old ``select_axes`` path computed, so the numbers are
-    # unchanged; unlike that path it is well defined when the two ranks differ
-    # (P10 / F0.6), because it never asks for a square sub-block that does not
-    # exist.
+    # the column norm of the displayed sub-block; unlike a sub-block it is well
+    # defined when the two ranks differ, because it never asks for a square
+    # sub-block that does not exist.
     if transform is None:
         # Unplaced: every axis is at unit scale, which is what a placed
         # identity would have given.
@@ -717,8 +677,8 @@ def _norm_size_from_transform(
         # Off the axis-aligned branch there is no single entry per axis.  A
         # retained data axis's world length per voxel is its column norm,
         # which makes every rotation times a scale a similarity of the proxy
-        # box (design v2 K9).  Columns come in fetch order (ascending data
-        # axes), the order ``dataset_size_xyz`` reverses.
+        # box.  Columns come in fetch order (ascending data axes), the order
+        # ``dataset_size_xyz`` reverses.
         block = _displayed_linear_block(transform, displayed_axes)
         column_norms = np.linalg.norm(block, axis=0)
         return compute_normalized_size(dataset_size_xyz, column_norms[::-1].copy())
@@ -749,12 +709,12 @@ def _general_world_axes_to_data_axes(
     """``_world_axes_to_data_axes`` off the axis-aligned branch.
 
     Under a rotation or shear no data axis pairs with a displayed world axis,
-    only the **set** of retained data axes the view draws on (design v2,
-    3.1), returned ascending -- the fetch order, which is all the callers use
-    it for.  A view that does not draw the visual (an ``OBLIQUE`` raster
-    view, whose retained set is too small) still sizes a placeholder
-    geometry from here, so it gets the displayed rows' heaviest data axes
-    instead; nothing is sliced into it.
+    only the **set** of retained data axes the view draws on, returned
+    ascending -- the fetch order, which is all the callers use it for.  A
+    view that does not draw the visual (an ``OBLIQUE`` raster view, whose
+    retained set is too small) still sizes a placeholder geometry from here,
+    so it gets the displayed rows' heaviest data axes instead; nothing is
+    sliced into it.
     """
     coupling = transform.axis_coupling()
     missing = [axis for axis in displayed_axes if not coupling[axis].any()]
@@ -821,7 +781,7 @@ def _world_axes_to_data_axes(
         multiscale visual cannot render along a broadcast axis, since there
         is no data varying along it to draw.
     """
-    # D7: read the snapped matrix, as the classifier does.
+    # Read the snapped matrix, as the classifier does.
     transform = effective_transform(transform)
     if transform is None:
         return displayed_axes
@@ -840,7 +800,7 @@ def _world_axes_to_data_axes(
 
 
 # ---------------------------------------------------------------------------
-# VolumeGeometry
+# MultiscaleBrickLayout3D
 # ---------------------------------------------------------------------------
 
 
@@ -865,8 +825,7 @@ class MultiscaleBrickLayout3D:
     fetch_axes : tuple[int, ...]
         The ascending data axes this grid is built over, which is the order
         the fetched array carries (:func:`_fetch_order`).  The transforms are
-        projected onto them here; before v1 was retired the caller projected
-        them with ``select_axes`` and passed a rank-reduced list.
+        projected onto them here.
     """
 
     def __init__(
@@ -936,10 +895,10 @@ class MultiscaleBrickLayout3D:
         self._rebuild(level_shapes)
 
 
-class ImageGeometry3D:
+class MultiscaleTileLayout2D:
     """Pre-built metadata cache for a multiscale 2-D image.
 
-    Analogous to ``VolumeGeometry`` but for 2D tile grids.
+    Analogous to ``MultiscaleBrickLayout3D`` but for 2D tile grids.
 
     Parameters
     ----------
@@ -955,8 +914,7 @@ class ImageGeometry3D:
         level-0.
     fetch_axes : tuple[int, ...]
         The ascending data axes this grid is built over.  The transforms are
-        projected onto them here; before v1 was retired the caller projected
-        them with ``select_axes`` and passed a rank-reduced list.
+        projected onto them here.
     """
 
     def __init__(
@@ -1059,10 +1017,10 @@ def _geometry_fetch_axes(
 
     Those the displayed world axes map to (:func:`_world_axes_to_data_axes`)
     -- or, when one of them is a world axis the data does not reach, a
-    placeholder: a 2D store seen edge-on is such a view, and draws nothing
-    (oblique 2D design v3, U13), but its geometry is still built.  The
-    placeholder is the data axes the displayed rows read, then the lowest
-    others, as many as there are displayed axes.
+    placeholder: a 2D store seen edge-on is such a view, and draws nothing,
+    but its geometry is still built.  The placeholder is the data axes the
+    displayed rows read, then the lowest others, as many as there are
+    displayed axes.
     """
     try:
         return _fetch_order(_world_axes_to_data_axes(transform, displayed_axes))
@@ -1082,10 +1040,10 @@ def _fetch_order(displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
     whose axes are therefore ascending -- numpy fixes that and nothing
     downstream can negotiate it.  So a brick grid, a level shape projection
     and a per-level transform projection all index the *fetch* order, and the
-    display permutation lives entirely in the node matrix (design 3.14).
+    display permutation lives entirely in the node matrix.
 
-    Before this, the grid was built in display order and a transposed tuple
-    rotated it against its own uploaded array.
+    A grid built in display order would rotate against its own uploaded array
+    under a transposed tuple.
 
     Parameters
     ----------
@@ -1106,7 +1064,7 @@ def _fetch_order(displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
 
 
 class MultiscaleRegionPlanner:
-    """Pulls the selected region back to each pyramid level (design 3.11 A).
+    """Pulls the selected region back to each pyramid level.
 
     Mixed into both multiscale families, which are near-copies of each other
     everywhere else too.
@@ -1114,7 +1072,7 @@ class MultiscaleRegionPlanner:
     The pull-back composes cleanly: level-0 first, through the visual's own
     ``data -> world``, then each level's own transform.  Every step is
     ``imap_region``, which is ``A^T`` on the normals and needs no inverse at
-    all (D39) -- so this replaces ``_build_world_to_level_transforms`` and the
+    all -- so this replaces ``_build_world_to_level_transforms`` and the
     precomputed ``inv_level_k @ inv_visual`` list it held.
 
     The per-level answer now falls out of the per-level transform rather than
@@ -1185,13 +1143,13 @@ class MultiscaleRegionPlanner:
     def _follow_slice(self) -> None:
         """Move the nodes with the slice in a view where the slice moves them.
 
-        ``SLICE_SHIFT`` (full affine design v2, 4.3): the planes this plan
-        draws, per collapsed axis, become the node matrix's collapsed
-        constants (``_node_collapsed_world``), and the nodes are placed again.
+        ``SLICE_SHIFT``: the planes this plan draws, per collapsed axis,
+        become the node matrix's collapsed constants
+        (``_node_collapsed_world``), and the nodes are placed again.
         ``_collapsed_indices`` stays empty -- it is the pick path's, and
         ``pick_collapsed_indices`` answers picks from the plan -- so the two
-        cannot drift apart.  Any other view keeps today's call pattern and
-        its constants at zero.
+        cannot drift apart.  In any other view the nodes are not re-placed
+        per plan and the constants stay at zero.
         """
         if not node_follows_slice(self._spaces):
             if self._node_collapsed_world:
@@ -1206,7 +1164,7 @@ class MultiscaleRegionPlanner:
             self._update_node_matrix(self._last_displayed_axes)
 
     def _node_constants(self) -> dict[int, float]:
-        """The collapsed constants the node matrix holds (design 3.9, v2 4.3)."""
+        """The collapsed constants the node matrix holds."""
         source = (
             self._node_collapsed_world
             if node_follows_slice(self._spaces)
@@ -1299,7 +1257,7 @@ class MultiscaleRegionPlanner:
     def _level_slice_selection(
         self, level_index: int, fill: dict[int, int] | None = None
     ) -> tuple[int | tuple[int, int] | None, ...]:
-        """The collapsed-axis selection level *level_index* fetches (design 5.1).
+        """The collapsed-axis selection level *level_index* fetches.
 
         What a brick key's slice id interns: the plane or slab the fetch
         reads on each collapsed axis at this level, ``None`` on the displayed
@@ -1323,7 +1281,7 @@ class MultiscaleRegionPlanner:
         ------
         RuntimeError
             If the level has no pulled-back region (no selection, or a visual
-            not placed in a world): there is no fallback (R8.3).
+            not placed in a world): there is no fallback.
         """
         box = self._level_box(level_index)
         if box is None:
@@ -1342,7 +1300,7 @@ class MultiscaleRegionPlanner:
             selection[axis] = value
         return tuple(selection)
 
-    # ── Clipping planes in the plan (clipping planes design 5.1) ─────────
+    # ── Clipping planes in the plan ──────────────────────────────────────
 
     #: Set by a composite image's wrapper: the channel this planner draws.
     _clip_channel: tuple[int, float] | None = None
@@ -1353,7 +1311,7 @@ class MultiscaleRegionPlanner:
         In level-0 data coordinates of the retained axes, pygfx order: the
         space the frustum's rows and the viewport box are in.  The
         collapsed axes are substituted at the planes this plan draws.  The
-        coarse fallback level is not culled with them (D24).
+        coarse fallback level is not culled with them.
         """
         planes = getattr(self, "_clipping_planes", ())
         spaces = self._spaces
@@ -1402,35 +1360,25 @@ class MultiscaleRegionPlanner:
         """Map pygfx-order points to level-0 voxels on the displayed axes.
 
         Returns them back in pygfx order, which is what the LOD thresholds,
-        the distance sort and the frustum culler take.  The pulled-back point
-        also carries the collapsed axes -- the ``t`` the camera is looking
-        at, say -- which are harmless and dropped here.
+        the distance sort and the frustum culler take.
 
-        Design 3.11 C.  The camera and the frustum arrive in **pygfx**
-        coordinates -- ``ReslicingRequest`` says so in a docstring and nowhere
-        in the type system -- so they are reversed once, by name, mapped
-        **forward** to world through ``rendered_to_world`` (always affine, so
-        always a matrix), and pulled **back** to level-0 data through
-        ``imap_coordinates`` rather than a materialized inverse.
-
-        That second step used to be one composed matrix,
-        ``rendered_to_world.then(data_to_world.inverse())``, built from
-        ``data_to_world.inverse()`` directly.  A ``ByDimensionTransform``
-        carrying a ``NonUniformAxisTransform`` block has no such inverse *as
-        a transform* -- the map is invertible, but its inverse is not itself
-        "a world position per data index", which is what that class models
-        (design doc, "the leaf has no inverse *transform*").  Every such
-        transform still answers ``imap_coordinates`` directly, which is the
-        one path guaranteed to exist regardless of what blocks the transform
-        holds, so this composes in two steps instead of one -- exactly the
-        two-step shape ``data_slice_positions`` and every other post-Phase-4
-        consumer already uses, and the class of bug the one-step matrix
-        version reintroduced for any visual sharing the time axis.
+        The points are pulled back through the transform that places the
+        level-0 node (``visual -> data -> world -> rendered``, the one
+        ``node_matrix`` expresses), in float64.  That transform holds the
+        collapsed axes at the planes this plan draws, so in a view where a
+        sliced axis feeds a displayed one -- a shear ``x += s * z``, a drift
+        ``x += v * t`` -- the point lands on the voxel that is drawn under
+        it.  Pulling back through ``data -> world`` alone cannot: a rendered
+        point carries no slice position, so the collapsed world axes would
+        read as zero and the displayed ones would come back off by the shift.
 
         Raises
         ------
         RuntimeError
             If the visual has not been placed in a world.
+        NonAffineTransformError
+            If a non-affine block sits on a displayed axis, which the node
+            cannot be placed with either.
         """
         spaces = self._spaces
         if spaces is None or self._transform is None:
@@ -1440,12 +1388,16 @@ class MultiscaleRegionPlanner:
                 "multiscale visual must be given its coordinate systems "
                 "before it is planned."
             )
+        constants = self._node_constants()
+        placement = node_transform(
+            spaces,
+            affine_for_node(self._transform, constants),
+            visual_to_data_transform(spaces, constants),
+        )
         points = np.asarray(points, dtype=np.float64)
         flat = points.reshape(-1, points.shape[-1])
-        world = spaces.rendered_to_world.map_coordinates(pygfx_to_cellier_order(flat))
-        level0 = self._transform.imap_coordinates(world)
-        displayed = level0[:, list(spaces.retained_axes)]
-        return cellier_to_pygfx_order(displayed).reshape(points.shape)
+        level0 = placement.imap_coordinates(pygfx_to_cellier_order(flat))
+        return cellier_to_pygfx_order(level0).reshape(points.shape)
 
     def _viewport_cells_from_view_bounds(
         self,
@@ -1509,13 +1461,13 @@ class MultiscaleRegionPlanner:
         loading: ProgressiveLoadingConfig,
         render_planes: PlanePlanning | None = None,
     ) -> np.ndarray | None:
-        """The backstop bricks for this view, nearest first (design 5.9).
+        """The backstop bricks for this view, nearest first.
 
         ``None`` before the 3D geometry exists.  Extent ``"view"`` culls to the
         request's frustum whether or not the target is frustum-culled.  With
-        *render_planes* -- a 2D slice node's plane (oblique 2D design v3,
-        D3) -- only the bricks the plane reaches are the backstop; 3D plane
-        mode passes none and keeps the whole level.
+        *render_planes* -- a 2D slice node's plane -- only the bricks the plane
+        reaches are the backstop; 3D plane mode passes none and keeps the whole
+        level.
         """
         geo = self._volume_geometry
         if geo is None:
@@ -1551,7 +1503,7 @@ class MultiscaleRegionPlanner:
         view_max_world: np.ndarray | None,
         loading: ProgressiveLoadingConfig,
     ) -> np.ndarray | None:
-        """The backstop tiles for this view, centre first (design 5.9).
+        """The backstop tiles for this view, centre first.
 
         ``None`` before the 2D geometry exists.  Extent ``"view"`` culls to the
         viewport plus one backstop tile, whether or not the target is
@@ -1604,9 +1556,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
     2D and 3D rendering, and the chunk scheduler's adapter for each atlas
     (``residency_3d`` / ``residency_2d``).  The public
     :class:`GFXMultiscaleImageVisual` plans once and turns the plan into a
-    desired set per drawn channel through its slots (unified image design
-    3.8).  Appearance
-    is applied by that wrapper: a slot builds its nodes with neutral
+    desired set per drawn channel through its slots.  Appearance is
+    applied by that wrapper: a slot builds its nodes with neutral
     defaults.
 
     Parameters
@@ -1632,21 +1583,21 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         Maximum GPU memory for the 2D tile cache texture.
     """
 
-    #: Applies the image slicing rule (design 3.2) itself, so the scene
-    #: manager's data-coverage pre-check does not skip it.
+    #: Applies the image slicing rule itself, so the scene manager's
+    #: data-coverage pre-check does not skip it.
     decides_empty_slices: bool = True
-    #: The 3D node's material class; a MaskedImage's mask side builds its own
-    #: (masked image design 5.1).
+    #: The 3D node's material class; a MaskedImage's mask side builds its
+    #: own.
     _material_3d_class: type = MultiscaleVolumeBrickMaterial
-    #: Whether the 3D atlas paints only the current slice's bricks (masked
-    #: image design 8.5).  An image keeps showing earlier views.
+    #: Whether the 3D atlas paints only the current slice's bricks.  An
+    #: image keeps showing earlier views.
     _current_slice_only: bool = False
 
     def __init__(
         self,
         visual_model_id: UUID,
         volume_geometry: MultiscaleBrickLayout3D | None,
-        image_geometry_2d: ImageGeometry3D | None,
+        image_geometry_2d: MultiscaleTileLayout2D | None,
         render_modes: set[str],
         displayed_axes: tuple[int, ...] | None = None,
         colormap: gfx.TextureMap | None = None,
@@ -1684,16 +1635,16 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             self._ndim = 3
 
         # The data -> world transform.  There is no coordinate-system-less
-        # identity to fall back on (D18); the controller supplies one.
+        # identity to fall back on; the controller supplies one.
         self._transform: AffineTransform | None = effective_transform(transform)
         # The systems this visual's geometry is placed with, pushed by the
         # controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
         # The collapsed voxel index per dropped data axis, refreshed on every
-        # planned request (design 3.9).
+        # planned request.
         self._collapsed_indices: dict[int, float] = {}
         # The node matrix's collapsed constants in a view the slice moves
-        # the data in (full affine design v2, 4.3); see ``_follow_slice``.
+        # the data in; see ``_follow_slice``.
         self._node_collapsed_world: dict[int, float] = {}
         self.render_modes = render_modes
         self._volume_geometry = volume_geometry
@@ -1746,7 +1697,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         self._data_ready_2d: bool = False
         # On the brick route the 3D node is a 2D view's slice node: its box
         # wireframe would draw the whole volume's box projected, so the
-        # visual outlines the slice's footprint instead (design v3, 5.5).
+        # visual outlines the slice's footprint instead.
         self._slice_mode: bool = False
 
         # Cache AABB params so on_aabb_changed can update them.
@@ -1761,8 +1712,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         self._visible: bool = True
         # Kept so a node built lazily on first entry into a mode writes pick.
         self._pick_write: bool = pick_write
-        # True while a sliced axis selects no level-0 sample (design 3.2): the
-        # inner data nodes are hidden and nothing is planned.
+        # True while a sliced axis selects no level-0 sample: the inner data
+        # nodes are hidden and nothing is planned.
         self._slice_empty: bool = False
         # Data axes the image slicing rule skips.  A multichannel wrapper sets
         # its channel axis here, because each of its requests overwrites it.
@@ -1951,8 +1902,8 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         """Rebuild geometry if needed and return the node for *displayed_axes*.
 
         Calls ``self.rebuild_geometry`` internally using the already-stored
-        ``_full_level_shapes``.  The controller no longer needs to supply
-        level shapes or call ``rebuild_geometry`` directly.
+        ``_full_level_shapes``, so the controller supplies no level shapes
+        and never calls ``rebuild_geometry`` directly.
 
         Parameters
         ----------
@@ -2068,7 +2019,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
         geo = self._image_geometry_2d
         if fetch_2d != geo.fetch_axes:
-            self._image_geometry_2d = ImageGeometry3D(
+            self._image_geometry_2d = MultiscaleTileLayout2D(
                 level_shapes=shapes_2d,
                 block_size=geo.block_size,
                 n_levels=len(level_shapes),
@@ -2244,7 +2195,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         )
         shapes_2d_full = [select_axes(s, fetch_axes) for s in self._full_level_shapes]
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
-        self._image_geometry_2d = ImageGeometry3D(
+        self._image_geometry_2d = MultiscaleTileLayout2D(
             level_shapes=shapes_2d,
             block_size=self._block_size,
             n_levels=len(self._full_level_shapes),
@@ -2399,7 +2350,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             self._update_node_matrix(self._last_displayed_axes)
 
     def _collapsed_origin(self) -> dict[int, float]:
-        """Where the dropped data axes sit, for the node matrix (design 3.9)."""
+        """Where the dropped data axes sit, for the node matrix."""
         return self._node_constants()
 
     def _node_matrices(self) -> tuple[object, object]:
@@ -2427,10 +2378,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
         """Recompute and apply the pygfx node matrices for *displayed_axes*.
 
-        Design 3.9's composition, ``visual -> data -> world -> rendered``,
-        replacing ``select_axes`` plus a hand-built ``norm_to_data``.  The
-        reversal now happens once, at the end, instead of in the middle.
-        A no-op until the controller supplies the systems.
+        The composition ``visual -> data -> world -> rendered``,
+        reversed into pygfx order once, at the end. A no-op until the
+        controller supplies the systems.
         """
         self._last_displayed_axes = displayed_axes
         if self._spaces is None or self._transform is None:
@@ -2483,8 +2433,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         render_planes : PlanePlanning or None
             The visual's render planes, in the ``"plane"`` render mode: only
             the bricks they cross are planned, at levels picked by the
-            plane's own rule (plane rendering design 6).  ``None`` plans
-            the volume.
+            plane's own rule.  ``None`` plans the volume.
         max_bricks : int or None
             The room the atlas has for the target.  Read only for an
             orthographic plane plan, which steps to a coarser level rather
@@ -2566,7 +2515,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         keep = cull_masks(geo._level_grids, clip_rows)
 
         if force_level is not None:
-            brick_arr = select_levels_arr_forced(
+            brick_arr = select_forced_level(
                 geo.base_layout, force_level, geo._level_grids, keep=keep
             )
         else:
@@ -2580,7 +2529,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             )
 
         # 2. Distance sort
-        brick_arr = sort_arr_by_distance(
+        brick_arr = sort_bricks_by_distance(
             brick_arr,
             camera_pos_data,
             geo.block_size,
@@ -2597,7 +2546,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                 else np.concatenate([frustum_planes, clip_rows])
             )
         if frustum_planes is not None:
-            brick_arr, _ = bricks_in_frustum_arr(
+            brick_arr, _ = bricks_in_frustum(
                 brick_arr,
                 geo.block_size,
                 frustum_planes,
@@ -2606,15 +2555,15 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             )
 
         # Truncation to the atlas's budget happens in desired_set_3d, after
-        # the backstop has taken its share (design 5.3).
+        # the backstop has taken its share.
         return brick_arr
 
     def _make_cell_ranges(self) -> Any:
-        """A new atlas's per-cell range table; an image keeps none (7.4)."""
+        """A new atlas's per-cell range table; an image keeps none."""
         return None
 
     def _make_surface_map(self) -> Any:
-        """A new atlas's coarse-level copy; an image keeps none (8.3)."""
+        """A new atlas's coarse-level copy; an image keeps none."""
         return None
 
     def residency_3d(self) -> ImageResidency3D | None:
@@ -2677,7 +2626,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         backstop_arr: np.ndarray | None = None,
         loading: ProgressiveLoadingConfig | None = None,
     ) -> DesiredSet | None:
-        """The desired set of this slot's atlas for a planned brick array (5.3).
+        """The desired set of this slot's atlas for a planned brick array.
 
         Parameters
         ----------
@@ -2820,34 +2769,34 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         )
         voxel_width = world_width * world_to_voxel_scale_2d
 
-        camera_pos_2d = _imap_square(
-            sub_2d, camera_pos_world[[1, 0]].reshape(1, -1)
-        ).flatten()[[1, 0]]
+        camera_pos_2d = self._to_level0_displayed(
+            np.asarray(camera_pos_world)[:2].reshape(1, -1)
+        ).flatten()
         camera_pos = np.array(
             [camera_pos_2d[0], camera_pos_2d[1], 0.0], dtype=np.float32
         )
-
-        if view_min_world is not None and view_max_world is not None:
-            cx = float(camera_pos_world[0])
-            cy = float(camera_pos_world[1])
-            half_w = world_width / 2.0
-            half_h = (float(view_max_world[1]) - float(view_min_world[1])) / 2.0
-            corners_world_2d = np.array(
-                [
-                    [cy - half_h, cx - half_w],
-                    [cy - half_h, cx + half_w],
-                    [cy + half_h, cx + half_w],
-                    [cy + half_h, cx - half_w],
-                ],
-                dtype=np.float32,
-            )
-            corners_data_2d = _imap_square(sub_2d, corners_world_2d)[:, [1, 0]]
-            view_min = corners_data_2d.min(axis=0)
-            view_max = corners_data_2d.max(axis=0)
-        else:
-            view_min = None
-            view_max = None
-        return camera_pos, view_min, view_max, voxel_width
+        if view_min_world is None or view_max_world is None:
+            return camera_pos, None, None, voxel_width
+        cx = float(camera_pos_world[0])
+        cy = float(camera_pos_world[1])
+        half_w = world_width / 2.0
+        half_h = (float(view_max_world[1]) - float(view_min_world[1])) / 2.0
+        corners_pygfx = np.array(
+            [
+                [cx - half_w, cy - half_h],
+                [cx + half_w, cy - half_h],
+                [cx + half_w, cy + half_h],
+                [cx - half_w, cy + half_h],
+            ],
+            dtype=np.float64,
+        )
+        corners_data_2d = self._to_level0_displayed(corners_pygfx)
+        return (
+            camera_pos,
+            corners_data_2d.min(axis=0),
+            corners_data_2d.max(axis=0),
+            voxel_width,
+        )
 
     def residency_2d(self) -> ImageResidency2D | None:
         """The chunk scheduler's adapter for this slot's 2D atlas.
@@ -3090,13 +3039,21 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
     def on_data_store_contents_changed(
         self, event: DataStoreContentsChangedEvent
     ) -> None:
-        """Stub — brick eviction deferred to a future phase."""
+        """Do nothing: the controller invalidates the bricks a change touches.
+
+        It calls ``RenderManager.invalidate_store`` right after this event, so
+        the chunk scheduler reads those bricks again.
+        """
         pass
 
     def on_data_store_metadata_changed(
         self, event: DataStoreMetadataChangedEvent
     ) -> None:
-        """Stub — geometry rebuild deferred to a future phase."""
+        """Do nothing: a change of the level shapes does not rebuild the geometry.
+
+        The controller has already invalidated the bricks the store fed and
+        refreshed the visual's extents.
+        """
         pass
 
     def tick(self) -> None:
@@ -3271,7 +3228,7 @@ def _slot_geometries(
     render_modes: set[str],
     displayed_axes: tuple[int, ...],
     block_size: int,
-) -> tuple[MultiscaleBrickLayout3D | None, ImageGeometry3D | None]:
+) -> tuple[MultiscaleBrickLayout3D | None, MultiscaleTileLayout2D | None]:
     """Build a slot's geometry for the mode *displayed_axes* selects.
 
     The other mode's geometry is built lazily on first entry into it.
@@ -3289,7 +3246,7 @@ def _slot_geometries(
             fetch_axes=fetch,
         )
     elif len(displayed_axes) == 2 and "2d" in render_modes:
-        image_geometry_2d = ImageGeometry3D(
+        image_geometry_2d = MultiscaleTileLayout2D(
             level_shapes=[select_axes(s, fetch) for s in level_shapes],
             block_size=block_size,
             n_levels=len(level_shapes),
@@ -3321,11 +3278,10 @@ class _SliceBoundsGroup(gfx.Group):
     """A visual's 3D group, bounded by the slice footprint on the brick route.
 
     In a 2D view on the brick route the 3D node draws one slice of the
-    volume (oblique 2D design v3, 5.5): its bounds are that slice's
-    footprint, not the volume's box, so camera fit and ``look_at_visual``
-    frame what is drawn.  A hidden child still counts toward a group's
-    bounding box, which is why the box is replaced here rather than its
-    children hidden.
+    volume: its bounds are that slice's footprint, not the volume's box,
+    so camera fit and ``look_at_visual`` frame what is drawn.  A hidden
+    child still counts toward a group's bounding box, which is why the
+    box is replaced here rather than its children hidden.
     """
 
     slice_mode: bool = False
@@ -3343,12 +3299,12 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     """Render-layer visual for one ``MultiscaleImageVisual``.
 
     Draws the image single-channel or composited from a pool of
-    :class:`_MultiscaleImageSlot` (unified image design 3.8).  The pool holds
-    one slot when the visual has no ``channel_axis``, so a plain image keeps
-    the whole GPU budget, and ``max_channels`` slots when it does, each with
-    ``budget / pool size``.  Slots are keyed by channel index; single mode on
-    index ``k`` reuses ``k``'s slot, and a full pool reassigns the least
-    recently drawn slot the current mode does not need.
+    :class:`_MultiscaleImageSlot`.  The pool holds one slot when the visual
+    has no ``channel_axis``, so a plain image keeps the whole GPU budget, and
+    ``max_channels`` slots when it does, each with ``budget / pool size``.
+    Slots are keyed by channel index; single mode on index ``k`` reuses
+    ``k``'s slot, and a full pool reassigns the least recently drawn slot the
+    current mode does not need.
 
     Each plan runs LOD selection once, on the first drawn slot, and
     materializes the result per drawn channel.  Every channel's cache keys
@@ -3368,16 +3324,16 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     """
 
     #: Clipped bricks and tiles are not fetched, so a change of planes
-    #: changes the plan (clipping planes design 5.1).
+    #: changes the plan.
     clipping_planes_affect_request: bool = True
 
     #: 3D loads go through the chunk scheduler (``plan`` / ``residencies``).
     chunked: bool = True
-    #: Applies the image slicing rule (design 3.2) itself, so the scene
-    #: manager's data-coverage pre-check does not skip it.
+    #: Applies the image slicing rule itself, so the scene manager's
+    #: data-coverage pre-check does not skip it.
     decides_empty_slices: bool = True
     #: The slot class the pool is built from; a MaskedImage's mask side
-    #: builds its own (masked image design 5.1).
+    #: builds its own.
     _slot_class: type = _MultiscaleImageSlot
 
     def __init__(
@@ -3412,8 +3368,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         # between the pool's slots: the pool is sized by ``max_channels`` so a
         # channel can be added later, but an unused slot's cache would only
         # take budget away from the ones drawing.  A visual with no channel
-        # axis, or none configured, keeps the whole budget -- which is what a
-        # single-channel image had before the pool existed.
+        # axis, or none configured, keeps the whole budget.
         n_budget = max(1, len(visual_model.channels))
         budget_3d = max(1, config.gpu_budget_bytes // n_budget)
         budget_2d = max(1, config.gpu_budget_bytes_2d // n_budget)
@@ -3461,12 +3416,12 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         self._slot_for_key: dict[int, int] = {}
         self._drawn: dict[int, int] = {}
         self._clock = 0
-        # The brick route (oblique 2D design v3, 5.3): the three world axes
-        # a 2D view's slice node draws, the slice normal first, or ``None``
-        # on today's path.  Set by the controller (``set_slice_route``).
+        # The brick route: the three world axes a 2D view's slice node
+        # draws, the slice normal first, or ``None`` on the planar path.
+        # Set by the controller (``set_slice_route``).
         self._slice_axes: tuple[int, int, int] | None = None
-        # The slab projection the slice node draws (design v3, 4.2), or
-        # ``None`` for the plane.  Set by the controller (``set_slab``).
+        # The slab projection the slice node draws, or ``None`` for the
+        # plane.  Set by the controller (``set_slab``).
         self._slab: SlabSettings | None = None
 
         self.node_3d: gfx.Group | None = (
@@ -3474,7 +3429,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         )
         self.node_2d: gfx.Group | None = gfx.Group() if "2d" in render_modes else None
         # The slice footprint's outline, drawn in place of the box wireframe
-        # on the brick route (design v3, 5.5); built on first use.
+        # on the brick route; built on first use.
         self._footprint_line: gfx.Line | None = None
         for slot in self._slots:
             if self.node_3d is not None and slot.node_3d is not None:
@@ -3587,7 +3542,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         return [0]
 
     def _assign_slots(self, keys: list[int]) -> list[int]:
-        """Give every key a slot, reusing a key's own slot first (design 3.8)."""
+        """Give every key a slot, reusing a key's own slot first."""
         self._clock += 1
         wanted = set(keys)
         taken: set[int] = set()
@@ -3655,7 +3610,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 material.attenuation = float(shared.attenuation)
                 material.ray_steps_per_voxel = float(shared.ray_steps_per_voxel)
                 # A 2D view's slice node draws its plane whatever the
-                # appearance's 3D render mode (oblique 2D design v3, D5).
+                # appearance's 3D render mode.
                 material.render_mode = (
                     PLANE_RENDER_MODE
                     if self._slice_axes is not None
@@ -3720,7 +3675,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         )
 
     def _plan_keys(self, selection) -> list[int]:
-        """Apply the slicing rule and name the channels to draw (design 3.3)."""
+        """Apply the slicing rule and name the channels to draw."""
         composite = self._composite()
         exempt = (self._channel_axis,) if composite else ()
         for slot in self._slots:
@@ -3750,7 +3705,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         # _begin_region_planning shows or hides a slot's data node from its
         # own slicing verdict; the pool's visibility is the wrapper's call.
         self._apply_slot_visibility()
-        # The clip follows the slice and the slots' channels (design 4.1).
+        # The clip follows the slice and the slots' channels.
         self._apply_clipping_planes()
         return keys, slots
 
@@ -3761,7 +3716,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         return tuple(self._full_level_shapes[0])
 
     def _clip_targets(self):
-        """One group per channel slot (clipping planes design 4.1, 4.6).
+        """One group per channel slot.
 
         The collapsed positions are the level-0 planes the slot last
         planned.  In composite mode the channel axis is not sliced, so it is
@@ -3800,14 +3755,14 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                 group.add(new_node)
         self._apply_materials()
         self._apply_slot_visibility()
-        # A node built here has a new material (clipping planes design 4.6).
+        # A node built here has a new material.
         self._apply_clipping_planes()
 
     def _node_axes(self, displayed_axes: tuple[int, ...]) -> tuple[int, ...]:
         """The world axes the node for *displayed_axes* draws.
 
         A 2D view on the brick route draws the slice node: the 3D node over
-        the slice's three world axes (oblique 2D design v3, 5.3.2).
+        the slice's three world axes.
         """
         if self._slice_axes is not None and len(displayed_axes) == 2:
             return self._slice_axes
@@ -3816,15 +3771,15 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     def set_slice_route(self, axes: tuple[int, int, int] | None) -> bool:
         """Put the 2D views of this visual on the brick route, or take them off.
 
-        Called by the controller before it pushes the render spaces (design
-        v3, 5.2.2, C3).  The 3D node is the slice node (D4: one atlas per
-        slot), so a scene built for 2D only gains the 3D mode here.
+        Called by the controller before it pushes the render spaces.  The
+        3D node is the slice node (one atlas per slot), so a scene built
+        for 2D only gains the 3D mode here.
 
         Parameters
         ----------
         axes : tuple[int, int, int] or None
             The slice normal's world axis, then the two displayed world
-            axes; ``None`` for today's path.
+            axes; ``None`` for the planar path.
 
         Returns
         -------
@@ -3863,12 +3818,11 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     def prepare_slice_route(self, axes: tuple[int, int, int]) -> None:
         """Build the slice node's resources and put its atlas on the GPU now.
 
-        Oblique 2D design v3, 5.1 and U12: called when a transform drag
-        opens on the visual, and at every switch onto the brick route, so
-        the first frame on the route does not wait for the atlas.  Building
-        leaves the 2D node and its placement alone; a later switch whose
-        layout axes differ from *axes* rebuilds the layout but keeps the
-        atlas texture.
+        Called when a transform drag opens on the visual, and at every
+        switch onto the brick route, so the first frame on the route does
+        not wait for the atlas.  Building leaves the 2D node and its
+        placement alone; a later switch whose layout axes differ from
+        *axes* rebuilds the layout but keeps the atlas texture.
 
         Parameters
         ----------
@@ -3973,9 +3927,9 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     def set_slab(self, slab: SlabSettings | None) -> None:
         """Project a slab on the slice node instead of drawing its plane.
 
-        Set by the controller with the route (oblique 2D design v3, 4.2,
-        5.3.8); ``None`` draws the plane.  A change of operator rebuilds the
-        shader; a change of thickness writes uniforms only.
+        Set by the controller with the route; ``None`` draws the plane.  A
+        change of operator rebuilds the shader; a change of thickness writes
+        uniforms only.
         """
         if slab == self._slab:
             return
@@ -4038,10 +3992,10 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     ) -> list[DesiredSet]:
         """Plan once, and return a desired set per drawn channel.
 
-        The chunk scheduler's planner contract (design 5.3): LOD selection,
-        distance sort, frustum or viewport cull and truncation run once, on
-        the first drawn slot; each drawn channel's atlas gets the same bricks
-        (3D) or tiles (2D) on its own slice.  Nothing on the GPU is touched.
+        The chunk scheduler's planner contract: LOD selection, distance sort,
+        frustum or viewport cull and truncation run once, on the first drawn
+        slot; each drawn channel's atlas gets the same bricks (3D) or tiles
+        (2D) on its own slice.  Nothing on the GPU is touched.
 
         Parameters
         ----------
@@ -4063,8 +4017,8 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         displayed = self._node_axes(tuple(dims_state.selection.displayed_axes))
         if len(displayed) != len(dims_state.selection.displayed_axes):
             # A 2D request for the slice node: planned by the 3D brick
-            # planner, culled by the viewport as a prism unbounded in depth
-            # (oblique 2D design v3, 5.3.4).
+            # planner, culled by the viewport as a prism unbounded in
+            # depth.
             request = request._replace(frustum_corners=viewport_prism(request))
         slice_node = self._slice_axes is not None and displayed == self._slice_axes
         if displayed != self._last_displayed_axes:
@@ -4133,7 +4087,9 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
                     max_bricks=(
                         None
                         if planes is None
-                        else target_room(planner.residency_3d(), backstop, loading)
+                        else max_target_bricks(
+                            planner.residency_3d(), backstop, loading
+                        )
                     ),
                 )
                 if not slice_node:
@@ -4171,9 +4127,9 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     ) -> np.ndarray | None:
         """Filter a 3D target plan; an image keeps every brick.
 
-        The hook a MaskedImage's ``target_bricks="surface"`` overrides
-        (masked image design 8.3).  Called on a full plan of a 3D view only
-        (not the 2D slice node), before truncation.
+        The hook a MaskedImage's ``target_bricks="surface"`` overrides.
+        Called on a full plan of a 3D view only (not the 2D slice node),
+        before truncation.
 
         Parameters
         ----------
@@ -4201,7 +4157,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
         Every channel of an image has the same render mode, so one drawn
         channel answers for the visual and the planes are planned once.
         ``None`` in a volume mode.  A 2D view's slice node always plans its
-        slice plane (oblique 2D design v3, D2), whatever the render mode.
+        slice plane, whatever the render mode.
         """
         mode_appearance = self._mode_appearance(key)
         if self._slice_axes is None and (
@@ -4213,7 +4169,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
             self.drawn_render_planes,
             planner._to_level0_displayed,
             planner._volume_geometry._scale_arr_shader,
-            # A slab reaches its half-thickness either side (5.3.4).
+            # A slab reaches its half-thickness either side.
             reach_world=0.0 if slab is None else slab.half_extent,
         )
 
@@ -4380,12 +4336,20 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
     def on_data_store_contents_changed(
         self, event: DataStoreContentsChangedEvent
     ) -> None:
-        """Stub -- brick eviction deferred to a future phase."""
+        """Do nothing: the controller invalidates the bricks a change touches.
+
+        It calls ``RenderManager.invalidate_store`` right after this event, so
+        the chunk scheduler reads those bricks again.
+        """
 
     def on_data_store_metadata_changed(
         self, event: DataStoreMetadataChangedEvent
     ) -> None:
-        """Stub -- geometry rebuild deferred to a future phase."""
+        """Do nothing: a change of the level shapes does not rebuild the geometry.
+
+        The controller has already invalidated the bricks the store fed and
+        refreshed the visual's extents.
+        """
 
     def tick(self) -> None:
         """Advance every slot's jitter seed."""

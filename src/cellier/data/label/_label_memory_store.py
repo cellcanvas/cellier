@@ -58,8 +58,7 @@ class LabelMemoryStore(BaseDataStore):
 
     store_type: Literal["label_memory"] = "label_memory"
     # ``data`` announces a change on ``data_changed`` when reassigned:
-    # ``extent`` if its shape changed, ``contents`` otherwise
-    # (plans/store_change_events.md).
+    # ``extent`` if its shape changed, ``contents`` otherwise.
     _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset({"data"})
     DATASET_INFO_LABEL: ClassVar[str] = "in-memory labels"
     name: str = "label_memory_store"
@@ -187,8 +186,7 @@ class LabelMemoryStore(BaseDataStore):
     async def get_data(self, request: ChunkRequest) -> np.ndarray:
         """Return the requested sub-region as an int32 array.
 
-        Runs :meth:`read_padded` in the event loop's default executor
-        (scheduler-only loading design v2, D4).
+        Runs :meth:`read_padded` in the event loop's default executor.
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.read_padded, request)

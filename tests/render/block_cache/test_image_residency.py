@@ -310,7 +310,7 @@ def test_2d_keys_in_region() -> None:
 
 
 def test_2d_keys_in_region_uses_voxel_centres_on_a_translated_level() -> None:
-    """Level 2 (scale 2) shifted by t = 0.25: centre convention (plan v2, D1).
+    """Level 2 (scale 2) shifted by t = 0.25: centre convention.
 
     Brick 0's padded tile holds level voxels ``-1 .. BLOCK``; voxel ``BLOCK``
     is centred on ``2 * BLOCK + 0.25`` and covers up to ``2 * BLOCK + 1.25``.
@@ -344,7 +344,6 @@ def test_2d_keys_in_region_uses_voxel_centres_on_a_translated_level() -> None:
 
 
 # -- 2D: tiles of the slice on screen stay above the backstop ----------------
-# plans/2d_current_slice_paint_order.md, section 2.
 
 # A 32^2 plane with 4 levels: an 8 x 8 grid of base cells; level 4 is one tile.
 SHAPES_4 = [(32, 32), (16, 16), (8, 8), (4, 4)]

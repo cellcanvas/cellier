@@ -1,4 +1,4 @@
-"""Render planes in the render layer (plane rendering design v3, 5.3, 6.2).
+"""Render planes in the render layer.
 
 A visual's render planes are authored in the scene's world space, on three
 named world axes.  ``reduce_render_planes`` turns them into what one 3D
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 #: times zero in the shader is NaN.
 UNBOUNDED = 1.0e30
 
-#: The uniform block ``u_render_planes`` (design 5.3).
+#: The uniform block ``u_render_planes``.
 RENDER_PLANES_SHADERTYPE: dict[str, str] = {
     "origin": f"{MAX_RENDER_PLANES}*4xf4",
     "axis_0": f"{MAX_RENDER_PLANES}*4xf4",
@@ -90,7 +90,7 @@ def _no_planes() -> ReducedPlanes:
 
 @dataclass(frozen=True)
 class SlabSettings:
-    """A 2D view's slab projection, as the slice node draws it (design v3, 4.2).
+    """A 2D view's slab projection, as the slice node draws it.
 
     Attributes
     ----------
@@ -118,7 +118,7 @@ SLAB_OPS: dict[str, str] = {"mip": "max", "minip": "min", "mean": "mean"}
 
 
 def slice_render_plane() -> ReducedPlanes:
-    """The one plane a 2D slice node draws (oblique 2D design v3, D2).
+    """The one plane a 2D slice node draws.
 
     The slice node's matrix puts the slice at rendered depth 0, so its plane
     is the same at every slice position and under every transform: origin
@@ -341,10 +341,10 @@ class RenderPlanesMixin:
     - calls :meth:`_apply_render_planes` wherever it is given its render
       spaces (the displayed axes may have changed).
 
-    It reads ``self._spaces``.  A host on the brick route of a 2D view
-    (oblique 2D design v3, D2) sets ``_draws_slice_plane``: the drawn
-    planes are then the slice's own, and the model's planes -- which do not
-    apply to a 2D view -- never reach the buffer, whatever event arrives.
+    It reads ``self._spaces``.  A host on the brick route of a 2D view sets
+    ``_draws_slice_plane``: the drawn planes are then the slice's own, and
+    the model's planes -- which do not apply to a 2D view -- never reach
+    the buffer, whatever event arrives.
     """
 
     _render_planes: tuple = ()
@@ -396,8 +396,7 @@ class RenderPlanesMixin:
         """The box this visual's planes are cut by, in data coordinates.
 
         The voxel-edge box of the store's level 0 on the three data axes a
-        3D view keeps: the box the volume shaders cut a ray with (plane
-        outline design 5.3).
+        3D view keeps: the box the volume shaders cut a ray with.
 
         Returns
         -------

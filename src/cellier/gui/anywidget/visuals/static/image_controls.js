@@ -7,7 +7,7 @@
 // themselves: rowVisible mirrors cellier.gui._image_controls.row_visible,
 // with the mode lists and n_displayed_dimensions read from the model.  A
 // MaskedImage's control ("masked") adds the surface and band rows and follows
-// that model's rule (masked image design 10).
+// that model's rule.
 
 const THROTTLE_MS = 50;
 
@@ -419,8 +419,8 @@ function render({ model, el }) {
       controls["shared||" + field] = c;
       row(sharedBox, field, c);
     }
-    // The slab projection of a 2D view (oblique 2D design v3, 4.2), when
-    // the field list asks for it; hidden in 3D.
+    // The slab projection of a 2D view, when the field list asks for it;
+    // hidden in 3D.
     const projection = model.get("projection") || {};
     for (const [field, options] of [
       ["slab_projection", projection.ops || []],
@@ -431,8 +431,8 @@ function render({ model, el }) {
       controls["shared||" + field] = c;
       hideableRow(sharedBox, "shared", null, field, c);
     }
-    // A MaskedImage's target loading (design 8.3), when the field list asks
-    // for it; hidden in 2D.
+    // A MaskedImage's target loading, when the field list asks for it;
+    // hidden in 2D.
     if (fieldsOn.includes("target_bricks") && "target_bricks" in shared) {
       const options = (model.get("choices") || {}).target_bricks || [];
       const c = makeSelect(options, shared.target_bricks, (v) =>

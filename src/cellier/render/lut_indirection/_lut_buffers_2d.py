@@ -99,7 +99,7 @@ MAX_LEVELS = 10
 
 # Each level is a separate vec4 field: the float scale, then the integer
 # cell -> tile rule (base cells per tile, tile count) as exact small floats,
-# then the level's translation in level-0 voxels (plan v2, D1).
+# then the level's translation in level-0 voxels.
 BLOCK_SCALES_DTYPE = np.dtype(
     [(f"scale_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
     + [(f"span_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]

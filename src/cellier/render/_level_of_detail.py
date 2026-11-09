@@ -124,7 +124,7 @@ def build_level_grids(
 
         sv = np.asarray(scale_vecs_shader[k], dtype=np.float64)  # (W, H, D)
         tv = np.asarray(translation_vecs_shader[k], dtype=np.float64)
-        # Centre convention (plan v2, D1): shader order (x=W, y=H, z=D).
+        # Centre convention: shader order (x=W, y=H, z=D).
         centres = brick_centre_data(np.stack([gx_c, gy_c, gz_c], axis=1), bs, sv, tv)
 
         half_extents = (bs * sv / 2.0).astype(np.float64)
@@ -151,7 +151,7 @@ def _reaches_rows(grid: dict, rows: np.ndarray) -> np.ndarray:
     A box reaches ``n . p + d >= 0`` when its farthest corner along ``n``
     does: ``n . centre + d + |n| . half_extents >= 0``.  The test is on the
     cached centres, so it carries a small slack and never drops a brick the
-    corner test of ``bricks_in_frustum_arr`` keeps.
+    corner test of ``bricks_in_frustum`` keeps.
     """
     rows = np.asarray(rows, dtype=np.float64)
     normals = rows[:, :3]
@@ -279,7 +279,7 @@ def select_levels_from_cache(
     -------
     arr : ndarray, shape (M, 4), dtype int32
         ``[level, gz_c, gy_c, gx_c]`` rows for all selected bricks,
-        not yet sorted — call ``sort_arr_by_distance`` next.
+        not yet sorted — call ``sort_bricks_by_distance`` next.
     """
     cam = np.asarray(camera_pos, dtype=np.float64)
 
@@ -376,7 +376,7 @@ def select_level_orthographic(
     Returns
     -------
     level : int
-        1-indexed level, as ``select_levels_arr_forced`` takes it.
+        1-indexed level, as ``select_forced_level`` takes it.
     """
     biased = voxels_per_pixel * max(lod_bias, 1e-6)
     level = 1
@@ -424,7 +424,7 @@ def orthographic_voxels_per_pixel(
     return float(voxels_per_world * view_height_world / screen_height_px)
 
 
-def select_levels_arr_forced(
+def select_forced_level(
     base_layout: BlockLayout3D,
     force_level: int,
     level_grids: list[dict] | None = None,
@@ -488,7 +488,7 @@ def select_levels_arr_forced(
 # ---------------------------------------------------------------------------
 
 
-def sort_arr_by_distance(
+def sort_bricks_by_distance(
     arr: np.ndarray,
     camera_pos: np.ndarray,
     block_size: int,

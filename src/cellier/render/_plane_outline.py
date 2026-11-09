@@ -1,4 +1,4 @@
-"""The polygon a plane makes in a visual (plane outline design, section 5).
+"""The polygon a plane makes in a visual.
 
 A plane's outline is the edge of a convex polygon: the plane, cut by the
 visual's data box and by its clipping planes, and for a render plane by
@@ -51,7 +51,7 @@ def voxel_edge_box(
     """The box a volume shader cuts a plane with, in level-0 data coordinates.
 
     The edges of the voxels, not their centres: ``-0.5`` to ``n - 0.5`` on
-    each axis, whatever level is drawn (design 5.3, measured).
+    each axis, whatever level is drawn (measured against the shader).
 
     Parameters
     ----------
@@ -74,9 +74,8 @@ def polygons_equal(first: np.ndarray, second: np.ndarray) -> bool:
     """Whether two polygons are the same vertices in the same order.
 
     Two visuals with the same box and the same planes go through the same
-    steps and give the same order, so no rotation of the cycle is tried
-    (design 5.4).  The tolerance is :data:`TOLERANCE` of the polygon's
-    extent.
+    steps and give the same order, so no rotation of the cycle is tried.
+    The tolerance is :data:`TOLERANCE` of the polygon's extent.
     """
     if first.shape != second.shape:
         return False
@@ -326,7 +325,7 @@ def render_plane_polygon(
     corners: np.ndarray,
     clipping_rows: np.ndarray | Sequence = (),
 ) -> np.ndarray:
-    """What a visual draws of one render plane, as a polygon (design 3.1).
+    """What a visual draws of one render plane, as a polygon.
 
     The plane's rectangle, cut by the data box and by the clipping planes.
 
@@ -378,7 +377,7 @@ def clipping_plane_polygon(
     box_rows: np.ndarray,
     corners: np.ndarray,
 ) -> np.ndarray:
-    """The cut face of one clipping plane, as a polygon (design 3.2).
+    """The cut face of one clipping plane, as a polygon.
 
     The plane itself, cut by the data box and by the visual's other
     clipping planes.

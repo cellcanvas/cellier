@@ -1,5 +1,4 @@
-// Render planes: the ray-plane search of the "plane" render mode (plane
-// rendering design v3, 5.1).
+// Render planes: the ray-plane search of the "plane" render mode.
 //
 // Included by the four volume shaders, and only when they are built for
 // ``render_mode == "plane"``: a shader built for any other mode contains

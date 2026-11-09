@@ -1,4 +1,4 @@
-"""Image visuals cannot be painted; only labels can (design D5, section 3.12)."""
+"""Image visuals cannot be painted; only labels can."""
 
 from __future__ import annotations
 

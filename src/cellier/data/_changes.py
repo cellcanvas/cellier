@@ -1,4 +1,4 @@
-"""What a data store says when its data changes (``plans/store_change_events.md``).
+"""What a data store says when its data changes.
 
 A store announces a change on its ``data_changed`` signal with a
 :class:`StoreChange`.  There are two kinds, kept separate because their
@@ -29,8 +29,7 @@ DataRegion = tuple[tuple[float, float], ...]
 coordinates, ``stop`` exclusive.
 
 The store knows where data landed; it does not know the render layer's brick
-grid, so it speaks in its own coordinates and the render layer converts
-(``plans/streaming_acquisition_design.md`` 8b).
+grid, so it speaks in its own coordinates and the render layer converts.
 """
 
 

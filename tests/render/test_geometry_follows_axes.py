@@ -1,10 +1,9 @@
 """A multiscale visual's geometry follows the displayed axes.
 
-``plans/displayed_axes_required.md`` Phase 1.0.  The geometry of a multiscale
-image or labels visual holds the fetch axes and the per-level scale and
-translation vectors of the axes it was built for.  It used to be rebuilt only
-when the level shapes changed, so a change to a different displayed pair kept
-the vectors of the old one.
+The geometry of a multiscale image or labels visual holds the fetch axes and
+the per-level scale and translation vectors of the axes it was built for.  It
+used to be rebuilt only when the level shapes changed, so a change to a
+different displayed pair kept the vectors of the old one.
 
 Each case changes the displayed axes of a scene and compares the geometry
 with a scene built directly at the target axes.  The pyramid is anisotropic

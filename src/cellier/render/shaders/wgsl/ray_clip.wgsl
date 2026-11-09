@@ -1,4 +1,4 @@
-// Clipping planes for ray-marched volumes (clipping planes design v2, 4.3).
+// Clipping planes for ray-marched volumes.
 //
 // pygfx's own snippet tests one position per fragment.  For a volume that
 // position is on the back face of the proxy box, so it drops whole rays

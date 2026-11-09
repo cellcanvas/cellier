@@ -1,4 +1,4 @@
-"""Structured debug logging for the Cellier v2 rendering pipeline.
+"""Structured debug logging for the rendering pipeline.
 
 Provides seven named loggers (perf, gpu, cache, slicer, scheduler, camera,
 source_id)

@@ -40,9 +40,9 @@
 
 /* Group heading: the anywidget answer to Qt's QGroupBox title.  Only the
    multi-row controls carry one -- a single control names itself with a
-   .cellier-app-label beside it (plans/label_ownership_unification.md).
-   Repeated per asset, following .cellier-app-label's precedent: an anywidget
-   asset ships one stylesheet and there is no shared one to put it in. */
+   .cellier-app-label beside it. Repeated per asset, following
+   .cellier-app-label's precedent: an anywidget asset ships one stylesheet
+   and there is no shared one to put it in. */
 .cellier-group-title {
   font-weight: 600;
   padding-bottom: 2px;

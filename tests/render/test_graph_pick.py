@@ -1,4 +1,4 @@
-"""Pick decoding for the graph compound visual (D14, D18).
+"""Pick decoding for the graph compound visual.
 
 Picks report the store's **original node id**, never the render-buffer row.
 The distinction is invisible in a full 3-D view of a contiguously-numbered
@@ -131,7 +131,7 @@ def test_edge_pick_through_a_sliced_view():
         visual, store, displayed=(1, 2), sliced={0: 3}, extents={0: (1.0, 1.0)}
     )
 
-    # Edges 1 and 2 survive under D5 (either endpoint in the slab).
+    # Edges 1 and 2 survive (an edge draws when either endpoint is in the slab).
     assert np.array_equal(data.original_edge_rows, np.array([1, 2]))
 
     result = visual.decode_pick(visual.node_edges, {"vertex_index": 0}, store)
@@ -146,8 +146,8 @@ def test_roi_edge_pick_resolves_the_row_on_demand():
 
     The ROI index returns endpoint pairs rather than edge rows; translating
     the whole candidate set every reslice is the per-frame ``searchsorted``
-    D18 removes.  The payload must still carry the same ``edge_index`` a
-    mask-sliced pick would.
+    that indexing nodes by row removes.  The payload must still carry the
+    same ``edge_index`` a mask-sliced pick would.
     """
     mask_store = _store(slice_strategy="mask")
     roi_store = _store(slice_strategy="roi")

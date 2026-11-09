@@ -1,4 +1,3 @@
-# src/cellier/v2/render/visuals/_lines_memory.py
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -131,10 +130,10 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         # the controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
         # Where the collapsed axes sit in **data** units, from the last
-        # planned request.  The node matrix reads it (design 3.9).
+        # planned request.  The node matrix reads it.
         self._last_data_positions: dict[int, float] = {}
         self._last_displayed_axes: tuple[int, ...] | None = None
-        # The per-element fold of the current view (design v2, D11), or None.
+        # The per-element fold of the current view, or None.
         self._fold: ElementFold | None = None
         # Whether the last request was planned for a world-frame upload, and
         # the origin of the one on the GPU (None: the usual frame).
@@ -161,7 +160,7 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
 
         # The declared color_mode, honoured verbatim.  It is a caller
         # declaration of where RGB comes from and is never inferred from
-        # the data nor written back at commit time (D20).
+        # the data nor written back at commit time.
         self._color_mode: str = appearance.color_mode
         self._is_empty: bool = True
 
@@ -189,8 +188,7 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         self.node_2d = self.node
         self.node_3d = self.node
 
-        # The whole filtered slice loads through the chunk scheduler
-        # (``plans/scheduler_only_loading_design_v2.md`` 4.4).
+        # The whole filtered slice loads through the chunk scheduler.
         self._init_whole_item()
 
     # ------------------------------------------------------------------
@@ -292,7 +290,7 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
             self._update_node_matrix(self._last_displayed_axes)
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place the node with the composition of design 3.9.
+        """Place the node with the node-matrix composition.
 
         ``visual -> data -> world -> rendered``, replacing the
         ``select_axes`` sub-block.  The two agree exactly for a
@@ -303,8 +301,8 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         if self._spaces is None or self._transform is None:
             return
         if self._world_origin is not None or world_frame_active(self._spaces):
-            # The geometry is placed in the world frame (Phase 6): in such a
-            # view no node matrix maps the data to the screen.
+            # The geometry is placed in the world frame: in such a view no
+            # node matrix maps the data to the screen.
             origin = self._world_origin
             set_node_matrix(
                 self.node,
@@ -318,16 +316,16 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         self._apply_clipping_planes()
 
     def _clip_targets(self):
-        """Every material, at the slice the node is drawn at (design 4.6)."""
+        """Every material, at the slice the node is drawn at."""
         constants = self._collapsed_origin() if self._spaces is not None else {}
         yield (self._material, self._empty_material), constants
 
     def _data_region(self, selection):
-        """The selection in this visual's data coordinates (design 3.12).
+        """The selection in this visual's data coordinates.
 
         ``None`` when the visual has not been placed, in which case the
-        request falls back to the world-value comparison that D4 exists to
-        replace.
+        request falls back to comparing world values, which the
+        pulled-back region replaces.
         """
         if selection is None or self._spaces is None or self._transform is None:
             return None
@@ -336,7 +334,7 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         )
 
     def _collapsed_origin(self) -> dict[int, float]:
-        """Where the dropped data axes sit, for the node matrix (design 3.9).
+        """Where the dropped data axes sit, for the node matrix.
 
         Taken from the selection where there is one -- the plane's depth
         matters to a 3-D rendered system -- and the origin otherwise.  For a
@@ -372,14 +370,13 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         self._last_data_positions = data_slice_positions(
             selection.region, self._transform, self._spaces.world
         )
-        # The clip line follows the slice (clipping planes design 4.1).  When
-        # the view flattens an axis a plane has a component on, the read
-        # cuts the segments instead (design 5.2).
+        # The clip line follows the slice.  When the view flattens an axis a
+        # plane has a component on, the read cuts the segments instead.
         clip_planes = self._begin_request_clipping()
         shared_id = uuid4()
         # A view whose collapsed axes reach a displayed one places each
-        # vertex at its own collapsed position (design v2, D11); a view that
-        # tilts the slice draws it in the world frame (Phase 6).
+        # vertex at its own collapsed position; a view that tilts the slice
+        # draws it in the world frame.
         self._request_world_frame = world_frame_active(self._spaces)
         if self._request_world_frame:
             self._fold = None
@@ -410,9 +407,9 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         Swaps material between _material and _empty_material as needed.
 
         ``color_mode`` is written from the *appearance*, never from the
-        data (D20).  A declared ``"vertex"`` with no colours in the store
-        raises here rather than silently falling back to uniform, which is
-        the exact class of behaviour D20 removes.
+        data.  A declared ``"vertex"`` with no colours in the store raises
+        here rather than silently falling back to uniform: ``color_mode``
+        is a declaration, never inferred from the data.
 
         Coordinate convention (DO NOT reorder positions elsewhere):
         - 3D path: positions[:, [2, 1, 0]] reverses (z, y, x) → (x, y, z)
@@ -427,7 +424,7 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
             and lines_data.fold_positions is not None
             and lines_data.fold_positions.shape[1] == len(fold.axes)
         ):
-            # Each vertex at its own collapsed position (design v2, D11).
+            # Each vertex at its own collapsed position.
             positions = fold.apply(
                 positions, lines_data.fold_positions, self._collapsed_origin()
             )
@@ -441,8 +438,8 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         )
         was_world_frame = self._world_origin is not None
         if world_frame:
-            # An OBLIQUE view (design v2, Phase 6): rendered positions,
-            # placed by a translation-only node matrix.
+            # An OBLIQUE view: rendered positions, placed by a
+            # translation-only node matrix.
             pos3d, self._world_origin = world_frame_positions(
                 self._spaces,
                 self._transform,
@@ -524,7 +521,7 @@ class GFXLinesMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         """Apply appearance field changes to the live material.
 
         ``color_mode`` is applied straight to the material; nothing in
-        ``_commit`` overwrites it (D20).
+        ``_commit`` overwrites it.
 
         ``thickness_space`` is applied live.  It was previously documented
         here as constructor-only, which is not true of the pinned pygfx.

@@ -94,11 +94,10 @@ class QtRenderConfigPanel:
         self._container.setMinimumWidth(260)
 
         # The panel draws its own name, as the anywidget twin always has and as
-        # every appearance control on both toolkits already does
-        # (``plans/label_ownership_unification.md``).  The renderer used to wrap
-        # it instead, which left a directly-constructed Qt panel anonymous where
-        # its twin named itself -- and kept the two dock builders from being one
-        # function (``plans/gui_backend_seam.md`` D6).
+        # every appearance control on both toolkits already does.  The renderer
+        # used to wrap it instead, which left a directly-constructed Qt panel
+        # anonymous where its twin named itself -- and kept the two dock
+        # builders from being one function.
         from cellier.gui.qt.visuals._chrome import titled_group
 
         self._titled = titled_group(self.title, self._container, parent)

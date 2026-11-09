@@ -1,12 +1,13 @@
-"""Clipping planes: the model a visual carries (clipping planes design v2)."""
+"""Clipping planes: the model a visual carries."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from pydantic import UUID4, BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import UUID4, ConfigDict, Field, TypeAdapter
 
+from cellier._model import CellierModel
 from cellier.transform import Plane
 from cellier.visuals._plane_outline import PlaneOutline
 
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
     from cellier.transform import AxisRef, CoordinateSystem
 
 
-class ClippingPlane(BaseModel):
+class ClippingPlane(CellierModel):
     """One clipping plane of a visual.
 
     The visual is drawn where ``plane.normal . p >= plane.offset``: the

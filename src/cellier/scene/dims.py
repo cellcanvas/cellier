@@ -1,4 +1,4 @@
-"""Dimension and coordinate system models for cellier v2."""
+"""Dimension and coordinate system models."""
 
 from __future__ import annotations
 
@@ -6,13 +6,12 @@ import uuid
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Union
 from uuid import uuid4
 
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, Field, model_validator
 
+from cellier._model import CellierEventedModel
 from cellier._state import (
     AxisAlignedSelectionState,
     DimsState,
-    PlaneSelectionState,
 )
 from cellier.transform import (
     Axis,
@@ -221,30 +220,31 @@ def resolve_displayed_axes(
     return tuple(indices)
 
 
-class AxisAlignedSelection(EventedModel):
+class AxisAlignedSelection(CellierEventedModel):
     """Mutable selection model for axis-aligned slicing.
 
     Parameters
     ----------
     selector_type : Literal["axis_aligned"]
-        Discriminator field.
+        Always ``"axis_aligned"``.  Kept so saved viewer files, which carry
+        it, still load.
     displayed_axes : tuple[int, ...]
         Indices into the coordinate system that are rendered.
         Length 2 -> 2D; length 3 -> 3D.
     slice_indices : dict[int, float]
         Mapping of axis index -> **world-space slice position**, for **every**
-        world axis, displayed or not (unified image design D36).  A displayed
-        axis keeps the position it slices at once it stops being displayed,
-        so a 3D -> 2D switch needs no bookkeeping.  A world position, not a
-        voxel index: an integer-valued slider on a 0.5 world-unit-per-voxel
-        axis cannot address the odd-numbered planes (D3).
+        world axis, displayed or not.  A displayed axis keeps the position it
+        slices at once it stops being displayed, so a 3D -> 2D switch needs no
+        bookkeeping.  A world position, not a voxel index: an integer-valued
+        slider on a 0.5 world-unit-per-voxel axis cannot address the
+        odd-numbered planes.
     thickness : dict[int, float]
         Mapping of axis index -> **half**-thickness in world units.  An axis
         absent from the mapping has thickness 0: a plane.  This is the only
         thickness in the slicing path; no visual family adds one.  Per axis
-        rather than scalar because one number means three frames on a
-        0.5 s/frame time axis and a quarter of a voxel on a 2 um/voxel spatial
-        one (D4).
+        rather than scalar because one number means three frames on a 0.5
+        s/frame time axis and a quarter of a voxel on a 2 um/voxel spatial
+        one.
     """
 
     selector_type: Literal["axis_aligned"] = "axis_aligned"
@@ -282,33 +282,11 @@ class AxisAlignedSelection(EventedModel):
         )
 
 
-class PlaneSelection(EventedModel):
-    """Stub -- not yet implemented.
-
-    Parameters
-    ----------
-    selector_type : Literal["plane"]
-        Discriminator field.
-    """
-
-    selector_type: Literal["plane"] = "plane"
-
-    def to_state(self) -> PlaneSelectionState:
-        """Return an immutable snapshot of this selection."""
-        raise NotImplementedError("PlaneSelection is not yet implemented.")
-
-
-SelectionType = Annotated[
-    Union[AxisAlignedSelection, PlaneSelection],
-    Field(discriminator="selector_type"),
-]
-
-
-class DimsManager(EventedModel):
+class DimsManager(CellierEventedModel):
     """Tracks which axes are displayed and the slice index for non-displayed axes.
 
-    Single source of truth for render dimensionality, and -- since D2 -- the
-    owner of the scene's world coordinate system.  One ``DimsManager`` per
+    Single source of truth for render dimensionality, and the owner of
+    the scene's world coordinate system.  One ``DimsManager`` per
     ``Scene``, so there is no second claimant for the world to arbitrate
     against.
 
@@ -318,22 +296,22 @@ class DimsManager(EventedModel):
         Unique identifier. Auto-generated.
     world_coordinate_system : WorldCoordinateSystem
         The scene's world axes.  Frozen: changing the axes means assigning a
-        replacement (D7), which is why there is no event relay onto it.
-    selection : SelectionType
-        The current axis selection (axis-aligned or plane).
+        replacement, which is why there is no event relay onto it.
+    selection : AxisAlignedSelection
+        The current axis selection.
     slider_overrides : dict[int, bool]
         Per world axis, whether to force its slider shown (``True``) or
         hidden (``False``).  An axis absent from the mapping is automatic:
         it gets a slider when a visual slices it.  Only the overrides are
         stored; the effective set is ``Scene.slider_axes``, which is derived
-        from the visuals and never serialized (D23).
+        from the visuals and never serialized.
     """
 
     id: UUID4 | Annotated[str, AfterValidator(lambda x: uuid.UUID(x, version=4))] = (
         Field(frozen=True, default_factory=lambda: uuid4())
     )
     world_coordinate_system: WorldCoordinateSystem
-    selection: SelectionType
+    selection: AxisAlignedSelection
     slider_overrides: dict[int, bool] = Field(default_factory=dict)
 
     @property
@@ -348,27 +326,26 @@ class DimsManager(EventedModel):
 
     @model_validator(mode="after")
     def _validate_axis_coverage(self) -> DimsManager:
-        """Every world axis has a slice position, and nothing else does (D36).
+        """Every world axis has a slice position, and nothing else does.
 
         A displayed axis keeps its entry, so ``slice_indices`` alone covers
         the world.  Overrides must name world axes too.
         """
         ndim = self.world_coordinate_system.ndim
         expected = set(range(ndim))
-        if isinstance(self.selection, AxisAlignedSelection):
-            covered = set(self.selection.slice_indices.keys())
-            if covered != expected:
-                raise ValueError(
-                    f"Axis coverage mismatch: slice_indices.keys() = "
-                    f"{sorted(covered)}, expected every world axis "
-                    f"{sorted(expected)} for ndim={ndim}.  A displayed axis "
-                    f"keeps a slice position too."
-                )
-            if not set(self.selection.displayed_axes) <= expected:
-                raise ValueError(
-                    f"displayed_axes {self.selection.displayed_axes} names an "
-                    f"axis outside the world (ndim={ndim})."
-                )
+        covered = set(self.selection.slice_indices.keys())
+        if covered != expected:
+            raise ValueError(
+                f"Axis coverage mismatch: slice_indices.keys() = "
+                f"{sorted(covered)}, expected every world axis "
+                f"{sorted(expected)} for ndim={ndim}.  A displayed axis "
+                f"keeps a slice position too."
+            )
+        if not set(self.selection.displayed_axes) <= expected:
+            raise ValueError(
+                f"displayed_axes {self.selection.displayed_axes} names an "
+                f"axis outside the world (ndim={ndim})."
+            )
         unknown = set(self.slider_overrides) - expected
         if unknown:
             raise ValueError(
@@ -405,8 +382,8 @@ class DimsManager(EventedModel):
 
         This model is the **editor** -- it holds an index and a thickness, the
         thing a GUI binds to -- and the slicer consumes one type regardless of
-        which editor produced it (D43, R6).  An oblique editor would hold a
-        plane and emit the same type.
+        which editor produced it.  An oblique editor would hold a plane and
+        emit the same type.
 
         The rendered system arrives as an argument rather than being reached
         for: it is per canvas and is not model state, and this way the model
@@ -419,32 +396,22 @@ class DimsManager(EventedModel):
         one plane within it, a geometry visual what lies in it.
 
         Displayed axes are left unbounded, although they keep a stored
-        position (D36).  Bounding one is the viewport-crop follow-up; the
-        region type already expresses it (R3).
+        position.  The region type can express a bound on one (a
+        viewport crop); nothing sets it.
 
         Parameters
         ----------
         rendered_coordinate_system : RenderedCoordinateSystem
             The system the canvas draws in, in cellier displayed order.
         rendered_to_world : AffineTransform
-            The D34 embedding.  Its constant column carries the slice
-            positions.
+            The ``rendered -> world`` embedding.  Its constant column
+            carries the slice positions.
 
         Returns
         -------
         RegionSelection
             The transform and the region, in world coordinates.
-
-        Raises
-        ------
-        NotImplementedError
-            If the selection is not axis aligned.
         """
-        if not isinstance(self.selection, AxisAlignedSelection):
-            raise NotImplementedError(
-                f"{type(self.selection).__name__} cannot emit a RegionSelection "
-                f"yet; only AxisAlignedSelection can."
-            )
         world = self.world_coordinate_system
         slabs = {
             world.axes[axis].id: (

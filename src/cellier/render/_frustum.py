@@ -130,7 +130,7 @@ def compute_brick_aabb_corners(
         tv = np.asarray(level_translation_arr_shader[k], dtype=np.float64)
     else:
         sv, tv = implied_power_of_two(brick_key.level)
-    # Centre convention (plan v2, D1), shader order (x=W, y=H, z=D).
+    # Centre convention, shader order (x=W, y=H, z=D).
     low, high = brick_box_data(
         [brick_key.g2, brick_key.g1, brick_key.g0], block_size, sv, tv
     )
@@ -138,11 +138,11 @@ def compute_brick_aabb_corners(
 
 
 # ---------------------------------------------------------------------------
-# Frustum culling — array pipeline (primary hot path)
+# Frustum culling
 # ---------------------------------------------------------------------------
 
 
-def bricks_in_frustum_arr(
+def bricks_in_frustum(
     arr: np.ndarray,
     block_size: int,
     frustum_planes: np.ndarray,
@@ -193,7 +193,7 @@ def bricks_in_frustum_arr(
     else:
         s_, t_ = implied_power_of_two(levels)
         scale, translation = s_[:, None], t_[:, None]
-    # Centre convention (plan v2, D1): (M, 3) boxes in shader order (W, H, D).
+    # Centre convention: (M, 3) boxes in shader order (W, H, D).
     brick_mins, brick_maxs = brick_box_data(
         arr[:, [3, 2, 1]], block_size, scale, translation
     )
@@ -222,72 +222,3 @@ def bricks_in_frustum_arr(
         "mask_ms": mask_ms,
     }
     return arr[visible_mask], timings
-
-
-# ---------------------------------------------------------------------------
-# Frustum culling — dict pipeline (for compatibility / debugging)
-# ---------------------------------------------------------------------------
-
-
-def bricks_in_frustum(
-    brick_keys: set[BlockKey3D] | dict[BlockKey3D, int],
-    block_size: int,
-    frustum_planes: np.ndarray,
-) -> tuple[dict[BlockKey3D, int], dict]:
-    """Conservative AABB frustum test over a set or dict of brick keys.
-
-    Parameters
-    ----------
-    brick_keys : set or dict[BlockKey3D, int]
-        Candidate bricks.  If a dict, the values are preserved.
-    block_size : int
-        Level-1 brick side length in voxels.
-    frustum_planes : ndarray, shape (6, 4)
-        Inward-pointing half-space planes.
-
-    Returns
-    -------
-    visible : dict[BlockKey3D, int]
-        Subset that passes the frustum test.
-    timings : dict
-    """
-    if isinstance(brick_keys, dict):
-        keys_list = list(brick_keys.keys())
-        values = brick_keys
-    else:
-        keys_list = list(brick_keys)
-        values = dict.fromkeys(keys_list, 0)
-
-    n = len(keys_list)
-    if n == 0:
-        return {}, {"build_corners_ms": 0.0, "einsum_ms": 0.0, "mask_ms": 0.0}
-
-    t0 = time.perf_counter()
-    index = np.array([[k.g2, k.g1, k.g0] for k in keys_list], dtype=np.float64)
-    s_, t_ = implied_power_of_two(np.array([k.level for k in keys_list]))
-    brick_mins, brick_maxs = brick_box_data(index, block_size, s_[:, None], t_[:, None])
-    all_corners = (
-        brick_mins[:, np.newaxis, :]
-        + CORNER_OFFSETS[np.newaxis, :, :] * (brick_maxs - brick_mins)[:, np.newaxis, :]
-    )
-    build_corners_ms = (time.perf_counter() - t0) * 1000
-
-    t0 = time.perf_counter()
-    dists = (
-        np.einsum("ijk,lk->ijl", all_corners, frustum_planes[:, :3])
-        + frustum_planes[:, 3]
-    )
-    einsum_ms = (time.perf_counter() - t0) * 1000
-
-    t0 = time.perf_counter()
-    any_inside = dists.max(axis=1) >= 0.0
-    visible_mask = any_inside.all(axis=1)
-    mask_ms = (time.perf_counter() - t0) * 1000
-
-    visible = {keys_list[i]: values[keys_list[i]] for i in range(n) if visible_mask[i]}
-    timings = {
-        "build_corners_ms": build_corners_ms,
-        "einsum_ms": einsum_ms,
-        "mask_ms": mask_ms,
-    }
-    return visible, timings

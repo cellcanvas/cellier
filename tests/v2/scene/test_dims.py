@@ -21,7 +21,7 @@ def test_coordinate_system_roundtrip(tmp_path):
 
 
 def test_dims_manager_roundtrip(tmp_path):
-    # 3D case -- all axes displayed; each still keeps a position (D36)
+    # 3D case -- all axes displayed; each still keeps a position
     original_3d = DimsManager(
         world_coordinate_system=world_coordinate_system(
             spatial_axes("z", "y", "x"), name="world"
@@ -64,17 +64,17 @@ def test_axis_aligned_selection_to_state():
 
 
 def test_the_snapshot_does_not_carry_the_slice_positions():
-    """D5, landed in Phase 8.  The editable positions stay on the selection,
-    which the sliders write to and the region is built from; the snapshot the
-    render layer receives carries only what is still read from it.  Every
-    consumer of the positions takes the ``RegionSelection`` instead."""
+    """The editable positions stay on the selection, which the sliders write
+    to and the region is built from; the snapshot the render layer receives
+    carries only what is still read from it.  Every consumer of the positions
+    takes the ``RegionSelection`` instead."""
     sel = AxisAlignedSelection(displayed_axes=(1, 2), slice_indices={0: 42})
     assert sel.slice_indices == {0: 42}
     assert not hasattr(sel.to_state(), "slice_indices")
 
 
 def test_dims_manager_validates_axis_coverage():
-    """Every world axis needs a position, displayed or not (D36)."""
+    """Every world axis needs a position, displayed or not."""
     with pytest.raises(ValueError, match="Axis coverage mismatch"):
         DimsManager(
             world_coordinate_system=world_coordinate_system(

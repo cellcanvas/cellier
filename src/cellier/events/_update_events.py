@@ -1,4 +1,4 @@
-"""Incoming update event NamedTuples for the cellier v2 IncomingEventBus.
+"""Incoming update event NamedTuples for the IncomingEventBus.
 
 GUI widgets (and other callers) emit these onto ``CellierController.incoming_events``
 to request model mutations.  The controller subscribes handler methods that
@@ -22,7 +22,7 @@ class AppearanceUpdateEvent(NamedTuple):
     ------
     source_id :
         Caller's UUID.  Stamped on the outgoing ``AppearanceChangedEvent``
-        so the caller can echo-filter on ``on_visual_changed``.
+        so the caller can echo-filter on ``on_appearance_changed``.
     visual_id :
         Target visual.
     field :

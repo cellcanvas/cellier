@@ -1,7 +1,4 @@
-"""The ortho clipping widget, its dock node, and the flag / dock node check.
-
-``plans/clipping_planes_linking_design.md`` section 6.
-"""
+"""The ortho clipping widget, its dock node, and the flag / dock node check."""
 
 from __future__ import annotations
 
@@ -359,7 +356,7 @@ _TITLES_WITHOUT_YZ_VOL = {
 def test_a_dataset_that_lost_panels_keeps_controls_for_the_rest(
     make_ortho, make_widget, toolkit, mode
 ):
-    """L-D21: the dataset stays in the widget."""
+    """A dataset that has lost some of its panels stays in the widget."""
     ortho = make_ortho(mode)
     controller = ortho.controller
     visuals = _add(ortho)
@@ -525,7 +522,7 @@ def test_an_ortho_appearance_dock_has_no_clipping_control(make_ortho, toolkit, q
         dock.close()
 
 
-# -- flags and dock nodes must match (L-D20) --------------------------------------
+# -- flags and dock nodes must match ---------------------------------------------
 
 
 class _Center:

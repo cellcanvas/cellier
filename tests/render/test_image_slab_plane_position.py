@@ -1,12 +1,12 @@
 """An image on a slab draws the plane at the slice position, not near it.
 
 The image slicing rule narrows a sliced axis's slab to one plane.  It used to
-put that plane at the midpoint of the slab's bounds, ``((p - h) + (p + h)) /
-2``, which can land an ulp away from ``p``; the zero-thickness plane there
-then excluded the selection's own slice position and building the selection
-raised (full affine hand check H4, 2026-10-19; not a transform effect -- the
-identity fails the same way).  The plane now comes from the translation
-(``RegionSelection.with_planes_at_slice``).
+put that plane at the midpoint of the slab's bounds,
+``((p - h) + (p + h)) / 2``, which can land an ulp away from ``p``; the
+zero-thickness plane there then excluded the selection's own slice position
+and building the selection raised (found in a hand check; not a transform
+effect -- the identity fails the same way).  The plane now comes from the
+translation (``RegionSelection.with_planes_at_slice``).
 """
 
 from __future__ import annotations
@@ -21,7 +21,8 @@ from cellier.scene.dims import spatial_axes
 from tests._planning import planned_requests_2d
 from tests.render._affine import multiscale_store
 
-#: The H4 slider value: its slab midpoint at half thickness 1 is one ulp high.
+#: The hand-check slider value: its slab midpoint at half thickness 1 is one
+#: ulp high.
 ROUNDING_POSITION = 31.3796992481203
 
 _SHAPE = (40, 8, 8)

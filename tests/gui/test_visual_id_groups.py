@@ -1,9 +1,9 @@
 """The sequence form on the pre-existing appearance and AABB widgets.
 
-Stage 2 step 1 of ``plans/convenience_cleanup.md`` (section 8.3): every widget
-that used to hold a single ``self._visual_id`` now accepts a ``UUID`` **or** a
-sequence of them and drives the whole group in lock-step.  That is what lets
-one dock widget serve an ``OrthoViewer``'s four sibling visuals.
+Every widget that used to hold a single ``self._visual_id`` now accepts a
+``UUID`` **or** a sequence of them and drives the whole group in lock-step.
+That is what lets one dock widget serve an ``OrthoViewer``'s four sibling
+visuals.
 
 Both toolkits are covered here rather than in two parallel modules, because
 the behaviour under test is ``VisualIdGroup``'s and is shared: the widgets
@@ -43,7 +43,7 @@ def _image_values():
 
 
 def _qt_widgets(visual_id):
-    """One instance of every Qt widget stage 2 widened, with its edit driver.
+    """Every Qt widget that takes a visual id group, with its edit driver.
 
     Returns ``(name, widget, edit, expected_field)`` where ``edit()`` performs
     a single user-level change.

@@ -6,11 +6,11 @@ colour buffer, and it *replaces* the uniform colour rather than
 multiplying it.  Rendering a fade therefore meant forcing
 ``color_mode="vertex"`` behind the caller's back.
 
-These materials give alpha its own channel (D19).  Each adds one storage
-binding, ``s_alphas``, fed from ``geometry.alphas``, and multiplies it into
-the final alpha *after* whatever ``color_mode`` composed the colour.  So a
-fade composes with ``"uniform"`` and ``"vertex"`` identically, and
-``color_mode`` is never written by the render layer (D20).
+These materials give alpha its own channel.  Each adds one storage binding,
+``s_alphas``, fed from ``geometry.alphas``, and multiplies it into the
+final alpha *after* whatever ``color_mode`` composed the colour.  So a fade
+composes with ``"uniform"`` and ``"vertex"`` identically, and
+``color_mode`` is never written by the render layer.
 
 Coupling
 --------
@@ -20,9 +20,9 @@ screen-space outline work accepted, and it is handled the same way: every
 anchor is asserted, so a moved anchor raises at shader-build time with the
 anchor in the message rather than silently rendering without the fade.
 
-``scripts/v2/graph_alpha_spike.py`` is the runnable regression check after
-any pygfx upgrade; ``tests/render/test_alpha_modulated_materials.py`` is
-the GPU-free version of the same check that runs in CI.
+``tests/render/test_alpha_modulated_materials.py`` is the regression check
+after any pygfx upgrade: it builds both shaders without a GPU and asserts
+every anchor was found, and it runs in CI.
 
 Three things the spike established that are not obvious from the docs:
 
@@ -105,7 +105,8 @@ def _substitute(code: str, subs: list[tuple[str, str]]) -> str:
         if old not in code:
             raise ShaderAnchorError(
                 "pygfx shader anchor missing -- the wgsl changed under us. "
-                "Rerun scripts/v2/graph_alpha_spike.py and re-anchor:\n"
+                "Run tests/render/test_alpha_modulated_materials.py and "
+                "re-anchor:\n"
                 f"{old[:160]}"
             )
         code = code.replace(old, new, 1)
@@ -153,9 +154,9 @@ class AlphaPointsShader(PointsShader):
             super().get_code(),
             [
                 # Clipping planes test ``world_pos``.  Give every vertex of a
-                # marker's quad the world position of the marker's centre,
-                # so a marker is drawn whole or not at all instead of being
-                # cut in half (clipping planes design 4.4).
+                # marker's quad the world position of the marker's centre, so
+                # a marker is drawn whole or not at all instead of being cut
+                # in half.
                 (
                     anchor_world_pos,
                     "    varyings.world_pos = vec3<f32>(ndc_to_world_pos(pos_n));",

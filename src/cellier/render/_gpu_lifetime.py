@@ -80,8 +80,8 @@ def allocate_zeroed_texture(texture: gfx.Texture) -> None:
     has been written into): WebGPU zero-initialises a new texture, so the
     upload pygfx would make on the first draw -- the whole atlas, up to
     ``gpu_budget_bytes`` -- is skipped.  A 1 GiB atlas took about 0.45 s to
-    upload on its first draw (oblique 2D design v3, U12).  Bricks written
-    afterwards upload as usual.  A texture already on the GPU is left alone.
+    upload on its first draw.  Bricks written afterwards upload as usual.  A
+    texture already on the GPU is left alone.
 
     The one pygfx internal used here is ``ensure_wgpu_object``, with the
     usage and chunk bookkeeping it is paired with; a canary test pins them.

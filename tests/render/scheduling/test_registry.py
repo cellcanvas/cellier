@@ -204,7 +204,7 @@ def test_paint_groups_keeping_is_the_foreground_alone_once_complete() -> None:
     assert groups[0].tolist() == view.paint_groups()[0].tolist()
 
 
-# -- paint_groups_current_slice (masked image design 8.5) ---------------------
+# -- paint_groups_current_slice -----------------------------------------------
 
 
 def test_current_slice_drops_another_slices_background() -> None:

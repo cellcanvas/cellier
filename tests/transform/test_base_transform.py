@@ -1,4 +1,4 @@
-"""Tests for cellier.transform._base (D9, D13, D14)."""
+"""Tests for cellier.transform._base."""
 
 from uuid import uuid4
 
@@ -12,7 +12,7 @@ from cellier.transform import (
     BaseTransform,
     CoordinateSystem,
 )
-from tests.transform._use_cases import uc1, uc3
+from tests.transform._use_cases import channel_broadcast, scale_only
 
 
 def zyx(name="data"):
@@ -22,38 +22,38 @@ def zyx(name="data"):
     )
 
 
-def test_ndim_is_read_through_and_stored_nowhere_d9():
-    """D9: if you find yourself adding an ndim field, stop."""
+def test_ndim_is_read_through_and_stored_nowhere():
+    """If you find yourself adding an ndim field, stop."""
     assert "ndim" not in AffineTransform.model_fields
     assert "input_ndim" not in AffineTransform.model_fields
     assert "output_ndim" not in AffineTransform.model_fields
 
-    _, _, transform = uc3()
+    _, _, transform = channel_broadcast()
     assert transform.input_ndim == 4
     assert transform.output_ndim == 5
     assert transform.input_ndim == transform.transform.ndims.source
     assert transform.output_ndim == transform.transform.ndims.target
 
 
-def test_validate_against_passes_on_agreement_d9():
-    data, world, transform = uc1()
+def test_validate_against_passes_on_agreement():
+    data, world, transform = scale_only()
     transform.validate_against(data, world)
 
 
-def test_validate_against_raises_on_a_wrong_input_id_d9():
-    _, world, transform = uc1()
+def test_validate_against_raises_on_a_wrong_input_id():
+    _, world, transform = scale_only()
     with pytest.raises(ValueError, match="Input coordinate system id"):
         transform.validate_against(zyx(), world)
 
 
-def test_validate_against_raises_on_a_wrong_output_id_d9():
-    data, _, transform = uc1()
+def test_validate_against_raises_on_a_wrong_output_id():
+    data, _, transform = scale_only()
     with pytest.raises(ValueError, match="Output coordinate system id"):
         transform.validate_against(data, zyx())
 
 
-def test_validate_against_raises_on_an_input_rank_mismatch_d9():
-    data, world, transform = uc1()
+def test_validate_against_raises_on_an_input_rank_mismatch():
+    data, world, transform = scale_only()
     wrong_rank = CoordinateSystem(
         name=data.name,
         id=data.id,
@@ -63,8 +63,8 @@ def test_validate_against_raises_on_an_input_rank_mismatch_d9():
         transform.validate_against(wrong_rank, world)
 
 
-def test_validate_against_raises_on_an_output_rank_mismatch_d9():
-    data, world, transform = uc1()
+def test_validate_against_raises_on_an_output_rank_mismatch():
+    data, world, transform = scale_only()
     wrong_rank = CoordinateSystem(
         name=world.name,
         id=world.id,
@@ -74,14 +74,14 @@ def test_validate_against_raises_on_an_output_rank_mismatch_d9():
         transform.validate_against(data, wrong_rank)
 
 
-def test_transform_is_frozen_q13():
-    _, _, transform = uc1()
+def test_transform_is_frozen():
+    _, _, transform = scale_only()
     with pytest.raises(ValidationError):
         transform.name = "renamed"
 
 
-def test_transform_carries_an_id_and_an_optional_name_d14():
-    data, world, transform = uc1()
+def test_transform_carries_an_id_and_an_optional_name():
+    data, world, transform = scale_only()
     assert transform.name is None
     assert transform.id != uuid4()
     named = AffineTransform.from_axis_map(
@@ -91,7 +91,7 @@ def test_transform_carries_an_id_and_an_optional_name_d14():
         name="data to world",
     )
     assert named.name == "data to world"
-    # two transforms joining the same pair have different ids (D14)
+    # two transforms joining the same pair have different ids
     assert named.id != transform.id
 
 
@@ -118,22 +118,22 @@ def test_base_transform_declares_the_full_method_list():
         assert hasattr(BaseTransform, method), method
 
 
-def test_the_wrapped_transform_is_a_transformnd_object_q2():
+def test_the_wrapped_transform_is_a_transformnd_object():
     from transformnd.base import Transform
 
-    _, _, transform = uc1()
+    _, _, transform = scale_only()
     assert isinstance(transform.transform, Transform)
 
 
 def test_spaced_is_not_used_anywhere_in_the_package():
-    """Section 2.1: Spaced.invert() is wrong, so it is never reachable."""
+    """Spaced.invert() is wrong, so it is never reachable."""
     import cellier.transform as package
 
     for name in package.__all__:
         assert "Spaced" not in type(getattr(package, name)).__name__
 
 
-def test_matrices_are_float64_d20():
-    """v1 coerced to float32; narrowing is the renderer's job at upload."""
-    _, _, transform = uc1()
+def test_matrices_are_float64():
+    """Narrowing to float32 is the renderer's job at upload."""
+    _, _, transform = scale_only()
     assert transform.matrix.dtype == np.float64

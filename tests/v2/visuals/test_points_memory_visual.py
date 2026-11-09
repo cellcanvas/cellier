@@ -73,7 +73,7 @@ def test_visual_json_roundtrip(tmp_path):
     assert v2.name == "cloud"
 
 
-# ── Phase 2: visual_type rename + migration validator ─────────────────────────
+# ── visual_type ───────────────────────────────────────────────────────────────
 
 
 def test_visual_type_is_points_memory():
@@ -81,18 +81,6 @@ def test_visual_type_is_points_memory():
 
     v = PointsVisual(name="p", data_store_id=str(uuid4()))
     assert v.visual_type == "points_memory"
-
-
-def test_visual_type_migration():
-    """Serialised JSON with old 'points' discriminator should still load."""
-    import json
-    from uuid import uuid4
-
-    v = PointsVisual(name="p", data_store_id=str(uuid4()))
-    d = json.loads(v.model_dump_json())
-    d["visual_type"] = "points"  # simulate old serialised data
-    v2 = PointsVisual.model_validate(d)
-    assert v2.visual_type == "points_memory"
 
 
 def test_appearance_type_field_removed():

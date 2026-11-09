@@ -137,7 +137,7 @@ async def test_the_store_uploads_the_columns_the_request_names():
 
 
 async def test_retained_axes_is_required_and_world_axes_cannot_stand_in():
-    """The unplaced fallback is gone (R8.3).
+    """The unplaced fallback is gone.
 
     It read ``displayed_axes`` -- **world** axes -- as data columns, correct
     exactly when the store was of the world's rank and its transform

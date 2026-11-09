@@ -4,7 +4,7 @@
 with what values" for both renderers, and is **pure** -- no controller, no
 widgets, no toolkit import.  It walks the visual's ``controls=`` list and
 hands each item to its builder, so the order of the list is the order of the
-specs (``plans/ordered_controls_list_design.md`` section 6).
+specs.
 
 The first sections construct no widget and no viewer.  The order tests at
 the end add real visuals through an offscreen ``Viewer``, so that every kind
@@ -109,7 +109,7 @@ def test_every_multiscale_field_maps_to_a_control():
 
 
 def test_every_image_field_collapses_into_one_control():
-    """The unified image control draws them all (unified image design 3.10)."""
+    """The unified image control draws them all."""
     for fields in (
         ["render_mode"],
         ["iso_threshold"],
@@ -120,7 +120,7 @@ def test_every_image_field_collapses_into_one_control():
 
 
 def test_the_image_fields_choose_rows_and_do_not_order_them():
-    """Design D1: the image control has its own layout."""
+    """The image control has its own layout."""
     result = appearance_specs(_in_memory(), [_image("clim", "visible", "color_map")])
     assert result.specs[0].values["fields"] == ["visible", "color_map", "clim"]
 
@@ -168,9 +168,9 @@ def test_an_image_control_with_no_field_the_model_carries_builds_nothing():
 
 
 def test_the_level_of_detail_control_needs_a_model_with_levels():
-    """An in-memory image has the settled bias of its brick route (oblique 2D
-    design v3, U1), but not the 3D moving setting; a visual with no levels
-    at all gets no spec and no report."""
+    """An in-memory image has the settled bias of its brick route, but not
+    the 3D moving setting; a visual with no levels at all gets no spec and no
+    report."""
     result = appearance_specs(
         _in_memory(), [_image("clim"), LevelOfDetailControl(), BoundingBoxControl()]
     )
@@ -396,7 +396,7 @@ def test_an_empty_list_is_not_a_target():
 
 
 def test_a_list_with_no_field_control_is_a_target():
-    """Design F3: no item depends on another being listed."""
+    """No item depends on another being listed."""
     visuals = [_FakeVisual(None, visual_id=key) for key in ("a", "b", "c")]
     viewer = _FakeViewer(
         visuals,
@@ -411,7 +411,7 @@ def test_a_list_with_no_field_control_is_a_target():
 
 
 def test_a_group_whose_items_all_draw_elsewhere_is_not_a_target():
-    """Design F2: the viewer says where the two special controls draw.
+    """The viewer says where the two special controls draw.
 
     An ``OrthoViewer`` draws clipping planes controls in their own dock and
     names no render planes target for its 2D group, so a group left with
@@ -587,7 +587,7 @@ def test_dataset_info_accepts_a_prebuilt_dataset_info():
 
 
 def test_dataset_info_alone_builds_its_block():
-    """Design F3: it used to build nothing unless a field was also asked for."""
+    """It used to build nothing unless a field was also asked for."""
     from cellier.data._dataset_info import DatasetInfo, RowSection
 
     info = DatasetInfo(sections=[RowSection(None, [("Points", "12")])])
@@ -596,7 +596,7 @@ def test_dataset_info_alone_builds_its_block():
 
 
 def test_the_loading_indicator_is_for_a_visual_that_loads():
-    """Only a multiscale visual loads progressively (design v3 5.13)."""
+    """Only a multiscale visual loads progressively."""
     from cellier.visuals import ImageVisual
 
     on = appearance_specs(_multiscale(), [_image("color_map"), LoadingIndicator()])
@@ -604,8 +604,8 @@ def test_the_loading_indicator_is_for_a_visual_that_loads():
     assert on.specs[-1].title == "Data fetch status"
     # It is not on by default any more: only when listed.
     assert "loading" not in kinds(appearance_specs(_multiscale(), [_image("clim")]))
-    # An in-memory image loads progressively on its brick route (oblique 2D
-    # design v3, U1): it has a render config with ``loading`` now.
+    # An in-memory image loads progressively on its brick route: it has a
+    # render config with ``loading`` now.
     in_memory = ImageVisual(name="image", data_store_id="store")
     assert "loading" in kinds(
         appearance_specs(in_memory, [_image("color_map"), LoadingIndicator()])
@@ -669,7 +669,7 @@ def test_a_rotated_list_moves_the_first_control_to_the_end(parity_case):
 
 @pytest.mark.parametrize("parity_case", ["points/all"], indirect=True)
 def test_field_controls_expand_in_their_own_order(parity_case):
-    """Design 1.2: the names are drawn in the order written."""
+    """The names are drawn in the order written."""
     _name, case = parity_case
 
     specs = _specs(

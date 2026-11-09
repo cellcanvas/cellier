@@ -1,5 +1,4 @@
-"""Which plane outlines a scene draws, and when (plane outline design 3.3,
-5.4, 6.1 and 6.4).
+"""Which plane outlines a scene draws, and when.
 
 Nothing is drawn here: the tests read the lines the scene holds.  What a
 line looks like on screen is in ``test_plane_outline_render.py``.
@@ -102,7 +101,7 @@ def _square(z: float):
     return [(x, y, z) for x, y, _ in SQUARE]
 
 
-# -- when an outline is shown (3.3) ------------------------------------------------
+# -- when an outline is shown ------------------------------------------------------
 
 
 async def test_an_outlined_plane_has_one_line_on_its_polygon(controller):
@@ -201,8 +200,8 @@ async def test_an_outline_is_shown_only_on_the_plane_s_own_axes(controller):
 
 
 async def test_an_outline_does_not_wait_for_data(controller):
-    """B-D6: a labels plane that is all background draws nothing and still
-    has its outline."""
+    """A labels plane that is all background draws nothing and still has
+    its outline."""
     scene, world = _scene(controller)
     _labels(controller, scene, [_plane(world)], data=np.zeros(SHAPE, dtype=np.int32))
     controller.add_canvas(scene_id=scene.id)
@@ -211,7 +210,7 @@ async def test_an_outline_does_not_wait_for_data(controller):
 
 
 async def test_a_pyramid_s_outline_is_there_before_any_brick(controller, tmp_path):
-    """B-D6: nothing has been planned or loaded."""
+    """Nothing has been planned or loaded."""
 
     def make(world, centre):
         return [h.plane_zyx(world, centre, (1.0, 0.0, 0.0), outline=RED)]
@@ -249,7 +248,7 @@ async def test_a_composite_has_one_outline_whatever_its_channels(controller):
     assert _same(polygon.vertices, SQUARE)
 
 
-# -- what moves or restyles a line (6.4) -------------------------------------------
+# -- what moves or restyles a line -------------------------------------------------
 
 
 async def test_the_line_follows_its_plane(controller):
@@ -386,7 +385,7 @@ async def test_closing_the_scene_leaves_no_line(controller):
     assert scene_manager.plane_outlines.node.children == ()
 
 
-# -- a plane shared by two visuals (5.4) --------------------------------------------
+# -- a plane shared by two visuals --------------------------------------------------
 
 
 def _pair(controller, *, labels_shape=SHAPE, labels_outline=BLUE):

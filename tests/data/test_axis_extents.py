@@ -1,4 +1,4 @@
-"""Per-axis extents on data stores (implementation plan, Phase 1).
+"""Per-axis extents on data stores.
 
 The extents are the one number a visual's world extent is built from, so the
 two conventions they follow -- edges for a grid, a bounding box for geometry

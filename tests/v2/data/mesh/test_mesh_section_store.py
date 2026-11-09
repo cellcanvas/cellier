@@ -1,4 +1,4 @@
-"""A mesh store's section read (``plans/mesh_refactor_v3.md`` 5.5, 5.6).
+"""A mesh store's section read.
 
 ``MeshMemoryStore.get_data`` with a request that carries a ``section``: the
 filter on the axes the cut does not replace, then the cut, then upload-ready
@@ -141,7 +141,7 @@ def test_a_time_between_frames_cuts_nothing():
 
 
 def test_the_candidate_subset_equals_the_full_pass():
-    """S4's overlap query against no cache at all: the same cut, exactly."""
+    """The bounds-index overlap query against no cache at all: the same cut."""
     positions, indices = _series_arrays()
     arrays = MeshLevelArrays(positions, indices)
     cache = LevelCache()
@@ -242,7 +242,7 @@ def test_a_section_needs_one_axis_across_the_view():
 
 
 def test_the_closure_report_is_computed_by_the_first_section_read():
-    """X5: a mesh that is only ever drawn in 3D never pays for it."""
+    """A mesh that is only ever drawn in 3D never pays for it."""
     store = _sphere_store()
     assert store.level_cache().peek(("closure",)) is None
     asyncio.run(store.get_data(_request(3, None, (0, 1, 2))))

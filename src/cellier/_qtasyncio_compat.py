@@ -1,10 +1,13 @@
 """PySide6 ``QtAsyncio`` compatibility patches.
 
-Moved from ``cellier/slicer.py`` when the slicer was deleted
-(scheduler-only loading design v2, D8), unchanged but for the slicer's name
-in two messages, and imported by ``cellier.render.render_manager``, so they are in
-place before any read task is cancelled under a ``QAsyncioEventLoop``.
+PySide6's ``QAsyncioTask`` and ``QAsyncioEventLoop`` break when a read task is
+cancelled inside ``asyncio.gather``: the task lacks a method ``gather`` calls,
+and the loop's exception handler can crash on the report.  The two patches
+below fix both.
+
 Importing this module applies them; it is a no-op without PySide6.
+``cellier.render.render_manager`` imports it, so the patches are in place
+before any read task can be cancelled under a ``QAsyncioEventLoop``.
 """
 
 from __future__ import annotations

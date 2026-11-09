@@ -70,8 +70,7 @@ class ControlSpec:
     title : str
         What the control is called, e.g. ``"Contrast limits"``.  Both front
         ends pass it to the widget, which draws it itself -- as a label beside
-        a single control, or as a heading over a block of rows
-        (``plans/label_ownership_unification.md``).
+        a single control, or as a heading over a block of rows.
     values : dict[str, object]
         Construction keywords for the widget, already read off the model.
         Toolkit-neutral: a keyword only one toolkit accepts (Qt's
@@ -312,8 +311,8 @@ def appearance_specs(
 def _carried_fields(visual: object, fields: list[str]) -> list[str]:
     """The names of *fields* the visual's appearance model carries.
 
-    An image's mode-dependent fields live on ``single`` (unified image
-    design 3.1), not on the shared appearance.
+    An image's mode-dependent fields live on ``single``, not on the
+    shared appearance.
     """
     app = getattr(visual, "appearance", None)
     single = getattr(visual, "single", None)
@@ -334,7 +333,7 @@ def _image_specs(
     skipped.extend(sorted(set(item.fields) - carried))
     if not carried:
         return []
-    # The list chooses rows; the control has its own layout (design D1).
+    # The list chooses rows; the control has its own layout.
     fields = [field for field in _IMAGE_FIELD_ORDER if field in carried]
     return [
         ControlSpec(
@@ -745,7 +744,7 @@ def _masked_dataset_info_specs(
     Each store's own sections, under a heading that names the image: the
     inline rows become a "Mask" or "Value" section and a titled section's
     heading is prefixed with the image's name.  One block rather than a
-    selector, so both are in view at once (masked image design 10).
+    selector, so both are in view at once.
     """
     from cellier.data._dataset_info import DatasetInfo, RowSection
 
@@ -1109,8 +1108,7 @@ def render_panel_kwargs(section: str, controller: object) -> dict:
 def dock_node_names(layout: object) -> frozenset[str]:
     """The class names of every dock node of *layout*, stacks walked through.
 
-    What a viewer checks its controls lists against
-    (``plans/clipping_planes_linking_design.md`` section 6.5).
+    What a viewer checks its controls lists against.
     """
     names: set[str] = set()
 

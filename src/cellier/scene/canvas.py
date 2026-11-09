@@ -1,4 +1,4 @@
-"""Canvas model for cellier v2."""
+"""Canvas model."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ import uuid
 from typing import Annotated, Any
 from uuid import uuid4
 
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, Field
 
+from cellier._model import CellierEventedModel
 from cellier.scene.cameras import CameraType
 from cellier.visuals._overlay_types import CanvasOverlayType
 
 
-class Canvas(EventedModel):
+class Canvas(CellierEventedModel):
     """One rendered canvas, holding one or more cameras.
 
     Parameters

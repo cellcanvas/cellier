@@ -93,7 +93,7 @@ def build_tile_grids_2d(
             tv = np.asarray(translation_vecs_shader[k], dtype=np.float64)[:2]
         else:
             sv, tv = implied_power_of_two(level)
-        # Centre convention (plan v2, D1), shader order (x=W, y=H).
+        # Centre convention, shader order (x=W, y=H).
         centres = brick_centre_data(np.stack([gx_c, gy_c], axis=1), bs, sv, tv)
 
         grids.append({"arr": arr, "centres": centres})
@@ -293,8 +293,8 @@ def half_plane_cull_2d(
     """Remove tiles that lie entirely on the clipped side of a half-plane.
 
     The 2D counterpart of appending rows to the frustum's in brick culling:
-    in a 2D view a clipping plane is the line where it meets the slice
-    (clipping planes design 5.1).  A tile that touches a line is kept.
+    in a 2D view a clipping plane is the line where it meets the slice.  A
+    tile that touches a line is kept.
 
     Parameters
     ----------

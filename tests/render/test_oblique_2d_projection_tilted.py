@@ -1,14 +1,13 @@
-"""Oblique 2D design v3, Phase 7: slab projection in ``TILTED`` views.
+"""Slab projection in ``TILTED`` views.
 
-``plans/oblique_2d_raster_design_v3.md`` 4.2.  A ray along the projection
-axis that crosses several data axes (``SLICE_SHIFT`` and ``OBLIQUE`` views)
-is sampled one drawn-level voxel apart (Euclidean, K6), anchored on the
-slice plane, over the half-open window ``[s - h, s + h)``; with nearest
-sampling a sample counts when the centre of the voxel it reads is inside.
+A ray along the projection axis that crosses several data axes
+(``SLICE_SHIFT`` and ``OBLIQUE`` views) is sampled one drawn-level voxel
+apart (Euclidean), anchored on the slice plane, over the half-open window
+``[s - h, s + h)``; with nearest sampling a sample counts when the centre
+of the voxel it reads is inside.
 
 The reference here is that rule evaluated on the CPU from the transform and
-the data -- the design's own definition, not another renderer (memory: no
-cross-library tests).
+the data -- the rule's own definition, not another renderer.
 """
 
 from __future__ import annotations
@@ -156,7 +155,7 @@ def test_a_bright_landmark_in_the_slab_wins_at_its_projected_pixel(tmp_path, fam
 
 @pytest.mark.parametrize("family", FAMILIES)
 def test_a_tilted_mip_pick_returns_the_winning_sample(tmp_path, family):
-    """D10's pick test on ``rot_zx`` (O12)."""
+    """The pick returns the winning sample on ``rot_zx``."""
     matrix = world_matrix(LINEARS["rot_zx"])
     data = np.full(SHAPE, 16.0, np.float32)
     mark = np.array([12, 16, 19])
@@ -259,7 +258,7 @@ def test_steps_per_voxel_leaves_an_along_axis_reduction_exact(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# A thickness drag (D13): reuse, the 2D rule, coverage
+# A thickness drag: reuse, the 2D rule, coverage
 # ---------------------------------------------------------------------------
 
 
@@ -310,7 +309,7 @@ def _slab_coverage(viewer, visual, frame, camera, data_shape) -> float:
 
 def test_a_thickness_drag_follows_the_2d_rule_with_full_coverage(tmp_path, monkeypatch):
     """With the flag on, each tick plans the backstop only; every tick still
-    draws at least 95% of the slab's footprint (U11, 8.4 at test scale)."""
+    draws at least 95% of the slab's footprint (at test scale)."""
     from tests.render.test_oblique_2d_motion import _pyramid, _settle
 
     modes: list[PlanMode] = []

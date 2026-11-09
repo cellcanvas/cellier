@@ -1,4 +1,4 @@
-"""The backstop helpers and the planner tail that packs it (design v3, 5.3/5.9)."""
+"""The backstop helpers and the planner tail that packs it."""
 
 from __future__ import annotations
 

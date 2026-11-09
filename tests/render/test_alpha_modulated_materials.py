@@ -1,4 +1,4 @@
-"""The per-vertex alpha materials (D19/D20).
+"""The per-vertex alpha materials.
 
 ``test_pygfx_shader_anchors_still_valid`` is the pygfx-bump canary and
 needs no GPU: it builds both shaders' wgsl and fails loudly if an anchored
@@ -75,9 +75,8 @@ def _point_peaks(image, positions, channel):
 def test_pygfx_shader_anchors_still_valid():
     """Build both shaders' wgsl and assert every anchor was found.
 
-    This is the cheap unit-level version of
-    ``scripts/v2/graph_alpha_spike.py`` and the thing that catches a pygfx
-    bump moving a substitution site.  It runs without a wgpu adapter, so it
+    This is the check that catches a pygfx bump moving a substitution
+    site.  It runs without a wgpu adapter, so it
     executes everywhere the suite does.
     """
     points, _ = _points_object([0.0, 1.0])
@@ -194,10 +193,10 @@ def test_color_change_preserves_alpha_ramp(offscreen_renderer):
 
 
 def test_color_mode_untouched(offscreen_renderer):
-    """``color_mode`` survives a full render with a fade (D19/D20).
+    """``color_mode`` survives a full render with a fade.
 
-    The direct regression for the contention this design removes: rendering
-    a fade used to require forcing ``color_mode="vertex"``.
+    The direct regression: rendering a fade used to require forcing
+    ``color_mode="vertex"``.
     """
     points, _ = _points_object([0.0, 0.5, 1.0])
     line = _line_object([0.0, 1.0])

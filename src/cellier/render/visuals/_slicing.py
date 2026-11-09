@@ -1,4 +1,3 @@
-# src/cellier/v2/render/visuals/_slicing.py
 """Shared slice-index to voxel-index conversion for render-layer visuals.
 
 All image and label visuals -- in-memory and multiscale, single- and
@@ -74,13 +73,12 @@ def axis_selections_from_box(
 
     The one assembler for every image and label family, replacing the
     per-family ``_build_axis_selections_*``.  Its input is a box already
-    pulled back into level-k voxel space, and design 3.7 step 4 is its three
-    branches, per data axis:
+    pulled back into level-k voxel space, and it has three branches, per
+    data axis:
 
     * **unbounded** -- the region does not constrain this axis, so the whole
-      extent is fetched.  This is what a displayed axis looks like until the
-      viewport crop lands, and it reproduces today's ``(0, shape[axis])``
-      exactly.
+      extent, ``(0, shape[axis])``, is fetched.  A displayed axis always looks
+      like this, since the region does not crop to the viewport.
     * **collapsed** (``lo == hi``) -- one plane.  The position is snapped with
       :func:`round_world_to_voxel`, the same half-up rule and the same
       function as before this migration, and the axis is dropped from the
@@ -91,7 +89,7 @@ def axis_selections_from_box(
 
     An axis that comes back **half** bounded on a collapsed axis is a shear:
     the region's preimage is a slanted hyperplane with no single voxel index
-    on it, and there is no honest answer.  See D7.
+    on it, and there is no honest answer.
 
     Parameters
     ----------
@@ -156,14 +154,14 @@ def select_plane_within_slab(
     index_to_world: Callable[[np.ndarray], np.ndarray],
     world_to_index: Callable[[np.ndarray], np.ndarray],
 ) -> int | None:
-    """Choose the one sample an image draws on a sliced axis (design 3.2).
+    """Choose the one sample an image draws on a sliced axis.
 
     Sample ``i`` spans ``[i - 0.5, i + 0.5)`` in data units.  It is a
     candidate when that extent, mapped to world, overlaps the band
     ``[position - half_thickness, position + half_thickness]``.  Among the
     candidates the one whose centre maps closest to ``position`` wins.  A tie
-    goes to the higher data index, whatever the sign of the world scale, which
-    is how :func:`round_world_to_voxel` breaks it (D40).  No candidate means
+    goes to the higher data index, whatever the sign of the world scale,
+    which is how :func:`round_world_to_voxel` breaks it.  No candidate means
     the image draws nothing.
 
     Overlap and distance are measured in world units, so an axis whose samples
@@ -245,10 +243,10 @@ def _single_reader_rows(spaces: RenderSpaces) -> dict[int, int]:
 
     The slicing rule pins a sliced world axis to one sample of the data axis
     behind it.  That needs the world row to read that data axis alone; the
-    data axis may also reach a displayed world axis (a drift ``x += v t``,
-    a shear ``x += s z``), which moves the slab across the view but does not
-    tilt the slice (full affine design v2, ``SLICE_SHIFT``).  Under an
-    axis-aligned transform this is the axis correspondence.
+    data axis may also reach a displayed world axis (a drift ``x += v t``, a
+    shear ``x += s z``), which moves the slab across the view but does not
+    tilt the slice (``SLICE_SHIFT``).  Under an axis-aligned transform this
+    is the axis correspondence.
     """
     coupling = spaces.coupling
     if coupling is None:
@@ -268,7 +266,7 @@ def image_plane_selection(
     shape: tuple[int, ...],
     exempt_data_axes: Collection[int] = (),
 ) -> RegionSelection | None:
-    """Apply the image slicing rule to a selection (design 3.2).
+    """Apply the image slicing rule to a selection.
 
     Image visuals draw one plane per sliced axis and draw nothing when the
     slice misses the data; labels keep the clamping assembler.  For every world

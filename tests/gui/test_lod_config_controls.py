@@ -1,8 +1,8 @@
 """The "LOD" control of a multiscale mesh, on both toolkits.
 
-``plans/mesh_refactor_v3.md`` Phase 9 (5.11).  The control sends
-``LodConfigUpdateEvent`` and follows ``LodConfigChangedEvent``; the viewers
-mirror ``add_multiscale_mesh`` and ``set_lod_config``.
+The control sends ``LodConfigUpdateEvent`` and follows
+``LodConfigChangedEvent``; the viewers mirror ``add_multiscale_mesh`` and
+``set_lod_config``.
 """
 
 from __future__ import annotations
@@ -379,7 +379,7 @@ def test_every_row_says_what_it_does():
     for field in (*lod_config_fields(), *mesh_section_fields()):
         assert field.tooltip, field.name
     mode = next(f for f in mesh_section_fields() if f.name == "mode")
-    # A cut draws one plane whatever the spatial thickness (plan Phase 9).
+    # A cut draws one plane whatever the spatial thickness.
     assert "thickness" in mode.tooltip and "ignored" in mode.tooltip
 
 

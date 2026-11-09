@@ -2,8 +2,8 @@
 
 Both convenience viewers record the ``controls=`` passed to their ``add_*``
 methods here, and the layout docks read it back.  A dock is built once but has
-to follow the viewer (``plans/multi_visual_controls.md``), so the registry says
-when it changed rather than leaving each dock to poll.
+to follow the viewer, so the registry says when it changed rather than leaving
+each dock to poll.
 
 Why the viewer and not the controller's bus: ``VisualAddedEvent`` fires inside
 the controller *before* ``add_*`` returns and records the config, so a dock

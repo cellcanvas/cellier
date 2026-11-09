@@ -1,4 +1,4 @@
-"""Scene model for cellier v2."""
+"""Scene model."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 import numpy as np
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, Field, PrivateAttr, field_serializer
 
+from cellier._model import CellierEventedModel
 from cellier.scene._background import BackgroundAppearance
 from cellier.scene.canvas import Canvas
 from cellier.scene.dims import DimsManager
@@ -22,11 +22,11 @@ def _sliced_world_axes(visual: Any) -> set[int]:
 
     Every world axis whose row of the transform's coupling pattern
     (``visual.transform.axis_coupling()``) is non-zero: the world axes some
-    data axis reaches, under any rotation, shear or drift (full affine
-    design v2, Phase 4).  An image in composite mode does not slice its
-    channel axis, so that world axis is left out.  A world axis the visual
-    broadcasts over has no data axis and contributes nothing; a visual with
-    no transform yet contributes nothing at all.
+    data axis reaches, under any rotation, shear or drift.  An image in
+    composite mode does not slice its channel axis, so that world axis is
+    left out.  A world axis the visual broadcasts over has no data axis and
+    contributes nothing; a visual with no transform yet contributes nothing
+    at all.
 
     Parameters
     ----------
@@ -45,14 +45,14 @@ def _sliced_world_axes(visual: Any) -> set[int]:
     axes = {int(axis) for axis in np.flatnonzero(coupling.any(axis=1))}
     channel_axis = getattr(visual, "channel_axis", None)
     if channel_axis is not None and getattr(visual, "composite", False):
-        # A channel axis is coupled to nothing (refused at assignment, D6).
+        # A channel axis is coupled to nothing (refused at assignment).
         world_axis = transform.exclusive_axis_correspondence().get(channel_axis)
         if world_axis is not None:
             axes.discard(world_axis)
     return axes
 
 
-class Scene(EventedModel):
+class Scene(CellierEventedModel):
     """One rendered scene.
 
     Parameters
@@ -132,7 +132,7 @@ class Scene(EventedModel):
         Derived from the visuals -- hidden ones included -- and adjusted by
         ``dims.slider_overrides``: ``True`` forces an axis in, ``False``
         forces it out.  A plain property rather than a field, so it is never
-        serialized; the overrides are the only stored state (D23).
+        serialized; the overrides are the only stored state.
 
         Returns
         -------
@@ -142,7 +142,7 @@ class Scene(EventedModel):
         Raises
         ------
         ValueError
-            If a visual's transform has no axis correspondence (D37).
+            If a visual's transform has no axis correspondence.
         """
         derived: set[int] = set()
         for visual in self.visuals:

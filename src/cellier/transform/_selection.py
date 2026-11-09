@@ -1,12 +1,14 @@
-"""One canvas's view of the world: where the slice is, and how thick (D43)."""
+"""One canvas's view of the world: where the slice is, and how thick."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import ConfigDict, model_validator
 from typing_extensions import Self
+
+from cellier._model import CellierModel
 
 # Both models are imported at runtime, not under TYPE_CHECKING: pydantic
 # resolves field annotations at class-creation time and cannot see a
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Collection
 
 
-class RegionSelection(BaseModel):
+class RegionSelection(CellierModel):
     """A slice position and its extent, as one frozen artifact.
 
     This is the authoritative artifact the slicer consumes.  A
@@ -26,7 +28,7 @@ class RegionSelection(BaseModel):
     parameterization -- an index and a thickness, the thing a GUI binds
     to -- and emits one of these; an oblique editor holds a plane and a
     thickness and emits the same type.  The slicer consumes one thing and
-    does not know which editor produced it (R6).
+    does not know which editor produced it.
 
     **The region is absolute and the translation is a point inside it.**
     The transform's constant column holds the slice **position**, exactly
@@ -39,13 +41,13 @@ class RegionSelection(BaseModel):
     position reads :attr:`slice_position`, and one that needs the extent
     reads the region.  Recovering the position as the midpoint of the
     region's bounds can miss it by an ulp, and a zero-thickness plane put
-    there (D42) excludes the translation -- use
-    :meth:`with_planes_at_slice` to narrow a slab to a plane.
+    there excludes the translation -- use :meth:`with_planes_at_slice` to
+    narrow a slab to a plane.
 
     A region relative to the translation (an extent around the position,
     stored once) would make that mistake impossible to write; it is to be
-    revisited with the oblique raster editor (full affine design v2,
-    section 12), whose plane and thickness are that form already.
+    revisited with the oblique raster editor, whose plane and thickness
+    are that form already.
 
     The region is in **world** coordinates, not rendered.  Rendered space
     has only the two or three displayed axes and so cannot express a
@@ -56,8 +58,8 @@ class RegionSelection(BaseModel):
     Parameters
     ----------
     transform : AffineTransform
-        The rendered -> world embedding (D34).  Its translation column
-        carries the slice indices.
+        The rendered -> world embedding.  Its translation column carries
+        the slice indices.
     region : ConvexRegion
         The selected region, in the transform's **output** (world)
         coordinate system.
@@ -80,16 +82,16 @@ class RegionSelection(BaseModel):
         selection whose slice sits outside its own region is incoherent,
         and this is what catches it.
 
-        D43 states that invariant as "the transform's translation
-        satisfies every half-space".  That is the same test whenever the
-        region constrains only *collapsed* axes, because the translation
-        is exactly the slice position on those.  It is too strong as
-        soon as a **displayed** axis is bounded, which R3 explicitly
-        permits: the translation is zero on a displayed axis, so
-        ``Z in [11, 13]`` on a displayed ``Z`` would be rejected even
-        though every rendered point with ``Z in [11, 13]`` is in the
-        region.  The pull-back accepts exactly the selections that select
-        something and still rejects the case D43 names.
+        A simpler form of that invariant, "the transform's translation
+        satisfies every half-space", is the same test whenever the region
+        constrains only *collapsed* axes, because the translation is
+        exactly the slice position on those.  It is too strong as soon as
+        a **displayed** axis is bounded, which a selection may do: the
+        translation is zero on a displayed axis, so ``Z in [11, 13]`` on
+        a displayed ``Z`` would be rejected even though every rendered
+        point with ``Z in [11, 13]`` is in the region.  The pull-back
+        accepts exactly the selections that select something and still
+        rejects a slice outside its region.
 
         This is a consistency check on a hand-built selection, not a
         synchronisation mechanism.  Nothing here updates one half when
@@ -121,15 +123,15 @@ class RegionSelection(BaseModel):
         if self.transform.broadcast_axes:
             raise ValueError(
                 "A RegionSelection's transform is the rendered -> world "
-                "embedding of D34, which records where the slice sits as "
+                "embedding of the slice, which records where it sits as "
                 "constant_output_axes.  It must not declare broadcast_axes: a "
                 "world axis the canvas does not display is at a definite "
                 "position, not free.  Rebuild the embedding with "
                 "constant_output_axes instead of broadcast_output_axes."
             )
         # The embedding has no broadcast axes -- checked immediately above --
-        # so there is nothing for D8's drop rule to remove and the indices
-        # are empty.  This is the one caller that has the ids but not the
+        # so there is nothing for the broadcast-axis drop rule to remove and
+        # the indices are empty.  This is the one caller that has the ids but not the
         # world CoordinateSystem object needed to resolve them.
         if self.transform._imap_region(self.region, ()).is_empty():
             raise ValueError(
@@ -144,7 +146,7 @@ class RegionSelection(BaseModel):
         """The world point the rendered origin maps to.
 
         This is the transform's translation column, which is where the
-        slice indices live (D35).
+        slice indices live.
         """
         return self.transform.translation
 

@@ -43,7 +43,7 @@ class AnywidgetCanvasView:
     path -- ``build_canvas_widget`` never forwarded the parameters it needed --
     and ``Layout(left_dock=AppearanceControls())`` already produces the same
     ``[controls | canvas]`` arrangement through the supported path, on both
-    toolkits (design section 7.2).
+    toolkits.
 
     Attributes
     ----------
@@ -136,11 +136,11 @@ def build_canvas_view(
     -----
     A **new** canvas on a scene that renders both ways also moves the scene's
     displayed axes to the middle of their slider range.  Every axis keeps a
-    slice position while displayed (D36), and a scene starts every one at 0 --
-    the edge of the data, where a first switch from 3D to 2D would land on a
-    blank plane (``plans/gui_backend_seam.md`` D16).  A scene that renders one
-    way (an ``OrthoViewer`` panel) has no toggle, so nothing is moved; nor is
-    anything moved on a reused canvas, so a restored session stays put.
+    slice position while displayed, and a scene starts every one at 0 -- the
+    edge of the data, where a first switch from 3D to 2D would land on a blank
+    plane.  A scene that renders one way (an ``OrthoViewer`` panel) has no
+    toggle, so nothing is moved; nor is anything moved on a reused canvas, so
+    a restored session stays put.
     """
     from cellier.gui._axis_values import coerce_axis_values
 

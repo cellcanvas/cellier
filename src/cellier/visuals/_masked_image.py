@@ -1,4 +1,4 @@
-"""MaskedImage visual models (masked image design v2, section 4).
+"""MaskedImage visual models.
 
 A MaskedImage draws an isosurface found in a **mask** image, lit from the mask,
 and coloured from a **value** image.  In 3D the colour is the max, mean or min
@@ -9,7 +9,7 @@ in the band shows the value at that pixel.
 The models subclass the multiscale image models, so every site that handles a
 multiscale image (level of detail, scheduling, slicing, the hide rule, draw
 status) handles a MaskedImage too.  One model serves every storage mix: either
-image may be in memory or multiscale (design 4.5, MI-P2).
+image may be in memory or multiscale.
 """
 
 from typing import Literal
@@ -32,7 +32,7 @@ __all__ = [
     "MaskedImageVisual",
 ]
 
-#: Each side's default GPU budget (G6).  The 3D atlas is a cube of slots,
+#: Each side's default GPU budget.  The 3D atlas is a cube of slots,
 #: ``int(cbrt(budget / brick bytes))`` a side, so 1,100 MiB holds 17 cubed
 #: (4,912 usable 32-voxel bricks, about a 543 cubed in-memory image) where
 #: 1 GiB holds 16 cubed (4,095, one short of a 512 cubed image).
@@ -44,7 +44,7 @@ class MaskedImageAppearance(MultiscaleImageAppearance):
 
     The level-of-detail fields apply to each image on its own pyramid.  On an
     in-memory image, which is single scale, they have one level to choose and
-    do nothing (design 4.5).
+    do nothing.
 
     Parameters
     ----------
@@ -108,13 +108,13 @@ class MaskedImageSingleAppearance(BaseImageSingleAppearance):
     render_mode : Literal["iso"]
         Always ``"iso"``.
     surface_thickness : float
-        World units, shared by 2D and 3D (MI-D5).  In 3D the value image is
-        reduced along the surface normal over this length; ``0`` reads the
-        value at the surface.  In 2D it is the width of the contour band;
-        ``0`` is a hairline ``surface_min_width_px`` wide.  Default 0.
+        World units, shared by 2D and 3D.  In 3D the value image is reduced
+        along the surface normal over this length; ``0`` reads the value at
+        the surface.  In 2D it is the width of the contour band; ``0`` is a
+        hairline ``surface_min_width_px`` wide.  Default 0.
     surface_projection : str
         3D only: ``"max"`` (default), ``"mean"`` or ``"min"`` of the value
-        along the normal.  A 2D pixel shows its own value (MI-D8).
+        along the normal.  A 2D pixel shows its own value.
     surface_placement : str
         Where the thickness lies relative to the surface, in 2D and 3D:
         ``"inward"`` (default, into the mask), ``"centred"`` or
@@ -124,9 +124,9 @@ class MaskedImageSingleAppearance(BaseImageSingleAppearance):
         it neither shimmers when zoomed out nor vanishes at thickness 0.
         ``0`` draws the strictly physical width.  Default 1.0.
     band_rays : int
-        2D only: rays in the fan that searches for the contour (MI-P15).
-        Fewer is faster and loses up to a few percent of the band at its far
-        edge on a steep mask.  Default 16.
+        2D only: rays in the fan that searches for the contour.  Fewer is
+        faster and loses up to a few percent of the band at its far edge on
+        a steep mask.  Default 16.
     band_cap : int
         2D only: the steps a search ray takes before its step widens to
         ``reach / band_cap``, bounding the reads a pixel.  Default 32.
@@ -200,7 +200,7 @@ class MaskedImageVisual(MultiscaleImageVisual):
     -----
     Refused at construction: a ``channel_axis``, ``composite=True``, any
     ``channels`` and any ``render_planes``.  A ``c`` axis in the stores is a
-    slider axis like ``t``, not a channel axis (design 4.3).
+    slider axis like ``t``, not a channel axis.
     """
 
     visual_type: Literal["masked_image"] = "masked_image"

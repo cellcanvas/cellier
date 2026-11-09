@@ -1,7 +1,6 @@
 """``controls=`` for the non-image visual types.
 
-Every ``add_*`` method takes a ``controls=`` list of control models
-(``plans/ordered_controls_list_design.md``).
+Every ``add_*`` method takes a ``controls=`` list of control models.
 
 The highest-value tests here are the end-to-end ones: a list naming every
 field of a visual type produces a dock containing the expected controls.
@@ -163,7 +162,7 @@ def test_add_labels_multiscale_takes_the_multiscale_controls(multiscale_labels_s
 
 
 # ---------------------------------------------------------------------------
-# End to end: a default panel per visual type (section 11.5's key test)
+# End to end: a default panel per visual type
 # ---------------------------------------------------------------------------
 
 EXPECTED_DEFAULT_TITLES = {
@@ -231,7 +230,7 @@ def test_every_field_builds_the_full_qt_dock(qtbot, kind, stores):
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_every_field_builds_the_same_anywidget_dock(kind, stores):
-    """Same names, same order, other toolkit -- section 4.2's whole point."""
+    """Same names, same order, other toolkit."""
     from tests.convenience._qt_acceptance import control_labels_anywidget
 
     viewer = Viewer(
@@ -416,7 +415,7 @@ def test_a_rendered_control_writes_the_model(qtbot, points_store):
 
 
 def test_an_ortho_non_image_edit_reaches_the_2d_panels(qtbot, points_store):
-    """The stage-2 fan-out, now for a visual type stage 2 did not cover.
+    """The ortho appearance fan-out, for a non-image visual type.
 
     The dock starts on the first group, the 2D views; the 3D panel has its
     own control.
@@ -437,7 +436,7 @@ def test_an_ortho_non_image_edit_reaches_the_2d_panels(qtbot, points_store):
 
 
 def test_a_visible_toggle_reaches_the_model_on_its_own_event(qtbot, mesh_store):
-    """``visible`` travels on ``VisualVisibilityChangedEvent`` (section 6.4.1).
+    """``visible`` travels on ``VisualVisibilityChangedEvent``.
 
     It is the one field routed specially, and now the first row of every
     default panel, so it is worth an end-to-end check rather than only the
@@ -494,10 +493,9 @@ def test_the_shared_widget_table_agrees_with_the_field_classes():
 
     ``APPEARANCE_FIELD_WIDGETS`` names each single-field control for the
     toolkit-neutral spec layer, and each widget class names itself with
-    ``_label`` -- and since ``plans/label_ownership_unification.md`` the class
-    is what actually gets drawn, in both toolkits.  Letting the two drift would
-    mean a panel whose controls are named one thing and asserted to be named
-    another.
+    ``_label`` -- and the class is what actually gets drawn, in both
+    toolkits.  Letting the two drift would mean a panel whose controls
+    are named one thing and asserted to be named another.
     """
     from cellier.gui._appearance_fields import (
         APPEARANCE_FIELD_WIDGETS,

@@ -2,16 +2,16 @@ import uuid
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, ConfigDict, Field
 
+from cellier._model import CellierEventedModel
 from cellier.render._config import MAX_OUTLINE_SLOT
 from cellier.transform import TransformType
 from cellier.visuals._clipping import ClippingPlane, validate_clipping_planes
 from cellier.visuals._render_plane import validate_render_planes
 
 
-class AABBParams(EventedModel):
+class AABBParams(CellierEventedModel):
     """Parameters for an axis-aligned bounding box wireframe overlay.
 
     Parameters
@@ -29,7 +29,7 @@ class AABBParams(EventedModel):
     line_width: float = 2.0
 
 
-class VisualOutline(EventedModel):
+class VisualOutline(CellierEventedModel):
     """Screen-space outline assignment for one visual.
 
     The *global* outline configuration -- palette, thicknesses, layer
@@ -73,12 +73,12 @@ class VisualOutline(EventedModel):
     placement: Literal["inward", "outward"] | None = None
 
 
-class BaseDrawAppearance(EventedModel):
+class BaseDrawAppearance(CellierEventedModel):
     """How any visual is drawn, apart from its opacity.
 
     Split out of :class:`BaseAppearance` so an image, whose opacity is per
-    channel (unified image design 3.1), does not inherit a visual-level
-    ``opacity`` that would mean nothing.
+    channel, does not inherit a visual-level ``opacity`` that would mean
+    nothing.
 
     Parameters
     ----------
@@ -119,7 +119,7 @@ class BaseAppearance(BaseDrawAppearance):
     opacity: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
-class BaseVisual(EventedModel):
+class BaseVisual(CellierEventedModel):
     """The base class for all Visuals.
 
     Parameters
@@ -137,7 +137,7 @@ class BaseVisual(EventedModel):
         "not decided yet": ``CellierController.add_visual`` builds the
         identity between those two systems and assigns it.
 
-        There is no coordinate-system-less identity to default to (D18).  A
+        There is no coordinate-system-less identity to default to.  A
         transform names its endpoints by id, and a visual constructed before
         it is added to a scene does not yet know which world it is going into.
     aabb : AABBParams
@@ -163,7 +163,7 @@ class BaseVisual(EventedModel):
     -----
     Each concrete visual subclass declares its own typed ``appearance`` field.
     Image visuals also carry a ``single`` appearance and per-channel
-    ``channels`` appearances (unified image design 3.1).
+    ``channels`` appearances.
     """
 
     name: str

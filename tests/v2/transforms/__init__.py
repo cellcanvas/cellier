@@ -1,1 +1,1 @@
-"""Phase 3 of the transform integration: data -> world becomes v2."""
+"""The ``data -> world`` transform of a visual."""

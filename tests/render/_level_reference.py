@@ -1,9 +1,9 @@
 """Brute-force reference sampler for multiscale level placement.
 
 The oracle the shader-agreement tests compare against.  It implements the
-mapping in ``plans/multiscale_level_transform_v2.md`` directly -- on purpose
-not through ``cellier.render._level_mapping`` -- so a mistake in the helpers
-cannot hide in both places.
+level mapping below directly -- on purpose not through
+``cellier.render._level_mapping`` -- so a mistake in the helpers cannot hide
+in both places.
 
     u = (p - t) / s      data (level-0 voxel) -> level coordinates
     nearest              voxel ``floor(u + 0.5)``

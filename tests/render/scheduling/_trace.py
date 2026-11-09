@@ -1,10 +1,10 @@
 """Hash every decision the scheduler core makes on a random trace.
 
-The trace guard of ``plans/mesh_refactor_v3.md`` 5.2: with default cache
-policies the core must decide exactly as it did before it learned about
-target caps and the compute lane.  A digest covers every ``trace`` call
-(pass, issue, arrive, commit, evict, discard, invalidate), every action with
-its clock, and the final read and completion counts, in order.
+The trace guard: with default cache policies the core must decide exactly as it
+did before it learned about target caps and the compute lane.  A digest covers
+every ``trace`` call (pass, issue, arrive, commit, evict, discard, invalidate),
+every action with its clock, and the final read and completion counts, in
+order.
 
 ``trace_baseline.json`` holds the digests recorded from the core **before**
 that change (``python -m tests.render.scheduling._trace`` wrote it, on the
@@ -26,10 +26,8 @@ from cellier.render.scheduling import ChunkClass
 BASELINE = Path(__file__).parent / "trace_baseline.json"
 
 #: ``ChunkClass.BACKSTOP`` as the baseline recorded it.  The class became a
-#: priority with the backstop at 255
-#: (``plans/progressive_intermediate_level_design_v2.md`` 5.1, 9.8), which
-#: changes the integer in every digest and no decision.  Until the baseline
-#: is regenerated (Phase 7 of that plan, on the user's go-ahead) the class is
+#: priority with the backstop at 255, which changes the integer in every
+#: digest and no decision.  Until the baseline is re-recorded the class is
 #: translated back before it is hashed, so the guard keeps proving that
 #: two-class behaviour is unchanged.
 RECORDED_BACKSTOP = 1

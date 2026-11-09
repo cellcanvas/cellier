@@ -323,7 +323,7 @@ def test_a_container_closes_the_subtree_it_composed():
 # ``DisplayHandle`` whose ``close()`` unsubscribes the controls it built, while
 # the Qt path handed back a bare window and nothing else, so its controls
 # stayed subscribed (and kept receiving events) for as long as the controller
-# lived.  Design section 7.7 recorded this as a known gap.
+# lived.
 
 
 def _qt_viewer_with_window():
@@ -438,9 +438,9 @@ def test_the_qt_window_teardown_is_idempotent(qtbot):
 
 
 async def test_close_stops_loading_without_waiting_on_a_running_read():
-    """Scheduler-only loading design v2, Phase 4: after ``close()`` no loading
-    task or timer is live, and ``close()`` returns while a read is still
-    running in an executor thread (its result is dropped when it lands)."""
+    """After ``close()`` no loading task or timer is live, and ``close()``
+    returns while a read is still running in an executor thread (its result is
+    dropped when it lands)."""
     import threading
     import time
 

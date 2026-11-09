@@ -1,4 +1,4 @@
-"""Tests for cellier.transform._geometry_ops (design section 4)."""
+"""Tests for cellier.transform._geometry_ops."""
 
 import numpy as np
 import pytest
@@ -22,7 +22,7 @@ from cellier.transform._geometry_ops import (
     polytope_bounds,
     pseudo_inverse_affine,
 )
-from tests.transform._use_cases import UC3, USE_CASES
+from tests.transform._use_cases import CHANNEL_BROADCAST, USE_CASES
 
 CASE_IDS = list(USE_CASES)
 
@@ -51,11 +51,11 @@ def brute_force_box(linear, translation, lower, upper):
     return image.min(0), image.max(0)
 
 
-# --- D24: the three-case inverse rule --------------------------------
+# --- The three-case inverse rule -------------------------------------
 
 
 @pytest.mark.parametrize("name", CASE_IDS)
-def test_every_use_case_has_a_left_inverse_d24(name):
+def test_every_use_case_has_a_left_inverse(name):
     linear, translation, _ = case(name)
     inverse_linear, inverse_translation = inverse_of(name)
     rng = np.random.default_rng(0)
@@ -66,30 +66,30 @@ def test_every_use_case_has_a_left_inverse_d24(name):
     assert np.allclose(mapped @ inverse_linear.T + inverse_translation, points)
 
 
-def test_dimension_reducing_affine_has_no_inverse_d24_case_3():
+def test_dimension_reducing_affine_has_no_inverse():
     linear = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     assert pseudo_inverse_affine(linear, np.zeros(2)) is None
 
 
-def test_singular_square_matrix_has_no_inverse_d24_case_1():
+def test_singular_square_matrix_has_no_inverse():
     linear = np.array([[1.0, 2.0], [2.0, 4.0]])
     assert pseudo_inverse_affine(linear, np.zeros(2)) is None
 
 
-def test_rank_deficient_embedding_has_no_inverse_d24_case_3():
+def test_rank_deficient_embedding_has_no_inverse():
     linear = np.array([[1.0, 2.0], [2.0, 4.0], [3.0, 6.0]])
     assert pseudo_inverse_affine(linear, np.zeros(3)) is None
 
 
-def test_uc3_embedding_has_full_column_rank():
-    linear, _, _ = UC3
+def test_channel_broadcast_embedding_has_full_column_rank():
+    linear, _, _ = CHANNEL_BROADCAST
     assert np.linalg.matrix_rank(linear) == linear.shape[1] == 4
 
 
-# --- points (D11, D12) -----------------------------------------------
+# --- points ----------------------------------------------------------
 
 
-def test_identity_affine_returns_a_distinct_array_d11():
+def test_identity_affine_returns_a_distinct_array():
     """transformnd's identity Affine.apply returns its input; we must not."""
     points = np.array([[1.0, 2.0, 3.0]])
     result = map_points(points, np.eye(3), np.zeros(3))
@@ -105,29 +105,29 @@ def test_input_array_is_not_mutated():
     assert np.array_equal(points, original)
 
 
-def test_rank_of_the_output_matches_the_input_d12():
-    linear, translation, _ = UC3
+def test_rank_of_the_output_matches_the_input():
+    linear, translation, _ = CHANNEL_BROADCAST
     assert map_points(np.zeros(4), linear, translation).shape == (5,)
     assert map_points(np.zeros((7, 4)), linear, translation).shape == (7, 5)
 
 
-def test_homogeneous_input_is_rejected_d12():
-    linear, translation, _ = UC3
+def test_homogeneous_input_is_rejected():
+    linear, translation, _ = CHANNEL_BROADCAST
     with pytest.raises(ValueError, match="Homogeneous"):
         map_points(np.zeros((7, 5)), linear, translation)
 
 
-def test_three_dimensional_input_is_rejected_d12():
+def test_three_dimensional_input_is_rejected():
     with pytest.raises(ValueError, match="1-D or 2-D"):
         map_points(np.zeros((2, 2, 3)), np.eye(3), np.zeros(3))
 
 
-def test_wrong_component_count_on_1d_input_is_rejected_d12():
+def test_wrong_component_count_on_1d_input_is_rejected():
     with pytest.raises(ValueError, match="components"):
         map_points(np.zeros(4), np.eye(3), np.zeros(3))
 
 
-# --- directions and normals (D27, D28) -------------------------------
+# --- directions and normals ------------------------------------------
 
 
 @pytest.mark.parametrize("name", CASE_IDS)
@@ -141,7 +141,7 @@ def test_directions_round_trip(name):
 
 
 @pytest.mark.parametrize("name", CASE_IDS)
-def test_normals_use_the_covariant_rule_d27(name):
+def test_normals_use_the_covariant_rule(name):
     """The defining property, not the formula: <n', A v> == <n, v>.
 
     This fails if ``A`` is used where ``(A+)^T`` is required, which a test
@@ -168,7 +168,7 @@ def test_normals_round_trip(name):
     assert np.allclose(imap_normals(forward, linear), normal)
 
 
-def test_directions_and_normals_differ_under_a_scale_d27():
+def test_directions_and_normals_differ_under_a_scale():
     linear = np.diag([0.5, 0.1, 0.1])
     inverse_linear, _ = pseudo_inverse_affine(linear, np.zeros(3))
     vector = np.array([1.0, 1.0, 1.0])
@@ -177,7 +177,7 @@ def test_directions_and_normals_differ_under_a_scale_d27():
     )
 
 
-def test_nothing_is_normalised_d28():
+def test_nothing_is_normalised():
     linear = np.diag([2.0, 2.0, 2.0])
     inverse_linear, _ = pseudo_inverse_affine(linear, np.zeros(3))
     normal = np.array([3.0, 0.0, 0.0])
@@ -187,7 +187,7 @@ def test_nothing_is_normalised_d28():
     assert np.linalg.norm(imap_directions(normal, inverse_linear)) == pytest.approx(1.5)
 
 
-def test_map_direction_and_imap_normal_work_without_an_inverse_d27():
+def test_map_direction_and_imap_normal_work_without_an_inverse():
     """Both need only A and A^T, so they must not be gated on invertibility."""
     linear = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     assert pseudo_inverse_affine(linear, np.zeros(2)) is None
@@ -195,11 +195,11 @@ def test_map_direction_and_imap_normal_work_without_an_inverse_d27():
     assert imap_normals(np.array([1.0, 2.0]), linear).shape == (3,)
 
 
-# --- degeneracy (D32) ------------------------------------------------
+# --- degeneracy ------------------------------------------------------
 
 
-def test_normal_parallel_to_the_broadcast_axis_raises_d32():
-    linear, translation, _ = UC3
+def test_normal_parallel_to_the_broadcast_axis_raises():
+    linear, translation, _ = CHANNEL_BROADCAST
     parallel_to_c = np.array([0.0, 1.0, 0.0, 0.0, 0.0])
     with pytest.raises(DegenerateNormalError):
         imap_normals(parallel_to_c, linear)
@@ -207,16 +207,16 @@ def test_normal_parallel_to_the_broadcast_axis_raises_d32():
         imap_plane(parallel_to_c, 5.0, linear, translation)
 
 
-def test_a_plane_tilted_in_c_and_x_does_not_raise_and_loses_the_tilt_d32():
+def test_a_plane_tilted_in_c_and_x_does_not_raise_and_loses_the_tilt():
     """Pinned as intended behaviour: the reverse map is not injective."""
-    linear, translation, _ = UC3
+    linear, translation, _ = CHANNEL_BROADCAST
     tilted = np.array([0.0, 1.0, 0.0, 0.0, 1.0])
     pulled, _ = imap_plane(tilted, 0.0, linear, translation)
     assert np.allclose(pulled, [0.0, 0.0, 0.0, 0.1])
 
 
 def test_degenerate_error_names_the_offending_row():
-    linear, _, _ = UC3
+    linear, _, _ = CHANNEL_BROADCAST
     normals = np.array([[1.0, 0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0, 0.0]])
     with pytest.raises(DegenerateNormalError, match=r"\[1\]"):
         imap_normals(normals, linear)
@@ -261,11 +261,11 @@ def test_plane_round_trips_up_to_scale(name):
     assert back_offset == pytest.approx(offset * scale)
 
 
-# --- bounding boxes (D30, D31) ---------------------------------------
+# --- bounding boxes --------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["UC1", "UC2", "UC4"])
-def test_bounding_box_is_exact_for_diagonal_and_permutation_cases_d30(name):
+@pytest.mark.parametrize("name", ["scale_only", "channel_passthrough", "reversed_axes"])
+def test_bounding_box_is_exact_for_diagonal_and_permutation_cases(name):
     linear, translation, _ = case(name)
     ndim = linear.shape[1]
     lower = np.full(ndim, -1.0)
@@ -276,7 +276,7 @@ def test_bounding_box_is_exact_for_diagonal_and_permutation_cases_d30(name):
     assert np.allclose(got[1], expected[1])
 
 
-def test_rotated_affine_gives_a_strict_superset_and_inflates_d30():
+def test_rotated_affine_gives_a_strict_superset_and_inflates():
     angle = np.pi / 6
     rotation = np.array(
         [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
@@ -296,7 +296,7 @@ def test_rotated_affine_gives_a_strict_superset_and_inflates_d30():
     assert np.all(back[1] > upper)  # inflated, not equal
 
 
-def test_reflection_keeps_min_below_max_e4():
+def test_reflection_keeps_min_below_max():
     """The case transformnd's BoundingBoxAdapter gets wrong."""
     reflection = np.diag([-1.0, 1.0])
     lower, upper = np.array([1.0, 1.0]), np.array([3.0, 4.0])
@@ -306,8 +306,8 @@ def test_reflection_keeps_min_below_max_e4():
     assert np.allclose(got_upper, [-1.0, 4.0])
 
 
-def test_uc3_broadcast_axis_is_unbounded_and_the_rest_exact_d31():
-    linear, translation, broadcast = UC3
+def test_channel_broadcast_broadcast_axis_is_unbounded_and_the_rest_exact():
+    linear, translation, broadcast = CHANNEL_BROADCAST
     lower = np.full(4, -1.0)
     upper = np.array([2.0, 3.0, 4.0, 5.0])
     got_lower, got_upper = affine_bounding_box(
@@ -322,17 +322,17 @@ def test_uc3_broadcast_axis_is_unbounded_and_the_rest_exact_d31():
     assert np.allclose(got_upper[kept], expected[1][kept])
 
 
-def test_without_broadcast_axes_the_c_extent_would_be_degenerate_d31():
-    """The wrong answer D25 exists to prevent, pinned so it stays visible."""
-    linear, translation, _ = UC3
+def test_without_broadcast_axes_the_c_extent_would_be_degenerate():
+    """The wrong answer broadcast axes prevent, pinned so it stays visible."""
+    linear, translation, _ = CHANNEL_BROADCAST
     lower, upper = np.full(4, -1.0), np.array([2.0, 3.0, 4.0, 5.0])
     got_lower, got_upper = affine_bounding_box(lower, upper, linear, translation)
     assert got_lower[1] == got_upper[1] == 0.0
 
 
-def test_infinite_extent_produces_no_nan_on_any_axis_e3():
-    """The direct regression test for the masked contraction (D31)."""
-    linear, translation, _ = UC3
+def test_infinite_extent_produces_no_nan_on_any_axis():
+    """The direct regression test for the masked contraction."""
+    linear, translation, _ = CHANNEL_BROADCAST
     inverse_linear, inverse_translation = pseudo_inverse_affine(linear, translation)
     lower = np.array([-1.0, -np.inf, -1.0, -1.0, -1.0])
     upper = np.array([1.0, np.inf, 1.0, 1.0, 1.0])
@@ -347,7 +347,7 @@ def test_infinite_extent_produces_no_nan_on_any_axis_e3():
 
 @pytest.mark.parametrize("extent", [1.0, np.inf])
 def test_imap_bounding_box_drops_the_broadcast_axis_either_way(extent):
-    linear, translation, _ = UC3
+    linear, translation, _ = CHANNEL_BROADCAST
     inverse_linear, inverse_translation = pseudo_inverse_affine(linear, translation)
     lower = np.array([-1.0, -extent, -1.0, -1.0, -1.0])
     upper = np.array([1.0, extent, 1.0, 1.0, 1.0])
@@ -361,11 +361,11 @@ def test_imap_bounding_box_drops_the_broadcast_axis_either_way(extent):
     assert np.allclose(got[1], reference[1])
 
 
-# --- half-spaces (D39) -----------------------------------------------
+# --- half-spaces -----------------------------------------------------
 
 
-def test_half_spaces_agree_with_the_direct_predicate_d39():
-    linear, translation, _ = UC3
+def test_half_spaces_agree_with_the_direct_predicate():
+    linear, translation, _ = CHANNEL_BROADCAST
     rng = np.random.default_rng(3)
     normals = rng.normal(size=(4, 5))
     offsets = rng.normal(size=4) * 3
@@ -382,14 +382,17 @@ def test_half_spaces_agree_with_the_direct_predicate_d39():
 def test_a_broadcast_axis_constraint_is_vacuous_or_infeasible_not_an_error(
     offset, satisfiable
 ):
-    """D39 with no broadcast axes declared: contrast with D32, which raises.
+    """A zero pulled-back normal with no broadcast axes declared.
+
+    Vacuous or infeasible by its offset; contrast with a plane, which raises.
 
     This is the raw ``A^T`` behaviour, still reachable by passing no
-    ``broadcast_axes``.  Once the axis is declared broadcast, D8 drops
-    the constraint entirely rather than letting it become a zero normal;
-    see :func:`test_declaring_the_axis_broadcast_drops_the_constraint_d8`.
+    ``broadcast_axes``.  Once the axis is declared broadcast, the
+    broadcast-axis drop removes the constraint entirely rather than
+    letting it become a zero normal; see
+    :func:`test_declaring_the_axis_broadcast_drops_the_constraint`.
     """
-    linear, translation, _ = UC3
+    linear, translation, _ = CHANNEL_BROADCAST
     normals = np.array([[0.0, 1.0, 0.0, 0.0, 0.0]])
     pulled, pulled_offsets = imap_half_spaces(
         normals, np.array([offset]), linear, translation
@@ -399,9 +402,9 @@ def test_a_broadcast_axis_constraint_is_vacuous_or_infeasible_not_an_error(
 
 
 @pytest.mark.parametrize("offset", [5.0, -5.0])
-def test_declaring_the_axis_broadcast_drops_the_constraint_d8(offset):
+def test_declaring_the_axis_broadcast_drops_the_constraint(offset):
     """Both signs go away: a free variable satisfies either bound."""
-    linear, translation, broadcast = UC3
+    linear, translation, broadcast = CHANNEL_BROADCAST
     normals = np.array([[0.0, 1.0, 0.0, 0.0, 0.0]])
     pulled, pulled_offsets = imap_half_spaces(
         normals, np.array([offset]), linear, translation, broadcast
@@ -443,7 +446,7 @@ def test_drop_broadcast_constraints_handles_an_unbounded_region():
 
 
 def test_half_spaces_round_trip_forward_and_back():
-    linear, translation, _ = UC3
+    linear, translation, _ = CHANNEL_BROADCAST
     inverse_linear, _ = pseudo_inverse_affine(linear, translation)
     rng = np.random.default_rng(6)
     normals = rng.normal(size=(3, 4))
@@ -454,7 +457,7 @@ def test_half_spaces_round_trip_forward_and_back():
     assert np.allclose(back[1], offsets)
 
 
-# --- polytope bounds (D40) -------------------------------------------
+# --- polytope bounds -------------------------------------------------
 
 
 AXIS_ALIGNED_NORMALS = np.array(
@@ -488,7 +491,7 @@ def oblique_constraints():
     return normals, offsets
 
 
-def test_is_axis_aligned_d40():
+def test_is_axis_aligned():
     assert is_axis_aligned(AXIS_ALIGNED_NORMALS)
     assert not is_axis_aligned(oblique_constraints()[0])
     assert is_axis_aligned(np.array([[3.0, 0.0], [0.0, -2.0]]))
@@ -496,7 +499,7 @@ def test_is_axis_aligned_d40():
     assert is_axis_aligned(np.zeros((0, 3)))
 
 
-def test_fast_path_and_lp_agree_on_an_axis_aligned_region_d40():
+def test_fast_path_and_lp_agree_on_an_axis_aligned_region():
     fast = axis_aligned_bounds(AXIS_ALIGNED_NORMALS, AXIS_ALIGNED_OFFSETS, 5)
     slow = polytope_bounds(AXIS_ALIGNED_NORMALS, AXIS_ALIGNED_OFFSETS, 5)
     assert np.array_equal(fast[0], slow[0])
@@ -519,7 +522,7 @@ def test_fast_path_rejects_an_oblique_normal():
         axis_aligned_bounds(normals, offsets, 5)
 
 
-def test_lp_bounds_an_oblique_region_d40():
+def test_lp_bounds_an_oblique_region():
     normals, offsets = oblique_constraints()
     lower, upper = polytope_bounds(normals, offsets, 5)
     assert np.allclose(lower, [6.5, 1.5, 0.0, 0.0, -np.inf])
@@ -528,7 +531,7 @@ def test_lp_bounds_an_oblique_region_d40():
 
 
 def test_lp_reads_a_slab_tilted_through_every_axis_as_unbounded():
-    """A world ``z`` slab pulled back through a general affine (design v2 K13).
+    """A world ``z`` slab pulled back through a general affine.
 
     The constraints are what a ``(y, x)`` view of the probes' ``general``
     transform selects.  HiGHS's presolve called three of the six bound

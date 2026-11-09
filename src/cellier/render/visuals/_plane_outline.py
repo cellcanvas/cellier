@@ -1,4 +1,4 @@
-"""Plane outlines in a scene (plane outline design, sections 5.4 and 6).
+"""Plane outlines in a scene.
 
 ``visual_plane_outlines`` asks one render visual for the polygons of its
 outlined planes.  ``GFXPlaneOutlines`` holds the lines of one scene: it is
@@ -72,9 +72,9 @@ def visual_plane_outlines(
         A render visual.  One that takes no planes, or is not placed in a
         3D view, gives nothing.
     kinds : Collection[str]
-        Which of the visual's planes are shown now (design 3.3):
-        ``"render"`` when it draws its render planes, ``"clipping"`` when
-        its clipping planes cut what it draws.
+        Which of the visual's planes are shown now: ``"render"`` when it
+        draws its render planes, ``"clipping"`` when its clipping planes
+        cut what it draws.
 
     Returns
     -------
@@ -150,7 +150,7 @@ def _polygon(kind: str, plane: Any, vertices: np.ndarray) -> PlaneOutlinePolygon
 def drop_duplicates(
     polygons: Iterable[PlaneOutlinePolygon],
 ) -> dict[tuple[str, UUID, int], PlaneOutlinePolygon]:
-    """The outlines to draw: equal polygons of one plane, once (design 5.4).
+    """The outlines to draw: equal polygons of one plane, once.
 
     Parameters
     ----------

@@ -1,4 +1,4 @@
-"""MaskedImage models (masked image design v2, 4.1 to 4.3, Phase 2)."""
+"""MaskedImage models."""
 
 from __future__ import annotations
 

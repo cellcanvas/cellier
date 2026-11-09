@@ -1,4 +1,4 @@
-"""Reducing data-space clipping planes to a view (clipping planes design 4.1).
+"""Reducing data-space clipping planes to a view.
 
 The defining property: for a data point drawn in the view, the reduced
 plane's value at the point's rendered position equals the data plane's
@@ -190,7 +190,7 @@ def test_culling_rows_are_in_data_space_in_pygfx_order(controller):
 
 
 # ---------------------------------------------------------------------------
-# The inverse: a rendered pose back to a data plane (gizmo design v2, 5.3)
+# The inverse: a rendered pose back to a data plane
 # ---------------------------------------------------------------------------
 
 

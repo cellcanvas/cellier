@@ -1,9 +1,8 @@
-"""Oblique 2D design v3, Phase 2: a multiscale image's tilted 2D slice.
+"""A multiscale image's tilted 2D slice.
 
-``plans/oblique_2d_raster_design_v3.md`` 5.2-5.6.  A multiscale image whose
-transform tilts a 2D view's slice is drawn on the brick route: its 3D node,
-in the plane render mode, placed so the slice is rendered depth 0
-(the slice node).  Every change here is a jump (D16).
+A multiscale image whose transform tilts a 2D view's slice is drawn on the
+brick route: its 3D node, in the plane render mode, placed so the slice is
+rendered depth 0 (the slice node).  Every change here is a jump.
 
 Expectations are analytic (the transform, the camera) or properties of the
 data -- never another library's rendering (memory: no cross-library tests).
@@ -126,7 +125,7 @@ def _expected_voxels(camera, matrix: np.ndarray, slice_z: float, shape=SHAPE):
     """Order-0 expectation: each pixel centre's voxel, and a validity mask.
 
     Pixels whose data point is within 0.02 voxel of a voxel boundary are
-    ties (D11), and pixels outside the data have nothing to compare.
+    ties, and pixels outside the data have nothing to compare.
     """
     xy = _pixel_world(camera)
     world = np.stack([np.full(xy.shape[:2], slice_z), xy[..., 1], xy[..., 0]], -1)
@@ -160,7 +159,7 @@ def _reload(viewer: Viewer) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Landmarks and the image rule (D11)
+# Landmarks and the image rule
 # ---------------------------------------------------------------------------
 
 
@@ -193,9 +192,9 @@ def test_every_pixel_reads_its_own_voxel(tmp_path, name, fraction):
 @pytest.mark.parametrize("fraction", [0.02, 0.5, 0.98])
 @pytest.mark.parametrize("depth_range", [None, (-20.0, 20.0)])
 def test_the_2d_camera_never_clips_the_slice_node(tmp_path, fraction, depth_range):
-    """K26: the 2D camera's automatic range of an unfitted camera (+-100) or
-    a narrow explicit one still draws the whole slice of a volume reaching
-    far beyond it in depth: the proxy is flattened onto depth 0 (C1)."""
+    """The 2D camera's automatic range of an unfitted camera (+-100) or a
+    narrow explicit one still draws the whole slice of a volume reaching far
+    beyond it in depth: the proxy is flattened onto depth 0."""
     matrix = world_matrix(rot(0, 2, 30.0))
     data = np.tile(_random_volume(1), (12, 1, 1))[:256]
     viewer = new_viewer("2d")
@@ -226,7 +225,7 @@ def test_the_2d_camera_never_clips_the_slice_node(tmp_path, fraction, depth_rang
 
 
 # ---------------------------------------------------------------------------
-# Placement and route switches (C3, D16)
+# Placement and route switches
 # ---------------------------------------------------------------------------
 
 
@@ -323,7 +322,7 @@ def test_a_2d_only_scene_gains_the_3d_mode_for_the_slice_node(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Stacking (U9, 5.10): distinct render_order, lower on top
+# Stacking: distinct render_order, lower on top
 # ---------------------------------------------------------------------------
 
 
@@ -433,7 +432,7 @@ def test_points_over_a_brick_image_follow_render_order(tmp_path, points_on_top):
 
 
 # ---------------------------------------------------------------------------
-# The internal plane (D2, K34)
+# The internal plane
 # ---------------------------------------------------------------------------
 
 
@@ -502,7 +501,7 @@ def test_a_model_render_plane_does_not_reach_the_slice_node(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Planning (5.3.4, 5.3.5, D3, D4)
+# Planning
 # ---------------------------------------------------------------------------
 
 
@@ -581,8 +580,8 @@ def _target_levels(viewer: Viewer, visual) -> set[int]:
 
 
 @pytest.mark.parametrize("pixels_per_voxel", [2.0, 1.0, 0.5, 0.25])
-def test_the_level_is_todays_2d_level_at_the_same_zoom(tmp_path, pixels_per_voxel):
-    """K29: the plane's orthographic rule picks the aligned 2D level."""
+def test_the_level_is_the_planar_2d_level_at_the_same_zoom(tmp_path, pixels_per_voxel):
+    """The plane's orthographic rule picks the aligned 2D level."""
     big = np.tile(_random_volume(3), (4, 8, 8))[:64, :256, :320]
     levels = {}
     for name in ("aligned", "tilted"):
@@ -625,7 +624,7 @@ def test_a_2d_3d_toggle_keeps_the_atlas(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Picks (5.6, C4)
+# Picks
 # ---------------------------------------------------------------------------
 
 
@@ -675,12 +674,12 @@ def test_picks_land_on_the_voxel_under_the_cursor(tmp_path, name):
 
 
 # ---------------------------------------------------------------------------
-# Statuses, bounds and fit (5.2.5, 5.5)
+# Statuses, bounds and fit
 # ---------------------------------------------------------------------------
 
 
 def test_a_slice_through_four_data_axes_is_refused(tmp_path):
-    """O19: world t reads data x and the slice is tilted in zx: ``|V| = 4``."""
+    """World t reads data x and the slice is tilted in zx: ``|V| = 4``."""
     from tests.render._affine import new_tzyx_viewer
 
     viewer = new_tzyx_viewer("2d")
@@ -786,7 +785,7 @@ def test_a_slice_outside_the_data_has_no_bounds(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Slices along a line (U13): nothing drawn, a status, never a crash
+# Slices along a line: nothing drawn, a status, never a crash
 # ---------------------------------------------------------------------------
 
 
@@ -869,7 +868,7 @@ def test_a_slice_along_a_line_draws_nothing_and_says_why(
     )
     try:
         visual = _add_flat(viewer, family, _flat_store(tmp_path, family), z_reads_x)
-        # Adding the canvas used to raise in node_matrix (U13).
+        # Adding the canvas used to raise in node_matrix.
         load(viewer)
         frame, _, _ = render(viewer)
         assert frame[..., :3].max() == 0

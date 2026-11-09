@@ -1,4 +1,4 @@
-"""The render side of the plane gizmo (clipping plane gizmo design v2, 5.1).
+"""The render side of the plane gizmo.
 
 Headless: offscreen canvases, synthetic input through ``canvas.submit_event``
 as ``tests/render/test_camera_interaction.py`` does.  The gizmo sits inside
@@ -318,7 +318,7 @@ async def test_a_drag_does_not_move_the_camera(make_rig):
     assert rig.phases() == ["start", "move", "end"]
 
 
-# -- where the move is reported (G-P7, G-P8) ---------------------------------------
+# -- where the move is reported ---------------------------------------------------
 
 
 async def test_a_move_is_reported_ahead_of_the_draw_and_resets_accumulation(
@@ -374,7 +374,7 @@ async def test_a_grab_ends_a_draw_hold(make_rig):
     rig.send("pointer_up", x + 20, y, buttons=())
 
 
-# -- a lost release (G-P9) ---------------------------------------------------------
+# -- a lost release -----------------------------------------------------------------
 
 
 async def test_a_press_in_another_canvas_ends_a_drag_whose_release_was_lost(make_rig):
@@ -434,7 +434,7 @@ async def test_a_right_press_during_a_live_drag_leaves_it(make_rig):
     assert rig.phases() == ["start", "end"]
 
 
-# -- what a plane does not have (G-P6) ---------------------------------------------
+# -- what a plane does not have ---------------------------------------------------
 
 
 async def test_the_centre_sphere_and_scale_handles_cannot_be_grabbed(make_rig):
@@ -463,7 +463,7 @@ async def test_the_centre_sphere_and_scale_handles_cannot_be_grabbed(make_rig):
 
 
 def test_the_private_pygfx_names_the_gizmo_relies_on_exist():
-    """Fails loudly on a pygfx upgrade that renames them (R3)."""
+    """Fails loudly on a pygfx upgrade that renames them."""
     inner = gfx.TransformGizmo(gfx.Group())
     for name in (
         "_ref",
@@ -498,7 +498,7 @@ def test_the_private_pygfx_names_the_gizmo_relies_on_exist():
     ]
 
 
-# -- the pass (G-P3, G-P12) --------------------------------------------------------
+# -- the pass ---------------------------------------------------------------------
 
 
 class _Quad:
@@ -679,7 +679,7 @@ async def test_set_pose_turns_the_proxy_by_the_smallest_rotation(make_rig):
         gizmo.set_pose(CENTRE, (0.0, 0.0, 0.0))
 
 
-# -- ambient occlusion (G-P4) ------------------------------------------------------
+# -- ambient occlusion ------------------------------------------------------------
 
 
 def _erode(mask: np.ndarray, n: int) -> np.ndarray:

@@ -1,19 +1,16 @@
 """Replay the golden baseline against the current tree.
 
-This suite is the regression net that Phases 3-6 of
-``plans/world_space_slicing/transform_integration_implementation.md`` gate
-against.  It re-drives every ``(family, transform, dims)`` cell of the
-matrix in :mod:`tests.integration._harness` and asserts the node matrix
-and the datastore selections are byte-for-byte what
-``baseline/<family>.json`` recorded.
+This suite is the regression net for the world-space slicing work.  It
+re-drives every ``(family, transform, dims)`` cell of the matrix in
+:mod:`tests.integration._harness` and asserts the node matrix and the datastore
+selections are byte-for-byte what ``baseline/<family>.json`` recorded.
 
 **It must pass on the unmodified tree.**  The JSON stores what the code
-produces *today* -- not what the design predicts.  When a later phase
-deliberately changes one of the three behaviours design section 3.6
-names (``_harness.XFAIL_GROUPS``), the affected cases here start failing;
-that phase re-records the JSON for exactly those cases and notes the flip
-in its readout.  ``test_known_behaviour_changes_are_registered`` keeps the
-list of those cases visible so the flip is never silent.
+produces -- not what a design predicts.  A change that deliberately
+alters a behaviour re-records the JSON for exactly the affected cases
+and registers them in ``_harness.BEHAVIOUR_CHANGES`` with the reason.
+``test_known_behaviour_changes_are_registered`` keeps the list of those
+cases visible so the change is never silent.
 """
 
 from __future__ import annotations
@@ -74,35 +71,34 @@ def test_replay_matches_baseline(case: Case, baselines: dict[str, dict]):
             f"{result[field]!r}\n"
             + (
                 "This case is a registered behaviour change "
-                f"({recorded.get('xfail_reason')}). If the owning phase is "
-                "flipping it deliberately, re-record the baseline for this "
-                "family and update its readout."
-                if recorded.get("xfail_reason")
-                else "This case is NOT a registered behaviour change -- design "
-                "3.6 marks only three sites as behaviour-changing and "
+                f"({recorded.get('change_reason')}). If a change flips it "
+                "deliberately, re-record the baseline for this family and "
+                "update its readout."
+                if recorded.get("change_reason")
+                else "This case is NOT a registered behaviour change -- only "
+                "the groups in _harness.BEHAVIOUR_CHANGES change behaviour, and "
                 "everything else must match bit for bit."
             )
         )
 
 
 def test_known_behaviour_changes_are_registered():
-    """The three design-3.6 flips are enumerated, named, and currently green.
+    """The deliberate behaviour changes are enumerated, named, and green.
 
-    Each of these cases matches today (the JSON holds today's value); the
-    phase that owns the flip will see it fail here, re-record, and drop the
-    case from nowhere -- the registry entry stays as the audit trail.
+    Each of these cases matches the JSON, which holds the changed value; the
+    registry entry stays as the audit trail.
     """
-    flips = [c for c in _ALL_CASES if c.is_xfail]
+    flips = [c for c in _ALL_CASES if c.behaviour_changed]
     assert flips, "expected the geometry-slicing / thickness cases to be marked"
 
     by_family: dict[str, int] = {}
     for case in flips:
         by_family[case.family.name] = by_family.get(case.family.name, 0) + 1
-        assert case.xfail_reason  # a human-readable why
+        assert case.change_reason  # a human-readable why
 
     # points, lines, graph and mesh each contribute non-identity cases
-    # (design 3.6) and, since the thickness floor went, identity ones too;
-    # in-memory labels changed when they took the one-plane slicing rule.
+    # and, since the thickness floor went, identity ones too; in-memory
+    # labels changed when they took the one-plane slicing rule.
     assert set(by_family) == {
         "GFXPointsMemoryVisual",
         "GFXLinesMemoryVisual",

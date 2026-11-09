@@ -1,4 +1,3 @@
-# src/cellier/v2/render/visuals/_image_memory.py
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -261,12 +260,12 @@ def _plan_from_region(
 ) -> tuple[tuple[int | tuple[int, int], ...], dict[int, float]]:
     """Pull a world-space selection into voxel space and assemble the request.
 
-    Design 3.7 steps 3 and 4.  ``imap_region`` is ``A^T`` on the normals and
-    ``d - n . t`` on the offsets: no matrix inverse, no ``select_axes``, and no
-    zero-filled probe point.  That last one is the reason to prefer it -- the
-    old path invented coordinates for the displayed axes, wrote the slice
-    positions into a zero vector and inverted, which is right for a diagonal
-    transform and an arbitrary unstated choice for anything else.
+    ``imap_region`` is ``A^T`` on the normals and ``d - n . t`` on the offsets:
+    no matrix inverse, no ``select_axes``, and no zero-filled probe point.
+    That last one is the reason to prefer it -- the old path invented
+    coordinates for the displayed axes, wrote the slice positions into a zero
+    vector and inverted, which is right for a diagonal transform and an
+    arbitrary unstated choice for anything else.
 
     Parameters
     ----------
@@ -286,7 +285,7 @@ def _plan_from_region(
     tuple
         ``(axis_selections, collapsed_indices)`` -- the request's per-axis
         selection, and the voxel index of each axis that collapsed, which the
-        node matrix needs (design 3.9).
+        node matrix needs.
     """
     data_region = transform.imap_region(selection.region, world).simplify()
     box = data_region.bounding_box()
@@ -300,7 +299,7 @@ def _plan_from_region(
 
 
 # ---------------------------------------------------------------------------
-# Whole-slice raster caches (scheduler-only loading design v2, 4.5)
+# Whole-slice raster caches
 # ---------------------------------------------------------------------------
 
 # Positions in a raster request key.
@@ -315,8 +314,8 @@ def raster_request_key(
     """``(axis selections, collapsed indices, composite)`` of one whole slice.
 
     Everything the read depends on except the store's contents, plus what
-    the upload is placed by (D15): the collapsed index of every dropped data
-    axis, as a sorted tuple.  The channel index is in the selections.
+    the upload is placed by: the collapsed index of every dropped data axis,
+    as a sorted tuple.  The channel index is in the selections.
     """
     return (
         tuple(axis_selections),
@@ -331,13 +330,13 @@ def _retained_positions(selections) -> tuple[int, ...]:
 
 
 def raster_keeps_previous(channel_axis: int | None):
-    """The ``keeps_previous`` rule of a whole-slice raster cache (D1, D19).
+    """The ``keeps_previous`` rule of a whole-slice raster cache.
 
     The previous slice stays drawn while the planned one loads when both
     keep the same data axes (the texture has the same layout).  In single
     mode a channel scrub keeps it (slot 0 follows the slider's channel); in
     composite mode only the same channel does, so a slot given another
-    channel never shows the old one (D16).
+    channel never shows the old one.
     """
 
     def keeps_previous(held: Hashable, planned: Hashable) -> bool:
@@ -364,10 +363,10 @@ def whole_slice_request(axis_selections) -> ChunkRequest:
 def placed_collapsed(visual: Any, displayed_axes: tuple[int, ...]) -> dict:
     """The collapsed indices the nodes of *displayed_axes* are placed with.
 
-    D15: in a view whose node follows the slice (``SLICE_SHIFT``) the node
-    sits where the shown slice belongs: the indices of the last upload for
-    that mode, from its request key.  Until something is uploaded, and in
-    every other view, the newest plan's.
+    In a view whose node follows the slice (``SLICE_SHIFT``) the node sits
+    where the shown slice belongs: the indices of the last upload for that
+    mode, from its request key.  Until something is uploaded, and in every
+    other view, the newest plan's.
     """
     mode = "3d" if len(displayed_axes) == 3 else "2d"
     placed = visual._placed_collapsed.get(mode)
@@ -377,7 +376,7 @@ def placed_collapsed(visual: Any, displayed_axes: tuple[int, ...]) -> dict:
 
 
 def record_placement(visual: Any, mode: str, request_key: tuple) -> None:
-    """Remember where an upload belongs, and move the node there (D15)."""
+    """Remember where an upload belongs, and move the node there."""
     visual._placed_collapsed[mode] = dict(request_key[_COLLAPSED])
     displayed = visual._last_displayed_axes
     if (
@@ -394,18 +393,17 @@ def record_placement(visual: Any, mode: str, request_key: tuple) -> None:
 
 
 def _release_nothing(level: int) -> None:
-    """A slot cache let go of its slice: the visibility rule hides it (D16)."""
+    """A slot cache let go of its slice: the visibility rule hides it."""
 
 
 class _ImageMemorySlot:
     """One channel's pygfx nodes on an in-memory image visual.
 
     A slot holds a 2D ``gfx.Image`` and a 3D ``gfx.Volume`` (whichever render
-    modes the visual builds), the channel index it currently carries, and
-    one whole-slice cache per mode (``residency``, set by the visual), so a
-    plan that asks for the same plane again reads nothing, and switching
-    2D/3D and back reads nothing either (scheduler-only loading design v2,
-    D5).
+    modes the visual builds), the channel index it currently carries, and one
+    whole-slice cache per mode (``residency``, set by the visual), so a plan
+    that asks for the same plane again reads nothing, and switching 2D/3D and
+    back reads nothing either.
 
     Parameters
     ----------
@@ -469,7 +467,7 @@ class _ImageMemorySlot:
         planes_overlap: bool,
         render_planes_buffer: gfx.Buffer | None = None,
     ) -> None:
-        """Draw with *shared* plus the mode's own appearance (design 3.3).
+        """Draw with *shared* plus the mode's own appearance.
 
         Parameters
         ----------
@@ -537,25 +535,24 @@ class _ImageMemorySlot:
                 material.threshold = mode_appearance.iso_threshold
 
 
-class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
-    """Today's path of :class:`GFXImageMemoryVisual`: whole-slice textures.
+class _GFXImageMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
+    """:class:`GFXImageMemoryVisual` without the brick route: whole-slice textures.
 
     Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
     Draws the image single-channel or composited from a pool of
-    :class:`_ImageMemorySlot` (unified image design 3.8).  The pool holds one
-    slot when the visual has no ``channel_axis`` and ``max_channels`` slots
-    when it does, keyed by channel index: single mode on index ``k`` reuses
-    ``k``'s slot, and a full pool reassigns the least recently drawn slot the
-    current mode does not need.
+    :class:`_ImageMemorySlot`.  The pool holds one slot when the visual has
+    no ``channel_axis`` and ``max_channels`` slots when it does, keyed by
+    channel index: single mode on index ``k`` reuses ``k``'s slot, and a full
+    pool reassigns the least recently drawn slot the current mode does not
+    need.
 
-    Loads through the chunk scheduler (scheduler-only loading design v2,
-    4.5): every slot has one whole-slice cache per mode, and each plan wants
-    one full slice or volume per drawn channel.  A key a cache already
-    holds reads nothing.  In single mode slot 0 always draws the slider's
-    channel (D19), so a channel scrub keeps the previous slice drawn while
-    the next one loads.  The whole visual shares one node matrix, one AABB
-    wireframe per mode and one visibility switch.
+    Loads through the chunk scheduler: every slot has one whole-slice cache
+    per mode, and each plan wants one full slice or volume per drawn
+    channel.  A key a cache already holds reads nothing.  In single mode
+    slot 0 always draws the slider's channel, so a channel scrub keeps the
+    previous slice drawn while the next one loads.  The whole visual shares
+    one node matrix, one AABB wireframe per mode and one visibility switch.
 
     Parameters
     ----------
@@ -572,8 +569,8 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
 
     #: Loads through the chunk scheduler (``is_chunked_visual``).
     chunked: bool = True
-    #: Applies the image slicing rule (design 3.2) itself, so the scene
-    #: manager's data-coverage pre-check does not skip it.
+    #: Applies the image slicing rule itself, so the scene manager's
+    #: data-coverage pre-check does not skip it.
     decides_empty_slices: bool = True
 
     def __init__(
@@ -601,12 +598,12 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         self._transform: BaseTransform | None = effective_transform(transform)
         self._spaces: RenderSpaces | None = None
         self._last_displayed_axes: tuple[int, ...] | None = None
-        # The collapsed voxel index per dropped data axis from the last plan
-        # (design 3.9).
+        # The collapsed voxel index per dropped data axis from the last
+        # plan.
         self._collapsed_indices: dict[int, float] = {}
-        # True while a sliced axis selects no sample (design 3.2).
+        # True while a sliced axis selects no sample.
         self._slice_empty: bool = False
-        # mode -> the collapsed indices of the last upload (D15).
+        # mode -> the collapsed indices of the last upload.
         self._placed_collapsed: dict[str, dict[int, float]] = {}
 
         self._pick_write: bool = visual_model.pick_write
@@ -797,11 +794,11 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
                 render_planes_buffer=self.render_planes_buffer,
             )
         # A render-mode change gives a slot a new volume material, which
-        # starts with no planes (clipping planes design 4.6).
+        # starts with no planes.
         self._apply_clipping_planes()
 
     def _apply_slot_visibility(self) -> None:
-        """Show a slot's node for a mode only when it has a slice to draw (D16).
+        """Show a slot's node for a mode only when it has a slice to draw.
 
         The slot is drawn by the newest plan, the slice is not empty, and
         the slot's cache for that mode holds the planned slice or keeps an
@@ -839,11 +836,11 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         self._apply_render_planes()
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place both groups with the composition of design 3.9.
+        """Place both groups with the node-matrix composition.
 
         One matrix for every slot: the slots differ in which channel they
         carry, not in where they sit.  In a ``SLICE_SHIFT`` view the node
-        follows the shown slice, not the newest plan (D15).
+        follows the shown slice, not the newest plan.
         """
         self._last_displayed_axes = displayed_axes
         if self._spaces is None or self._transform is None:
@@ -868,7 +865,7 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
             set_node_matrix(self.node_3d, m)
         if self.node_2d is not None:
             set_node_matrix(self.node_2d, m)
-        # The clip line stays at the newest plan (D15).
+        # The clip line stays at the newest plan.
         self._apply_clipping_planes()
 
     def _outline_shape(self):
@@ -876,7 +873,7 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         return tuple(self._data_store.shape)
 
     def _clip_targets(self):
-        """One group per channel slot (clipping planes design 4.1, 4.6).
+        """One group per channel slot.
 
         A slot draws its channel at that channel's index, so the channel
         axis is pinned per slot: a plane with a channel component cuts each
@@ -939,10 +936,10 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
     ) -> list[tuple[int, tuple[int | tuple[int, int], ...]]]:
         """``(channel index, per-axis selection)`` for every channel to draw.
 
-        The image slicing rule runs first (design 3.2); in composite mode the
-        channel axis is exempt, and each drawn channel's selection substitutes
-        its own index on that axis (design 3.3).  Empty when a sliced axis
-        selects no sample, or a composite has no drawn channel.
+        The image slicing rule runs first; in composite mode the channel axis
+        is exempt, and each drawn channel's selection substitutes its own
+        index on that axis.  Empty when a sliced axis selects no sample, or a
+        composite has no drawn channel.
         """
         shape = tuple(self._data_store.shape)
         if selection is None or self._spaces is None:
@@ -966,7 +963,7 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
             planned, self._transform, self._spaces.world, shape
         )
         self._collapsed_indices = collapsed
-        # The clip line follows the slice (clipping planes design 4.1).
+        # The clip line follows the slice.
         self._apply_clipping_planes()
         if not composite:
             key = 0 if self._channel_axis is None else int(base[self._channel_axis])
@@ -984,10 +981,10 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         ]
 
     def _single_slot(self, key: int) -> list[int]:
-        """D19: single mode draws from slot 0; its key follows the channel.
+        """Single mode draws from slot 0; its key follows the channel.
 
         The request key carries the channel, so a channel scrub is a key
-        change on one cache (kept on screen while it loads, D1), not a move
+        change on one cache (kept on screen while it loads), not a move
         to another slot that has to load before anything is drawn.
         """
         self._clock += 1
@@ -1015,9 +1012,9 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
     ) -> list[DesiredSet]:
         """One desired set per drawn channel: its slot's cache for the view.
 
-        A whole slice has no backstop, so every plan mode plans it (design
-        v2 4.3).  Empty when the slice misses the data or a composite draws
-        no channel: the coordinator then retires the caches.
+        A whole slice has no backstop, so every plan mode plans it.  Empty
+        when the slice misses the data or a composite draws no channel: the
+        coordinator then retires the caches.
         """
         displayed = request.dims_state.selection.displayed_axes
         view_mode = "3d" if len(displayed) == 3 else "2d"
@@ -1091,7 +1088,7 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
 
         Called by the slot's cache from ``rebuild_draw``; a test may call it
         directly with ``request_key(request)``.  The node is placed by the
-        key's collapsed indices (D15).
+        key's collapsed indices.
         """
         if index >= len(self._slots):
             return
@@ -1242,12 +1239,12 @@ class _GFXImageMemoryToday(RenderPlanesMixin, ClippingPlanesMixin):
         """No per-frame state to advance."""
 
 
-class GFXImageMemoryVisual(BrickRouteHost, _GFXImageMemoryToday):
+class GFXImageMemoryVisual(BrickRouteHost, _GFXImageMemoryCore):
     """Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
-    Today's whole-slice path (:class:`_GFXImageMemoryToday`), and the brick
-    route for a tilted 2D view (oblique 2D design v3, 5.4,
-    :class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
+    The planar path and 3D views (:class:`_GFXImageMemoryCore`), and the brick
+    route for a tilted 2D view
+    (:class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
     """
 
     def _build_inner(self, model, axes):

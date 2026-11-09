@@ -147,10 +147,10 @@ def _collect_samples(
     ``None``, which no later store can undo.
     """
     # Each non-space world axis reads the data axes its row of the coupling
-    # pattern names (full affine design v2, 4.5).  A row that reads one data
-    # axis keeps that axis's samples -- a drift ``x += v t`` couples ``t``
-    # into ``x``, but the ``t`` row still reads ``t`` alone.  A row reading
-    # several data axes has no one sample spacing and is continuous.
+    # pattern names.  A row that reads one data axis keeps that axis's
+    # samples -- a drift ``x += v t`` couples ``t`` into ``x``, but the
+    # ``t`` row still reads ``t`` alone.  A row reading several data axes
+    # has no one sample spacing and is continuous.
     coupling = transform.axis_coupling()
     correspondence: dict[int, int] = {}
     for world_axis, axis in enumerate(world.axes):

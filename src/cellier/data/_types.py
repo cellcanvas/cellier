@@ -1,4 +1,4 @@
-"""Discriminated union of all data store types for cellier v2."""
+"""Discriminated union of all data store types."""
 
 from typing import Union
 

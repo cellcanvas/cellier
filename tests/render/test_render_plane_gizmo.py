@@ -1,4 +1,4 @@
-"""The gizmo on a render plane (plane rendering design v3, 8.3; Phase 8).
+"""The gizmo on a render plane.
 
 Headless, on the rig of ``test_plane_gizmo.py``: a drag is synthetic pointer
 input on an offscreen canvas, picked and handled by pygfx's own gizmo code,
@@ -352,7 +352,7 @@ async def test_a_clipping_gizmo_still_has_no_scale_handles(make_rig):
     assert [child.visible for child in widget._scale_children] == [False] * 3
 
 
-# -- C6: each handle changes exactly its model fields ----------------------------
+# -- Each handle changes exactly its model fields --------------------------------
 
 #: ``(group, index)`` of every handle a render plane gizmo shows.
 HANDLES = [
@@ -429,7 +429,7 @@ def _wrong_fields(before: RenderPlane, after: RenderPlane, kind, axis, along) ->
 
 
 async def test_each_handle_changes_exactly_its_model_fields(make_rig):
-    """C6: every handle, through pygfx's own picking and handlers, 5 views.
+    """Every handle, through pygfx's own picking and handlers, 5 views.
 
     Three frames a drag: one for the move, one for the release, one after
     the plane is put back.
@@ -659,7 +659,7 @@ def _record_plans(monkeypatch) -> list[str]:
 async def test_a_gizmo_drag_holds_the_plan_and_loads_once_at_release(
     make_rig, pyramid_root, monkeypatch
 ):
-    """B1, through the real gizmo callbacks: counts only."""
+    """The held plan, through the real gizmo callbacks: counts only."""
     rig = make_rig(MultiscaleRig, pyramid_root=pyramid_root)
     plane = rig.plane()
     rig.controller.set_render_planes(rig.visual.id, (plane,))

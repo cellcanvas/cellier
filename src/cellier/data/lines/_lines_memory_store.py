@@ -1,4 +1,3 @@
-# src/cellier/v2/data/lines/_lines_memory_store.py
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +26,7 @@ def _placeholder_positions(n_display: int) -> np.ndarray:
 
     Sized to the retained axes rather than fixed at three, for the reason
     given in the points store: a rank-4 store displaying data axes ``(2, 3)``
-    would otherwise index a ``(2, 3)`` constant with axis 3 and raise (F8.4).
+    would otherwise index a ``(2, 3)`` constant with axis 3 and raise.
     """
     return np.zeros((2, n_display), dtype=np.float32)
 
@@ -44,8 +43,8 @@ class LinesMemoryStore(BaseDataStore):
     applies the ``[:, [2, 1, 0]]`` reversal before uploading to pygfx.
 
     ``get_data`` runs the filter in the event loop's default executor, so
-    a large set of segments does not stall the loop (``plans/scheduler_only_
-    loading_design_v2.md`` D4); :meth:`read` is the same filter, synchronous.
+    a large set of segments does not stall the loop; :meth:`read` is the
+    same filter, synchronous.
 
     Parameters
     ----------
@@ -75,8 +74,8 @@ class LinesMemoryStore(BaseDataStore):
     """
 
     store_type: Literal["lines_memory"] = "lines_memory"
-    # Reassigning these announces a change on ``data_changed``
-    # (plans/store_change_events.md): positions move the extent.
+    # Reassigning these announces a change on ``data_changed``:
+    # positions move the extent.
     _EXTENT_FIELDS: ClassVar[frozenset[str]] = frozenset({"positions"})
     _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset({"colors"})
     DATASET_INFO_LABEL: ClassVar[str] = "in-memory lines"
@@ -154,9 +153,8 @@ class LinesMemoryStore(BaseDataStore):
 
         **Descriptive only.**  It reports what this store carries; it does
         not decide what the material does.  Where RGB comes from is declared
-        on the appearance and honoured verbatim (D20) -- the render layer
-        never infers it from the data and never writes it back at commit
-        time.
+        on the appearance and honoured verbatim -- the render layer never
+        infers it from the data and never writes it back at commit time.
         """
         return "vertex" if self.colors is not None else "uniform"
 
@@ -229,7 +227,7 @@ class LinesMemoryStore(BaseDataStore):
         positions = self.positions  # (n_vertices, ndim)
         colors = self.colors  # (n_vertices, 4) or None
         # Ascending: the uploaded vertex buffer's axis order is the data's,
-        # and a display permutation lives in the node matrix (design 3.14).
+        # and a display permutation lives in the node matrix.
         # ``retained_axes`` is read off the visual's ``data -> world``
         # transform and is the right answer whenever the controller has placed
         # the visual.  ``displayed_axes`` indexes the **world**, so using it
@@ -241,10 +239,10 @@ class LinesMemoryStore(BaseDataStore):
 
         # ── Phase 1: build per-vertex slab mask, then require both
         #             endpoints of each segment to pass ───────────────
-        # The region is the filter (design 3.12).  A 3-D view's region is
-        # unbounded, so ``contains`` is all-True and every segment survives --
-        # the same outcome the "no sliced axes" branch produced, by one rule
-        # instead of three.
+        # The region is the filter.  A 3-D view's region is unbounded, so
+        # ``contains`` is all-True and every segment survives -- the same
+        # outcome the "no sliced axes" branch produced, by one rule instead of
+        # three.
         vertex_mask = request.region.contains(positions)
         # Reshape to (n_segments, 2) and require BOTH endpoints True.
         segment_mask = vertex_mask.reshape(-1, 2).all(axis=1)  # (n_segments,)
@@ -268,7 +266,7 @@ class LinesMemoryStore(BaseDataStore):
             # Cut each surviving segment at the clipping planes, by its true
             # position on every axis.  The slab filter above keeps whole
             # segments only, so the planes are not part of it: they would
-            # leave a jagged edge (clipping planes design 5.2).
+            # leave a jagged edge.
             pairs = surviving_positions.reshape(-1, 2, surviving_positions.shape[1])
             start, end = pairs[:, 0], pairs[:, 1]
             width = start.shape[1]
@@ -295,7 +293,7 @@ class LinesMemoryStore(BaseDataStore):
                 )
             surviving_edges = surviving_edges[kept]
         proj_positions = surviving_positions[:, displayed]
-        # The collapsed columns a coupled view folds in (design v2, D11).
+        # The collapsed columns a coupled view folds in.
         fold_positions = (
             surviving_positions[:, list(request.fold_axes)]
             if request.fold_axes

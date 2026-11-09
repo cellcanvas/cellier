@@ -13,8 +13,7 @@ history texture whose ``reset()`` was called from exactly one place, guarded
 by "did the camera move". A content change left the history in place, so the
 hidden visual lingered as a ghost -- and dragging the camera cleared it, which
 is what made this look like a redraw bug. Fixed by
-``CanvasView.invalidate_accumulation``; see
-``plans/temporal_accumulation_fix.md``.
+``CanvasView.invalidate_accumulation``.
 
 **Read the paths these tests use carefully.** ``render_scene`` builds a
 *fresh* offscreen renderer per call, with no effect passes and no history, so
@@ -233,8 +232,8 @@ async def test_the_qt_visible_checkbox_hides_and_restores_the_picture(
     dock = render_dock(AppearanceControls(), viewer, QtLayoutHost(), [])
     await reslice(viewer.controller, viewer.scene.id)
 
-    # The checkbox carries no text of its own: its row's label names it
-    # (``plans/label_ownership_unification.md``), so find the row first.
+    # The checkbox carries no text of its own: its row's label names it,
+    # so find the row first.
     from cellier.gui.qt.visuals._chrome import LABELLED_ROW_OBJECT_NAME
 
     row = next(

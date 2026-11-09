@@ -1,4 +1,3 @@
-# tests/v2/render/test_gfx_points_memory_visual.py
 """Tests for GFXPointsMemoryVisual."""
 
 import asyncio
@@ -71,7 +70,7 @@ def _make_batch(store, displayed=(0, 1, 2), sliced=None):
 
 
 def _commit(visual, batch, displayed=(0, 1, 2)):
-    """Upload the batch's one result, as the residency would (design v2 4.11)."""
+    """Upload the batch's one result, as the residency would."""
     request, data = batch[0]
     if request is None:
         sid = uuid4()
@@ -412,10 +411,11 @@ def test_plan_2d_updates_matrix_on_axis_change():
 def test_commit_uploads_colors_and_sizes_without_touching_color_mode():
     """A store's colours are uploaded; the declared color_mode is untouched.
 
-    Inverted at the D20 migration.  This test previously asserted the
-    opposite -- that incoming vertex-coloured data overrode a declared
-    ``"uniform"`` on the live material.  ``color_mode`` is now a caller
-    declaration of where RGB comes from, never inferred from the data.
+    Inverted when ``color_mode`` became a declaration.  This test
+    previously asserted the opposite -- that incoming vertex-coloured
+    data overrode a declared ``"uniform"`` on the live material.
+    ``color_mode`` is now a caller declaration of where RGB comes from,
+    never inferred from the data.
     """
     from cellier.data.points._points_requests import PointsData
 
@@ -437,7 +437,7 @@ def test_commit_uploads_colors_and_sizes_without_touching_color_mode():
 
 
 def test_declared_uniform_survives_store_colors():
-    """Store carries colours, appearance says uniform -> stays uniform (D20)."""
+    """Store carries colours, appearance says uniform -> stays uniform."""
     from cellier.data.points._points_requests import PointsData
 
     v = _visual(_store(), appearance=PointsMarkerAppearance(color_mode="uniform"))
@@ -455,7 +455,7 @@ def test_declared_uniform_survives_store_colors():
 
 
 def test_declared_vertex_without_colors_raises():
-    """The mismatch is a misconfiguration, not a silent fallback (D20)."""
+    """The mismatch is a misconfiguration, not a silent fallback."""
     from cellier.data.points._points_requests import PointsData
 
     v = _visual(_store(), appearance=PointsMarkerAppearance(color_mode="vertex"))

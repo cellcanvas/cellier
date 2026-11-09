@@ -1,4 +1,4 @@
-"""The chunk scheduler's adapters for brick atlases (design v3, 4.4 and 5.8).
+"""The chunk scheduler's adapters for brick atlases.
 
 :class:`ImageResidency3D` and :class:`ImageResidency2D` are the
 :class:`~cellier.render.scheduling.Residency` of one atlas and its LUT --
@@ -8,7 +8,7 @@ one per drawn channel.  The scheduler decides which brick lives in which
 slot; these write the brick, paint the LUT, and turn keys back into store
 requests.
 
-Keys (design 5.1)
+Keys
 -----------------
 A key is a packed ``int64``::
 
@@ -60,16 +60,16 @@ if TYPE_CHECKING:
 
 _LEVEL_SHIFT = 52
 _SID_SHIFT = 36
-_G0_SHIFT = 24
-_G1_SHIFT = 12
+_GRID0_SHIFT = 24
+_GRID1_SHIFT = 12
 _LEVEL_MASK = 0xF
 _SID_MASK = 0xFFFF
-_G_MASK = 0xFFF
+_GRID_MASK = 0xFFF
 
 #: Largest level, slice id and grid index a key can hold.
 MAX_LEVEL = _LEVEL_MASK
 MAX_SLICE_IDS = _SID_MASK + 1
-MAX_GRID = _G_MASK + 1
+MAX_GRID = _GRID_MASK + 1
 
 #: A slice selection: one entry per data axis, ``None`` on the displayed
 #: (retained) axes and the fetched plane or ``(start, stop)`` slab on the
@@ -117,8 +117,8 @@ def pack_keys(
     return (
         (levels << _LEVEL_SHIFT)
         | (slice_ids << _SID_SHIFT)
-        | (grids[:, 0] << _G0_SHIFT)
-        | (grids[:, 1] << _G1_SHIFT)
+        | (grids[:, 0] << _GRID0_SHIFT)
+        | (grids[:, 1] << _GRID1_SHIFT)
         | grids[:, 2]
     )
 
@@ -129,7 +129,11 @@ def unpack_keys(keys: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     levels = (keys >> _LEVEL_SHIFT) & _LEVEL_MASK
     slice_ids = (keys >> _SID_SHIFT) & _SID_MASK
     grids = np.column_stack(
-        [(keys >> _G0_SHIFT) & _G_MASK, (keys >> _G1_SHIFT) & _G_MASK, keys & _G_MASK]
+        [
+            (keys >> _GRID0_SHIFT) & _GRID_MASK,
+            (keys >> _GRID1_SHIFT) & _GRID_MASK,
+            keys & _GRID_MASK,
+        ]
     )
     return levels, slice_ids, grids
 
@@ -387,9 +391,9 @@ class _AtlasResidency:
                         low[:, axis], high[:, axis] = value
                     else:
                         low[:, axis], high[:, axis] = value, value + 1
-            # Centre convention (plan v2, D1): level voxels [low, high) cover
-            # u in [low - 0.5, high - 0.5], and level-0 voxels [start, stop)
-            # cover data [start - 0.5, stop - 0.5].
+            # Centre convention: level voxels [low, high) cover u in [low -
+            # 0.5, high - 0.5], and level-0 voxels [start, stop) cover data
+            # [start - 0.5, stop - 0.5].
             a, b = (
                 level_to_data(
                     low - 0.5,
@@ -431,17 +435,17 @@ class ImageResidency3D(_AtlasResidency):
         Called after every brick write (the visual reveals its bounding box
         on the first).
     current_slice_only : bool
-        Paint no brick of another slice, even while the current one loads
-        (masked image design 8.5).  Default ``False``: an image keeps showing
-        earlier views under the current one.
+        Paint no brick of another slice, even while the current one loads.
+        Default ``False``: an image keeps showing earlier views under the
+        current one.
     cell_ranges : CellRanges or None
         A MaskedImage's mask keeps each brick's range and repaints the
-        per-cell table with the LUT (masked image design 7.4).  Default
-        ``None``: an image keeps no ranges.
+        per-cell table with the LUT.  Default ``None``: an image keeps
+        no ranges.
     surface_map : SurfaceMap or None
         A MaskedImage's mask copies each brick of its coarse level into the
-        map ``target_bricks="surface"`` plans from (masked image design 8.3).
-        Default ``None``: an image keeps no copy.
+        map ``target_bricks="surface"`` plans from. Default ``None``: an
+        image keeps no copy.
 
     Attributes
     ----------
@@ -475,11 +479,11 @@ class ImageResidency3D(_AtlasResidency):
             on_write=on_write,
         )
         self._brick_max_fn = weak_callback(brick_max, dead_result=0.0)
-        #: Paint only the current slice's bricks (masked image design 8.5).
+        #: Paint only the current slice's bricks.
         self.current_slice_only = bool(current_slice_only)
-        #: The per-cell range table, or None (masked image design 7.4).
+        #: The per-cell range table, or None.
         self.cell_ranges = cell_ranges
-        #: The coarse mask for the surface filter, or None (design 8.3).
+        #: The coarse mask for the surface filter, or None.
         self.surface_map = surface_map
         side = int(block_cache.info.grid_side)
         flat = np.arange(1, self.n_slots + 1)
@@ -507,7 +511,7 @@ class ImageResidency3D(_AtlasResidency):
             self._on_write()
 
     def rebuild_draw(self, view: RegistryView) -> None:
-        """Paint the LUT: background oldest first, then the foreground (5.8).
+        """Paint the LUT: background oldest first, then the foreground.
 
         With ``current_slice_only`` the background is only the current
         slice's earlier bricks (:meth:`RegistryView.paint_groups_current_slice`).

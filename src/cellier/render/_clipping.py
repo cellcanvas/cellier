@@ -1,4 +1,4 @@
-"""Clipping planes in the render layer (clipping planes design v2, 4.1, 4.6).
+"""Clipping planes in the render layer.
 
 A visual's planes are authored in its level-0 data coordinates and may
 have a component on any data axis.  ``reduce_clipping_planes`` turns them
@@ -306,8 +306,6 @@ class ClippingPlanesMixin:
     def outline_frame(self) -> tuple[np.ndarray, np.ndarray] | None:
         """The box this visual's plane outlines are cut by, in rendered space.
 
-        Plane outline design 5.1 and 5.3.
-
         Returns
         -------
         tuple[np.ndarray, np.ndarray] or None
@@ -359,13 +357,13 @@ class ClippingPlanesMixin:
                 if not reduced and not material.clipping_planes:
                     continue
                 material.clipping_planes = reduced
-        # A render plane's outline is cut by these planes (plane outline
-        # design 3.1), at the slice they were just reduced for.
+        # A render plane's outline is cut by these planes, at the slice
+        # they were just reduced for.
         notify_planes_placed(self)
 
 
 class GeometryClippingMixin(ClippingPlanesMixin):
-    """Clipping for geometry that a view may flatten (design 4.2, 5.2).
+    """Clipping for geometry that a view may flatten.
 
     The shader is exact whenever the rendered position determines the
     position on every axis a plane has a component on.  Geometry flattened
@@ -409,8 +407,8 @@ class GeometryClippingMixin(ClippingPlanesMixin):
         """Whether an enabled plane has a component on a collapsed axis.
 
         Or whether the view draws the geometry in the world frame (an
-        ``OBLIQUE`` view, full affine design v2 Phase 6): the node's frame is
-        then not the data's, so the read clips every enabled plane.
+        ``OBLIQUE`` view): the node's frame is then not the data's, so
+        the read clips every enabled plane.
         """
         spaces = getattr(self, "_spaces", None)
         if spaces is None or not self._clipping_planes:

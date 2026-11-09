@@ -1,4 +1,4 @@
-"""Controller-side checks of a MaskedImage's two stores (masked design 4.3, 5.2).
+"""Controller-side checks of a MaskedImage's two stores.
 
 A MaskedImage reads a **mask** store and a **value** store.  These pure
 functions resolve the value's placement and refuse a pair that cannot be drawn
@@ -98,7 +98,7 @@ def value_world_transform(
     value_system: CoordinateSystem,
     world: CoordinateSystem,
 ) -> AffineTransform:
-    """The value image's world transform: ``transform @ value_to_mask`` (MI-P5).
+    """The value image's world transform: ``transform @ value_to_mask``.
 
     Parameters
     ----------
@@ -159,9 +159,9 @@ def check_masked_pair(
     value_to_mask: AffineTransform | None,
     world: CoordinateSystem,
 ) -> None:
-    """Refuse a mask and value pair that cannot be drawn together (design 4.3).
+    """Refuse a mask and value pair that cannot be drawn together.
 
-    Refused: a store with fewer than three spatial axes (MI-P4); stores whose
+    Refused: a store with fewer than three spatial axes; stores whose
     non-spatial axes do not correspond, one to one, to the same world axes (no
     broadcast); and a ``value_to_mask`` that couples a slider axis to a
     spatial axis.
@@ -241,7 +241,7 @@ def check_in_memory_fits(
     field: str,
     render_config: MaskedImageRenderConfig,
 ) -> None:
-    """Refuse an in-memory side whose one level does not fit its atlas (MI-D15).
+    """Refuse an in-memory side whose one level does not fit its atlas.
 
     An in-memory side is single scale and loads every brick of the current
     slice, since its whole image is the fallback level; the atlas must hold
@@ -291,7 +291,7 @@ def check_in_memory_fits(
         )
 
 
-# -- picks (masked image design 9.3) -------------------------------------------
+# -- picks ---------------------------------------------------------------------
 
 #: Samples along the normal before the step widens: the shader's
 #: ``PROJECTION_CAP`` (``render/visuals/_masked_image.py``).
@@ -303,7 +303,7 @@ _CUT_FACE_VOXELS = 0.5
 
 
 def _surface_interval(thickness: float, placement: str) -> tuple[float, float]:
-    """The placed interval along the inward normal (design 6.2)."""
+    """The placed interval along the inward normal."""
     if placement == "inward":
         return 0.0, thickness
     if placement == "outward":
@@ -315,9 +315,9 @@ def _surface_interval(thickness: float, placement: str) -> tuple[float, float]:
 class MaskedPick:
     """The level-0 reads behind one MaskedImage pick, and their answer.
 
-    A pick is answered in two passes (design 9.3): the mask at the hit and,
-    in 3D, its 7-voxel stencil, which gives the normal; then the value at
-    the hit and along that normal.  Every read is the nearest voxel at level
+    A pick is answered in two passes: the mask at the hit and, in 3D, its
+    7-voxel stencil, which gives the normal; then the value at the hit and
+    along that normal.  Every read is the nearest voxel at level
     0.  Positions are **centred** level-0 voxels (voxel ``i`` at ``i``) and
     full rank; the non-spatial components stay at the hit's.
 
@@ -339,7 +339,7 @@ class MaskedPick:
         Mask level-0 voxels to value level-0 voxels, augmented, full rank.
     three_d : bool
         A 3D canvas: the value is projected along the normal.  In 2D the
-        projected value is the value at the hit (MI-D8).
+        projected value is the value at the hit.
     iso_threshold, surface_thickness : float
         The single appearance's.
     surface_placement, surface_projection : str
@@ -449,10 +449,10 @@ class MaskedPick:
         """The inward normal as a mask-voxel step one world unit long.
 
         The mask's gradient by central differences over the stencil (one
-        sided at the data's edge), or on a cut face the plane's normal
-        (MI-P10).  A normal is a covector ``g``; the step of unit world
-        length along it is ``G^-1 g / sqrt(g G^-1 g)``, ``G = L^T L`` over
-        the spatial axes.  ``None`` where the gradient vanishes.
+        sided at the data's edge), or on a cut face the plane's normal.  A
+        normal is a covector ``g``; the step of unit world length along it
+        is ``G^-1 g / sqrt(g G^-1 g)``, ``G = L^T L`` over the spatial
+        axes.  ``None`` where the gradient vanishes.
         """
         space = list(self.mask_space)
         covector = None

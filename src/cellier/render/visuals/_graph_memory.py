@@ -1,4 +1,3 @@
-# src/cellier/render/visuals/_graph_memory.py
 from __future__ import annotations
 
 import warnings
@@ -69,7 +68,7 @@ _window_half_extents = window_half_extents
 
 
 def _node_id_for_row(data_store, row: int):
-    """Translate a store node row to its original id (D14).
+    """Translate a store node row to its original id.
 
     Falls back to the row itself when no store is available, which keeps
     the payload well-formed in unit tests that drive the visual directly.
@@ -83,8 +82,8 @@ def _build_node_material(appearance: GraphAppearance) -> AlphaPointsMaterial:
     """Construct the node material from a GraphAppearance.
 
     ``depth_compare`` comes from ``node_depth_compare``, which defaults to
-    ``"<="`` so a node coplanar with an edge wins the tie and reads on top
-    (D22).  Do not "simplify" this to a ``render_order`` assignment: with
+    ``"<="`` so a node coplanar with an edge wins the tie and reads on
+    top.  Do not "simplify" this to a ``render_order`` assignment: with
     both children coplanar, insertion order and ``render_order`` were both
     measured to do nothing, because the depth test decides and the
     first-drawn fragment wins under ``"<"``.
@@ -121,7 +120,7 @@ def _build_edge_material(appearance: GraphAppearance) -> AlphaLineSegmentMateria
 
 
 class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
-    """Render-layer visual for one GraphVisual: a pygfx compound (D1).
+    """Render-layer visual for one GraphVisual: a pygfx compound.
 
     A ``gfx.Group`` holds a ``gfx.Points`` (nodes) and a ``gfx.Line`` with
     ``LineSegmentMaterial`` (edges).  The group carries the node matrix and
@@ -138,12 +137,12 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
 
     Draw order
     ----------
-    **Nodes are drawn over edges by the depth compare, not by ordering
-    (D22).**  With both children coplanar at ``z = 0``, insertion order
-    does not decide it and neither does ``render_order``; the depth test
-    does, and the first-drawn fragment wins because ``depth_compare`` is
-    ``"<"``.  Nodes win because ``GraphAppearance.node_depth_compare``
-    defaults to ``"<="``.
+    **Nodes are drawn over edges by the depth compare, not by
+    ordering.**  With both children coplanar at ``z = 0``, insertion
+    order does not decide it and neither does ``render_order``; the
+    depth test does, and the first-drawn fragment wins because
+    ``depth_compare`` is ``"<"``.  Nodes win because
+    ``GraphAppearance.node_depth_compare`` defaults to ``"<="``.
 
     Coordinate convention
     ---------------------
@@ -193,10 +192,10 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         # the controller.  ``None`` until the scene has a canvas.
         self._spaces: RenderSpaces | None = None
         # Where the collapsed axes sit in **data** units, from the last
-        # planned request.  The node matrix reads it (design 3.9).
+        # planned request.  The node matrix reads it.
         self._last_data_positions: dict[int, float] = {}
         self._last_displayed_axes: tuple[int, ...] | None = None
-        # The per-element fold of the current view (design v2, D11), or None.
+        # The per-element fold of the current view, or None.
         self._fold: ElementFold | None = None
         # Whether the last request was planned for a world-frame upload, and
         # the origin of the one on the GPU (None: the usual frame).
@@ -233,7 +232,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         )
 
         # Declared colour modes, honoured verbatim: the render layer never
-        # infers them from the data and never writes them back (D20).
+        # infers them from the data and never writes them back.
         self._node_color_mode: str = appearance.node_color_mode
         self._edge_color_mode: str = appearance.edge_color_mode
         self._node_size_mode: str = appearance.node_size_mode
@@ -250,8 +249,8 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         # Snapshot of the model's trail, refreshed by on_trail_changed.
         self._trail: dict = dict(visual_model.trail)
 
-        # Warn-once bookkeeping for a trail on a displayed axis (D21).  This
-        # is deliberately NOT the warnings module's own dedup, which keys on
+        # Warn-once bookkeeping for a trail on a displayed axis.  This is
+        # deliberately NOT the warnings module's own dedup, which keys on
         # (message, category, module, lineno) and is process-global -- two
         # visuals with the same bad axis would emit only one warning.
         self._warned_displayed_axes: set[int] = set()
@@ -288,10 +287,9 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         self.node_2d = self.node
         self.node_3d = self.node
 
-        # The whole filtered slice loads through the chunk scheduler
-        # (``plans/scheduler_only_loading_design_v2.md`` 4.4).  The trail's
-        # extents and fades are in the request key: a trail change keeps
-        # the previous result drawn while it loads.
+        # The whole filtered slice loads through the chunk scheduler.  The
+        # trail's extents and fades are in the request key: a trail change
+        # keeps the previous result drawn while it loads.
         self._init_whole_item()
 
     # ------------------------------------------------------------------
@@ -347,7 +345,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
             self._update_node_matrix(self._last_displayed_axes)
 
     def _update_node_matrix(self, displayed_axes: tuple[int, ...]) -> None:
-        """Place the node with the composition of design 3.9.
+        """Place the node with the node-matrix composition.
 
         ``visual -> data -> world -> rendered``, replacing the
         ``select_axes`` sub-block.  The two agree exactly for a
@@ -358,8 +356,8 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         if self._spaces is None or self._transform is None:
             return
         if self._world_origin is not None or world_frame_active(self._spaces):
-            # The geometry is placed in the world frame (Phase 6): in such a
-            # view no node matrix maps the data to the screen.
+            # The geometry is placed in the world frame: in such a view no
+            # node matrix maps the data to the screen.
             origin = self._world_origin
             set_node_matrix(
                 self.node,
@@ -373,7 +371,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         self._apply_clipping_planes()
 
     def _clip_targets(self):
-        """Every material, at the slice the node is drawn at (design 4.6)."""
+        """Every material, at the slice the node is drawn at."""
         constants = self._collapsed_origin() if self._spaces is not None else {}
         yield (
             (
@@ -386,7 +384,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         )
 
     def _collapsed_origin(self) -> dict[int, float]:
-        """Where the dropped data axes sit, for the node matrix (design 3.9).
+        """Where the dropped data axes sit, for the node matrix.
 
         Taken from the selection where there is one -- the plane's depth
         matters to a 3-D rendered system -- and the origin otherwise.
@@ -443,9 +441,9 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         """Return a typed pick payload for whichever child was hit.
 
         Picks report the store's **original node id**, not the render-buffer
-        row (D14): a rendered vertex index is a row in the *slice*, and even
-        the store row is not what a caller needs to look up attributes or
-        index back into a geff file.
+        row: a rendered vertex index is a row in the *slice*, and even the
+        store row is not what a caller needs to look up attributes or index
+        back into a geff file.
 
         Parameters
         ----------
@@ -487,7 +485,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
             if edge_row < 0 and data_store is not None:
                 # The ROI strategy returns endpoint pairs rather than edge
                 # rows, so the row is resolved here, for this one edge --
-                # never for a whole candidate set per frame (D18).
+                # never for a whole candidate set per frame.
                 edge_row = data_store.edge_row_for_endpoints(source_row, target_row)
             return GraphEdgePickInfo(
                 edge_index=edge_row,
@@ -512,15 +510,14 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         legitimate, but indistinguishable at slice time from a typo, so it
         warns once per (visual, axis) -- see ``_warned_displayed_axes``.
 
-        The graph is design 3.12's "per-family policy on top of the region":
-        its window is **asymmetric** and its fade is measured from the slice,
-        so ``contains`` alone cannot express it.  What changes is the space
+        The graph has a per-family policy on top of the region: its window
+        is **asymmetric** and its fade is measured from the slice, so
+        ``contains`` alone cannot express it.  What changes is the space
         the numbers are in.  The slice position now comes from the region,
         pulled back through the visual's transform, and the extents are
         divided by the world-units-per-data-unit of their axis -- so the
-        store's own slab arithmetic compares data against data.  Before this
-        it compared a **world** position against **data** coordinates, which
-        is the latent bug D4 exists to fix.
+        store's own slab arithmetic compares data against data, never a
+        **world** position against **data** coordinates.
         """
         if selection is None or self._spaces is None or self._transform is None:
             raise RuntimeError(
@@ -540,9 +537,8 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
             positions, self._spaces.data, self._transform
         )
         self._last_data_positions = positions
-        # The clip line follows the slice (clipping planes design 4.1).  When
-        # the view flattens an axis a plane has a component on, the read
-        # clips instead (design 5.2).
+        # The clip line follows the slice.  When the view flattens an axis a
+        # plane has a component on, the read clips instead.
         clip_planes = self._begin_request_clipping()
         sliced = self._spaces.collapsed_axes
         displayed = set(dims_state.selection.displayed_axes)
@@ -582,7 +578,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         world_thickness = world_half_thickness(selection.region)
         # The world row that reads each data axis alone: a drift or a shear
         # couples the data axis elsewhere too, but its own row still carries
-        # the scene's thickness (full affine design v2, Phase 5).
+        # the scene's thickness.
         data_to_world_axes = {
             axis: world_row_reading(self._transform, axis) for axis in sliced
         }
@@ -595,8 +591,8 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
 
         # A sliced axis no world row reads alone (a time axis a world row
         # mixes with space, say) has no window to convert: it is filtered by
-        # plain containment in the region below (design v2 4.5), as is a
-        # slab tilted through the retained axes (an OBLIQUE view, Phase 6).
+        # plain containment in the region below, as is a slab tilted through
+        # the retained axes (an OBLIQUE view).
         coupling = self._transform.axis_coupling()
         windowed = [
             axis
@@ -631,8 +627,8 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
                 )
 
         # A view whose collapsed axes reach a displayed one places each node
-        # and edge vertex at its own collapsed position (design v2, D11); a
-        # view that tilts the slice draws it in the world frame (Phase 6).
+        # and edge vertex at its own collapsed position; a view that tilts
+        # the slice draws it in the world frame.
         self._request_world_frame = world_frame_active(self._spaces)
         if self._request_world_frame:
             self._fold = None
@@ -716,7 +712,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
     def _folded(
         self, positions: np.ndarray, fold_positions: np.ndarray | None
     ) -> np.ndarray:
-        """Fold each element's collapsed position into its upload (D11)."""
+        """Fold each element's collapsed position into its upload."""
         fold = self._fold
         if (
             fold is None
@@ -739,13 +735,13 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
         independently, so an empty edge set never blanks the nodes.
 
         ``color_mode`` and ``size_mode`` are written from the *appearance*,
-        never from the data (D20): a declared ``"vertex"`` with nothing in
-        the store to back it is a misconfiguration and raises here rather
-        than silently falling back to uniform.
+        never from the data: a declared ``"vertex"`` with nothing in the
+        store to back it is a misconfiguration and raises here rather than
+        silently falling back to uniform.
         """
         self._follow_slice()
-        # An OBLIQUE view (design v2, Phase 6) uploads nodes and edges in the
-        # world frame, relative to one origin they share.
+        # An OBLIQUE view uploads nodes and edges in the world frame,
+        # relative to one origin they share.
         self._commit_world = self._request_world_frame and self._spaces is not None
         self._commit_origin = None
         self._commit_nodes(graph_data)
@@ -894,7 +890,7 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
             self._update_node_matrix(self._last_displayed_axes)
 
     def on_trail_changed(self, event: TrailChangedEvent) -> None:
-        """Refresh the trail snapshot and reset the warn-once set (D21).
+        """Refresh the trail snapshot and reset the warn-once set.
 
         Clearing the whole set rather than just the changed axis's entry is
         deliberate: it is less machinery, and re-warning about a still-

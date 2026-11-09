@@ -325,7 +325,7 @@ def test_extract_mesh_missing_index_returns_none():
 
 
 def test_a_hit_emits_the_pick_event_after_the_mouse_event():
-    """Mouse events say that something was hit; pick events say what (3.7)."""
+    """Mouse events say that something was hit; pick events say what."""
     controller, scene_id = _make_2d_controller()
     received: list = []
     canvas_id = uuid4()
@@ -379,7 +379,7 @@ def test_a_miss_emits_no_pick_event():
 
 
 # ---------------------------------------------------------------------------
-# Phase 4: readback gate
+# Readback gate
 # ---------------------------------------------------------------------------
 
 
@@ -438,7 +438,7 @@ def test_on_pick_subscription_enables_gate_and_unsubscribe_disables():
 
 
 def test_mouse_subscriptions_do_not_enable_the_gate():
-    """Detail extraction runs only for pick subscribers (design 3.7)."""
+    """Detail extraction runs only for pick subscribers."""
     controller, _scene_id, _ = _controller_with_points()
     rm = controller._render_manager
     canvas_id = uuid4()
@@ -613,7 +613,7 @@ def _press_image_pick(controller, scene, visual, displayed_data_coord):
 
 
 def test_the_slice_position_is_pulled_back_through_the_transform():
-    """D3 made slice_indices a world position; a data coordinate must not hold one.
+    """slice_indices is a world position; a data coordinate must not hold one.
 
     The image sits at ``Z = 2 z + 10``, so the world plane ``Z = 30`` is data
     plane ``z = 10``.  Reporting ``30`` would index eleven planes past the end

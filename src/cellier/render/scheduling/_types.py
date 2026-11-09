@@ -1,10 +1,9 @@
 """The chunk scheduler's contract with visuals and caches.
 
-Design: ``plans/progressive_loading_design_v3.md`` section 4.  The scheduler
-core knows keys, classes, ranks, tiers, states and slots, and nothing about
-textures, LUTs or zarr.  A visual describes what it wants with one
-:class:`DesiredSet` per cache, and each cache is a :class:`Residency` that
-writes arrived data into a slot and decides what to draw.
+The scheduler core knows keys, classes, ranks, tiers, states and slots, and
+nothing about textures, LUTs or zarr.  A visual describes what it wants with
+one :class:`DesiredSet` per cache, and each cache is a :class:`Residency`
+that writes arrived data into a slot and decides what to draw.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class ChunkState(enum.IntEnum):
-    """Where a record is in its life (design 5.2)."""
+    """Where a record is in its life."""
 
     QUEUED = 0
     FETCHING = 1
@@ -34,11 +33,16 @@ class ChunkState(enum.IntEnum):
 class Tier(enum.IntEnum):
     """How much the latest pass wants a record; higher is more.
 
-    ``PREFETCH`` is reserved for the prefetch follow-up and is never set.
+    The values are part of the scheduler's recorded traces
+    (``tests/render/scheduling/trace_baseline.json``), so they stay fixed.
     """
 
+    #: An earlier pass wanted the record and the latest one did not.  A
+    #: resident is kept until a commit needs its slot.  Backstop bricks are
+    #: evicted last, the rest least recently wanted first
+    #: (``recent_importance`` in ``_core``).
     RECENT = 0
-    PREFETCH = 1
+    #: The latest pass wants the record.
     VISIBLE = 2
 
 
@@ -48,10 +52,8 @@ class ChunkClass(enum.IntEnum):
     ``TARGET`` and ``BACKSTOP`` are the two ends.  The values between them
     are plain integers: an intermediate stage of offset ``k`` (``k`` levels
     coarser than the target) has class ``k``, so a coarser stage, which is
-    cheaper, loads first
-    (``plans/progressive_intermediate_level_design_v2.md`` 5.1).  The
-    registry column is ``uint8``, so an offset is at most 254.  Nothing
-    assumes how many classes there are.
+    cheaper, loads first.  The registry column is ``uint8``, so an offset
+    is at most 254.  Nothing assumes how many classes there are.
     """
 
     TARGET = 0
@@ -59,7 +61,7 @@ class ChunkClass(enum.IntEnum):
 
 
 class PlanMode(enum.Enum):
-    """What a planner should emit (design 5.10)."""
+    """What a planner should emit."""
 
     FULL = "full"
     BACKSTOP_ONLY = "backstop_only"
@@ -98,14 +100,12 @@ class CachePolicy:
         ``False`` suits a read that fails the same way every time: the key
         is tried again only when its store is invalidated.
     commit_stale : bool
-        Whether a result an invalidation makes stale is still shown, as
-        kept, until its re-read lands (``plans/scheduler_only_loading_design_v2.md``
-        D13, D14).  A read invalidated in flight, and an arrival an
-        invalidation hits before its commit round, are both handed to the
-        adapter's ``write_kept`` in the next commit round instead of being
-        dropped; the record is requeued either way.  Only for a whole-item
-        cache under a change stream (in-memory data being painted), whose
-        adapter implements ``write_kept``.
+        Whether a result an invalidation makes stale is still shown, as kept, until
+        its re-read lands.  A read invalidated in flight, and an arrival an
+        invalidation hits before its commit round, are both handed to the adapter's
+        ``write_kept`` in the next commit round instead of being dropped; the record
+        is requeued either way.  Only for a whole-item cache under a change stream
+        (in-memory data being painted), whose adapter implements ``write_kept``.
     """
 
     max_target_fetching: int | None = None
@@ -147,8 +147,9 @@ class DesiredSet:
     keys : np.ndarray
         ``int64``, unique, in load order: the backstop block first, then
         each intermediate stage, then the target.  A key's position is its
-        rank, which is its priority within its class.  At most
-        ``n_slots - 1`` keys (design 5.3, truncation).
+        rank, which is its priority within its class.  At most ``n_slots -
+        1`` keys, so that while one wanted record is being committed a
+        free or ``RECENT`` slot always exists.
     cls : np.ndarray
         ``uint8`` priority per key (:class:`ChunkClass`): ``BACKSTOP``,
         ``TARGET``, or a stage's offset.
@@ -201,7 +202,7 @@ class DesiredSet:
 
 @runtime_checkable
 class Residency(Protocol):
-    """What a cache provides to the scheduler (design 4.4).
+    """What a cache provides to the scheduler.
 
     Slots are numbered ``0 .. n_slots - 1``; the adapter maps them onto its
     own storage (an atlas may reserve a slot of its own for "empty").
@@ -234,7 +235,7 @@ class Residency(Protocol):
 
 @runtime_checkable
 class ChunkedVisual(Protocol):
-    """A visual whose data the scheduler loads (design 4.2).
+    """A visual whose data the scheduler loads.
 
     Implementations also set the class attribute ``chunked = True``
     (:func:`is_chunked_visual`).
@@ -275,8 +276,7 @@ class RegistryView:
     Attributes
     ----------
     key, state, tier, cls, rank, slot, slice_id, wanted_gen : np.ndarray
-        The registry columns (design 5.1).  ``slot`` is -1 when the record
-        holds none.
+        The registry columns.  ``slot`` is -1 when the record holds none.
     generation : int
         The cache's current pass generation.
     complete : bool
@@ -304,7 +304,7 @@ class RegistryView:
         return cls(**columns, generation=generation, complete=complete)
 
     def paint_groups(self) -> list[np.ndarray]:
-        """Resident record indices, grouped in painter's order (design 5.8).
+        """Resident record indices, grouped in painter's order.
 
         Background first, only while the ``VISIBLE`` set is incomplete, then
         the foreground: every ``VISIBLE`` resident.
@@ -340,7 +340,7 @@ class RegistryView:
         return groups
 
     def paint_groups_current_slice(self, levels: np.ndarray) -> list[np.ndarray]:
-        """Painter's order that never paints another slice (masked design 8.5).
+        """Painter's order that never paints another slice.
 
         For a cache whose earlier views must not show through: a MaskedImage
         colours one image's surface from another, so a surface of one time
@@ -433,7 +433,7 @@ class RegistryView:
 
 @dataclass(slots=True)
 class CacheProgress:
-    """Loading progress for one cache (design 5.13).
+    """Loading progress for one cache.
 
     Attributes
     ----------

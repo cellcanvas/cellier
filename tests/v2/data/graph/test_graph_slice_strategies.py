@@ -1,4 +1,4 @@
-"""The two slice strategies must agree exactly (D17).
+"""The two slice strategies must agree exactly.
 
 This is the highest-value module in the graph suite: ``mask`` is the
 correctness reference, ``roi`` is the fast path, and the only thing that
@@ -64,9 +64,9 @@ async def test_mask_and_roi_agree(make_request, extent, n_sliced_axes, edge_span
     """Identical node rows and identical edge endpoint-pair sets.
 
     Parametrized over trail widths, sliced-axis counts, and both local and
-    non-local edge topologies -- the matrix the design calls for, because a
-    mistake in the ROI dtype, the unbounded axes, or the refinement shows up
-    in exactly one cell of it.
+    non-local edge topologies -- the whole matrix, because a mistake in the
+    ROI dtype, the unbounded axes, or the refinement shows up in exactly one
+    cell of it.
     """
     positions, edges = _lineage(edge_span=edge_span)
     sliced = {0: 9} if n_sliced_axes == 1 else {0: 9, 1: 25}
@@ -121,9 +121,9 @@ async def test_roi_refinement_is_not_redundant(make_request):
     """An edge crossing the slab with neither endpoint inside must be dropped.
 
     ``query_edges_in_roi`` indexes each edge by its segment AABB, so it
-    reports this edge; D5's rule does not.  Asserting the raw query returns
-    it and the refined result does not is what stops the refinement being
-    mistaken for a no-op and deleted.
+    reports this edge; the either-endpoint rule does not.  Asserting the
+    raw query returns it and the refined result does not is what stops
+    the refinement being mistaken for a no-op and deleted.
     """
     positions = np.array(
         [[0.0, 0.0, 0.0], [20.0, 0.0, 0.0], [10.0, 5.0, 5.0]], dtype=np.float32
@@ -163,8 +163,8 @@ async def test_roi_leaves_original_edge_rows_none(make_request):
     """The ROI path yields endpoint pairs, not edge rows.
 
     Translating the whole candidate set every reslice is the per-frame
-    ``searchsorted`` D18 exists to remove; a pick resolves its single edge
-    through ``edge_row_for_endpoints`` instead.
+    ``searchsorted`` that indexing nodes by row exists to remove; a pick
+    resolves its single edge through ``edge_row_for_endpoints`` instead.
     """
     positions, edges = _lineage(n_tracks=4, n_time=6)
     store = GraphMemoryStore.from_arrays(positions, edges, slice_strategy="roi")

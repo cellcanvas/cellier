@@ -43,7 +43,7 @@ def _axes():
 
 @pytest.fixture
 def pyramid():
-    """The anisotropic three-level pyramid of design 3.11, with its systems."""
+    """An anisotropic three-level pyramid, with its systems."""
     from uuid import uuid4
 
     store_id = uuid4()
@@ -177,7 +177,7 @@ def test_out_of_range_window_coordinates_are_passed_through(pyramid):
 
 
 def test_the_pull_back_needs_no_inverse(pyramid):
-    """D39.  ``imap_region`` is ``A^T`` on the normals and ``d - n . t`` on the
+    """``imap_region`` is ``A^T`` on the normals and ``d - n . t`` on the
     offsets, so it works on a transform whose ``inverse()`` is ``None`` -- which
     is what a broadcast ``data -> world`` has."""
     spaces, data_to_world, selection = pyramid
@@ -195,22 +195,21 @@ def test_the_pull_back_needs_no_inverse(pyramid):
 
 
 def test_the_camera_composition_matches_the_three_step_dance(pyramid):
-    """Design 3.11 C, checked against what it replaces.
+    """The camera's level-k position, checked against what it replaces.
 
     What it replaced: ``select_axes`` + ``[[2, 1, 0]]`` + ``imap_coordinates``
     + ``[[2, 1, 0]]``.  Now: one named reversal and one ``map_coordinates``.
     The composed transform also returns the collapsed ``t`` -- the ``t`` the
     camera is looking at -- which is harmless and dropped.
 
-    Phase 8 deleted the three-step dance, so the comparison is against the
-    square submatrix and an explicit inverse rather than against a v1
-    transform -- the same three steps, written out.
+    The comparison is against the square submatrix and an explicit inverse --
+    the same three steps, written out.
     """
     from cellier.render._spaces import (
         cellier_to_pygfx_order,
         pygfx_to_cellier_order,
     )
-    from cellier.render.visuals._image import _displayed_submatrix, _imap_square
+    from cellier.render.visuals._image import _displayed_submatrix
 
     spaces, data_to_world, _ = pyramid
     camera_pygfx = np.array([[12.0, 9.0, 40.0]])
@@ -222,7 +221,8 @@ def test_the_camera_composition_matches_the_three_step_dance(pyramid):
     new = cellier_to_pygfx_order(level0[:, list(spaces.retained_axes)]).flatten()
 
     sub_3d = _displayed_submatrix(data_to_world, (1, 2, 3))
-    old = _imap_square(sub_3d, camera_pygfx[:, [2, 1, 0]]).flatten()[[2, 1, 0]]
+    camera_homogeneous = np.append(camera_pygfx[0, [2, 1, 0]], 1.0)
+    old = (np.linalg.inv(sub_3d) @ camera_homogeneous)[:3][[2, 1, 0]]
 
     np.testing.assert_allclose(new, old, rtol=1e-6)
     # Design 3.11 C's printed values.
@@ -231,7 +231,7 @@ def test_the_camera_composition_matches_the_three_step_dance(pyramid):
 
 
 def test_the_reversal_is_named_and_is_its_own_inverse():
-    """Part 5 D1's follow-on: the flip is narrowed to named helpers so moving
+    """The flip stays at the pygfx boundary, in named helpers, so moving
     it later is a change to two functions rather than a hunt for
     ``[[2, 1, 0]]``."""
     from cellier.render._spaces import (

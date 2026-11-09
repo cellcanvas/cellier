@@ -1,9 +1,8 @@
-# src/cellier/v2/visuals/_mesh_memory.py
 from typing import Annotated, Literal, Union
 
-from psygnal import EventedModel
 from pydantic import ConfigDict, Field
 
+from cellier._model import CellierEventedModel
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
 from cellier.visuals._loading import GeometryLodConfig
 
@@ -76,7 +75,7 @@ MeshAppearance = Annotated[
 ]
 
 
-class MeshSectionConfig(EventedModel):
+class MeshSectionConfig(CellierEventedModel):
     """How a mesh is drawn in a 2D view: its cross-section.
 
     A 2D view cuts the mesh with the slice plane and draws the cut: an

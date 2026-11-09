@@ -63,10 +63,10 @@ class ImageVolumeIsoMaterial(gfx.VolumeIsoMaterial):
 class ImageVolumePlaneMaterial(gfx.VolumeRayMaterial):
     """The ``"plane"`` render mode: the volume drawn on its render planes.
 
-    One sample per fragment where the view ray meets the nearest plane
-    (plane rendering design v3, 5.1).  The planes are not state of the
-    material: they are read from ``render_planes_buffer``, which the render
-    visual owns and shares between its materials.
+    One sample per fragment where the view ray meets the nearest plane.
+    The planes are not state of the material: they are read from
+    ``render_planes_buffer``, which the render visual owns and shares
+    between its materials.
 
     Parameters
     ----------

@@ -1,4 +1,4 @@
-"""World-frame placement for geometry in ``OBLIQUE`` views (design v2, Phase 6).
+"""World-frame placement for geometry in ``OBLIQUE`` views.
 
 A 2D view whose slice is tilted through a geometry visual's data -- a
 rotation about an axis that is not the view's normal -- selects a tilted
@@ -6,13 +6,14 @@ slab of elements.  The node matrix that places everything else maps the
 retained data axes to the view, and here no set of data axes spans the
 view: the map from data to the screen is a projection, and a node matrix
 holding it is singular (pygfx inverts it for picking and sizes).  So these
-visuals fall back to D4 as written: each element's **rendered** position is
-computed on the CPU from its full data coordinate and uploaded, and the
-node matrix is a translation only (the upload is relative to a rounded
-origin, so float32 keeps its precision far from zero).
+visuals place every element themselves: each element's **rendered**
+position is computed on the CPU from its full data coordinate and
+uploaded, and the node matrix is a translation only (the upload is
+relative to a rounded origin, so float32 keeps its precision far from
+zero).
 
 Selection is unchanged: ``geometry_data_region`` pulls the tilted world
-slab back exactly (K12).  Clipping planes are applied by the read on the
+slab back exactly.  Clipping planes are applied by the read on the
 elements' true positions, since the node frame is no longer the data's.
 """
 

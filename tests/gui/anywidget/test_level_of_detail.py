@@ -146,7 +146,7 @@ def test_the_front_end_binds_the_checkbox_to_the_view_s_setting():
 
 
 def test_an_in_memory_appearance_has_no_3d_setting():
-    """Oblique 2D design v3, U1: the 3D field is never emitted for it."""
+    """The 3D field is never emitted for it."""
     from cellier.visuals import InMemoryImageAppearance
 
     widget, _ = _make(level_of_detail_values(InMemoryImageAppearance()))

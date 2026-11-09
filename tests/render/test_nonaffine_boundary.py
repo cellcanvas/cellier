@@ -1,4 +1,4 @@
-"""The affine boundary and the out-of-domain check (plan, Phase 6).
+"""The affine boundary and the out-of-domain check.
 
 Two things are pinned here: that a *sliced* non-uniform axis costs nothing
 at the GPU boundary, and that a visual past its extent shows nothing rather
@@ -76,7 +76,7 @@ def nonuniform(scene):
 
 
 def test_a_sliced_non_uniform_axis_still_yields_a_matrix(nonuniform):
-    """The check that could have sunk the design: T collapsed, so it never fires."""
+    """The GPU still gets a matrix: T is collapsed, so the check never fires."""
     affine = affine_for_node(nonuniform, {0: 6.4})
     assert affine.matrix.shape == (6, 5)
     # The T row is now the constant the leaf evaluated to, and its column is

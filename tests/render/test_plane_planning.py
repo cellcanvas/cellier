@@ -1,9 +1,8 @@
 """Planning for the ``"plane"`` render mode: culling rows, levels, the cache.
 
-Plane rendering design v3, section 6, and 14.8 (Phase 7).  Counts and
-levels on small pyramids; no pixel is read here (those tests are in
-``test_plane_rendering_multiscale.py``).  ``tests/_plane_fixtures.ANISO`` at
-a 200 x 125 view is the stand-in for the measured store: its z is never
+Counts and levels on small pyramids; no pixel is read here (those tests are
+in ``test_plane_rendering_multiscale.py``).  ``tests/_plane_fixtures.ANISO``
+at a 200 x 125 view is the stand-in for the measured store: its z is never
 downsampled, so the 3D level rule picks levels several screen pixels per
 voxel coarse on a plane, which is the fault the plane's own rule fixes.
 """
@@ -13,11 +12,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cellier.render._frustum import bricks_in_frustum_arr, frustum_planes_from_corners
+from cellier.render._frustum import bricks_in_frustum, frustum_planes_from_corners
 from cellier.render._level_of_detail import (
     cull_mask,
     select_levels_from_cache,
-    sort_arr_by_distance,
+    sort_bricks_by_distance,
 )
 from cellier.render._plane_planning import (
     PLANE_REACH_VOXELS,
@@ -78,7 +77,7 @@ def _largest_voxel_by_search(axis_0, axis_1, voxel_world) -> float:
     return float((1.0 / np.linalg.norm(directions / voxel_world, axis=1)).max())
 
 
-# -- the measure (6.3) -----------------------------------------------------------
+# -- the measure -----------------------------------------------------------------
 
 #: Level voxels of a pyramid that never downsamples z, in level-0 voxels (x, y, z).
 SCALES = np.array([[1.0, 1.0, 1.0], [2.0, 2.0, 1.0], [4.0, 4.0, 1.0]])
@@ -132,7 +131,7 @@ def test_the_orthographic_level_is_the_one_whose_voxel_matches_the_pixel():
     assert plane_level_orthographic(sizes, 0.0, 100.0, 1.0) is None
 
 
-# -- culling rows (6.2) ----------------------------------------------------------
+# -- culling rows ----------------------------------------------------------------
 
 
 def test_plane_rows_keep_the_bricks_the_plane_crosses():
@@ -233,7 +232,7 @@ async def _plane_rig(controller, pyramid_root, spec, normals, **kwargs):
 async def test_the_plane_rule_draws_about_a_pixel_per_voxel(
     controller, pyramid_root, spec, pose
 ):
-    """Level rule (14.8): 0.7 to 1.6 screen pixels per voxel at bias 1.0."""
+    """Level rule: 0.7 to 1.6 screen pixels per voxel at bias 1.0."""
     rig = await _plane_rig(controller, pyramid_root, spec, [POSES[pose]])
     (desired,), request = rig.plan()
     rows = target_rows(desired)
@@ -349,7 +348,7 @@ CULL_CASES = {
 async def test_the_cull_first_plane_plan_equals_ranking_every_brick_then_culling(
     controller, pyramid_root, case, bias
 ):
-    """Cull equivalence (14.8): the same rows in the same order."""
+    """Cull equivalence: the same rows in the same order."""
     options = CULL_CASES[case]
     extents = options.get("extents")
 
@@ -398,7 +397,7 @@ async def test_the_cull_first_plane_plan_equals_ranking_every_brick_then_culling
         base_layout=geo.base_layout,
         metric=planning.metric,
     )
-    everything = sort_arr_by_distance(
+    everything = sort_bricks_by_distance(
         everything,
         camera,
         geo.block_size,
@@ -419,7 +418,7 @@ async def test_the_cull_first_plane_plan_equals_ranking_every_brick_then_culling
     )
     if clip_rows is not None:
         rows = np.concatenate([rows, clip_rows])
-    brute, _ = bricks_in_frustum_arr(
+    brute, _ = bricks_in_frustum(
         brute,
         geo.block_size,
         rows,
@@ -459,7 +458,7 @@ async def test_force_level_replaces_the_plane_rule(controller, pyramid_root):
     assert rig.planner._last_plane_plan["level"] == 3
 
 
-# -- the cache (6.4) ---------------------------------------------------------------
+# -- the cache ---------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("normals", [[POSES["oblique"]], list(POSES.values())])
@@ -473,7 +472,7 @@ async def test_one_channel_fits_the_cache(controller, pyramid_root, normals):
 async def test_a_plan_over_the_budget_is_truncated_nearest_first(
     controller, pyramid_root
 ):
-    """D-P10: a plan over the budget is truncated; the part of the plane
+    """A plan over the budget is truncated; the part of the plane
     farthest from the camera, in world units, is left to the backstop."""
     normals = [POSES["oblique"]]
     full = await _plane_rig(controller, pyramid_root, fx.ANISO, normals)
@@ -503,7 +502,7 @@ async def test_a_plan_over_the_budget_is_truncated_nearest_first(
 async def test_foreshortening_plans_at_most_half_again_as_many_bricks(
     controller, pyramid_root
 ):
-    """B8: a plane seen at a slant is planned finer than the screen shows,
+    """A plane seen at a slant is planned finer than the screen shows,
     never coarser, and within 1.6 times the face-on count.
 
     Summed over camera distances spanning two octaves: on a pyramid this
@@ -531,7 +530,7 @@ async def test_foreshortening_plans_at_most_half_again_as_many_bricks(
         assert total >= totals[0.0], totals
 
 
-# -- orthographic (6.3, D-P47, D-P48) ------------------------------------------------
+# -- orthographic -----------------------------------------------------------------
 
 
 @pytest.mark.parametrize("pose", list(POSES))
@@ -564,7 +563,7 @@ async def test_an_orthographic_plane_takes_one_level_in_the_2d_rule_s_band(
 async def test_an_orthographic_plan_that_does_not_fit_takes_a_coarser_level(
     controller, pyramid_root
 ):
-    """P19 (D-P48): step to the next coarser level until the plan fits."""
+    """Step to the next coarser level until the plan fits."""
     normals = [POSES["oblique"]]
     kwargs = {"fov": 0.0, "appearance": {"settled_lod_bias": 0.25}}
     roomy = await _plane_rig(controller, pyramid_root, fx.ANISO, normals, **kwargs)
@@ -578,9 +577,9 @@ async def test_an_orthographic_plan_that_does_not_fit_takes_a_coarser_level(
     rows = target_rows(desired)
     plan = tight.planner._last_plane_plan
     # The rule's level does not fit this atlas ...
-    from cellier.render.visuals._chunked import target_room
+    from cellier.render.visuals._chunked import max_target_bricks
 
-    assert len(target_rows(wanted)) > target_room(
+    assert len(target_rows(wanted)) > max_target_bricks(
         tight.planner.residency_3d(), None, None
     )
     # ... so a coarser one is drawn, whole.
@@ -622,7 +621,7 @@ async def test_labels_plan_the_same_bricks_as_an_image(controller, pyramid_root)
 async def test_a_composite_splits_the_cache_and_every_channel_plans_the_same_bricks(
     controller, pyramid_root
 ):
-    """B4: the budget is split between the drawn channels, so a plan that
+    """The budget is split between the drawn channels, so a plan that
     fits one channel is truncated with two; each channel gets the same
     bricks, and the same number is dropped from each."""
     from cellier.scene import spatial_axes

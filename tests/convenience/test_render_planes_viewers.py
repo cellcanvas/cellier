@@ -1,8 +1,8 @@
-"""Render planes through the convenience viewers (plane rendering design 10).
+"""Render planes through the convenience viewers.
 
-``Viewer`` arguments, the gizmo method and the dock's control (10.1);
+``Viewer`` arguments, the gizmo method and the dock's control;
 ``OrthoViewer`` pass-through and ``OrthoPlaneController``'s ``"slices"``
-mode (10.2).
+mode.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def _positions(planes) -> list[float]:
     return [float(plane.origin[k]) for k, plane in enumerate(planes)]
 
 
-# -- Viewer (10.1) --------------------------------------------------------------
+# -- Viewer ---------------------------------------------------------------------
 
 
 def test_the_viewer_passes_render_planes_and_the_mode(make_viewer):
@@ -255,7 +255,7 @@ def test_a_viewer_builds_the_control_alone(make_viewer):
 
 
 def test_an_ortho_list_of_render_planes_alone_gives_a_3d_target_only(qtbot):
-    """Design F2: the 2D group has nothing to draw, so it is not offered."""
+    """The 2D group has nothing to draw, so it is not offered."""
     from cellier.convenience.layout._shared import appearance_targets
 
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui="offscreen")
@@ -280,7 +280,7 @@ def test_an_ortho_list_of_render_planes_alone_gives_a_3d_target_only(qtbot):
         ortho.controller.close()
 
 
-# -- OrthoViewer: passing through (10.2) ----------------------------------------
+# -- OrthoViewer: passing through -----------------------------------------------
 
 
 def test_render_planes_go_to_the_3d_panel_only(make_viewer):
@@ -292,7 +292,7 @@ def test_render_planes_go_to_the_3d_panel_only(make_viewer):
     for key in ("xy", "xz", "yz"):
         assert visuals[key].render_planes == ()
     # The mode is on every panel's model and acts in the 3D panel alone: a
-    # 2D view draws its slice whatever the mode (D-P19).
+    # 2D view draws its slice whatever the mode.
     controller = ortho.controller
     assert controller._draws_planes(visuals["vol"])
     assert not any(controller._draws_planes(visuals[key]) for key in ("xy", "xz", "yz"))
@@ -342,7 +342,7 @@ async def test_the_ortho_dock_shows_the_control_for_the_3d_view_only(make_viewer
     assert visuals["xy"].render_planes == ()
 
 
-# -- OrthoViewer: the "slices" mode (10.2) --------------------------------------
+# -- OrthoViewer: the "slices" mode ---------------------------------------------
 
 
 def _slices(make_viewer, *, mode=True, **kwargs):
@@ -388,7 +388,7 @@ def test_turning_the_mode_on_writes_three_planes_at_the_slice_positions(make_vie
 
 
 def test_every_image_and_labels_vol_visual_gets_the_planes(make_viewer):
-    """D-P62: whatever its render mode; other visual types are left alone."""
+    """Whatever its render mode; other visual types are left alone."""
     ortho, visuals = _slices(make_viewer)
     volume = ortho.add_image(_image(), name="volume")  # in a volume mode
     labels = ortho.add_labels(LabelMemoryStore(data=np.ones(SHAPE, np.int32)))
@@ -431,7 +431,7 @@ def test_a_slider_moves_its_plane(make_viewer, panel, axis):
 
 
 def test_a_plane_moved_by_hand_moves_its_slider_and_the_other_visuals(make_viewer):
-    """D-P61: a change made on a visual is carried over, not thrown away."""
+    """A change made on a visual is carried over, not thrown away."""
     ortho, visuals = _slices(make_viewer)
     other = ortho.add_labels(LabelMemoryStore(data=np.ones(SHAPE, np.int32)))
     controller = ortho.controller
@@ -620,7 +620,7 @@ def test_the_clipping_link_is_as_before(make_viewer):
     assert _positions(visuals["vol"].render_planes) == [3.0, 5.0, 7.0]
 
 
-# -- a 2D scrub holds the 3D visual's plan (B9) ---------------------------------
+# -- a 2D scrub holds the 3D visual's plan --------------------------------------
 
 
 def _record_plans(monkeypatch, visual_id) -> list[str]:
@@ -709,7 +709,7 @@ async def test_a_2d_scrub_holds_the_vol_plan_and_loads_once(
     await drain_loading(controller)
 
 
-# -- the slice planes' outlines (plane outline design 8) --------------------------
+# -- the slice planes' outlines ---------------------------------------------------
 
 
 def _canvases(ortho) -> None:
@@ -738,7 +738,7 @@ async def test_the_slice_planes_have_no_outline_unless_given_one(make_viewer):
 async def test_outlines_set_on_the_plane_controller_are_drawn_once_a_plane(
     make_viewer,
 ):
-    """Three outlines however many visuals carry the planes (5.4)."""
+    """Three outlines however many visuals carry the planes."""
     from cellier.visuals import PlaneOutline
 
     ortho, visuals = _slices(make_viewer)

@@ -1,4 +1,4 @@
-"""The extent clamp under a camera drag (masked image design v2, MI-P16, 6.4).
+"""The extent clamp under a camera drag.
 
 A signed distance mask whose pyramid is floor halved, so each coarse level
 covers less than the finest; frustum culling and a small mask budget, so a
@@ -23,7 +23,7 @@ import pylinalg as la
 import pytest
 from scipy import ndimage as ndi
 
-from cellier.convenience.capture import _wait_for_slicer
+from cellier.convenience.capture import _wait_until_loaded
 from cellier.render.shaders._masked_volume_brick import MaskedVolumeBrickMaterial
 from cellier.visuals import MaskedImageAppearance, MaskedImageSingleAppearance
 from tests.render._affine import render
@@ -40,7 +40,7 @@ DRAG_SHAPE = (75, 143, 143)
 DRAG_LEVELS = 4
 DRAG_SIZE = 384
 DRAG_YAWS = [6.0 * k for k in range(1, 9)]
-#: Settled silhouettes are dilated by this, as in the design's evidence.
+#: Settled silhouettes are dilated by this.
 DRAG_MARGIN_PX = 25
 
 
@@ -114,7 +114,7 @@ def _drag(
 
         def settled(degrees: float) -> np.ndarray:
             controller.set_camera_state(canvas_id, yawed(degrees))
-            asyncio.run(_wait_for_slicer(controller))
+            asyncio.run(_wait_until_loaded(controller))
             return render(viewer, DRAG_SIZE)[0]
 
         def drawn(frame: np.ndarray) -> np.ndarray:
@@ -193,7 +193,7 @@ def test_a_pyramid_rounded_up_is_clean_with_the_clamp(drag):
 
 
 def test_settled_frames_barely_change_with_the_clamp(tmp_path):
-    """At rest the clamp changes at most a few pixels (6.4)."""
+    """At rest the clamp changes at most a few pixels."""
     mask = pyramid_store(tmp_path, "mask", _signed_distance(DRAG_SHAPE), DRAG_LEVELS)
     value = pyramid_store(
         tmp_path, "value", np.full(DRAG_SHAPE, 0.7, np.float32), DRAG_LEVELS

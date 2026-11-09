@@ -1,8 +1,8 @@
-"""The line material of a plane outline (plane outline design 6.1, 6.2).
+"""The line material of a plane outline.
 
 A plane's outline lies in the plane it is drawn around, and a plane drawn
 by a volume shader writes depth there.  Two things keep the plane from
-hiding its own outline, and both were measured (design 13.2):
+hiding its own outline, and both were measured:
 
 - **A late render queue.**  The volume materials are in pygfx's
   transparent queue, and pygfx sorts by queue before ``render_order``, so a
@@ -41,7 +41,7 @@ __all__ = [
 ]
 
 #: How far the line's depth is moved toward the camera, in logical pixels'
-#: worth of world distance at the line's depth (design B-D7).
+#: worth of world distance at the line's depth.
 OUTLINE_DEPTH_OFFSET_PX = 8.0
 
 #: After every visual: pygfx's opaque queues end at 2600 and the volume

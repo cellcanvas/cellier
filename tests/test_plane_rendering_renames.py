@@ -1,4 +1,4 @@
-"""The hard break of plane rendering design v3 7.6 (Phase 2).
+"""The plane-rendering renames are a hard break.
 
 The old names are removed, not aliased: each is refused, and none is left in
 ``src`` or ``examples``.
@@ -68,7 +68,7 @@ def test_the_removed_loading_fields_are_refused(field) -> None:
     "appearance_cls", [MultiscaleImageAppearance, MultiscaleLabelsAppearance]
 )
 def test_the_moving_settings_defaults(appearance_cls) -> None:
-    """Coarsest while moving in 3D, eager in 2D (design 7.1)."""
+    """Coarsest while moving in 3D, eager in 2D."""
     appearance = appearance_cls()
     assert appearance.coarsest_while_moving_3d is True
     assert appearance.coarsest_while_moving_2d is False
@@ -103,7 +103,7 @@ def test_the_interaction_event_is_renamed() -> None:
 
 
 def test_the_clipping_gizmo_names_are_neutral() -> None:
-    """One gizmo per canvas serves both kinds of plane (design 8.3, Phase 8)."""
+    """One gizmo per canvas serves both kinds of plane."""
     for old, new in (
         ("Clipping" + "PlaneGizmoChangedEvent", "PlaneGizmoChangedEvent"),
         ("Clipping" + "PlaneGizmoUpdateEvent", "PlaneGizmoUpdateEvent"),
@@ -144,7 +144,7 @@ def test_the_old_controls_key_is_refused() -> None:
         ("multiscale_image", ImageControl),
         ("multiscale_labels", FieldControls),
     ):
-        # The Phase 2 key went too, when the level of detail control came;
+        # The ``settled_`` key went too, when the level of detail control came;
         # and that is its own item of the controls list now, not a field.
         for old in (LOD_BIAS, "settled_" + LOD_BIAS, "level_of_detail"):
             with pytest.raises(ValueError, match=r"add LevelOfDetailControl\(\)"):
@@ -157,7 +157,7 @@ def test_the_old_controls_key_is_refused() -> None:
 # --------------------------------------------------------------------------- #
 
 #: Files where the bias is a planner argument (the settled bias is what it
-#: carries) or an in-memory visual's unused argument: Phase 0 inventory, "keep".
+#: carries) or an in-memory visual's unused argument: these keep the name.
 _BIAS_ARGUMENT_FILES = {
     "src/cellier/render/_level_of_detail.py",
     "src/cellier/render/_level_of_detail_2d.py",
@@ -170,7 +170,7 @@ _BIAS_ARGUMENT_FILES = {
     "src/cellier/render/visuals/_points_memory.py",
     "src/cellier/render/visuals/_graph_memory.py",
 }
-#: The mesh keeps its own ``GeometryLodConfig`` setting of this name (D-P26).
+#: The mesh keeps its own ``GeometryLodConfig`` setting of this name.
 _MESH_DRAG_FILES = {
     "src/cellier/visuals/_loading.py",
     "src/cellier/visuals/_mesh_memory.py",
@@ -218,7 +218,7 @@ def test_no_old_bias_name_is_left() -> None:
 
 
 def test_the_bias_slider_widgets_are_gone() -> None:
-    """The level of detail control replaced them (design 9.3)."""
+    """The level of detail control replaced them."""
     import cellier.gui.anywidget.visuals as any_visuals
     import cellier.gui.qt.visuals as qt_visuals
 
@@ -251,7 +251,7 @@ def test_no_other_old_name_is_left(pattern) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The controls config classes are gone (ordered controls list, design D4)
+# The controls config classes are gone (``controls=`` is an ordered list)
 # --------------------------------------------------------------------------- #
 
 

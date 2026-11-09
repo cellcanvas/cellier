@@ -1,9 +1,9 @@
-"""Volume shading follows the world normal (full affine design v2, Phase 3, D9).
+"""Volume shading follows the world normal.
 
 The three cellier volume shaders march their rays in object space (voxel
 space for in-memory labels, the normalized proxy box for the multiscale
 families) and light the surface hit in world space.  The oracle is
-analytic (D10): the data is a ball of radius ``R``, so under ``world = L (d
+analytic: the data is a ball of radius ``R``, so under ``world = L (d
 - c) + c`` its surface is the ellipsoid ``|A (w - c)| = R`` with ``A =
 L^-1``.  Each pixel's ray is cast against that ellipsoid and the world
 normal there, ``A^T A (w - c)``, is compared with the rendered brightness.
@@ -50,7 +50,7 @@ SHAPE = (36, 44, 52)
 C = (np.asarray(SHAPE, dtype=np.float64) - 1.0) / 2.0
 R = 12.0
 SIZE = 320
-#: D10's shading threshold, from the Phase 0 readout (measured 0.94-0.96).
+#: The shading correlation threshold (measured 0.94-0.96).
 SHADING_MIN = 0.90
 
 ANISO_Z4 = np.diag([4.0, 1.0, 1.0])

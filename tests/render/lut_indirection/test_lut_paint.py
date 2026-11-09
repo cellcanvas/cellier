@@ -1,11 +1,11 @@
-"""The vectorised painter's-order LUT write (design v3 5.8, D6).
+"""The vectorised painter's-order LUT write.
 
 ``paint_lut`` writes regular bricks with one fancy-index assignment per
 (phase, level) and the rest with a per-brick loop.  Two checks:
 
 * the vectorised path equals the loop, on random non-power-of-2 pyramids
   (odd tails, ratios like 2.005), random resident sets and phases, and random
-  clips -- D6 ran the same check against today's tilemap rebuild;
+  clips;
 * the loop equals a per-cell oracle written from the cell -> brick rule.
 """
 

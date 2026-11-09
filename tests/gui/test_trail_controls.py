@@ -419,7 +419,7 @@ def test_an_axis_the_store_does_not_have_is_refused(axes, message):
 
 
 def test_the_trail_control_needs_no_field_control():
-    """Design F3: it used to build nothing unless a field was also listed."""
+    """It used to build nothing unless a field was also listed."""
     viewer = Viewer(_world(), displayed_axes=("y", "x"), gui="offscreen")
     graph = _add_graph(viewer, trail={0: TrailConfig()})
 

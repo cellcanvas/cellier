@@ -1,9 +1,7 @@
 """One cache's registry: a struct of numpy arrays sorted by key.
 
-Design: ``plans/progressive_loading_design_v3.md`` section 5.1, and D1 in
-``progressive_loading_findings.md``: a dict of per-chunk objects costs about
-1.2 us a key, so records are rows of parallel arrays and a pass is a handful
-of vectorised operations.
+A dict of per-chunk objects costs about 1.2 us a key, so records are rows
+of parallel arrays and a pass is a handful of vectorised operations.
 
 Deleting a row marks it with the ``DEAD`` state (a tombstone) rather than
 copying every array.  Tombstones are compacted away at the next pass or
@@ -49,8 +47,7 @@ class CacheRegistry:
         ``int64``, sorted ascending, unique among live rows.
     state, tier, cls, rank, slot, slice_id, wanted_gen, attempts, retry_at,
     stale : np.ndarray
-        One entry per row; see design 5.1.  ``state == DEAD`` marks a
-        deleted row.
+        One entry per row.  ``state == DEAD`` marks a deleted row.
     """
 
     def __init__(self) -> None:

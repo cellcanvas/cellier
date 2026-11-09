@@ -1,4 +1,4 @@
-"""Clipping planes through the convenience viewers (design 3.3, D20, D30)."""
+"""Clipping planes through the convenience viewers."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def _plane(system, x=4.0) -> ClippingPlane:
 
 
 def test_store_then_planes_then_visual(qtbot):
-    """D30: the plane is built from the store's system before the visual."""
+    """The plane is built from the store's system before the visual."""
     system = _system()
     store = LabelMemoryStore(
         data=np.ones((8, 9, 10), np.int32), data_coordinate_systems=[system]
@@ -60,7 +60,7 @@ def test_a_store_with_no_system_gets_planes_after_the_visual(qtbot):
 
 
 def test_the_ortho_panels_share_one_tuple(qtbot):
-    """D20: one store, one system, so the planes are linked across views."""
+    """One store, one system, so the planes are linked across views."""
     system = _system()
     store = LabelMemoryStore(
         data=np.ones((8, 9, 10), np.int32), data_coordinate_systems=[system]
@@ -118,7 +118,7 @@ def test_planes_survive_save_and_load(qtbot, tmp_path):
         restored.controller.close()
 
 
-# -- the gizmo (clipping plane gizmo design v2, 7) ------------------------------
+# -- the gizmo ------------------------------------------------------------------
 
 
 def test_the_viewer_puts_a_gizmo_on_a_plane(qtbot):
@@ -195,7 +195,7 @@ def test_the_ortho_gizmo_is_on_the_3d_panel_and_the_2d_panels_follow(qtbot):
         ortho.controller.close()
 
 
-# -- the dock's gizmo target (linking design 3.3) -------------------------------
+# -- the dock's gizmo target ----------------------------------------------------
 
 
 def _labels_store():

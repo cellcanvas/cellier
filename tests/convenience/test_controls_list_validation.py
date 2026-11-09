@@ -1,9 +1,8 @@
 """Validation of the ``controls=`` list of the ``add_*`` methods.
 
-``plans/ordered_controls_list_design.md`` section 5.  ``controls=`` is a list
-of control models or ``None``.  ``validate_controls`` is called by every
-``add_*`` before anything is added, so a wrong list raises there and not as
-a dock with a control missing.
+``controls=`` is a list of control models or ``None``.  ``validate_controls``
+is called by every ``add_*`` before anything is added, so a wrong list raises
+there and not as a dock with a control missing.
 """
 
 from __future__ import annotations
@@ -37,9 +36,8 @@ IMAGE_KINDS = ["image", "multiscale_image", "masked_image"]
 FIELD_CONTROL_KINDS = [kind for kind in KINDS if kind not in IMAGE_KINDS]
 MULTISCALE_VOLUME_KINDS = ["multiscale_image", "multiscale_labels"]
 #: The kinds with levels of detail: the multiscale volumes, and the in-memory
-#: image and labels, whose brick route has levels (oblique 2D design v3, U1),
-#: and a MaskedImage, whose two images each have their own (masked image
-#: design 4.5).
+#: image and labels, whose brick route has levels, and a MaskedImage, whose
+#: two images each have their own.
 LOD_KINDS = [*MULTISCALE_VOLUME_KINDS, "image", "labels", "masked_image"]
 
 ALL_CONTROLS = [
@@ -126,7 +124,7 @@ def test_there_are_ten_visual_kinds_and_fifteen_models():
     ],
 )
 def test_each_model_is_allowed_on_the_kinds_of_the_design_table(control_cls, kinds):
-    """Design section 4: accepted on its kinds, refused on every other."""
+    """Accepted on its kinds, refused on every other."""
     for kind in KINDS:
         item = _make(control_cls, kind)
         if kind in kinds:
@@ -191,7 +189,7 @@ def test_every_field_name_of_a_kind_is_accepted(kind):
 @pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("value", [True, False])
 def test_true_and_false_are_refused_with_their_own_message(kind, value):
-    """Design D5: explicit only; there is no default list."""
+    """Explicit only; there is no default list."""
     with pytest.raises(TypeError, match="list the controls to show") as excinfo:
         validate_controls(value, kind, "my visual")
     assert "None" in str(excinfo.value)
@@ -244,14 +242,14 @@ def test_an_image_control_on_another_visual_names_field_controls(kind):
 
 
 def test_a_mesh_lod_control_on_an_in_memory_mesh_is_refused():
-    """Design F1: it built nothing and said nothing before."""
+    """It built nothing and said nothing before."""
     with pytest.raises(ValueError, match="add_multiscale_mesh"):
         validate_controls([MeshLodControl()], "mesh", "v")
     assert validate_controls([MeshLodControl()], "multiscale_mesh", "v")
 
 
 def test_the_loading_indicator_stays_allowed_on_an_in_memory_mesh():
-    """Design F4."""
+    """An in-memory mesh still accepts a ``LoadingIndicator``."""
     assert validate_controls([LoadingIndicator()], "mesh", "v")
 
 
@@ -273,7 +271,7 @@ def test_the_refusal_names_the_method_the_visual_and_what_is_available():
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_the_same_type_twice_is_refused(kind):
-    """Design D7."""
+    """A control type listed twice is refused, whatever the visual kind."""
     with pytest.raises(ValueError, match="BoundingBoxControl more than once"):
         validate_controls(
             [BoundingBoxControl(), DatasetInfoControl(), BoundingBoxControl()],
@@ -390,7 +388,7 @@ def test_an_empty_field_list_is_refused(control_cls):
 @pytest.mark.parametrize("control_cls", [ImageControl, FieldControls])
 @pytest.mark.parametrize("fields", [True, "visible", None, {"visible"}])
 def test_fields_that_are_not_a_list_are_refused(control_cls, fields):
-    """``True`` has no meaning: there is no "every field" value (design D5)."""
+    """``True`` has no meaning: there is no "every field" value."""
     with pytest.raises(TypeError, match="must be a list of field names"):
         control_cls(fields=fields)
 

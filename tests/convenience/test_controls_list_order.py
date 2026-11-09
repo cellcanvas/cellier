@@ -1,6 +1,5 @@
 """The dock stacks its controls in the order of the ``controls=`` list.
 
-``plans/ordered_controls_list_implementation.md`` (Phase 2, items 7 and 8).
 ``test_appearance_specs.py`` shows that the specs follow the list.  Here the
 built dock is read back, on Qt and on anywidget (the Jupyter host), with the
 selector and with collapsible sections: the controls name themselves in the
@@ -111,7 +110,7 @@ def test_the_dock_follows_the_list(parity_case, toolkit, presentation, order):
             closeable.close()
 
 
-# -- Lists with no field control (design F3) ----------------------------------
+# -- Lists with no field control ----------------------------------------------
 
 
 def _points_viewer(gui, controls):
@@ -161,7 +160,7 @@ def test_a_viewer_builds_one_control_from_a_list_of_one(qtbot, toolkit, control,
 
 
 def test_an_ortho_clipping_only_list_has_no_appearance_entry(qtbot):
-    """Design 1.3: the dataset is in the clipping dock and nowhere else."""
+    """The dataset is in the clipping dock and nowhere else."""
     import numpy as np
 
     from cellier.data.points._points_memory_store import PointsMemoryStore

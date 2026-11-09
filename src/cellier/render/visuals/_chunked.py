@@ -1,4 +1,4 @@
-"""Planner tails shared by the chunked multiscale visuals (design v3, 5.3).
+"""Planner tails shared by the chunked multiscale visuals.
 
 Image and labels keep their own LOD selection, sort and cull, and change only
 their tail: the planned brick array becomes a :class:`DesiredSet` of packed
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 
 def brick_budget(block_cache: BlockCache3D | BlockCache2D) -> int:
-    """Bricks (or tiles) a plan may want: the scheduler's slots minus one (5.3).
+    """Bricks (or tiles) a plan may want: the scheduler's slots minus one.
 
     The atlas's slot 0 is reserved, so the scheduler has ``n_slots - 1``
     slots, and a plan wants at most one fewer: while a wanted brick is being
@@ -117,21 +117,20 @@ def viewport_2d(request: ReslicingRequest) -> tuple[np.ndarray, np.ndarray]:
 
 
 #: Half-depth of the 2D slice node's culling prism, in rendered units: far
-#: beyond any slab, so the 2D camera's own near and far planes never cull
-#: (oblique 2D design v3, 5.3.4, C2).
+#: beyond any slab, so the 2D camera's own near and far planes never cull.
 SLICE_PRISM_DEPTH = 1.0e7
 
 
 def viewport_prism(request: ReslicingRequest) -> np.ndarray:
     """A 2D request's viewport as frustum corners unbounded in depth.
 
-    The 2D slice node is planned by the 3D brick planner (design v3,
-    5.3.4), which culls with frustum corners.  A 2D request carries none,
-    and the 2D camera's near and far planes must not cull: they would drop
-    a slab's bricks to the backstop (Phase 0c P-b).  So the corners are the
-    viewport in ``(x, y)`` and +-``SLICE_PRISM_DEPTH`` in depth, in pygfx's
-    order: ``[near, far] x [(l, b), (r, b), (r, t), (l, t)]``, the near
-    side at ``+z`` (the camera looks down ``-z``).
+    The 2D slice node is planned by the 3D brick planner, which culls with
+    frustum corners.  A 2D request carries none, and the 2D camera's near
+    and far planes must not cull: they would drop a slab's bricks to the
+    backstop.  So the corners are the viewport in ``(x, y)`` and
+    +-``SLICE_PRISM_DEPTH`` in depth, in pygfx's order: ``[near, far] x
+    [(l, b), (r, b), (r, t), (l, t)]``, the near side at ``+z`` (the camera
+    looks down ``-z``).
     """
     (x0, y0), (x1, y1) = viewport_2d(request)
     corners = np.empty((2, 4, 3), dtype=np.float64)
@@ -189,24 +188,24 @@ def _current_slice_ids(
     return ids
 
 
-def target_room(
+def max_target_bricks(
     residency: ImageResidency3D | ImageResidency2D | None,
     backstop_arr: np.ndarray | None,
     loading: ProgressiveLoadingConfig | None,
 ) -> int | None:
-    """How many target bricks an atlas keeps beside its backstop and stages.
+    """The most target bricks an atlas keeps beside its backstop and stages.
 
-    The room :func:`desired_bricks` truncates the target to, for a planner
+    The limit :func:`desired_bricks` truncates the target to, for a planner
     that would rather plan less than be truncated (an orthographic plane
-    plan, plane rendering design 6.3).
+    plan).
 
     It is asked before the target exists, and the intermediate stages are
     derived from the target, so their count is an estimate: per stage, the
-    room divided by ``4 ** offset``, the share a plane's stage is of its
-    target where level ratios are 2, in 3D as well (intermediate-level
-    design v2, section 6); summed, and limited by the stages' cap.  Where
-    the estimate is low, :func:`desired_bricks` drops the farthest target
-    bricks, which the stage still covers.
+    bricks available after the backstop divided by ``4 ** offset``, the
+    share a plane's stage is of its target where level ratios are 2, in 3D
+    as well; summed, and limited by the stages' cap.  Where the estimate is
+    low, :func:`desired_bricks` drops the farthest target bricks, which the
+    stage still covers.
 
     Parameters
     ----------
@@ -227,11 +226,12 @@ def target_room(
     budget = max(0, int(residency.n_slots) - 1)
     n_backstop = 0 if backstop_arr is None else len(backstop_arr)
     cap = max(0, int(backstop_cap_for(loading, residency)))
-    room = budget - min(n_backstop, cap, budget)
+    available = budget - min(n_backstop, cap, budget)
     if loading is None or not loading.intermediate_offsets:
-        return room
-    estimate = sum(room // 4**offset for offset in loading.intermediate_offsets)
-    return room - min(estimate, intermediate_cap(loading, residency.n_slots), room)
+        return available
+    estimate = sum(available // 4**offset for offset in loading.intermediate_offsets)
+    stage_cap = intermediate_cap(loading, residency.n_slots)
+    return available - min(estimate, stage_cap, available)
 
 
 def desired_bricks(
@@ -244,10 +244,10 @@ def desired_bricks(
     fill: dict[int, int] | None = None,
     loading: ProgressiveLoadingConfig | None = None,
 ) -> DesiredSet:
-    """Turn planned brick or tile arrays into the atlas's desired set (5.3).
+    """Turn planned brick or tile arrays into the atlas's desired set.
 
     The backstop block comes first, then each intermediate stage, then the
-    target (intermediate-level design v2, section 6):
+    target:
 
     1. the backstop is truncated to *backstop_cap* (nearest first, as it is
        ordered) and to the budget;
@@ -305,7 +305,7 @@ def desired_bricks(
         # From the config and not the backstop array: an empty backstop must
         # not let a stage be planned at the backstop's level.
         top_level = backstop_level(loading, len(spans))
-        stage_room = min(
+        stage_bricks_available = min(
             intermediate_cap(loading, residency.n_slots), budget - n_backstop
         )
         for offset in offsets:
@@ -315,26 +315,28 @@ def desired_bricks(
             s_keys, s_sids = _pack(planner, residency, stage_arr, fill)
             new = ~np.isin(s_keys, taken)
             s_keys, s_sids = s_keys[new], s_sids[new]
-            truncated_intermediate += max(0, len(s_keys) - stage_room)
-            s_keys, s_sids = s_keys[:stage_room], s_sids[:stage_room]
-            stage_room -= len(s_keys)
+            truncated_intermediate += max(0, len(s_keys) - stage_bricks_available)
+            s_keys = s_keys[:stage_bricks_available]
+            s_sids = s_sids[:stage_bricks_available]
+            stage_bricks_available -= len(s_keys)
             blocks.append((s_keys, s_sids, int(offset)))
             taken = np.concatenate([taken, s_keys])
 
     if len(taken):
         target_only = ~np.isin(t_keys, taken)
         t_keys, t_sids = t_keys[target_only], t_sids[target_only]
-    room = budget - len(taken)
-    truncated_target = max(0, len(t_keys) - room)
+    target_bricks_available = budget - len(taken)
+    truncated_target = max(0, len(t_keys) - target_bricks_available)
     if truncated_target:
         _PERF_LOGGER.warning(
             "budget_exceeded  required=%d  budget=%d  dropped=%d  "
             "(consider larger cache or tighter LOD thresholds)",
             len(t_keys),
-            room,
+            target_bricks_available,
             truncated_target,
         )
-        t_keys, t_sids = t_keys[:room], t_sids[:room]
+        t_keys = t_keys[:target_bricks_available]
+        t_sids = t_sids[:target_bricks_available]
     blocks.append((t_keys, t_sids, int(ChunkClass.TARGET)))
 
     if isinstance(residency, ImageResidency2D):
@@ -368,7 +370,7 @@ def backstop_cap_for(
 
 
 def log_backstop_cap_once(owner: object, desired: list[DesiredSet]) -> None:
-    """Log, once per visual, that the backstop cap truncated its backstop (5.9).
+    """Log, once per visual, that the backstop cap truncated its backstop.
 
     Parameters
     ----------

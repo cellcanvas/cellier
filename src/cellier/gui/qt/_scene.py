@@ -148,9 +148,9 @@ class _ThicknessSpinBox(QDoubleSpinBox):
 
     ``stepBy`` serves the arrows, the arrow keys, the wheel and Page
     Up/Down; while it runs, :attr:`stepping` is true, and the change it
-    makes is sent ``interactive=True`` (oblique 2D design v3, D13).  A typed
-    value goes through ``valueChanged`` alone and is a jump.  A spin box has
-    no press or release to close a scope on, so the drag ends on stillness
+    makes is sent ``interactive=True``.  A typed value goes through
+    ``valueChanged`` alone and is a jump.  A spin box has no press or
+    release to close a scope on, so the drag ends on stillness
     (``dims_settle_s``).
     """
 
@@ -217,7 +217,7 @@ class _ContinuousSliderKeys(QObject):
 
 
 class QtDimsControl:
-    """Bidirectional dims slider panel + 2D/3D toggle wired to the cellier v2 bus.
+    """Bidirectional dims slider panel + 2D/3D toggle wired to the event bus.
 
     Composes a ``QWidget`` container (with a ``QFormLayout``) holding one
     slider per axis, plus (when *axes_2d*/*axes_3d* are given) a
@@ -225,7 +225,7 @@ class QtDimsControl:
     An axis shows a slider when it is one of the scene's ``slider_axes`` and
     is not displayed.
 
-    Follows the v2 widget pattern:
+    Follows the bus-widget pattern:
 
     - One ``UUID`` (``self._id``) shared by the sliders and the toggle.
     - Subscribed to ``DimsChangedEvent`` via ``controller.connect_widget``.
@@ -251,9 +251,9 @@ class QtDimsControl:
         Mapping of axis index to that axis's slider values, in world units.
         A ``ContinuousAxisValues`` axis gets a double-valued slider over
         ``[min, max]`` -- a slice position is a world position, not a voxel
-        index (D3).  A ``DiscreteAxisValues`` axis gets an integer slider
-        over the positions of its values, with a readout showing the value
-        or its label; it emits the world value, never the position.
+        index.  A ``DiscreteAxisValues`` axis gets an integer slider over
+        the positions of its values, with a readout showing the value or
+        its label; it emits the world value, never the position.
     axis_labels :
         Mapping of axis index to display label, e.g. ``{0: "z", 1: "y", 2: "x"}``.
     initial_slice_indices :
@@ -490,8 +490,8 @@ class QtDimsControl:
 
         # Slider values are skipped on our own echo: a drag has moved on
         # since it sent them.  The positions ride on the event rather than on
-        # ``dims_state``: the render layer takes the region instead (D5), but
-        # a slider that something else moved still has to resync.
+        # ``dims_state``: the render layer takes the region instead, but a
+        # slider that something else moved still has to resync.
         if event.source_id != self._id:
             for axis in self._sliders:
                 value = event.slice_indices.get(axis)
@@ -619,7 +619,7 @@ class QtDimsControl:
                 slice_indices=None,
                 displayed_axes=None,
                 # A step (arrow, wheel, spinner) is a tick of a drag; a typed
-                # value is a jump (oblique 2D design v3, D13).
+                # value is a jump.
                 interactive=bool(getattr(box, "stepping", False)),
                 thickness={axis: float(value)},
             )
@@ -632,10 +632,9 @@ class QtDimsControl:
         target_displayed = self._axes_memory.toggle_target(previous)
 
         # Only ``displayed_axes`` is sent: every axis keeps its slice position
-        # in the model whatever is displayed (D36), so there is nothing to
-        # restore.  The control moves itself *before* the emit so it stays
-        # honest when a handler downstream of the change fails
-        # (``plans/gui_backend_seam.md`` D17).
+        # in the model whatever is displayed, so there is nothing to restore.
+        # The control moves itself *before* the emit so it stays honest when a
+        # handler downstream of the change fails.
         self._apply_displayed(tuple(target_displayed))
         self._model_displayed_during_toggle = None
         try:
@@ -649,7 +648,7 @@ class QtDimsControl:
             )
         except Exception:
             # Refused before the model changed (a composited axis cannot be
-            # displayed, design 3.4): go back.  Changed and then a later
+            # displayed): go back.  Changed and then a later
             # handler raised: keep what the model reported.
             reported = self._model_displayed_during_toggle
             self._apply_displayed(previous if reported is None else reported)

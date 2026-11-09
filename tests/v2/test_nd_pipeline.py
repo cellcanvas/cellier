@@ -1,17 +1,17 @@
 """End-to-end nD correctness tests for the multiscale image pipeline.
 
-These tests exercise the axis-handling refactor by constructing
-``VolumeGeometry`` / ``ImageGeometry2D`` and fetching slices from a
-synthetic 5D dataset (T, C, Z, Y, X) where each voxel encodes its own
-indices.  Decoding the fetched array verifies that:
+These tests build ``MultiscaleBrickLayout3D`` / ``MultiscaleTileLayout2D``
+and fetch slices from a synthetic 5D dataset (T, C, Z, Y, X) where each
+voxel encodes its own indices.  Decoding the fetched array verifies that:
 
 - ``displayed_axes`` is honoured at the data store layer (correct shape
   and content for non-contiguous displayed axes like ``(0, 4)``).
 - ``GFXMultiscaleImageVisual``-style geometry construction works for
   3D display where the displayed data axes are non-contiguous, e.g.
   ``displayed_axes=(0, 3, 4)`` selecting (T, Y, X) from a 5D dataset.
-- The shader-order vectors built by VolumeGeometry / ImageGeometry2D
-  are correct reversals of the displayed-axis-order inputs.
+- The shader-order vectors built by ``MultiscaleBrickLayout3D`` /
+  ``MultiscaleTileLayout2D`` are correct reversals of the displayed-axis-order
+  inputs.
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.image._image_requests import ChunkRequest
 from cellier.render._spaces import select_axes
 from cellier.render.visuals._image import (
-    ImageGeometry3D,
     MultiscaleBrickLayout3D,
+    MultiscaleTileLayout2D,
 )
 from tests._v2 import level_transforms
 
@@ -138,7 +138,7 @@ def _build_5d_level_setup():
     # 3-level pyramid: level k has scale sv * 2^k.
     scales = [tuple(s * (2**k) for s in full_scale) for k in range(3)]
     translations = [tuple(t * (1 + k) for t in full_translation) for k in range(3)]
-    # Make level 0 identity for VolumeGeometry/ImageGeometry2D's assertion.
+    # The geometry classes assert that level 0 is the identity.
     scales[0] = (1.0,) * 5
     translations[0] = (0.0,) * 5
     full_level_shapes = [(2, 3, 4, 5, 6), (2, 3, 4, 5, 6), (1, 2, 2, 3, 3)]
@@ -151,8 +151,8 @@ def test_volume_geometry_3d_non_contiguous_displayed_axes():
     displayed_axes = (0, 3, 4)  # T, Y, X
 
     # Replicate from_cellier_model's 3D geometry construction.  The transforms
-    # are handed over whole and projected inside: a v2 transform cannot be
-    # rank-reduced without inventing two coordinate systems (R8.1).
+    # are handed over whole and projected inside: a transform cannot be
+    # rank-reduced without inventing two coordinate systems.
     shapes_3d = [select_axes(s, displayed_axes) for s in level_shapes]
     vg = MultiscaleBrickLayout3D(
         level_shapes=shapes_3d,
@@ -188,7 +188,7 @@ def test_image_geometry_2d_non_contiguous_displayed_axes():
     displayed_axes = (0, 4)  # T, X
 
     shapes_2d = [select_axes(s, displayed_axes) for s in level_shapes]
-    ig = ImageGeometry3D(
+    ig = MultiscaleTileLayout2D(
         level_shapes=shapes_2d,
         block_size=2,
         n_levels=3,

@@ -15,7 +15,7 @@ const MAX_BRICK_ITERS: u32 = 512u;   // outer loop guard
 // ── Ray-step count ────────────────────────────────────────────────────────
 // Steps for a ray segment of length brick_len (normalized space) through a
 // brick drawn at lod_scale: u_material.ray_steps_per_voxel per level-k voxel
-// crossed, counting voxels along the ray (L2).  ray_dir * dataset_size /
+// crossed, counting voxels along the ray.  ray_dir * dataset_size /
 // norm_size is the ray's rate in level-0 voxels; dividing by lod_scale gives
 // level-k voxels.  The count depends only on the drawn level's voxel size
 // along the ray -- not on the block size, the physical voxel aspect ratio or
@@ -84,7 +84,7 @@ fn get_lod_color(lut_w: u32) -> vec3<f32> {
 //               voxel extent [-0.5, N-0.5], i.e. voxel i is centred on integer
 //               i and spans [i-0.5, i+0.5]. Every sample_atlas call (forward
 //               density, ISO bisection, gradient) passes this -- the data
-//               coordinate p of plan v2 D1 -- so the rendered slab fills
+//               coordinate p of level_mapping.wgsl -- so the rendered slab fills
 //               [-0.5, N-0.5] and matches the in-memory gfx.Volume / the AABB
 //               box. The Python offset in _norm_to_data_params carries the
 //               same -0.5.
@@ -163,9 +163,9 @@ fn ray_to_seed(ray_dir: vec3<f32>) -> u32 {
 //                position falls in can differ by about one level-k voxel,
 //                which adds to the budgets above.
 //   translation — the level's offset t moves the level against the base cell
-//                grid by less than one level-k voxel (contract C3); worst in
-//                the repo 0.48 on integer pyramids, 1.34 on the lightsheet
-//                together with the cell rule (plan v2, "Padding budgets").
+//                grid by less than one level-k voxel (the level contract's
+//                offset check); worst in the repo 0.48 on integer pyramids,
+//                1.34 on the lightsheet together with the cell rule.
 //                Anything past BORDER is clamped to the padded tile below.
 //
 // Placement (cellier.level_mapping.wgsl): voxel_pos is the CENTRED level-0
@@ -196,8 +196,8 @@ fn sample_atlas(
     // (or linearly blending into) the neighbouring atlas slot.
     // brick_corner_k is placed (placed_corner_k): it already carries t / s.
     $$ if masked and extent_clamp and render_mode != 'plane'
-    // A MaskedImage's mask repeats a level's last voxel past its end
-    // (masked image design 6.4, MI-P16): masked_value.wgsl.
+    // A MaskedImage's mask repeats a level's last voxel past its end:
+    // masked_value.wgsl.
     let voxel_k      = mask_extent_clamp(voxel_pos / lod_scale, lut_entry.w);
     $$ else
     let voxel_k      = voxel_pos / lod_scale;
@@ -500,7 +500,7 @@ fn vs_main(in: VertexInput) -> Varyings {
 
     let norm_pos  = corners[indices[box_winding_index(in.vertex_index)]];
     $$ if slice_2d
-    // A 2D view's slice node (oblique 2D design v3, 5.3.3): the box is
+    // A 2D view's slice node: the box is
     // flattened onto rendered depth 0.  Under the orthographic 2D camera,
     // which looks down rendered z, that keeps its screen footprint and its
     // winding, and no part of it is beyond the camera's depth range; the
@@ -536,7 +536,7 @@ fn vs_main(in: VertexInput) -> Varyings {
 {$ include 'cellier.ray_clip.wgsl' $}
 
 $$ if masked
-// A MaskedImage (masked image design 6): the value image's lookup, an exact
+// A MaskedImage: the value image's lookup, an exact
 // copy of the mask's on the value's bindings, and the reads that use it.
 {$ include 'cellier_masked.value_access.wgsl' $}
 {$ include 'cellier.masked_value.wgsl' $}
@@ -587,14 +587,14 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     if (t_start >= t_end) { discard; }
 
     $$ if render_mode == 'plane'
-    // ── Plane mode (plane rendering design v3, 5.1, 5.2) ───────────────
+    // ── Plane mode ──────────────────────────────────────────────────────
     // One sample where the ray meets the nearest render plane inside the
     // interval cut above, from the brick the LUT names there: the level
     // planned for that place, or the backstop where it is not loaded yet.
     let plane_ray_o = (u_wobject.world_transform * vec4<f32>(near_pos, 1.0)).xyz;
     let plane_ray_d = (u_wobject.world_transform * vec4<f32>(ray_dir, 0.0)).xyz;
     $$ if slab_op != 'none'
-    // ── Slab projection (oblique 2D design v3, 4.2, 5.3.8) ──────────────
+    // ── Slab projection ─────────────────────────────────────────────────
     // The slab's centre plane anchors the window wherever it is: the slab
     // may reach the data where the plane itself does not.  The samples are
     // cut to the box and the clipping planes ([t_start, t_end]).
@@ -618,7 +618,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         norm_size, dataset_size);
     if (!slab.found) { discard; }
     // The pick and the normal are the winning sample's (max, min) or the
-    // centre plane's (mean): O12.
+    // centre plane's (mean).
     let plane_pos = slab_o + ray_dir * slab.t_pick;
     let plane_value = slab.value;
     $$ else
@@ -630,7 +630,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let plane_pos = near_pos + ray_dir * plane.t;
     $$ if masked
     // A MaskedImage draws a band round the mask's contour, coloured by the
-    // value (masked image design 7.1): masked_value.wgsl.
+    // value: masked_value.wgsl.
     let masked_plane = masked_plane_band(
         plane_pos, plane_brick, plane.normal, norm_size, dataset_size);
     if (!masked_plane.found) { discard; }
@@ -649,7 +649,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let plane_physical = plane_color.rgb;
     $$ endif
     $$ if masked and slab_op == 'none'
-    // The band's edges are antialiased by the pixel's share of it (7.3).
+    // The band's edges are antialiased by the pixel's share of it.
     let plane_opacity = plane_color.a * u_material.opacity * masked_plane.coverage;
     $$ else
     let plane_opacity = plane_color.a * u_material.opacity;
@@ -660,8 +660,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     out.color = vec4<f32>(plane_physical, plane_opacity);
     $$ if slice_2d
     // The flattened proxy's rasterised depth: bit-identical to a 2D tile's
-    // at rendered depth 0, where the hit's recomputed depth z-fights
-    // (oblique 2D design v3, 5.3.3, K27).
+    // at rendered depth 0, where the hit's recomputed depth z-fights.
     out.depth = varyings.position.z;
     $$ else
     out.depth = plane_ndc.z / plane_ndc.w;
@@ -713,7 +712,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // Fix 1: carried sample position across brick boundaries.
     var t_sample_carry: f32 = t_start;
 
-    // Fix 2: track which brick prev_t belongs to for cross-brick bisection.
+    // Track which brick prev_t belongs to for cross-brick bisection.
     var prev_lut_entry:      vec4<u32>;
     var prev_lod_scale:      vec3<f32>;
     var prev_brick_corner_k: vec3<f32>;
@@ -799,7 +798,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         $$ endif
 
         $$ if render_mode != 'mip' and render_mode != 'attenuated_mip'
-        // Fix 2: record where this brick begins for cross-brick bisection.
+        // Record where this brick begins for cross-brick bisection.
         brick_boundary_t = t;
         $$ endif
 
@@ -966,7 +965,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     if (!surface_found) { discard; }
 
     // ── Binary bisection refinement (4 iterations → 16× finer) ────────
-    // Fix 2: brick-aware bisection — select the correct atlas slot per probe.
+    // Brick-aware bisection — select the correct atlas slot per probe.
     var lo = prev_t;
     var hi = prev_t + surface_step_size;
     // Whether every probe was inside the object: the refinement then
@@ -1004,8 +1003,8 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     let grad_lut     = select(surface_lut_entry, prev_lut_entry, grad_in_prev);
     let grad_lod     = select(surface_lod_scale, prev_lod_scale, grad_in_prev);
     // The gradient is evaluated at the centred refined position, like every
-    // other sample_atlas call (plan v2 Phase 6; it used index space, half a
-    // level-0 voxel off the surface point).  The +/-1.5 level-k probes plus
+    // other sample_atlas call (index space would be half a level-0 voxel
+    // off the surface point).  The +/-1.5 level-k probes plus
     // the translation term fit BORDER=3 (budget comment above sample_atlas).
     let refined_v    = norm_to_voxel(refined_pos, norm_size, dataset_size);
 
@@ -1056,7 +1055,7 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     $$ else
     // ── Phong shading ──────────────────────────────────────────────────
     $$ if masked
-    // The value along the surface normal (masked image design 6.2).  World
+    // The value along the surface normal.  World
     // and unit, not faced to the viewer: the surface normal points out of
     // the object, but a clipping plane's points INTO the kept side
     // (ray_clip.wgsl keeps dot(abc, p) >= d), so a cut face takes the

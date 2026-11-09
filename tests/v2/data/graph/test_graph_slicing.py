@@ -1,4 +1,4 @@
-"""The mask slice path: node window, D5's either-endpoint rule, gathers."""
+"""The mask slice path: node window, the either-endpoint edge rule, gathers."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from tests._v2 import data_region
 async def test_slab_equivalence_with_points_store(make_request):
     """A trail-free graph selects the same node set as the points store.
 
-    The regression anchor for D5's generalization of the scalar
-    ``thickness`` into a per-axis ``(before, after)`` extent: given the same
-    slab, the graph selects what points and lines select.
+    The regression anchor for generalizing the scalar ``thickness`` into
+    a per-axis ``(before, after)`` extent: given the same slab, the
+    graph selects what points and lines select.
     """
     rng = np.random.default_rng(0)
     positions = (rng.random((200, 3)) * 10).astype(np.float32)
@@ -51,7 +51,7 @@ async def test_an_axis_with_no_extent_is_a_plane(make_request):
 
 
 async def test_either_endpoint_rule(make_request):
-    """One endpoint in the slab renders the edge; neither does not (D5)."""
+    """One endpoint in the slab renders the edge; neither does not."""
     positions = np.array(
         [[5.0, 0, 0], [9.0, 1, 1], [20.0, 2, 2], [21.0, 3, 3]], dtype=np.float32
     )
@@ -66,7 +66,7 @@ async def test_either_endpoint_rule(make_request):
 
 
 async def test_far_endpoint_draws_no_node(make_request):
-    """A dangling endpoint is a line vertex, never a node marker (D6)."""
+    """A dangling endpoint is a line vertex, never a node marker."""
     positions = np.array([[5.0, 0, 0], [9.0, 1, 1]], dtype=np.float32)
     store = GraphMemoryStore.from_arrays(positions, np.array([[0, 1]], dtype=np.int32))
 
@@ -171,7 +171,7 @@ async def test_full_3d_view_keeps_everything(make_request, tracking_lineage):
 
 @pytest.mark.parametrize("strategy", ["mask"])
 async def test_roi_strategy_is_not_inferred(make_request, strategy):
-    """The store never switches strategy on its own (D17)."""
+    """The store never switches strategy on its own."""
     store = GraphMemoryStore.from_arrays(
         np.zeros((4, 3), dtype=np.float32),
         np.array([[0, 1]], dtype=np.int32),

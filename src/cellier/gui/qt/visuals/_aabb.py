@@ -1,4 +1,4 @@
-"""AABB (axis-aligned bounding box) control widget wired to the cellier v2 event bus."""
+"""AABB (axis-aligned bounding box) control widget wired to the event bus."""
 
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ if TYPE_CHECKING:
 
 
 class QtAABBWidget(VisualIdGroup):
-    """Bidirectional AABB parameter controls wired to the cellier v2 bus.
+    """Bidirectional AABB parameter controls wired to the event bus.
 
     Wraps three Qt sub-controls — a ``QCheckBox`` for *enabled*, a
     ``QDoubleSpinBox`` for *line_width*, and a color swatch + button for
     *color* — and keeps them in sync with ``AABBParams`` via
-    ``AABBChangedEvent``.  Follows the v2 widget pattern: one UUID per
+    ``AABBChangedEvent``.  Follows the bus-widget pattern: one UUID per
     widget, source-ID echo filtering, and signal blocking when applying
     model-driven updates.
 
@@ -33,9 +33,9 @@ class QtAABBWidget(VisualIdGroup):
     Parameters
     ----------
     visual_id :
-        UUID of the visual whose ``aabb`` params this widget controls.
-        A sequence drives every listed visual in lock-step -- the
-        ``OrthoViewer``'s four panel siblings (design section 8.1).
+        UUID of the visual whose ``aabb`` params this widget controls. A
+        sequence drives every listed visual in lock-step -- the
+        ``OrthoViewer``'s four panel siblings.
     initial_enabled :
         Starting value for the *enabled* checkbox.
     initial_line_width :
@@ -141,9 +141,8 @@ class QtAABBWidget(VisualIdGroup):
     def widget(self):
         """The titled group to insert into a layout.
 
-        The rows inside only mean something together, so the group names them
-        (``plans/label_ownership_unification.md``); reach for :attr:`control`
-        for the bare rows.
+        The rows inside only mean something together, so the group names
+        them; reach for :attr:`control` for the bare rows.
         """
         return self._group
 

@@ -1,11 +1,11 @@
 """Tile keys, slots, and the 2D atlas's slot geometry.
 
 Which tile occupies which slot, what is evicted and what is drawn is the
-chunk scheduler's business (``cellier.render.scheduling``, design
-``plans/progressive_loading_design_v3.md``); the image residency adapter
-(``_image_residency``) writes tiles and paints the LUT.  What is left here
-is the part both need: the key and slot records, the flat-slot -> cache grid
-position rule, and ``tilemap``, a read-only view of the tiles the LUT draws.
+chunk scheduler's business (``cellier.render.scheduling``); the image
+residency adapter (``_image_residency``) writes tiles and paints the
+LUT. What is left here is the part both need: the key and slot records,
+the flat-slot -> cache grid position rule, and ``tilemap``, a read-only
+view of the tiles the LUT draws.
 """
 
 from __future__ import annotations
@@ -58,13 +58,10 @@ class TileSlot:
         Flat slot index (0 = reserved, never used for data).
     grid_pos : tuple[int, int]
         ``(sy, sx)`` in the cache grid.
-    timestamp : int
-        Unused; kept for callers that construct slots by keyword.
     """
 
     index: int
     grid_pos: tuple[int, int]
-    timestamp: int = 0
 
 
 class TileManager2D:

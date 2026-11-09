@@ -6,9 +6,9 @@ Nothing else in the suite exercises the packing end to end: the helpers in
 the ``pick_pack`` convention, or to how many fields a fragment shader
 writes, would go unnoticed.
 
-That matters right now because Stage 7a adds a fourth output
-(``outline_id``) to the generated ``FragmentOutput`` for every shader.  The
-design's whole argument for the ``outline_id`` target over repacking pick is
+That matters because ``CellierBlender`` adds a fourth output
+(``outline_id``) to the generated ``FragmentOutput`` for every shader.
+The whole argument for the ``outline_id`` target over repacking pick is
 that picking is left untouched -- these tests are what makes that claim
 checkable rather than asserted.
 """
@@ -21,7 +21,7 @@ import pytest
 
 from cellier.render._cellier_blender import (
     OUTLINE_ID_TARGET,
-    install_cellier_blender,
+    ensure_extra_targets,
 )
 
 # The 3D packing cellier's label and multiscale volume shaders write:
@@ -87,8 +87,8 @@ def test_outline_target_does_not_disturb_the_pick_payload(offscreen_renderer):
 
     Renders the same scene through the stock blender and through
     ``CellierBlender`` and compares what ``get_pick_info`` reports at a
-    grid of positions.  This is the direct check on Stage 7a's central
-    claim.
+    grid of positions.  This is the direct check that the extra target
+    leaves picking untouched.
     """
     from rendercanvas.offscreen import RenderCanvas
 
@@ -106,7 +106,7 @@ def test_outline_target_does_not_disturb_the_pick_payload(offscreen_renderer):
         renderer.pixel_scale = 1
         renderer.ppaa = "none"
         if with_target:
-            assert install_cellier_blender(renderer, [OUTLINE_ID_TARGET]) is True
+            assert ensure_extra_targets(renderer, [OUTLINE_ID_TARGET]) is True
         canvas.request_draw(lambda: renderer.render(scene, camera))
         canvas.draw()
         results = []

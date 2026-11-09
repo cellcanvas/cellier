@@ -41,9 +41,7 @@ def _make_cs() -> WorldCoordinateSystem:
 
 
 def _make_appearance(**kwargs) -> MultiscaleImageAppearance:
-    defaults = {"color_map": "viridis", "clim": (0.0, 1.0)}
-    defaults.update(kwargs)
-    return MultiscaleImageAppearance(**defaults)
+    return MultiscaleImageAppearance(**kwargs)
 
 
 def _make_store(small_zarr_store, **kwargs) -> MultiscaleZarrDataStore:
@@ -339,8 +337,8 @@ def test_dims_bridge_emits_event():
 
     controller.get_scene(scene.id).dims.selection.slice_indices = {0: 5}
     assert len(fired) == 1
-    # The snapshot stopped carrying the positions in Phase 8 (D5); they stay
-    # on the selection the sliders write to.
+    # The snapshot does not carry the positions; they stay on the selection
+    # the sliders write to.
     assert controller.get_scene(scene.id).dims.selection.slice_indices == {0: 5}
 
 
@@ -387,7 +385,7 @@ def test_dims_bridge_displayed_axes_flag_false():
 
 
 def test_dims_update_event_merges_positions_and_sets_displayed_axes():
-    """No ordering dance: every axis keeps a position while displayed (D36).
+    """No ordering dance: every axis keeps a position while displayed.
 
     The update names only the axes that moved, and the others keep theirs.
     """
@@ -1242,8 +1240,8 @@ def test_showing_image_visual_reslices_it(small_zarr_store):
 def test_hidden_geometry_visual_is_not_sliced():
     """A hidden geometry visual is retired like an image or a mesh.
 
-    Scheduler-only loading design v2, D18: its cache stops reading while it
-    is hidden, and shown again at an unchanged position it reads nothing.
+    Its cache stops reading while it is hidden, and shown again at an
+    unchanged position it reads nothing.
     """
     controller = CellierController()
     scene = controller.add_scene(

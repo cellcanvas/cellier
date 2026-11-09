@@ -1,7 +1,8 @@
 """Appearance controls specific to label visuals (Qt).
 
-Layer 3 of the three-layer design in ``plans/convenience_cleanup.md`` section
-10.2: each class is a field name, a label, and the per-field defaults.  All
+Layer 3 of the appearance widgets' three layers (layer 1 talks to the bus,
+layer 2 is one class per control type, layer 3 binds a field and a label):
+each class is a field name, a label, and the per-field defaults.  All
 behaviour -- the bus contract, the echo filter, the fan-out over an
 ``OrthoViewer``'s panel group -- lives in the layer-1 base, and the control
 itself in the layer-2 type.
@@ -23,13 +24,12 @@ from cellier.visuals._label_memory import BaseLabelsAppearance
 class QtLabelsRenderModeCombo(QtChoice):
     """How label voxels are rendered in 3D.
 
-    Distinct from the image render-mode control: the labels models
-    spell this field ``iso_categorical``/``flat_categorical`` where
-    the image models spell it ``mip``/``iso``/``minip``.  Pass
+    Distinct from the image render-mode control: the labels models spell
+    this field ``iso_categorical``/``flat_categorical`` where the image
+    models spell it ``mip``/``iso``/``minip``.  Pass
     ``choices=literal_choices(appearance, 'render_mode')`` so the
     in-memory and multiscale variants each offer their own set and
-    ``gradient_debug`` is excluded (design section 6.5.1
-    proposal 4).
+    ``gradient_debug`` is excluded.
 
     Parameters
     ----------

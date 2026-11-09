@@ -1,7 +1,7 @@
-"""Shared scenes for the MaskedImage render tests (masked image design v2).
+"""Shared scenes for the MaskedImage render tests.
 
 Both store kinds go through the same helpers, so a parametrized test over
-``"memory"`` and ``"lazy"`` is the check that one model serves both (MI-D3).
+``"memory"`` and ``"lazy"`` is the check that one model serves both.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from tests.render.conftest import _write_multiscale_zarr
 if TYPE_CHECKING:
     from pathlib import Path
 
-#: Small budgets: each side allocates its whole budget (G3).
+#: Small budgets: each side allocates its whole budget.
 SMALL_MASKED = {
     "gpu_budget_bytes": 16 * 1024**2,
     "value_gpu_budget_bytes": 16 * 1024**2,
@@ -122,7 +122,7 @@ def undelay(data_store) -> None:
     object.__delattr__(data_store, "get_data")
 
 
-# -- the synthetic example's pair (masked image design v2, 11) -----------------
+# -- the synthetic example's pair ----------------------------------------------
 
 #: The ellipsoid's semi-axes, ``(z, y, x)``, as fractions of the mask's side.
 SEMI_AXES = (110 / 256, 90 / 256, 70 / 256)
@@ -195,7 +195,7 @@ def band_counts(frame: np.ndarray) -> np.ndarray:
     return np.bincount(np.argmax(rgb, axis=-1)[drawn], minlength=3)
 
 
-# -- pyramids whose coarse levels are shorter (masked image design 6.4) --------
+# -- pyramids whose coarse levels are shorter ----------------------------------
 
 
 def halve(data: np.ndarray, round_up: bool = False) -> np.ndarray:
@@ -242,7 +242,7 @@ def pyramid_store(
     )
 
 
-# -- target_bricks="surface" (masked image design 8.3) ---------------------------
+# -- target_bricks="surface" -----------------------------------------------------
 
 #: The spike of :func:`spiked_pair`: radius and length past the ellipsoid, in
 #: mask voxels, along +x from the centre.
@@ -253,7 +253,7 @@ SPIKE_LENGTH = 20
 def spiked_pair(side: int, spike: bool) -> tuple[np.ndarray, np.ndarray]:
     """:func:`band_pair`'s ellipsoid, optionally with a thin spike on +x.
 
-    The spike is the case design 3.1 documents: its coarse mean falls below
+    The spike is the coarse pass's known miss: its coarse mean falls below
     the threshold, so the coarse pass never sees it.  The value is the bands
     of the mask's own distance.
     """

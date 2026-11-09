@@ -1,10 +1,10 @@
 """The visuals the appearance-spec parity golden was captured from.
 
-``plans/ordered_controls_list_implementation.md`` (P0-2).  The golden,
-``data/appearance_specs_golden.json``, holds what ``appearance_specs``
-returned for each case before the controls list replaced the config classes.
-It was captured once and is never regenerated: the parity test builds the same
-visuals here, asks for the same controls as a list, and compares.
+The golden, ``data/appearance_specs_golden.json``, holds what
+``appearance_specs`` returned for each case before the controls list replaced
+the config classes.  It was captured once and is never regenerated: the parity
+test builds the same visuals here, asks for the same controls as a list, and
+compares.
 
 Each case is a real visual added through a ``Viewer``, so the store and the
 palette are the ones a dock would be given.

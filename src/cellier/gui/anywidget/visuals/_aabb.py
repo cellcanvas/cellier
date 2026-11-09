@@ -1,4 +1,4 @@
-"""AABB (axis-aligned bounding box) control wired to the cellier v2 event bus (anywidget)."""
+"""AABB (axis-aligned bounding box) control wired to the event bus (anywidget)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _FIELDS = ("enabled", "line_width", "color")
 
 
 class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget):
-    """Bidirectional AABB parameter controls wired to the cellier v2 bus.
+    """Bidirectional AABB parameter controls wired to the event bus.
 
     Mirrors ``QtAABBWidget``: an *enabled* checkbox, a *line_width* number
     input, and a *color* swatch, sharing one UUID so a single subscription
@@ -38,9 +38,9 @@ class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget):
     Parameters
     ----------
     visual_id :
-        UUID of the visual whose ``aabb`` params this widget controls.
-        A sequence drives every listed visual in lock-step -- the
-        ``OrthoViewer``'s four panel siblings (design section 8.1).
+        UUID of the visual whose ``aabb`` params this widget controls. A
+        sequence drives every listed visual in lock-step -- the
+        ``OrthoViewer``'s four panel siblings.
     initial_enabled :
         Starting value for the *enabled* checkbox. Default ``False``.
     initial_line_width :
@@ -67,9 +67,8 @@ class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget):
     title = traitlets.Unicode(DEFAULT_TITLE).tag(sync=True)
     """What this control calls itself, drawn by its own front end.
 
-    A control names itself rather than being named by whatever lays it out
-    (``plans/label_ownership_unification.md``), which is what lets the dock
-    stack controls and stop.
+    A control names itself rather than being named by whatever lays it out,
+    which is what lets the dock stack controls and stop.
     """
 
     enabled = traitlets.Bool(False).tag(sync=True)

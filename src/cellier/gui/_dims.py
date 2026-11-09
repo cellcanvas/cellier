@@ -138,8 +138,8 @@ def scene_toggle_axes(
     OrthoViewer panel declares exactly one mode -- three slice views and one
     volume -- so offering to switch it put the scene into a mode it was
     never configured for: the reslice produced no geometry, the scene had no
-    bounds, and the panel went blank (``plans/gui_backend_seam.md`` D18).  A
-    plain ``Viewer`` declares both, so its toggle is unaffected.
+    bounds, and the panel went blank.  A plain ``Viewer`` declares both, so
+    its toggle is unaffected.
     """
     modes = {str(mode) for mode in getattr(scene, "render_modes", ())}
     if not {"2d", "3d"} <= modes:
@@ -156,7 +156,7 @@ def initial_slice_indices(
     """Return a slider value for **every** axis in *axis_values*.
 
     The scene's own value wins.  A scene holds a position for every axis,
-    displayed ones included (D36), so the fallback below only matters for a
+    displayed ones included, so the fallback below only matters for a
     selection built without one -- a panel constructed by hand.  Such an axis
     is seeded to the middle of its range, matching what
     ``OrthoViewer.center_slices`` picks and what a reader expects the first
@@ -164,8 +164,7 @@ def initial_slice_indices(
 
     Seeding to the axis *minimum* instead, which is what a Qt slider does when
     nothing sets it, lands the first 2D view on the edge of the volume: often
-    blank, and never the slice anyone wanted (``plans/gui_backend_seam.md``
-    D16).
+    blank, and never the slice anyone wanted.
 
     A discrete axis is different: it has no meaningful middle, and a
     channel axis's midpoint is a tie between two channels.  It starts on its
@@ -185,8 +184,8 @@ def initial_slice_indices(
     -------
     dict[int, float]
         One entry per axis in *axis_values*.  World positions, not voxel
-        indices: since D3 a slice position is a float, so the midpoint is no
-        longer rounded and a fine axis's odd-numbered planes are reachable.
+        indices: a slice position is a float, so the midpoint is not
+        rounded and a fine axis's odd-numbered planes are reachable.
     """
     known = {
         int(axis): float(value)

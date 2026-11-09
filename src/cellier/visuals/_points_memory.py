@@ -1,9 +1,8 @@
-# src/cellier/v2/visuals/_points_memory.py
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field
 
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
 
@@ -57,11 +56,3 @@ class PointsVisual(BaseVisual):
     visual_type: Literal["points_memory"] = "points_memory"
     appearance: PointsMarkerAppearance = Field(default_factory=PointsMarkerAppearance)
     requires_camera_reslice: bool = Field(default=False, frozen=True)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_visual_type(cls, data: Any) -> Any:
-        if isinstance(data, dict) and data.get("visual_type") == "points":
-            data = dict(data)
-            data["visual_type"] = "points_memory"
-        return data

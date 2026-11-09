@@ -1,4 +1,4 @@
-"""Mirror dims state across the four OrthoViewer panels (design 3.6)."""
+"""Mirror dims state across the four OrthoViewer panels."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class OrthoDimsController:
     """Keep every panel's slice positions, thicknesses and overrides equal.
 
     The four OrthoViewer scenes show one world, and every scene keeps a
-    position for every axis (D36), so mirrored scenes hold identical
+    position for every axis, so mirrored scenes hold identical
     ``slice_indices``: one world point, the crosshair.  The XY panel slices at
     its ``z``, and that same ``z`` is the stored position the XZ and YZ panels
     keep for their displayed ``z``.
@@ -26,14 +26,14 @@ class OrthoDimsController:
     source of truth and is what gets serialized; this only copies between
     them.  ``displayed_axes`` is per panel and is never mirrored.
 
-    A **scrub** is forwarded too (interaction tracker design 4.8).  A
-    mirrored position reaches the other panels as a plain
-    ``update_slice_indices``, which by itself would be a jump and plan each
-    of them in full on every tick.  So when a scrub starts on one panel, this
-    opens a dims interaction scope on every other panel, and closes them when
-    that scrub ends: the mirrored ticks are then scrub ticks, and the other
-    panels end with ``"release"``.  A panel that displays the scrubbed axis
-    receives no tick, and its forwarded scope opens and closes silently.
+    A **scrub** is forwarded too.  A mirrored position reaches the other
+    panels as a plain ``update_slice_indices``, which by itself would be a
+    jump and plan each of them in full on every tick.  So when a scrub starts
+    on one panel, this opens a dims interaction scope on every other panel,
+    and closes them when that scrub ends: the mirrored ticks are then scrub
+    ticks, and the other panels end with ``"release"``.  A panel that
+    displays the scrubbed axis receives no tick, and its forwarded scope
+    opens and closes silently.
 
     Parameters
     ----------

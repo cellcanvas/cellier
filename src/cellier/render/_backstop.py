@@ -1,10 +1,10 @@
 """The coarse backstop the multiscale planners load ahead of the target.
 
-Design v3, 5.9.  A backstop is one pyramid level, loaded before every target
-read (the scheduler's ``BACKSTOP`` class), so a view is blurry rather than
-blank -- or showing the previous slice -- while the target loads.  All four
-planners (image and labels, 2D and 3D) call these helpers, which work on the
-same level grids and sort / cull functions as their target planning.
+A backstop is one pyramid level, loaded before every target read (the
+scheduler's ``BACKSTOP`` class), so a view is blurry rather than blank -- or
+showing the previous slice -- while the target loads.  All four planners
+(image and labels, 2D and 3D) call these helpers, which work on the same
+level grids and sort / cull functions as their target planning.
 
 What the settings mean is :class:`~cellier.visuals.ProgressiveLoadingConfig`'s
 business; this module turns them into brick arrays in load order.
@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from cellier.render._frustum import bricks_in_frustum_arr
-from cellier.render._level_of_detail import sort_arr_by_distance
+from cellier.render._frustum import bricks_in_frustum
+from cellier.render._level_of_detail import sort_bricks_by_distance
 from cellier.render._level_of_detail_2d import (
     sort_tiles_by_distance_2d,
     viewport_cull_2d,
@@ -58,8 +58,7 @@ def intermediate_bricks(
 ) -> np.ndarray:
     """The intermediate stage of a target plan: its ancestors *offset* levels up.
 
-    ``plans/progressive_intermediate_level_design_v2.md``, section 3.  For a
-    target brick at level ``L`` its ancestors are the bricks of level
+    For a target brick at level ``L`` its ancestors are the bricks of level
     ``L + offset`` that own one of its base cells, by the shared cell -> brick
     rule (:mod:`cellier.render.lut_indirection._cell_brick_rule`), so the
     stage covers exactly what the lookup table will look up.  Where the
@@ -171,8 +170,8 @@ def backstop_bricks_3d(
         the whole volume (``"full"``).
     keep : np.ndarray or None
         A boolean mask over the level's grid rows: only those are the
-        backstop (a 2D slice node keeps the rows its plane reaches, oblique
-        2D design v3 D3).  ``None`` keeps every row.
+        backstop (a 2D slice node keeps the rows its plane reaches).
+        ``None`` keeps every row.
 
     Returns
     -------
@@ -182,7 +181,7 @@ def backstop_bricks_3d(
     arr = level_grids[level - 1]["arr"]
     if keep is not None:
         arr = arr[keep]
-    arr = sort_arr_by_distance(
+    arr = sort_bricks_by_distance(
         arr,
         camera_pos_data,
         block_size,
@@ -190,7 +189,7 @@ def backstop_bricks_3d(
         translation_vecs_shader=translation_arr_shader,
     )
     if frustum_planes is not None:
-        arr, _ = bricks_in_frustum_arr(
+        arr, _ = bricks_in_frustum(
             arr,
             block_size,
             frustum_planes,

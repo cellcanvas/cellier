@@ -1,9 +1,9 @@
-"""The node matrix stops being ``select_axes`` (design 3.6 site E, 3.9).
+"""The node matrix is a composition, not ``select_axes``.
 
 The golden baseline proves the composition agrees with ``select_axes`` on
-every transform shipping today.  These tests pin *why* the composition is the
+every transform in the baseline.  These tests pin *why* the composition is the
 right one: the two cases where ``select_axes`` was silently wrong, and the two
-things design 3.9 says are easy to get wrong on the way there.
+things that are easy to get wrong in the composition.
 """
 
 from __future__ import annotations
@@ -52,12 +52,10 @@ def _spaces(ctx: Context, retained=None):
 def test_the_composition_refuses_a_displayed_axis_with_no_data_behind_it():
     """Where ``select_axes`` invented a row, the composition raises.
 
-    Design 3.8 finding 2, and the reason the call sites had to go.
-    ``select_axes`` did not raise on a transform whose ranks disagreed: asked
-    for "displayed" axes ``(2, 3, 4)`` of a 4-D ``tzyx`` transform it read the
-    **homogeneous row** as if it were data and returned a plausible wrong
-    matrix.  A second test asserted that misbehaviour directly until Phase 8
-    deleted the method with v1; this is the half that outlives it.
+    The reason the call sites had to go. ``select_axes`` did not raise on a
+    transform whose ranks disagreed: asked for "displayed" axes ``(2, 3, 4)``
+    of a 4-D ``tzyx`` transform it read the **homogeneous row** as if it were
+    data and returned a plausible wrong matrix.
     """
     from cellier.render.visuals._image import _displayed_submatrix
 
@@ -67,8 +65,8 @@ def test_the_composition_refuses_a_displayed_axis_with_no_data_behind_it():
 
 
 def test_a_collapsed_axis_index_enters_the_translation():
-    """Design 3.9: for a block-diagonal transform it contributes nothing to
-    the displayed rows, which is exactly why ``select_axes`` got away with
+    """For a block-diagonal transform it contributes nothing to the
+    displayed rows, which is exactly why ``select_axes`` got away with
     dropping it.  It stops being free the moment there is a cross-term."""
     ctx = Context(3, (1.0, 1.0, 1.0), displayed_axes=(1, 2), slice_indices={0: 0.0})
     spaces = _spaces(ctx)
@@ -102,7 +100,7 @@ def test_a_collapsed_axis_index_enters_the_translation():
 
 
 # ---------------------------------------------------------------------------
-# The two things design 3.9 says are easy to get wrong
+# The two things that are easy to get wrong
 # ---------------------------------------------------------------------------
 
 
@@ -118,7 +116,7 @@ def test_the_visual_system_is_ascending_not_displayed_order():
 
 def test_a_transposed_rendered_system_transposes_the_node_matrix():
     """A transpose costs no refetch: the visual space is unchanged and only
-    the rendered system's axis order moves (design 3.14)."""
+    the rendered system's axis order moves."""
     straight = Context(3, (2.0, 3.0, 4.0), displayed_axes=(0, 1, 2))
     swapped = Context(
         3,
@@ -135,7 +133,7 @@ def test_a_transposed_rendered_system_transposes_the_node_matrix():
 
 
 def test_the_node_matrix_is_narrowed_to_float32():
-    """D6: the model layer is float64 and float32 begins at the GPU."""
+    """The model layer is float64 and float32 begins at the GPU."""
     ctx = Context(3, (2.0, 3.0, 4.0), displayed_axes=(0, 1, 2))
     assert ctx.transform.matrix.dtype == np.float64
     assert node_matrix(_spaces(ctx), ctx.transform, {}).dtype == np.float32
@@ -162,8 +160,8 @@ def test_every_collapsed_axis_must_state_where_it_sits():
 
 
 def test_a_windowed_request_moves_the_origin():
-    """Design 3.9 case 2: forget the window origin and a brick is drawn at the
-    corner of the volume instead of where it belongs."""
+    """Forget the window origin and a brick is drawn at the corner of the
+    volume instead of where it belongs."""
     ctx = Context(3, (1.0, 1.0, 1.0), displayed_axes=(0, 1, 2))
     spaces = _spaces(ctx)
     at_origin = node_matrix(spaces, ctx.transform, {})
@@ -181,7 +179,7 @@ def test_a_windowed_request_moves_the_origin():
 
 
 def test_the_correspondence_is_read_back_off_the_matrix():
-    """D23: the matrix encodes it, so storing an axis_map alongside would be a
+    """The matrix encodes it, so storing an axis_map alongside would be a
     second source of truth."""
     ctx = Context(4, (1.0, 2.0, 3.0, 4.0), displayed_axes=(1, 2, 3))
     assert axis_correspondence(ctx.transform) == {0: 0, 1: 1, 2: 2, 3: 3}

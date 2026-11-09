@@ -1,10 +1,10 @@
 """Render planes: the planes a visual in ``"plane"`` render mode draws on.
 
-Plane rendering design v3, section 4.  A render plane is a pose in the
-scene's world space (an origin and two in-plane axes) with an extent along
-each in-plane axis.  It is unlike a ``ClippingPlane``, which is a half-space
-in the visual's data coordinates: a frame and a rectangle do not survive an
-anisotropic data transform, so they live in world units.
+A render plane is a pose in the scene's world space (an origin and two
+in-plane axes) with an extent along each in-plane axis.  It is unlike a
+``ClippingPlane``, which is a half-space in the visual's data coordinates: a
+frame and a rectangle do not survive an anisotropic data transform, so they
+live in world units.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from uuid import UUID, uuid4
 import numpy as np
 from pydantic import (
     UUID4,
-    BaseModel,
     ConfigDict,
     Field,
     TypeAdapter,
@@ -24,6 +23,7 @@ from pydantic import (
 )
 from typing_extensions import Self
 
+from cellier._model import CellierModel
 from cellier.transform import AxisRef
 from cellier.visuals._plane_outline import PlaneOutline
 
@@ -97,7 +97,7 @@ def _quaternion_to_matrix(quaternion: np.ndarray) -> np.ndarray:
     )
 
 
-class RenderPlane(BaseModel):
+class RenderPlane(CellierModel):
     """One plane a visual in ``"plane"`` render mode draws its data on.
 
     The plane is in the scene's **world** space, on three named world axes.

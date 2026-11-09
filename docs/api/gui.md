@@ -20,6 +20,16 @@ Qt widgets for building interactive cellier-based applications.
 ::: cellier.gui.qt.visuals.QtLodConfigControls
 ::: cellier.gui.qt.visuals.QtClippingPlanesControls
 
+## Axis values
+
+The values a dims slider can take on one world axis: any position in a
+range, or only the listed positions (a channel axis, say).
+[`axis_values_from_viewer`](convenience.md#cellier.convenience.axis_values_from_viewer)
+derives them from a viewer's data.
+
+::: cellier.gui.ContinuousAxisValues
+::: cellier.gui.DiscreteAxisValues
+
 ## Clipping planes helpers
 
 Toolkit-neutral: what a clipping planes control of either toolkit is built

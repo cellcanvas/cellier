@@ -1,4 +1,4 @@
-"""World-space axis ranges from store extents (implementation plan, Phase 1).
+"""World-space axis ranges from store extents.
 
 ``_axis_values_from_scene`` used to read ``level_shapes``, which only image
 and label stores have.  Now every store answers ``axis_extents``, so the
@@ -8,9 +8,10 @@ geometry-only scene below -- which raised before this phase -- works.
 import numpy as np
 import pytest
 
-from cellier.convenience import ContinuousAxisValues, Viewer, axis_values_from_viewer
+from cellier.convenience import Viewer, axis_values_from_viewer
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
+from cellier.gui import ContinuousAxisValues
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance

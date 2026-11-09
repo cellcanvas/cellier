@@ -1,4 +1,4 @@
-"""``coarsest_while_moving`` and the dims scrub (interaction tracker design 4.3, 4.4).
+"""``coarsest_while_moving`` and the dims scrub.
 
 A scrub is a run of interactive ticks: ``update_slice_indices`` with
 ``interactive=True`` or inside ``dims_interaction``.  During one, a visual with
@@ -258,7 +258,7 @@ async def test_a_release_plans_the_target_at_once(
     assert _modes(plans) == ["BACKSTOP_ONLY"] * 3 + ["FULL"]
     assert events == [("start", None), ("end", "release")]
     assert controller.dims_interaction_state(scene.id) == "idle"
-    # No timer is left sleeping to hold a drain up (design 4.2).
+    # No timer is left sleeping to hold a drain up.
     assert not _timers(controller)
     assert not controller._deferred_reslice_tasks()
     await drain_loading(controller)
@@ -335,7 +335,7 @@ async def test_a_jump_ends_a_scrub(controller, multiscale_image_store, monkeypat
     assert _modes(plans) == ["BACKSTOP_ONLY", "FULL"]
     assert not _timers(controller)
     assert not controller._deferred_reslice_tasks()
-    assert not controller._dims_scrub_pending
+    assert not controller._replan_on_dims_end
     await drain_loading(controller)
 
 
@@ -534,7 +534,7 @@ async def test_a_gui_update_event_carries_the_interactive_flag(
     await drain_loading(controller)
 
 
-# -- every reslice during a scrub plans coarse (design 4.4) -----------------------
+# -- every reslice during a scrub plans coarse ------------------------------------
 
 
 def _reslice_visual(controller, scene, visual, store) -> None:
@@ -592,11 +592,11 @@ async def test_a_reslice_during_a_scrub_plans_coarse_and_the_end_in_full(
         await asyncio.sleep(0)
         assert len(plans) > ticked, "the trigger did not reslice"
         assert set(_modes(plans, visual.id)) == {"BACKSTOP_ONLY"}
-        assert visual.id in controller._dims_scrub_pending[scene.id]
+        assert visual.id in controller._replan_on_dims_end[scene.id]
         during = len(plans)
 
     assert _modes(plans, visual.id)[during:] == ["FULL"]  # once, at the end
-    assert not controller._dims_scrub_pending
+    assert not controller._replan_on_dims_end
     await drain_loading(controller)
 
 
@@ -627,7 +627,7 @@ async def test_a_visual_added_during_a_scrub_plans_coarse_then_in_full(
 async def test_a_config_change_mid_scrub_still_plans_in_full_at_the_end(
     controller, multiscale_image_store, monkeypatch
 ):
-    """Pending is never trimmed by config (design 4.4)."""
+    """Pending is never trimmed by config."""
     scene, visual, _gfx = _add(controller, multiscale_image_store)
     await _loaded(controller, scene)
     plans = _record_plans(monkeypatch)
@@ -697,14 +697,14 @@ async def test_removing_the_scene_or_closing_drops_the_scrub(
     assert task.cancelled()
     assert events == [("start", None)]  # dropped: no end event
     assert controller.dims_interaction_state(scene.id) == "idle"
-    assert scene.id not in controller._dims_scrub_pending
+    assert scene.id not in controller._replan_on_dims_end
     assert _timers(controller) == [other_task]
 
     controller.close()
     await asyncio.sleep(0)
     assert other_task.cancelled()
     assert not _timers(controller)
-    assert not controller._dims_scrub_pending
+    assert not controller._replan_on_dims_end
 
 
 async def test_the_settle_time_is_read_at_each_tick(controller, multiscale_image_store):

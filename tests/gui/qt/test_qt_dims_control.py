@@ -125,8 +125,9 @@ def test_echoed_event_is_ignored(qtbot):
 
 
 # ---------------------------------------------------------------------------
-# D14: parity with the anywidget dims panel, which had twice this coverage --
-# in the area that produced D16-D18 (``plans/gui_backend_unification.md``).
+# Parity with the anywidget dims panel, which had twice this coverage --
+# in the area where the 2D/3D toggle once put a scene into a mode it could
+# not render.
 # ---------------------------------------------------------------------------
 
 
@@ -137,8 +138,8 @@ def test_the_toggle_is_labelled_for_the_mode_it_switches_to(qtbot, dim, expected
     """At construction, before anything has been clicked.
 
     A button that describes the mode it is *in* rather than the one it offers
-    is the failure D17 produced after a raising handler, and nothing pinned
-    the un-clicked case at all.
+    is the failure a raising handler once produced (the toggle emitted before
+    updating itself), and nothing pinned the un-clicked case at all.
     """
     _controller, scene = _make_controller_with_scene(dim=dim)
     control = _make_control(scene, qtbot)

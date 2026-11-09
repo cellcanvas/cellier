@@ -1,15 +1,15 @@
-# src/cellier/data/graph/_geff_io.py
 """geff -> ``GraphMemoryStore`` adapter.
 
-``geff`` is an optional dependency (D8) and is imported inside
+``geff`` is an optional dependency and is imported inside
 :func:`read_geff` only, so importing this module costs nothing and the
 whole ``mask`` slice path stays dependency-free.
 
 Reading goes through ``geff.GeffReader`` rather than
 ``geff.read(backend="spatial-graph")``.  The high-level call builds two
-R-trees keyed by *original node id*, which D18 requires this code to throw
-away and rebuild over row indices; the low-level reader skips that
-entirely and measured 5.2x faster at 100k nodes.
+R-trees keyed by *original node id*, which this code would have to throw
+away and rebuild over row indices (nodes are indexed by row); the
+low-level reader skips that entirely and measured 5.2x faster at 100k
+nodes.
 """
 
 from __future__ import annotations
@@ -40,12 +40,12 @@ class GeffPayload:
     edges : np.ndarray
         (n_edges, 2) int32 endpoint **row indices**.  geff stores original
         id pairs; the one ``searchsorted`` that converts them happens at
-        load time and never on the per-frame path (D18).
+        load time and never on the per-frame path.
     node_ids : np.ndarray
         Original node ids, kept for pick payloads.
     axis_scales : tuple[float, ...]
-        The axes' ``scale``, one per axis in file order, defaulting to 1.0
-        (D23).  Raw numbers rather than a transform: a transform names the
+        The axes' ``scale``, one per axis in file order, defaulting to
+        1.0.  Raw numbers rather than a transform: a transform names the
         two coordinate systems it maps between, and only the controller
         knows the scene's world.
     axis_offsets : tuple[float, ...]
@@ -160,7 +160,7 @@ def read_geff(
     positions = np.ascontiguousarray(np.stack(columns, axis=1), dtype=np.float32)
 
     # geff edge_ids are original id PAIRS. One searchsorted at load time
-    # converts them to row indices; the per-frame path never pays it (D18).
+    # converts them to row indices; the per-frame path never pays it.
     edge_ids = np.asarray(payload["edge_ids"])
     if edge_ids.size:
         order = np.argsort(node_ids)
@@ -170,10 +170,10 @@ def read_geff(
     else:
         edges = np.zeros((0, 2), dtype=np.int32)
 
-    # D23: the file's axes are the sole source of the transform. Ignoring a
+    # The file's axes are the sole source of the transform. Ignoring a
     # stated scale renders an anisotropic light-sheet file at the wrong
-    # scale with no signal, which is why there is no override to forget
-    # to pass.
+    # scale with no signal, which is why there is no override to forget to
+    # pass.
     scales = tuple(1.0 if a.scale is None else float(a.scale) for a in axes)
     offsets = tuple(0.0 if a.offset is None else float(a.offset) for a in axes)
 

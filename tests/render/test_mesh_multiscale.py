@@ -1,9 +1,8 @@
 """A mesh with two levels of detail, through the controller.
 
-``plans/mesh_refactor_v3.md`` Phase 6 (M3, M4's coarse child, L4).  A plan
-asks for the coarse and the fine level together; the coarse one is on screen
-first and the fine one replaces it, with no frame without the mesh between.
-Frames are real frames of an offscreen canvas.
+A plan asks for the coarse and the fine level together; the coarse one is
+on screen first and the fine one replaces it, with no frame without the
+mesh between. Frames are real frames of an offscreen canvas.
 """
 
 from __future__ import annotations
@@ -209,7 +208,7 @@ async def test_coarse_is_drawn_first_and_fine_replaces_it(which, request, reads)
     rig.controller.fit_camera(rig.scene.id)
     await rig.turns()
 
-    # Both reads start in the same round, the coarse one first (D24).
+    # Both reads start in the same round, the coarse one first.
     assert reads.started == [1, 0]
     assert _drawn_level(rig, mesh) is None
 

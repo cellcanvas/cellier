@@ -24,7 +24,7 @@ linear sample (image)       texel coordinate ``u + 0.5``
 
 All functions are per axis and broadcast with NumPy: ``scale`` and
 ``translation`` are scalars or ``(ndim,)`` arrays in the same axis order as
-the coordinates.  See ``plans/multiscale_level_transform_v2.md``.
+the coordinates.
 """
 
 from __future__ import annotations

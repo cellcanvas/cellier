@@ -1,8 +1,8 @@
 """Tests for the Qt appearance-field base and ``QtVisibleToggle``.
 
-The reference widget of ``plans/convenience_cleanup.md`` section 6.4.  The base
-contract (layer 1) is tested once here against a stub subclass, so the 47
-layer-3 classes stage 4 adds need only the thin tests at the bottom.
+``QtVisibleToggle`` is the reference widget.  The base contract (layer 1) is
+tested once here against a stub subclass, so the layer-3 classes need only the
+thin tests at the bottom.
 """
 
 from __future__ import annotations
@@ -167,8 +167,7 @@ def test_visible_toggle_binds_field_and_label(qtbot):
     qtbot.addWidget(widget.widget)
 
     assert widget.field == "visible"
-    # The row's label carries the name; the checkbox itself has no text (see
-    # ``plans/label_ownership_unification.md``).
+    # The row's label carries the name; the checkbox itself has no text.
     assert _row_label_text(widget) == "Visible"
     assert widget.control.text() == ""
     assert widget.value is True  # matches the model default

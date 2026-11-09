@@ -1,4 +1,4 @@
-"""cellier v2 event bus and event type catalogue."""
+"""The event bus and event type catalogue."""
 
 from cellier._state import CameraState, DimsState
 from cellier.events._bus import EventBus, SubscriberInfo, SubscriptionHandle

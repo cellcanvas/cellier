@@ -1,11 +1,11 @@
 """Every pyramid level is drawn where its level -> data transform puts it.
 
-``plans/multiscale_level_transform_v2.md``.  A small OME-Zarr v0.5 pyramid
-(image and labels) is written in one of four **kinds** (``KINDS``), read back
-through the real OME-Zarr readers and drawn at every forced level, in 2D and
-3D, for the image and the labels.  Along an axis with cumulative factor
-``F``, level ``k`` has metadata ``scale = F * s0`` and ``translation =
-t * s0 + T0``, with ``t`` in level-0 voxels:
+A small OME-Zarr v0.5 pyramid (image and labels) is written in one of four
+**kinds** (``KINDS``), read back through the real OME-Zarr readers and drawn
+at every forced level, in 2D and 3D, for the image and the labels.  Along an
+axis with cumulative factor ``F``, level ``k`` has metadata
+``scale = F * s0`` and ``translation = t * s0 + T0``, with ``t`` in level-0
+voxels:
 
 - ``offset``: offset striding, level ``k`` keeps level-0 voxels
   ``F // 2 + F * i``; ``t = F // 2``.
@@ -115,15 +115,15 @@ THRESHOLD = 100.0
 
 #: Pass threshold, in level-0 voxels per axis.  Every convention error this
 #: test exists to catch is at least half a level-0 voxel.  Measured noise
-#: (Phase 0, at 960 px): 2D <= 0.06; 3D <= 0.10 once ray steps are adequate
-#: (with today's step starvation, S1, up to 0.27 at level 2).  0.2 is twice
-#: the 3D noise and 2.5x below the smallest error.
+#: (at 960 px): 2D <= 0.06; 3D <= 0.10 once ray steps are adequate (up to
+#: 0.27 at level 2 when steps are starved).  0.2 is twice the 3D noise and
+#: 2.5x below the smallest error.
 TOL_VOXELS = 0.2
 
 PATHS = ("3d_image", "3d_labels", "2d_image", "2d_labels")
 
-#: Paths whose shaders apply the level transform (plan v2): 2D in Phase 5,
-#: 3D in Phase 6.  ``expected_before`` documents what they drew before.
+#: Paths whose shaders apply the level transform (all of them).
+#: ``expected_before`` documents what they drew before they did.
 FIXED_PATHS = frozenset(PATHS)
 
 
@@ -258,9 +258,9 @@ def _write_dataset(root, kind="offset"):
 
 
 def _build_viewer(path):
-    from cellier.convenience import Viewer, spatial_axes
+    from cellier.convenience import Viewer
     from cellier.data import OMEZarrImageDataStore, OMEZarrLabelDataStore
-    from cellier.scene import BackgroundAppearance
+    from cellier.scene import BackgroundAppearance, spatial_axes
     from cellier.transform import AffineTransform
     from cellier.visuals import (
         MultiscaleImageAppearance,
@@ -382,7 +382,7 @@ def _errors_voxels(frame, matrix, spheres, data_axes, kind="offset"):
 
 
 async def _render_all(viewer, image, labels, kind="offset"):
-    from cellier.convenience.capture import _load_data, _wait_for_slicer
+    from cellier.convenience.capture import _load_data, _wait_until_loaded
 
     controller = viewer.controller
     scene_id = viewer.scene.id
@@ -400,7 +400,7 @@ async def _render_all(viewer, image, labels, kind="offset"):
                 # A hidden visual skips slicing, so reslice after showing it.
                 image.appearance.visible, labels.appearance.visible = vis
                 controller.reslice_all()
-                await _wait_for_slicer(controller)
+                await _wait_until_loaded(controller)
                 frame = viewer.screenshot(size=SIZE)
                 matrix = np.array(canvas._camera.camera_matrix)
                 frames[(key_prefix, which, level)] = (frame, matrix, spheres)
@@ -480,10 +480,7 @@ def _cases():
                     marks.append(
                         pytest.mark.xfail(
                             strict=True,
-                            reason=(
-                                "level translation ignored (plan v2 Phase "
-                                f"{5 if path.startswith('2d') else 6})"
-                            ),
+                            reason="level translation ignored",
                         )
                     )
                 yield pytest.param(
@@ -532,8 +529,8 @@ def test_every_sphere_drawn(renders, kind, key):
     """Each sphere draws one blob, at least a third of its level-0 area.
 
     Area, not just a blob count: a starved ray march (too few steps along the
-    ray, plan finding S1) leaves slivers and speckle, which count as blobs,
-    and erodes the spheres.  Blocky coarse spheres vary in area, never by 3x.
+    ray) leaves slivers and speckle, which count as blobs, and erodes the
+    spheres.  Blocky coarse spheres vary in area, never by 3x.
     """
     frames = renders(kind)
     frame, matrix, spheres = frames[key]

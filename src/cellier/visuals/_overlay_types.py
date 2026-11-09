@@ -1,4 +1,4 @@
-"""Discriminated unions of the overlay model types for cellier v2."""
+"""Discriminated unions of the overlay model types."""
 
 from __future__ import annotations
 

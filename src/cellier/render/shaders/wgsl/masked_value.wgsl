@@ -1,4 +1,4 @@
-// A MaskedImage's reads (masked image design v2, 6 and 7).
+// A MaskedImage's reads.
 //
 // Included by multiscale_volume_brick.wgsl when `masked` is set, after the
 // value side's copy of the lookup (value_get_lod_scale, value_sample_atlas,
@@ -40,7 +40,7 @@ fn value_level_hi(level: u32) -> vec3<f32> {
     }
 }
 
-// -- the mask's 3D read past a level's end (6.4, MI-P16) ---------------------
+// -- the mask's 3D read past a level's end ------------------------------------
 
 // The bounds of the level last read, in level-k texel units: u in
 // [0, hi] is voxel_k = u + t / s in [t / s, hi + t / s].  Looked up only when
@@ -123,8 +123,8 @@ fn tile_read_pos(p: vec3<f32>, scale: vec3<f32>, offset: vec3<f32>,
     return u * scale + offset;
 }
 
-// G2: the value is clamped to its level's voxel centres with no fade, so no
-// colour comes from no data (MI-D10).
+// The value is clamped to its level's voxel centres with no fade, so no
+// colour comes from no data.
 fn value_read_pos(p: vec3<f32>, c: ValueCell, snap: vec3<f32>) -> vec3<f32> {
     return tile_read_pos(p, c.scale, value_get_level_offset(i32(c.lut.w)),
                          value_level_hi(c.lut.w), snap, true);
@@ -147,7 +147,7 @@ fn value_at_voxel(p: vec3<f32>) -> MaskedSample {
     return value_at_voxel_snapped(p, vec3<f32>(0.0));
 }
 
-// -- 3D: the value along the surface normal (6.2) ---------------------------
+// -- 3D: the value along the surface normal ---------------------------------
 
 // The max, mean or min of the value along the world direction `inward_world`
 // from the surface point pos_norm (the mask node's normalized space), over
@@ -217,7 +217,7 @@ $$ if render_mode == 'plane'
 // Requires u_material.mask_snap, mask_edge_fade, surface_min_width_px,
 // band_rays, band_cap, and t_mask_range (_cell_ranges.py).
 
-// An aligned plane reads the mask as a 2D tile reads it (MI-D14, 6.3): the
+// An aligned plane reads the mask as a 2D tile reads it: the
 // sliced axis snapped, every axis clamped to the level's voxel centres, and
 // the tile's fade at the data's edge.  A tilted one reads it at its true
 // depth, as the plain route does.
@@ -293,8 +293,8 @@ fn mask_cell_read(p: vec3<f32>, c: MaskCell) -> f32 {
         * mask_edge_fade(p, c.lut.w, c.scale);
 }
 
-// Whether every read of cell c is on the pixel's side of the threshold
-// (7.4): its brick's range, taken at the level the LUT draws it at.
+// Whether every read of cell c is on the pixel's side of the threshold: its
+// brick's range, taken at the level the LUT draws it at.
 fn mask_cell_skips(c: MaskCell, inside: bool) -> bool {
     let range = textureLoad(t_mask_range, c.cell, 0);
     if (range.z != f32(c.lut.w)) { return false; }
@@ -342,7 +342,7 @@ fn pixel_world_size(pos_norm: vec3<f32>) -> f32 {
 }
 
 // The placed band [surface_start, surface_end] along the inward normal,
-// widened about its centre to surface_min_width_px pixels (7.3).
+// widened about its centre to surface_min_width_px pixels.
 fn mask_band_limits(px: f32) -> vec2<f32> {
     var a = u_material.surface_start;
     var b = u_material.surface_end;
@@ -363,14 +363,15 @@ fn mask_band_coverage(d: f32, px: f32) -> f32 {
     return clamp((hi - lo) / px, 0.0, 1.0);
 }
 
-// Signed in-plane distance to the contour, world units, positive inside
-// (MI-P15, 7.2): the nearest sign change of m - iso along band_rays rays in
-// the plane, one drawn-level voxel a step (band_cap steps a ray at most, past
-// which the step widens), placed by linear interpolation.  Each ray stops at
-// the best found so far.  Only the pixel's side is searched, as far as the
-// placed band and half a pixel reach.  No crossing: +-3e38 (+-2e38 when the
-// per-pixel skip found none), outside every band.  A step into a cell with no brick reads nothing and goes on, its last
-// read kept (MI-D18): a distance can be over-estimated, never under.
+// Signed in-plane distance to the contour, world units, positive inside: the
+// nearest sign change of m - iso along band_rays rays in the plane, one
+// drawn-level voxel a step (band_cap steps a ray at most, past which the step
+// widens), placed by linear interpolation.  Each ray stops at the best found
+// so far.  Only the pixel's side is searched, as far as the placed band and
+// half a pixel reach.  No crossing: +-3e38 (+-2e38 when the per-pixel skip
+// found none), outside every band.  A step into a cell with no brick reads
+// nothing and goes on, its last read kept: a distance can be over-estimated,
+// never under.
 fn mask_band_search(p0: vec3<f32>, m0: f32, lod_scale: vec3<f32>,
                     norm_size: vec3<f32>, dataset_size: vec3<f32>,
                     normal_world: vec3<f32>, px: f32) -> f32 {
@@ -393,7 +394,7 @@ fn mask_band_search(p0: vec3<f32>, m0: f32, lod_scale: vec3<f32>,
     var best = reach;
     var found = false;
 
-    // Per pixel (7.4): the reach as a box in level-0 voxels.  Within the
+    // Per pixel: the reach as a box in level-0 voxels.  Within the
     // pixel's cell grown by its clearance, on the data's own reads, it holds
     // no crossing and no ray is cast.
     var cur = mask_cell_at(mask_cell_of(p0));
@@ -433,7 +434,7 @@ fn mask_band_search(p0: vec3<f32>, m0: f32, lod_scale: vec3<f32>,
             let cell = mask_cell_of(p);
             if (any(cell != cur.cell)) {
                 cur = mask_cell_at(cell);
-                // Per ray (7.4): a cell wholly on the pixel's side holds no
+                // Per ray: a cell wholly on the pixel's side holds no
                 // crossing, so go on from its last step.
                 if (cur.valid && mask_cell_skips(cur, inside)) {
                     let last = min(u32(floor(mask_cell_exit(p0, dv, cell) / step)),
@@ -448,7 +449,7 @@ fn mask_band_search(p0: vec3<f32>, m0: f32, lod_scale: vec3<f32>,
                     }
                 }
             }
-            // A cell with no brick is unknown (MI-D18): go on past it.
+            // A cell with no brick is unknown, not zero: go on past it.
             if (!cur.valid) { continue; }
             let f = mask_cell_read(p, cur) - iso;
             if ((f >= 0.0) != inside) {
@@ -475,10 +476,10 @@ struct MaskedPlane {
     found:    bool,
 };
 
-// A plane pixel of a MaskedImage (7.1): the mask read as a 2D image of it
-// reads, its distance to the contour, the pixel's share of the band, and the
-// value under it (no projection: MI-D8).  `found` is false where nothing is
-// drawn: outside the band, or where the value has no data (MI-D10).
+// A plane pixel of a MaskedImage: the mask read as a 2D image of it reads,
+// its distance to the contour, the pixel's share of the band, and the value
+// under it (its own value: no max, mean or min in 2D).  `found` is false
+// where nothing is drawn: outside the band, or where the value has no data.
 fn masked_plane_band(plane_pos: vec3<f32>, brick: BrickInfo, normal_world: vec3<f32>,
                      norm_size: vec3<f32>, dataset_size: vec3<f32>) -> MaskedPlane {
     var out: MaskedPlane;
@@ -492,7 +493,7 @@ fn masked_plane_band(plane_pos: vec3<f32>, brick: BrickInfo, normal_world: vec3<
     let d = mask_band_search(p0, m0, brick.lod_scale, norm_size, dataset_size,
                              normal_world, px);
     $$ if debug_mode == 'band_skip'
-    // Debug: 1 where the per-pixel skip cast no ray, 0 elsewhere (7.4).
+    // Debug: 1 where the per-pixel skip cast no ray, 0 elsewhere.
     out.value = select(0.0, 1.0, abs(d) == 2.0e38);
     out.coverage = 1.0;
     out.found = true;

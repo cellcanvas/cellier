@@ -2,22 +2,17 @@
 
 Covers the shared helper (:func:`round_world_to_voxel`) and the invariant that
 the in-memory and multiscale planning paths snap a world slice position to the
-*same* voxel index at level 0 -- the guard that did not previously exist.
+*same* voxel index at level 0.
 
-Phase 8 changed how that guard has to be written.  The two paths used to be
-two different pieces of arithmetic -- ``_transform_slice_indices`` pulling a
-world position back with ``imap_coordinates``, and
-``_build_axis_selections_multiscale`` pushing it forward through a precomposed
-``world -> level-k`` matrix -- and the point of comparing them was that they
-could disagree.  Both are gone.  What remains is one pull-back
-(``imap_region``) into one assembler (``axis_selections_from_box``), reached
-by every image and label family, so the test now drives that pair and the
-"both paths" claim is about the two *stores*, not two implementations.
+There is one pull-back (``imap_region``) into one assembler
+(``axis_selections_from_box``), reached by every image and label family, so the
+test drives that pair and the "both paths" claim is about the two *stores*, not
+two implementations.
 
 These are the **labels** expectations, clamping included, and the assembler
-every family plans through.  Image visuals run the design 3.2 rule before the
-assembler (nearest sample within the thickness, nothing outside the data);
-its tests are in ``tests/render/test_image_slicing_rule.py``.
+every family plans through.  Image visuals run the image slicing rule
+before the assembler (nearest sample within the thickness, nothing outside
+the data); its tests are in ``tests/render/test_image_slicing_rule.py``.
 """
 
 from __future__ import annotations

@@ -158,7 +158,8 @@ def test_an_update_event_on_the_incoming_bus_applies(
 
 @pytest.fixture
 def viewer_with_image(qtbot, multiscale_image_store):
-    from cellier.convenience import Viewer, spatial_axes
+    from cellier.convenience import Viewer
+    from cellier.scene import spatial_axes
     from cellier.visuals._image import (
         MultiscaleImageAppearance,
         MultiscaleImageRenderConfig,
@@ -213,7 +214,8 @@ async def test_removing_the_visual_removes_its_subscriptions(viewer_with_image):
 
 @pytest.fixture
 def ortho_with_image(qtbot, multiscale_image_store):
-    from cellier.convenience import OrthoViewer, spatial_axes
+    from cellier.convenience import OrthoViewer
+    from cellier.scene import spatial_axes
 
     ortho = OrthoViewer(spatial_axes("z", "y", "x"), gui="offscreen")
     visuals = ortho.add_image_multiscale(multiscale_image_store)

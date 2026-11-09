@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import UUID4, AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import UUID4, AliasChoices, ConfigDict, Field
+
+from cellier._model import CellierModel
 
 AxisType = Literal["array", "space", "time", "channel", "coordinate", "displacement"]
 """The closed set of axis types defined by OME-NGFF RFC-5."""
@@ -33,7 +35,7 @@ ambiguous.
 """
 
 
-class Axis(BaseModel):
+class Axis(CellierModel):
     """A single axis of a coordinate system.
 
     Parameters

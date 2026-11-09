@@ -1,4 +1,4 @@
-"""Top-level viewer model for cellier v2."""
+"""Top-level viewer model."""
 
 from __future__ import annotations
 
@@ -6,15 +6,15 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, Field
 
+from cellier._model import CellierEventedModel
 from cellier.data._types import DataStoreType
 from cellier.render._config import RenderManagerConfig
 from cellier.scene.scene import Scene
 
 
-class DataManager(EventedModel):
+class DataManager(CellierEventedModel):
     """Thin evented wrapper around a dict of data stores.
 
     Parameters
@@ -29,7 +29,7 @@ class DataManager(EventedModel):
     ] = Field(default_factory=dict)
 
 
-class ViewerModel(EventedModel):
+class ViewerModel(CellierEventedModel):
     """Top-level model tree for a cellier viewer session.
 
     Parameters

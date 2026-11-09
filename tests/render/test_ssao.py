@@ -30,7 +30,7 @@ from pygfx.renderers.wgpu.engine.shared import get_shared
 from cellier.render._cellier_blender import (
     NORMAL_TARGET,
     OUTLINE_ID_TARGET,
-    install_cellier_blender,
+    ensure_extra_targets,
 )
 from cellier.render._config import AmbientOcclusionConfig, RenderManagerConfig
 from cellier.render._ssao import MAX_KERNEL_SAMPLES, SSAOPass, make_kernel
@@ -154,7 +154,7 @@ def _render(
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
     if extra_targets:
-        assert install_cellier_blender(renderer, extra_targets) is True
+        assert ensure_extra_targets(renderer, extra_targets) is True
 
     ssao = SSAOPass(renderer, lambda: camera)
     ssao.enabled = True
@@ -676,7 +676,7 @@ def test_the_colour_frame_is_unchanged_by_the_extra_targets(offscreen_renderer):
         renderer.pixel_scale = 1
         renderer.ppaa = "none"
         if targets:
-            assert install_cellier_blender(renderer, targets) is True
+            assert ensure_extra_targets(renderer, targets) is True
         canvas.request_draw(lambda: renderer.render(scene, camera))
         return np.asarray(canvas.draw())
 
@@ -1095,7 +1095,7 @@ def _render_with_normal_target(controller, scene_id, size=(96, 96)):
     renderer = gfx.WgpuRenderer(canvas)
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
-    assert install_cellier_blender(renderer, [NORMAL_TARGET]) is True
+    assert ensure_extra_targets(renderer, [NORMAL_TARGET]) is True
 
     gfx_scene = canvas_view._get_scene_fn(scene_id)
     camera = canvas_view.camera

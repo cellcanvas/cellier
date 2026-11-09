@@ -1,4 +1,4 @@
-"""``set_node_matrix``: shear survives on a pygfx node (design v2, D2 and K4).
+"""``set_node_matrix``: shear survives on a pygfx node.
 
 pygfx's default local transform decomposes an assigned matrix into position,
 rotation and scale and silently drops any shear.  The helper swaps the node
@@ -110,8 +110,8 @@ def test_set_node_matrix_is_the_only_writer_of_a_data_node():
     """No data node in ``render/visuals`` is placed any other way.
 
     A component setter on a matrix-basis node recomposes from the decomposed
-    parts and drops the shear again (design v2 section 11).  Inner child
-    nodes (the 2D tile images) are separate nodes and may use them.
+    parts and drops the shear again.  Inner child nodes (the 2D tile images)
+    are separate nodes and may use them.
     """
     pattern = re.compile(
         r"\b(node|node_2d|node_3d)\.local\.(position|rotation|scale|matrix)\s*="

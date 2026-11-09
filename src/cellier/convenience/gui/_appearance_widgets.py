@@ -7,8 +7,7 @@ builds and wires them is ``convenience.layout._walk``.  The Qt half of this is
 ``_appearance_widgets_qt.py``.
 
 It draws no chrome: each control carries its own name -- ``label`` on a
-single-field control, ``title`` on a multi-row one
-(``plans/label_ownership_unification.md``).
+single-field control, ``title`` on a multi-row one.
 """
 
 from __future__ import annotations

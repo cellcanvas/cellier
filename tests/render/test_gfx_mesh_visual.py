@@ -284,7 +284,7 @@ def test_opacity_event_updates_alpha_mode():
     assert v._material_3d.alpha_mode == "solid"
 
 
-# ── Planning (L1, L4) ─────────────────────────────────────────────────────────
+# ── Planning ──────────────────────────────────────────────────────────────────
 
 
 def test_a_plan_is_one_target_key_and_updates_the_matrix():
@@ -329,7 +329,7 @@ def test_a_2d_plan_emits_the_retained_axes_reversed():
 
 
 def test_the_request_key_holds_what_a_read_depends_on():
-    """L1: same view, same key; another slice position, another key."""
+    """Same view, same key; another slice position, another key."""
     store = _store()
     keys = []
     for position in (0.0, 0.0, 1.0):
@@ -377,7 +377,7 @@ def test_a_single_level_plans_its_level_in_either_mode():
         assert desired.cls.tolist() == [int(ChunkClass.TARGET)]
 
 
-# ── Upload (L5) ───────────────────────────────────────────────────────────────
+# ── Upload ────────────────────────────────────────────────────────────────────
 
 
 def test_the_upload_copies_no_array():
@@ -447,7 +447,7 @@ def test_a_release_goes_back_to_the_placeholder():
 
 
 def test_upload_keeps_the_declared_color_mode():
-    """The store's colours are uploaded; the declared mode is untouched (D20)."""
+    """The store's colours are uploaded; the declared mode is untouched."""
     v = _visual(_store(), appearance=MeshFlatAppearance(color_mode="vertex"))
     v._upload_level(FINE_LEVEL, KEY_3D, _mesh_data(color_mode="vertex"))
     assert v._levels[FINE_LEVEL].mesh_3d.geometry.colors is not None
@@ -545,7 +545,7 @@ def test_whole_faces_drawn_flat_pick_as_faces():
     assert v.decode_pick(fine.fill, {"face_index": 1}).face_index == 1
 
 
-# ── Bounds (M5) ───────────────────────────────────────────────────────────────
+# ── Bounds ────────────────────────────────────────────────────────────────────
 
 
 def test_the_box_is_the_store_extent_before_any_data():

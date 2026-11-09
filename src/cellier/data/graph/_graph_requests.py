@@ -1,4 +1,3 @@
-# src/cellier/data/graph/_graph_requests.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -45,10 +44,6 @@ class GraphSliceRequest(NamedTuple):
         changed: the centre is the region pulled back through the visual's
         transform, and ``extents`` / ``fades`` are divided by their axis's
         world-units-per-data-unit, so the store compares data against data.
-
-        Named ``slice_indices`` until Phase 8, which was doubly misleading:
-        they are positions rather than indices, and by then they were in data
-        rather than world coordinates.
     retained_axes : tuple[int, ...]
         The **data** axes this visual's geometry keeps, ascending.
 
@@ -70,18 +65,17 @@ class GraphSliceRequest(NamedTuple):
         computed and ``GraphData.node_alpha`` / ``edge_alpha`` are None.
     clip_planes : tuple[tuple[tuple[float, ...], float], ...]
         Clipping planes the read applies on the CPU, as ``(normal, offset)``
-        pairs in data coordinates, kept where ``normal . p >= offset``.
-        Set only where the shader cannot clip: geometry flattened along an
-        axis a plane has a component on (clipping planes design 5.2).
-        Empty otherwise.
+        pairs in data coordinates, kept where ``normal . p >= offset``. Set
+        only where the shader cannot clip: geometry flattened along an axis
+        a plane has a component on. Empty otherwise.
     fold_axes : tuple[int, ...]
         Collapsed data axes whose columns the store also returns, for the
-        render layer's per-element fold (full affine design v2, D11).
+        render layer's per-element fold.
     region : ConvexRegion or None
         An exact filter in data coordinates on top of the windows: a node
         is selected only inside it.  Set for a slab tilted through the data
-        (an ``OBLIQUE`` view, full affine design v2 Phase 6) and for an axis
-        no window can be converted for; ``None`` otherwise.
+        (an ``OBLIQUE`` view) and for an axis no window can be converted
+        for; ``None`` otherwise.
     """
 
     slice_request_id: UUID
@@ -102,14 +96,14 @@ class GraphData:
     """Slab-filtered graph data returned by ``GraphMemoryStore.get_data()``.
 
     Nodes and edges travel together in one object so they can never be
-    committed to the GPU out of sync (D2).
+    committed to the GPU out of sync.
 
     ``node_alpha`` / ``edge_alpha`` are deliberately *separate* from the
     colour arrays.  The store computes the trail fade because it is a
     function of the data and the slice position; the render layer composes
     it with the base colour because that is where the appearance lives.
     Keeping them apart avoids handing an appearance colour down into the
-    store, and lets the fade ride its own 1-float buffer (D19).
+    store, and lets the fade ride its own 1-float buffer.
 
     Parameters
     ----------
@@ -128,7 +122,7 @@ class GraphData:
         trail axis has fading enabled.
     node_color_mode : str
         ``"uniform"`` or ``"vertex"``.  Describes what the *store* carries;
-        the render layer honours the appearance's declaration (D20).
+        the render layer honours the appearance's declaration.
     node_size_mode : str
         ``"uniform"`` or ``"vertex"``.
     original_node_rows : np.ndarray | None
@@ -155,8 +149,9 @@ class GraphData:
         full edge array.  Populated by the ``"mask"`` strategy only: the
         ``"roi"`` strategy's index returns endpoint pairs rather than edge
         rows, and translating the whole candidate set every reslice is
-        exactly the per-frame ``searchsorted`` D18 exists to avoid.  A pick
-        on an ROI-sliced edge resolves its single pair to a row on demand.
+        exactly the per-frame ``searchsorted`` that indexing nodes by row
+        exists to avoid.  A pick on an ROI-sliced edge resolves its single
+        pair to a row on demand.
     nodes_empty : bool
         True when the node filter produced zero rows and placeholder
         geometry was returned.

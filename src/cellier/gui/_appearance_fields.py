@@ -142,8 +142,8 @@ class VisualIdGroup:
 
     A ``Viewer`` gives a control one visual; an ``OrthoViewer`` gives it the
     four panel visuals that share a data store, and the control must keep them
-    equal.  the per-channel list established the shape (design section 8.1) and
-    this generalises it to the appearance and AABB widgets:
+    equal.  the per-channel list established the shape and this generalises it
+    to the appearance and AABB widgets:
 
     1. ``visual_id`` accepts a ``UUID`` or a sequence of them;
     2. one ``SubscriptionSpec`` per id -- subscribe-to-*all*, so the control
@@ -213,7 +213,7 @@ class VisualIdGroup:
 # an RGBA colour maps to the hex string every colour input speaks.  Deriving
 # them rather than restating them is what keeps a control from drifting away
 # from the field it drives -- adding a render mode to a model, or tightening a
-# bound, needs no edit here (design section 6.5.1 proposals 3 and 4).
+# bound, needs no edit here.
 
 DEBUG_FIELD_VALUES: dict[str, frozenset[str]] = {
     "render_mode": frozenset({"gradient_debug"}),
@@ -222,9 +222,9 @@ DEBUG_FIELD_VALUES: dict[str, frozenset[str]] = {
 
 ``gradient_debug`` renders ``abs(normalize(gradient))`` as RGB to diagnose
 brick-boundary normal discontinuities -- a diagnostic, not a rendering choice,
-and a user who picks it sees a broken-looking image (design section 6.5.1
-proposal 4).  Denylisting rather than allowlisting keeps the combo in sync
-with the model automatically: a new *real* mode appears with no change here.
+and a user who picks it sees a broken-looking image.  Denylisting rather than
+allowlisting keeps the combo in sync with the model automatically: a new
+*real* mode appears with no change here.
 """
 
 
@@ -269,7 +269,7 @@ def rgba_to_hex(rgba: Sequence[float]) -> str:
     """Convert float RGBA in [0, 1] to a ``#rrggbb`` string.
 
     Alpha is **dropped**: colour inputs in both toolkits are RGB-only, so the
-    fourth component travels on its own control (design section 10.3).
+    fourth component travels on its own control.
     """
     r, g, b = (max(0.0, min(1.0, float(c))) for c in tuple(rgba)[:3])
     return f"#{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}"
@@ -305,8 +305,7 @@ APPEARANCE_FIELD_WIDGETS: dict[str, tuple[str, str]] = {
     # Labels.  The kind is ``labels_render_mode`` rather than ``render_mode``
     # because the image models spell that field ``mip``/``iso``/``minip``:
     # same name, different control, which is why a config class maps field to
-    # kind rather than the kind being the field (design section 6.5.2
-    # decision 6).
+    # kind rather than the kind being the field.
     "labels_render_mode": ("LabelsRenderModeCombo", "Render mode"),
     "smooth_geometry_level": ("SmoothGeometryLevelSlider", "Smooth geometry level"),
     "salt": ("SaltSpin", "Salt"),

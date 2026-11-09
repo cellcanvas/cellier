@@ -13,13 +13,9 @@ and no GPU device:
 * ``geometry_indices`` -- for the geometry families, the surviving original
   element indices from a real ``get_data`` call.
 
-Nothing here imports from the v1 transform package.  Phase 0 changes no
-behaviour; it only records it.
-
-The three sites where the design (section 3.6) predicts a *deliberate*
-behaviour change in a later phase are marked ``XFAIL_CASES`` with the
-phase that owns the flip, so that phase turning them green is an
-``xfail -> xpass`` and not a silent divergence.
+The cases whose recorded values changed deliberately are listed in
+``BEHAVIOUR_CHANGES`` with the reason, which the baseline JSON stores beside each
+such case, so a change of behaviour is never a silent divergence.
 """
 
 from __future__ import annotations
@@ -72,8 +68,8 @@ def canon(obj: Any) -> Any:
     """Recursively convert *obj* to a JSON-stable structure.
 
     Rounds floats to a fixed number of digits (the node matrices are
-    float32 today, so 12 digits is well inside their precision and keeps
-    the comparison from tripping on the last ULP), turns numpy arrays and
+    float32, so 12 digits is well inside their precision and keeps the
+    comparison from tripping on the last ULP), turns numpy arrays and
     tuples into lists, and leaves ``None`` / ``str`` alone.  UUIDs are
     never passed in -- callers extract only the fields that do not vary
     per run.
@@ -125,10 +121,9 @@ def _axes(labels: tuple[str, ...]) -> tuple[Axis, ...]:
 class TransformSpec:
     """A named ``data -> world`` transform.
 
-    Recorded as a scale and a translation rather than a matrix, so the same
-    spec builds the v1 transform the baseline was captured with and the v2 one
-    the migrated code takes.  ``baseline/*.json`` stays the frozen invariant:
-    the harness changes shape, the recorded numbers do not.
+    Recorded as a scale and a translation rather than a matrix.
+    ``baseline/*.json`` stays the frozen invariant: the harness may change
+    shape, the recorded numbers do not.
     """
 
     name: str
@@ -160,13 +155,13 @@ class TransformSpec:
 
 @dataclass(frozen=True)
 class V2Context:
-    """The v2 transform and render spaces one case is driven with.
+    """The transform and render spaces one case is driven with.
 
-    Phase 3 retyped ``BaseVisual.transform``, so the harness has to build the
-    coordinate systems the render layer now composes through.  They are
-    synthetic -- there is no controller here -- but they are built exactly the
-    way the controller builds them: the world in cellier displayed order, the
-    rendered system from ``displayed_axes`` in that order, and the visual
+    ``BaseVisual.transform`` names its coordinate systems, so the harness has
+    to build the coordinate systems the render layer composes through.  They
+    are synthetic -- there is no controller here -- but they are built exactly
+    the way the controller builds them: the world in cellier displayed order,
+    the rendered system from ``displayed_axes`` in that order, and the visual
     system from the retained data axes **ascending**.
     """
 
@@ -178,14 +173,12 @@ class V2Context:
 def _v2_context(
     tspec: TransformSpec, dspec: DimsSpec, pyramid: PyramidSpec | None = None
 ) -> V2Context:
-    """Build the v2 transform and a spaces factory for one matrix cell.
+    """Build the transform and a spaces factory for one matrix cell.
 
     *pyramid* is supplied for the multiscale families and is what puts the
     per-level coordinate systems and their level-k -> level-0 transforms on
     ``RenderSpaces``.  Without them ``spaces.level_transforms`` is empty and
-    ``_level_box`` has nothing to pull the region back to -- which is how
-    every multiscale case in this baseline was recorded until Phase 8
-    (F8.2): through the pre-migration fallback, not through the region.
+    ``_level_box`` has nothing to pull the region back to.
     """
     labels = dspec.axis_labels
     data = DataCoordinateSystem(name="data", axes=_axes(labels), datastore_id=uuid4())
@@ -290,8 +283,8 @@ TRANSFORMS_3D: dict[str, TransformSpec] = {
     "scale_trans": TransformSpec("scale_trans", 3, (2.0, 0.5, 0.5), (10.0, 1.0, -3.0)),
 }
 
-# design 3.7: a 4-D tzyx with an awkward, non-integer time scale so the
-# rounding step in the world -> voxel map has something to do.
+# A 4-D tzyx with an awkward, non-integer time scale so the rounding
+# step in the world -> voxel map has something to do.
 TRANSFORMS_4D: dict[str, TransformSpec] = {
     "identity4": TransformSpec(
         "identity4", 4, (1.0, 1.0, 1.0, 1.0), (0.0, 0.0, 0.0, 0.0)
@@ -346,43 +339,39 @@ DIMS_4D: dict[str, DimsSpec] = {
 
 
 # ---------------------------------------------------------------------------
-# Known behaviour changes -- design section 3.6
+# Known behaviour changes
 # ---------------------------------------------------------------------------
 
-# Keyed by (family_group, reason).  The replay harness marks every case for
-# a family in one of these groups xfail(strict=True): today the value in the
-# JSON is what the code produces now, and when the owning phase flips the
-# behaviour the assertion goes xpass, which is the signal to re-record the
-# JSON and drop the marker.
-XFAIL_GROUPS: dict[str, str] = {
+# Keyed by (family_group, reason).  Every case for a family in one of these
+# groups changed its recorded value on purpose; the baseline JSON stores the
+# reason beside the case, and a replay failure on it names the reason.  The
+# registry stays as the audit trail.
+BEHAVIOUR_CHANGES: dict[str, str] = {
     "geometry_slicing": (
-        "design 3.12 / D4 -- geometry visuals slice against the pulled-back "
-        "region in phase 6; a non-identity transform then selects different "
-        "elements"
+        "geometry visuals slice against the pulled-back region; a "
+        "non-identity transform then selects different elements"
     ),
     "geometry_thickness": (
-        "design 3.12 / D4 -- hardcoded thickness 0.5 becomes a world-unit "
-        "half-thickness in phase 6"
+        "the hardcoded thickness 0.5 became a world-unit half-thickness"
     ),
     "explicit_thickness": (
-        "mesh_refactor_v3 T1/T2 -- the +/-0.5 thickness floor is gone: an "
+        "the +/-0.5 thickness floor is gone: an "
         "axis with no thickness is a plane, and a discrete axis selects the "
         "sample the slider is on"
     ),
     "mesh_section": (
-        "mesh_refactor_v3 X1 -- a 2D view cuts a mesh with the slice plane: "
+        "a 2D view cuts a mesh with the slice plane: "
         "the constraint along a spatial, continuous axis leaves the filter "
         "region and becomes the request's section, and the read returns the "
         "faces the plane crosses or that lie in it"
     ),
     "labels_one_plane": (
-        "mesh_refactor_v3 T4 -- labels draw one plane within a slab, and "
+        "labels draw one plane within a slab, and "
         "nothing when the slice misses the data (they clamped before)"
     ),
     "node_matrix_non_block_diagonal": (
-        "design 3.6 site E -- the node matrix stops being select_axes in "
-        "phase 3; identical for block-diagonal transforms, changes for "
-        "non-block-diagonal ones"
+        "the node matrix is no longer select_axes: identical for "
+        "block-diagonal transforms, changes for non-block-diagonal ones"
     ),
 }
 
@@ -424,12 +413,10 @@ def _drive_slice_requests(
     label families, or ``[displayed_axes, retained_axes, region]`` for the
     geometry families (which do not resolve to voxel windows).
 
-    The geometry entry recorded ``slice_indices`` and ``thickness`` until
-    Phase 8 deleted both from the request (R8.3).  What replaces them is the
-    thing that actually decides which vertices survive: the pulled-back
-    region, as its per-axis bounds.  Wider than what it replaced -- a region
-    says where the slab is *and* how thick -- and in **data** coordinates,
-    which is the space the filter runs in.
+    The geometry entry records the thing that decides which vertices survive:
+    the pulled-back region, as its per-axis bounds.  A region says where the
+    slab is *and* how thick, and it is in **data** coordinates, which is the
+    space the filter runs in.
     """
     if is_3d:
         reqs = planned_requests_3d(
@@ -485,8 +472,8 @@ def _drive_slice_requests(
 def _region_bounds(req: Any) -> Any:
     """A geometry request's filter, as per-axis ``[lo, hi]`` in data space.
 
-    The graph keeps its own slab rather than a region (D6.2), so it reports
-    the slab instead: its centre and the asymmetric extents around it.
+    The graph keeps its own slab rather than a region, so it reports the
+    slab instead: its centre and the asymmetric extents around it.
     """
     if hasattr(req, "slice_positions"):
         return {
@@ -792,8 +779,8 @@ PYRAMIDS: dict[str, PyramidSpec] = {
         ((8, 16, 16, 16), (8, 8, 8, 8), (8, 4, 4, 4)),
         ((1, 1, 1, 1), (1, 2, 2, 2), (1, 4, 4, 4)),
     ),
-    # design 3.11: z is not downsampled -- the case this repo has paid for
-    # once already (the LUT anisotropic fix).
+    # z is not downsampled -- the case this repo has paid for once already
+    # (the LUT anisotropic fix).
     "z_not_ds": PyramidSpec(
         "z_not_ds",
         ((8, 16, 16, 16), (8, 16, 8, 8), (8, 16, 4, 4)),
@@ -986,7 +973,7 @@ def _geom_positions(ndim: int) -> np.ndarray:
     a second axis at 0 for ``2d_two_sliced``).  Under an identity transform
     a half-thickness-0.5 slab at each of those must be non-empty; under the
     scaled transforms it may legitimately empty out, which is exactly the
-    behaviour the geometry-slicing xfail records.
+    behaviour the geometry-slicing change records.
     """
     if ndim == 3:
         pts = [
@@ -1069,7 +1056,7 @@ class Family:
     kind: str  # "image" | "geometry" | "multiscale"
     make_visual: Callable
     store_factory: Callable
-    xfail_groups: tuple[str, ...] = ()
+    changed_groups: tuple[str, ...] = ()
 
 
 FAMILIES: list[Family] = [
@@ -1079,7 +1066,7 @@ FAMILIES: list[Family] = [
         "image",
         _make_label_memory_visual,
         _label_store,
-        xfail_groups=("labels_one_plane",),
+        changed_groups=("labels_one_plane",),
     ),
     Family(
         "GFXMultichannelImageMemoryVisual",
@@ -1092,28 +1079,28 @@ FAMILIES: list[Family] = [
         "geometry",
         _make_points_visual,
         _points_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
+        changed_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXLinesMemoryVisual",
         "geometry",
         _make_lines_visual,
         _lines_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
+        changed_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXGraphMemoryVisual",
         "geometry",
         _make_graph_visual,
         _graph_store,
-        xfail_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
+        changed_groups=("geometry_slicing", "geometry_thickness", "explicit_thickness"),
     ),
     Family(
         "GFXMeshMemoryVisual",
         "geometry",
         _make_mesh_visual,
         _mesh_store,
-        xfail_groups=(
+        changed_groups=(
             "geometry_slicing",
             "geometry_thickness",
             "explicit_thickness",
@@ -1148,8 +1135,8 @@ class Case:
     tspec: TransformSpec
     dspec: DimsSpec
     pyramid: PyramidSpec | None
-    is_xfail: bool
-    xfail_reason: str | None
+    behaviour_changed: bool
+    change_reason: str | None
 
 
 _MULTISCALE_TRANSFORMS = {
@@ -1191,12 +1178,14 @@ def iter_cases():
                     identity = tname in ("identity", "identity4")
                     groups = [
                         g
-                        for g in family.xfail_groups
+                        for g in family.changed_groups
                         if not identity or g in _EVERY_TRANSFORM_GROUPS
                     ]
-                    is_xfail = bool(groups)
+                    behaviour_changed = bool(groups)
                     reason = (
-                        "; ".join(XFAIL_GROUPS[g] for g in groups) if is_xfail else None
+                        "; ".join(BEHAVIOUR_CHANGES[g] for g in groups)
+                        if behaviour_changed
+                        else None
                     )
                     yield Case(
                         family,
@@ -1204,7 +1193,7 @@ def iter_cases():
                         tspec,
                         dspec,
                         None,
-                        is_xfail,
+                        behaviour_changed,
                         reason,
                     )
 

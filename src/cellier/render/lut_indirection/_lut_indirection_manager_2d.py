@@ -37,7 +37,7 @@ class LutIndirectionManager2D:
         ``(scale_row, scale_col)`` for the tile grid.  When provided the
         LUT fill uses the actual per-axis downsampling factor instead of
         assuming a uniform ``2^(level-1)`` factor.  Pass
-        ``ImageGeometry2D._scale_vecs_data`` here.
+        ``MultiscaleTileLayout2D._scale_vecs_data`` here.
     level_shapes : list of tuple of int or None
         Per-level ``(H, W)`` shapes.  Gives each level's tile count, so the
         last tile owns the grid's tail cells (see ``_cell_brick_rule``).
@@ -52,8 +52,8 @@ class LutIndirectionManager2D:
         averaging.
     sampling_margin : float
         How far past a sample position this path's shader reads, in level-k
-        voxels, at the default ray density (plan v2, "Padding budgets"):
-        subtracted from *border* for the warning.  Default 0.5 (linear).
+        voxels, at the default ray density: subtracted from *border* for
+        the warning.  Default 0.5 (linear).
     """
 
     def __init__(
@@ -117,7 +117,7 @@ class LutIndirectionManager2D:
 
         Tiles are painted phase by phase, each phase coarsest to finest, so a
         finer tile covers the coarser fallback under it and a later phase
-        covers an earlier one (design 5.8).
+        covers an earlier one.
 
         Channel assignments: ``(sx, sy, level, 0)``; level 0 is out of bounds.
 

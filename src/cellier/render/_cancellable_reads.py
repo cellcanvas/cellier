@@ -1,10 +1,9 @@
 """Cancellable one-off reads: the pick-value reader.
 
-``plans/scheduler_only_loading_design_v2.md`` 4.10 (D8).  Every visual loads
-through the chunk scheduler, which never cancels; the only reads left that a
-caller cancels are the pick-value reads of a non-memory store (a pointer
-moved on before the values arrived).  :class:`CancellableReads` runs each as
-one asyncio task, named by a read id.
+Every visual loads through the chunk scheduler, which never cancels; the
+only reads left that a caller cancels are the pick-value reads of a
+non-memory store (a pointer moved on before the values arrived).
+:class:`CancellableReads` runs each as one asyncio task, named by a read id.
 """
 
 from __future__ import annotations

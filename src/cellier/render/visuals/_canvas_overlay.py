@@ -1,4 +1,4 @@
-"""Render-layer canvas overlays for cellier v2."""
+"""Render-layer canvas overlays."""
 
 from __future__ import annotations
 
@@ -28,14 +28,14 @@ class GFXCanvasOverlay(ABC):
     with ``flush=False``, which keeps the colour *and depth* buffers open, so
     an overlay draws into the same targets as the scene and the effect chain
     then runs once over both.  Any depth an overlay leaves behind was
-    produced by the overlay's own camera -- a ``ScreenCoordsCamera``, for the
-    one overlay that exists today -- and the screen-space effect passes
-    interpret the whole buffer with the *scene* camera's matrices.  For the
-    ambient occlusion pass that means a patch of arbitrary occlusion under
-    the widget, which is far more visible than the same error would be
-    anywhere else.  Set ``depth_test=False, depth_write=False`` on every
-    material an overlay adds; pygfx's default is auto, which resolves to
-    writing depth for most materials.
+    produced by the overlay's own camera -- a ``ScreenCoordsCamera`` for the
+    centred 2D axes -- and the screen-space effect passes interpret the
+    whole buffer with the *scene* camera's matrices.  For the ambient
+    occlusion pass that means a patch of arbitrary occlusion under the
+    widget, which is far more visible than the same error would be anywhere
+    else.  Set ``depth_test=False, depth_write=False`` on every material an
+    overlay adds; pygfx's default is auto, which resolves to writing depth
+    for most materials.
     """
 
     @property

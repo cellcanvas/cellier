@@ -26,7 +26,9 @@ import warnings
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import ConfigDict, Field, TypeAdapter, model_validator
+
+from cellier._model import CellierModel
 
 __all__ = [
     "TICK_WARNING_LIMIT",
@@ -51,7 +53,7 @@ warning rather than a refusal.
 """
 
 
-class ContinuousAxisValues(BaseModel):
+class ContinuousAxisValues(CellierModel):
     """An axis that can be sliced at any world position in ``[min, max]``.
 
     Parameters
@@ -92,7 +94,7 @@ class ContinuousAxisValues(BaseModel):
         return self
 
 
-class DiscreteAxisValues(BaseModel):
+class DiscreteAxisValues(CellierModel):
     """An axis that can only be sliced at the listed world positions.
 
     The slider steps through ``values`` by position, so irregular spacing is

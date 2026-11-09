@@ -29,7 +29,7 @@ import pygfx as gfx
 import pytest
 
 from cellier.data import GraphMemoryStore
-from cellier.render._cellier_blender import EXTRA_TARGETS, install_cellier_blender
+from cellier.render._cellier_blender import EXTRA_TARGETS, ensure_extra_targets
 from cellier.visuals import GraphAppearance
 from cellier.visuals._labels import (
     MultiscaleLabelRenderConfig,
@@ -106,7 +106,7 @@ def _render(controller, scene_id, *, extra_targets=_ALL_TARGETS):
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
     if extra_targets:
-        assert install_cellier_blender(renderer, extra_targets) is True
+        assert ensure_extra_targets(renderer, extra_targets) is True
 
     errors: list[BaseException] = []
 

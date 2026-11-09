@@ -1,24 +1,32 @@
-"""The four use cases of design section 3, as raw (linear, translation) pairs.
+"""The four data -> world use cases the transform tests run over.
 
-Shared by test_geometry_ops.py, which works on arrays rather than models.
-The matrices are lifted verbatim from
-``scripts/transform_geometry_ops_probe.py``.
+- ``scale_only``: ``zyx -> ZYX``, a diagonal scale.
+- ``channel_passthrough``: ``czyx -> cZYX``, the channel axis maps to
+  itself; scale and translation on the spatial axes only.
+- ``channel_broadcast``: ``tzyx -> TCZYX``, the world has a channel axis
+  the data lacks, so the data is broadcast over ``C``.
+- ``reversed_axes``: ``zyx -> XYZ``, the same call as ``scale_only`` with
+  the world axes in the opposite order (an anti-diagonal matrix).
+
+Each case is here twice: as raw ``(linear, translation, broadcast)``
+arrays in ``USE_CASES`` (for test_geometry_ops.py, which works on arrays
+rather than models) and as model builders in ``MODEL_USE_CASES``.
 """
 
 import numpy as np
 
-# UC1  zyx -> ZYX, scale only
-UC1 = (np.diag([0.5, 0.1, 0.1]), np.zeros(3), ())
+# zyx -> ZYX, scale only
+SCALE_ONLY = (np.diag([0.5, 0.1, 0.1]), np.zeros(3), ())
 
-# UC2  czyx -> cZYX, scale + translation on ZYX only
-UC2 = (
+# czyx -> cZYX, scale + translation on ZYX only
+CHANNEL_PASSTHROUGH = (
     np.diag([1.0, 0.5, 0.1, 0.1]),
     np.array([0.0, 10.0, -2.0, 3.0]),
     (),
 )
 
-# UC3  tzyx -> TCZYX, broadcast over C (output index 1)
-UC3 = (
+# tzyx -> TCZYX, broadcast over C (output index 1)
+CHANNEL_BROADCAST = (
     np.array(
         [
             [1, 0, 0, 0],
@@ -33,19 +41,24 @@ UC3 = (
     (1,),
 )
 
-# UC4  zyx -> XYZ  (rows X, Y, Z; columns z, y, x)
-UC4 = (
+# zyx -> XYZ  (rows X, Y, Z; columns z, y, x)
+REVERSED_AXES = (
     np.array([[0, 0, 0.1], [0, 0.1, 0], [0.5, 0, 0]], float),
     np.zeros(3),
     (),
 )
 
-USE_CASES = {"UC1": UC1, "UC2": UC2, "UC3": UC3, "UC4": UC4}
+USE_CASES = {
+    "scale_only": SCALE_ONLY,
+    "channel_passthrough": CHANNEL_PASSTHROUGH,
+    "channel_broadcast": CHANNEL_BROADCAST,
+    "reversed_axes": REVERSED_AXES,
+}
 
 
 # ---------------------------------------------------------------------
-# The same four cases as models (design section 9.3), built through
-# from_axis_map.  Each builder returns (data_system, world_system,
+# The same four cases as models, built through from_axis_map.  Each
+# builder returns (data_system, world_system,
 # transform) so a test can assert against the systems it was built from.
 # ---------------------------------------------------------------------
 
@@ -56,7 +69,7 @@ def _space(name):
     return Axis(name=name, axis_type="space", unit="micrometer")
 
 
-def uc1():
+def scale_only():
     """zyx -> ZYX, scale only."""
     from uuid import uuid4
 
@@ -83,7 +96,7 @@ def uc1():
     return data, world, transform
 
 
-def uc2():
+def channel_passthrough():
     """czyx -> cZYX, scale + translation on ZYX only."""
     from uuid import uuid4
 
@@ -122,7 +135,7 @@ def uc2():
     return data, world, transform
 
 
-def uc3():
+def channel_broadcast():
     """tzyx -> TCZYX, broadcast over C."""
     from uuid import uuid4
 
@@ -163,8 +176,8 @@ def uc3():
     return data, world, transform
 
 
-def uc4():
-    """zyx -> XYZ; the identical call to UC1, with a reordered world."""
+def reversed_axes():
+    """zyx -> XYZ; the identical call to scale_only, with a reordered world."""
     from uuid import uuid4
 
     from cellier.transform import (
@@ -190,4 +203,9 @@ def uc4():
     return data, world, transform
 
 
-MODEL_USE_CASES = {"UC1": uc1, "UC2": uc2, "UC3": uc3, "UC4": uc4}
+MODEL_USE_CASES = {
+    "scale_only": scale_only,
+    "channel_passthrough": channel_passthrough,
+    "channel_broadcast": channel_broadcast,
+    "reversed_axes": reversed_axes,
+}

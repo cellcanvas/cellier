@@ -1,8 +1,8 @@
 """``displayed_axes`` is required and resolved in one place.
 
-``plans/displayed_axes_required.md`` section 5.1: ``Viewer`` and
-``CellierController.add_scene`` take the displayed axes as names or axis ids,
-and ``Viewer.set_displayed_dimensions`` reads them with the same resolver.
+``Viewer`` and ``CellierController.add_scene`` take the displayed axes as
+names or axis ids, and ``Viewer.set_displayed_dimensions`` reads them with
+the same resolver.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ _TZYX = world_coordinate_system([("t", "time"), *spatial_axes("z", "y", "x")])
         (("y", "x"), (2, 3)),
         (("x", "y"), (3, 2)),
         (("z", "y", "x"), (1, 2, 3)),
-        # No axis-type check: time can be displayed (D8).
+        # No axis-type check: time can be displayed.
         (("t", "x"), (0, 3)),
         (["t", "z", "y"], (0, 1, 2)),
     ],

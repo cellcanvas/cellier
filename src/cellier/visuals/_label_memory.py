@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
 
+from cellier._model import CellierModel
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
 from cellier.visuals._loading import ProgressiveLoadingConfig
 from cellier.visuals._render_plane import PLANE_RENDER_MODE, RenderPlane
@@ -115,8 +116,8 @@ class InMemoryLabelsAppearance(BaseLabelsAppearance):
 
     The level-of-detail and motion fields apply to a 2D view on the brick
     route only -- a tilted view -- which draws the labels from 3D bricks
-    with a coarse level (oblique 2D design v3, U1).  Aligned 2D views and 3D
-    views load the whole slice and ignore them.
+    with a coarse level.  Aligned 2D views and 3D views load the whole slice
+    and ignore them.
 
     Parameters
     ----------
@@ -138,12 +139,11 @@ class InMemoryLabelsAppearance(BaseLabelsAppearance):
     force_level: int | None = None
 
 
-class InMemoryLabelRenderConfig(BaseModel):
+class InMemoryLabelRenderConfig(CellierModel):
     """Render-layer configuration of an in-memory labels visual's brick route.
 
-    Used only while a tilted 2D view draws the labels from 3D bricks
-    (oblique 2D design v3, U1).  Nothing is allocated for a visual that
-    never takes that route.
+    Used only while a tilted 2D view draws the labels from 3D bricks.
+    Nothing is allocated for a visual that never takes that route.
 
     Parameters
     ----------
@@ -302,7 +302,7 @@ class LabelMemoryVisual(BaseLabelsVisual):
     )
 
     def plans_coarse_while_moving(self, n_displayed_dims: int) -> bool:
-        """The 2D moving setting in a 2D view; ``False`` in 3D (design v3, U1)."""
+        """The 2D moving setting in a 2D view; ``False`` in 3D."""
         if n_displayed_dims == 3:
             return False
         return self.appearance.coarsest_while_moving_2d

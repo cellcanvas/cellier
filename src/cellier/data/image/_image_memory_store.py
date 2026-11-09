@@ -1,4 +1,3 @@
-# src/cellier/v2/data/image/_image_memory_store.py
 from __future__ import annotations
 
 import asyncio
@@ -55,8 +54,7 @@ class ImageMemoryStore(BaseDataStore):
 
     store_type: Literal["image_memory"] = "image_memory"
     # ``data`` announces a change on ``data_changed`` when reassigned:
-    # ``extent`` if its shape changed, ``contents`` otherwise
-    # (plans/store_change_events.md).
+    # ``extent`` if its shape changed, ``contents`` otherwise.
     _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset({"data"})
     DATASET_INFO_LABEL: ClassVar[str] = "in-memory image"
     name: str = "image_memory_store"
@@ -151,8 +149,7 @@ class ImageMemoryStore(BaseDataStore):
         """Return the requested sub-region as a float32 array.
 
         Runs :meth:`read_padded` in the event loop's default executor, so a
-        large slice never blocks the loop (scheduler-only loading design v2,
-        D4).
+        large slice never blocks the loop.
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.read_padded, request)

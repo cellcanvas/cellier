@@ -1,4 +1,4 @@
-"""Cellier v2 anywidget GUI widgets for visual (appearance) controls.
+"""Anywidget GUI widgets for visual (appearance) controls.
 
 Control-type bases (layer 2) live in ``_base``; the field-specific
 classes (layer 3) are grouped by the visual family they apply to, with

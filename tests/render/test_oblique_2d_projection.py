@@ -1,9 +1,8 @@
-"""Oblique 2D design v3, Phase 6: slab projection in ``ALONG_AXIS`` views.
+"""Slab projection in ``ALONG_AXIS`` views.
 
-``plans/oblique_2d_raster_design_v3.md`` 4.2, 5.2.5, 5.3.8, D10 and D13.  An
-image whose appearance projects (``slab_projection``, ``projection_axes``)
-reduces the slab the scene's thickness selects on the brick route, in any 2D
-view; labels never project.
+An image whose appearance projects (``slab_projection``,
+``projection_axes``) reduces the slab the scene's thickness selects on the
+brick route, in any 2D view; labels never project.
 
 Expectations are the reductions over the slab's voxel centres, computed from
 the data here -- never another library's rendering (memory: no
@@ -127,7 +126,7 @@ def _wrong(frame, expected, row, col, valid, tol=1.0):
 
 
 # ---------------------------------------------------------------------------
-# Reductions (4.2): exact over the slab's voxel centres
+# Reductions: exact over the slab's voxel centres
 # ---------------------------------------------------------------------------
 
 
@@ -229,7 +228,7 @@ def test_the_window_faces_do_not_depend_on_the_near_plane(
 
 
 # ---------------------------------------------------------------------------
-# D10: the sign of the slab (boundary), and the winning sample's pick (O12)
+# The sign of the slab (boundary), and the winning sample's pick
 # ---------------------------------------------------------------------------
 
 
@@ -257,7 +256,7 @@ def test_the_window_is_half_open_in_the_slab_direction(tmp_path, family, bright)
 
 @pytest.mark.parametrize("family", FAMILIES)
 def test_a_mip_pick_returns_the_winning_sample(tmp_path, family):
-    """O12: the pick of a landmark at depth +k is its own data coordinate."""
+    """The pick of a landmark at depth +k is its own data coordinate."""
     data = np.full(SHAPE, 16.0, np.float32)
     mark = np.array([13, 17, 22])
     data[tuple(mark)] = 250.0
@@ -289,7 +288,7 @@ def test_a_mip_pick_returns_the_winning_sample(tmp_path, family):
 
 
 # ---------------------------------------------------------------------------
-# Edge cases (O9, zero thickness) and the slab's reach (K35)
+# Edge cases (samples outside the data, zero thickness) and the slab's reach
 # ---------------------------------------------------------------------------
 
 
@@ -310,9 +309,9 @@ def test_samples_outside_the_data_are_skipped(tmp_path, family):
 
 @pytest.mark.parametrize("family", FAMILIES)
 def test_a_slab_thinner_than_a_coarse_voxel_reads_one_coarse_sample(tmp_path, family):
-    """4.2, level of detail: a window that holds no centre of the drawn
-    level's voxels reads the voxel its centre plane is in.  Phase 8 found the
-    backstop drawing nothing under a thin slab while moving."""
+    """Level of detail: a window that holds no centre of the drawn level's
+    voxels reads the voxel its centre plane is in.  The backstop once drew
+    nothing under a thin slab while moving."""
     data = _random_volume(36)
     viewer = new_viewer("2d")
     try:
@@ -350,7 +349,7 @@ def test_a_slab_thinner_than_a_coarse_voxel_reads_one_coarse_sample(tmp_path, fa
 
 
 @pytest.mark.parametrize("family", FAMILIES)
-def test_zero_thickness_draws_the_plane_on_todays_path(tmp_path, family):
+def test_zero_thickness_draws_the_plane_on_the_planar_path(tmp_path, family):
     data = _random_volume(34)
     viewer = new_viewer("2d")
     try:
@@ -367,7 +366,7 @@ def test_zero_thickness_draws_the_plane_on_todays_path(tmp_path, family):
 
 
 def test_a_wide_slab_reaches_beyond_the_unfitted_cameras_range(tmp_path):
-    """K35: rays come from the near and far points, so a slab of +-120 under
+    """Rays come from the near and far points, so a slab of +-120 under
     a +-100 camera still counts samples at depth +-118."""
     data = np.full((256, 32, 40), 16.0, np.float32)
     data[12, 10, 10] = 250.0  # depth -118
@@ -389,7 +388,7 @@ def test_a_wide_slab_reaches_beyond_the_unfitted_cameras_range(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Routing (5.2.2, 5.2.3) and O14
+# Routing, and projection per visual
 # ---------------------------------------------------------------------------
 
 
@@ -449,7 +448,7 @@ def test_a_thickness_drag_through_zero_stays_on_the_route_until_release(tmp_path
 
 
 def test_labels_beside_a_projecting_image_do_not_project_and_stay_paintable(tmp_path):
-    """O14: projection is per visual."""
+    """Projection is per visual."""
     viewer = new_viewer("2d")
     try:
         image = _add(viewer, "image_multiscale", tmp_path, _random_volume(37))
@@ -465,7 +464,7 @@ def test_labels_beside_a_projecting_image_do_not_project_and_stay_paintable(tmp_
 
 
 # ---------------------------------------------------------------------------
-# Statuses (5.2.5)
+# Statuses
 # ---------------------------------------------------------------------------
 
 
@@ -499,7 +498,7 @@ def test_a_projection_that_cannot_run_draws_the_plane_with_a_status(
 
 
 def test_a_slab_over_a_tilted_2d_store_draws_nothing_and_says_why(tmp_path):
-    """G0-4: deferred; the status is the line slice's (O18)."""
+    """Deferred; the status is the line slice's."""
     viewer = new_viewer("2d")
     try:
         store = ImageMemoryStore(data=np.ones((32, 40), np.float32), name="flat")
@@ -522,7 +521,7 @@ def test_a_slab_over_a_tilted_2d_store_draws_nothing_and_says_why(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The thickness flag (D13)
+# The thickness flag
 # ---------------------------------------------------------------------------
 
 
@@ -677,7 +676,7 @@ def test_the_controller_routes_an_axis_update_from_the_control(tmp_path):
 
 
 def test_each_channel_projects_on_its_own_then_composites(tmp_path):
-    """O13: per-channel projection, then the additive composite."""
+    """Per-channel projection, then the additive composite."""
     from cellier.convenience.capture import _ensure_canvases
     from cellier.scene._background import BackgroundAppearance
     from cellier.visuals import InMemoryImageChannelAppearance

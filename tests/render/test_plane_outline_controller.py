@@ -1,7 +1,6 @@
 """Plane outlines on the controller: a change of an outline is not a move.
 
-Plane outline design (``plans/plane_outline_design.md``), section 4.3.  An
-outline is a field of its plane, so a new outline is a new tuple; the
+An outline is a field of its plane, so a new outline is a new tuple; the
 controller must not take it for a new pose.
 """
 

@@ -1,8 +1,8 @@
-"""ByDimensionTransform (implementation plan, Phase 4).
+"""ByDimensionTransform.
 
 The container that lets one axis be irregular while the rest stay affine.
-The running scene is the design's worked example: a TZYX labels volume into
-a TCZYX world, broadcasting over C.
+The running scene is a TZYX labels volume into a TCZYX world,
+broadcasting over C.
 """
 
 from uuid import uuid4
@@ -32,7 +32,7 @@ def _space(name):
 
 @pytest.fixture
 def scene():
-    """TZYX labels -> TCZYX world, the design's worked example."""
+    """TZYX labels -> TCZYX world, broadcasting over C."""
     labels = DataCoordinateSystem(
         name="labels",
         datastore_id=uuid4(),
@@ -247,7 +247,7 @@ def test_an_all_affine_container_equals_the_plain_affine(scene):
 
 
 def test_restricting_the_non_uniform_axis_leaves_an_affine(transform, scene):
-    """The check that could have sunk the design: the GPU still gets a matrix."""
+    """The GPU still gets a matrix once the irregular axis is fixed."""
     labels, _ = scene
     restricted = transform.restrict({0: 6.4}, labels)
     affine = restricted.to_affine()
@@ -336,7 +336,7 @@ def test_equality_is_total_against_a_foreign_type(transform):
     assert (transform == "not a transform") is False
 
 
-# -- axis_correspondence (Phase 5) -------------------------------------------
+# -- axis_correspondence -----------------------------------------------------
 
 
 def test_axis_correspondence_is_structural(transform):

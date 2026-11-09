@@ -1,7 +1,4 @@
-"""``PlaneOutline`` and the ``outline`` field of the two kinds of plane.
-
-Plane outline design (``plans/plane_outline_design.md``), section 4.
-"""
+"""``PlaneOutline`` and the ``outline`` field of the two kinds of plane."""
 
 from __future__ import annotations
 

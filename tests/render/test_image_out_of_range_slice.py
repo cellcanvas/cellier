@@ -1,4 +1,4 @@
-"""An image whose slice misses the data draws nothing (design 3.2).
+"""An image whose slice misses the data draws nothing.
 
 Rendered end to end, in memory and multiscale, 2D and 3D.  Each case slices
 inside the data first (pixels drawn), moves the slider past the last plane
@@ -78,7 +78,7 @@ async def test_in_memory_3d(controller, render_scene, reslice):
     scene = controller.add_scene(
         displayed_axes=("z", "y", "x"), coordinate_system=_TZYX, name="scene"
     )
-    appearance = InMemoryImageAppearance(color_map="viridis", clim=(0.0, 1.0))
+    appearance = InMemoryImageAppearance()
     visual = controller.add_image(
         data=ImageMemoryStore(data=np.ones((3, 16, 16, 16), dtype=np.float32)),
         scene_id=scene.id,

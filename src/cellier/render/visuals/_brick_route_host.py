@@ -1,15 +1,14 @@
 """The in-memory visuals' brick route: delegation to the multiscale slot code.
 
-Oblique 2D design v3, 5.4 (I-iii+).  A tilted 2D view of an in-memory image
-or labels visual is drawn by the multiscale brick route.  The in-memory
-render visual owns, from its first such view on, an *inner* multiscale
-render visual (``GFXMultiscaleImageVisual`` or ``GFXMultiscaleLabelVisual``)
-built over an :class:`~cellier.data._in_memory_bricks.InMemoryBrickSource`,
-in the 3D mode only.  While the route is taken the in-memory visual hands
-the scene the inner visual's slice node, plans through it, and forwards its
-events to it; aligned 2D views and 3D views keep the whole-slice caches
-(I4: one implementation of each piece).  Both paths load through the chunk
-scheduler (scheduler-only loading design v2, D6).
+A tilted 2D view of an in-memory image or labels visual is drawn by the
+multiscale brick route.  The in-memory render visual owns, from its first
+such view on, an *inner* multiscale render visual
+(``GFXMultiscaleImageVisual`` or ``GFXMultiscaleLabelVisual``) built over an
+:class:`~cellier.data._in_memory_bricks.InMemoryBrickSource`, in the 3D mode
+only.  While the route is taken the in-memory visual hands the scene the
+inner visual's slice node, plans through it, and forwards its events to it;
+aligned 2D views and 3D views keep the whole-slice caches, so each piece has
+one implementation.  Both paths load through the chunk scheduler.
 
 :class:`BrickRouteHost` is that delegation, mixed in ahead of the in-memory
 visual's own class.  The inner visual reads the in-memory model through
@@ -91,7 +90,10 @@ class _RoutedModel:
 
 
 def _without_backstop(desired: DesiredSet) -> DesiredSet:
-    """*desired* with its backstop keys dropped (target-only planning, U8)."""
+    """*desired* with its backstop keys dropped, for target-only planning.
+
+    A visual plans target-only until its in-memory coarse level is built.
+    """
     keep = desired.cls != np.uint8(ChunkClass.BACKSTOP)
     return dataclasses.replace(
         desired,
@@ -109,7 +111,7 @@ class BrickRouteHost:
     The host class names the inner multiscale visual's class
     (:meth:`_build_inner`).  The controller hands it its brick source
     (:meth:`set_brick_source`) when the visual is added, and its route
-    before its render spaces (:meth:`set_slice_route`, design v3 C3).
+    before its render spaces (:meth:`set_slice_route`).
     """
 
     _brick_source: InMemoryBrickSource | None = None
@@ -200,7 +202,7 @@ class BrickRouteHost:
             slot._residency_3d = None
 
     def prepare_slice_route(self, axes: tuple[int, int, int]) -> None:
-        """Build the inner visual and put its atlas on the GPU now (U12)."""
+        """Build the inner visual and put its atlas on the GPU now."""
         self._ensure_inner(tuple(int(axis) for axis in axes)).prepare_slice_route(axes)
 
     @property
@@ -274,8 +276,8 @@ class BrickRouteHost:
 
         Until the coarse level is built the plan is target-only at the
         array's own level: no backstop, and nothing that would read the
-        coarse level (U8).  Off the route (an aligned 2D view, a 3D view)
-        the visual's own whole-slice plan.
+        coarse level.  Off the route (an aligned 2D view, a 3D view) the
+        visual's own whole-slice plan.
         """
         displayed = tuple(request.dims_state.selection.displayed_axes)
         if not self._routed(displayed):
@@ -298,7 +300,7 @@ class BrickRouteHost:
 
         Leaving the route drops the atlases from this mapping, so the next
         plan's cache sync forgets them, while the whole-slice caches keep
-        what they hold (D20).
+        what they hold.
         """
         own = dict(super().residencies())
         if self.on_brick_route:
@@ -348,7 +350,7 @@ class BrickRouteHost:
         own = getattr(super(), "drawn_channel_indices", None)
         return () if own is None else own()
 
-    # ── Events: today's nodes, and the inner visual when it exists ───────
+    # ── Events: the visual's own nodes, and the inner visual when it exists
 
     def _forward(self, name: str, event) -> None:
         handler = getattr(self._brick_inner, name, None)

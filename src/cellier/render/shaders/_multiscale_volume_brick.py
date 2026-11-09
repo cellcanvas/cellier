@@ -86,9 +86,8 @@ VOL_PARAMS_DTYPE = np.dtype(
 
 # Per level: the float downscale factor, then the integer cell -> brick rule
 # (base cells per brick, brick count) as exact small floats, then the level's
-# translation in level-0 voxels (level -> data is ``p = scale * u + offset``,
-# plan v2 D1).  Shared by the
-# image and label brick shaders; see cellier.brick_rule.wgsl.
+# translation in level-0 voxels (level -> data is ``p = scale * u + offset``).
+# Shared by the image and label brick shaders; see cellier.brick_rule.wgsl.
 BLOCK_SCALES_DTYPE = np.dtype(
     [(f"scale_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
     + [(f"span_{i}", "<f4", (4,)) for i in range(MAX_LEVELS)]
@@ -417,17 +416,15 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         The visual's ``u_render_planes`` buffer, read in ``"plane"`` render
         mode.  ``None`` gives the material one of its own with no plane.
     slice_2d : bool
-        Draw as a 2D view's slice node (oblique 2D design v3, 5.3.3): the
-        proxy box is flattened onto rendered depth 0 and the plane branch
-        writes the rasterised depth, so the node is never clipped by the 2D
-        camera's depth range and sits at exactly a 2D tile's depth.
-        Default ``False``.
+        Draw as a 2D view's slice node: the proxy box is flattened onto
+        rendered depth 0 and the plane branch writes the rasterised depth,
+        so the node is never clipped by the 2D camera's depth range and
+        sits at exactly a 2D tile's depth. Default ``False``.
     slab_op : str
-        Slab projection of a 2D view's slice node (oblique 2D design v3,
-        5.3.8): ``"max"``, ``"min"``, ``"mean"``, or ``"none"`` (default)
-        to draw the plane.  A template variable: ``"none"`` compiles the
-        slab out.  The window and the step are uniforms
-        (:meth:`set_slab`).
+        Slab projection of a 2D view's slice node: ``"max"``, ``"min"``,
+        ``"mean"``, or ``"none"`` (default) to draw the plane.  A
+        template variable: ``"none"`` compiles the slab out.  The window
+        and the step are uniforms (:meth:`set_slab`).
     """
 
     uniform_type: ClassVar[dict] = dict(
@@ -524,7 +521,7 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         along_axis: bool = False,
         nearest: bool = True,
     ) -> None:
-        """Write the slab window and sampling (oblique 2D design v3, 5.3.8).
+        """Write the slab window and sampling.
 
         Parameters
         ----------
@@ -532,13 +529,13 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
             ``h``: the window is ``[-h, +h)`` of slab depth.
         direction : tuple[float, float, float]
             The direction, in rendered pygfx ``(x, y, z)``, in which the
-            projection axis's world coordinate increases (D10).  ``+z`` for
-            a 2D view's slice node.
+            projection axis's world coordinate increases.  ``+z`` for a 2D
+            view's slice node.
         steps_per_voxel : float
             Samples per drawn-level voxel along the ray.
         along_axis : bool
             The ray runs along one data axis: samples sit on its voxel
-            centres, so the reduction is exact (4.2).
+            centres, so the reduction is exact.
         nearest : bool
             Nearest sampling: a sample counts when the centre of the voxel
             it reads is in the window; otherwise when the sample is.
@@ -616,8 +613,8 @@ class MultiscaleVolumeBrickShader(BaseVolumeShader):
         self["slice_2d"] = bool(getattr(material, "slice_2d", False))
         # Slab projection: "none" compiles the slab loop out.
         self["slab_op"] = str(getattr(material, "slab_op", "none"))
-        # A MaskedImage's mask material sets it (masked image design 6.1);
-        # false compiles every masked branch out, to the original text.
+        # A MaskedImage's mask material sets it; false compiles every
+        # masked branch out, to the original text.
         self["masked"] = False
         # Default for the ``normal`` render target.  ``write_normal`` is
         # overridden by CellierBlender.get_shader_kwargs when the target

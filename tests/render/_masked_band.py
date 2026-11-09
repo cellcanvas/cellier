@@ -1,4 +1,4 @@
-"""The 2D band's scenes (masked image design v2, 7, 12.3; P0-18).
+"""The 2D band's scenes.
 
 One ellipsoid as four kinds of mask, sliced at ``z = SLICE`` and drawn as a
 MaskedImage band.  The data are placed by a rotation about ``y`` (0 or 30
@@ -38,7 +38,7 @@ SLICE = 32.0
 SIZE = 160
 #: World units (level-0 voxels) a pixel.
 ZOOM = 0.5
-#: Pixels within this of a band edge are not counted (P0-18).
+#: Pixels within this of a band edge are not counted.
 EDGE_TOL_PX = 0.5
 TRUTH_PATH = Path(__file__).parent / "masked_band_truth.json"
 
@@ -60,7 +60,7 @@ MASK_KINDS = ("binary", "probability", "edt_clamped", "signed_distance")
 
 
 def masks(side: int = SIDE) -> dict[str, tuple[np.ndarray, float]]:
-    """``name -> (mask, iso)``: the ellipsoid as four kinds of mask (MI-D16)."""
+    """``name -> (mask, iso)``: the ellipsoid as four kinds of mask."""
     from scipy import ndimage as ndi
 
     inside = _ellipsoid_inside(side)
@@ -182,8 +182,8 @@ def drawn(frame: np.ndarray) -> np.ndarray:
 def pixel_world(camera) -> tuple[np.ndarray, float]:
     """``(world (z, y, x) of each pixel centre on the slice, world per pixel)``.
 
-    The 2D slice route renders the displayed ``(y, x)`` as pygfx ``(y, x)``
-    (oblique 2D design v3, 5.3.3); the slice is the world's ``z = SLICE``.
+    The 2D slice route renders the displayed ``(y, x)`` as pygfx
+    ``(y, x)``; the slice is the world's ``z = SLICE``.
     """
     inverse = np.linalg.inv(np.asarray(camera.camera_matrix, np.float64))
     cols, rows = np.meshgrid(np.arange(SIZE), np.arange(SIZE))
@@ -230,7 +230,7 @@ def load_truth() -> dict:
 
 
 def placed(band: tuple[float, float], px: float, min_px: float = 1.0):
-    """The band widened to *min_px* pixels about its centre (7.3)."""
+    """The band widened to *min_px* pixels about its centre."""
     a, b = band
     if b - a < min_px * px:
         c = 0.5 * (a + b)

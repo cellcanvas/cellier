@@ -28,8 +28,6 @@ def _build_viewer(small_zarr_store):
     data = DataManager(stores={store.id: store})
 
     appearance = MultiscaleImageAppearance(
-        color_map="viridis",
-        clim=(0.0, 1.0),
         settled_lod_bias=1.0,
         force_level=None,
         frustum_cull=True,

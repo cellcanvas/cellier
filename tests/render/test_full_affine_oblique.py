@@ -1,9 +1,9 @@
-"""Full affine design v2, Phase 6: ``OBLIQUE`` views for the geometry families.
+"""``OBLIQUE`` views for the geometry families.
 
 A 2D view whose slice is tilted through the data: points, lines, graph and
-mesh sections are selected exactly by the tilted slab (K12) and placed in
-the world frame (D4's fallback, since no node matrix maps the data to the
-screen there).  Raster families still draw nothing there (D1).
+mesh sections are selected exactly by the tilted slab and placed in the
+world frame per element, since no node matrix maps the data to the screen
+there.  Raster families still draw nothing there.
 """
 
 from __future__ import annotations
@@ -68,9 +68,8 @@ def _status(tmp_path, family, name):
     "family", ["image", "labels", "image_multiscale", "labels_multiscale"]
 )
 def test_raster_oblique_draws_on_the_brick_route(tmp_path, family):
-    """D1 put raster ``OBLIQUE`` out of scope; oblique 2D design v3 draws it
-    on the brick route (pre-approved flips: multiscale images in Phase 2,
-    multiscale labels in Phase 3, in-memory images and labels in Phase 4)."""
+    """Raster ``OBLIQUE`` views draw on the brick route, for multiscale and
+    in-memory images and labels."""
     assert _status(tmp_path, family, "rot_zx") == ("oblique", True)
 
 

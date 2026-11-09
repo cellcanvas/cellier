@@ -1,16 +1,15 @@
 """Appearance controls on an ``OrthoViewer``.
 
-Stage 2 of ``plans/convenience_cleanup.md`` (section 8).  Before it,
-``AppearanceControls()`` in an ortho ``Layout`` was a **silent no-op**: both
-renderers read ``viewer.scene``, an ``OrthoViewer`` exposes only ``scenes``,
-and the dock came back ``None`` with no error (section 4.1).  The fix
-generalises the channel path's fan-out rather than making the no-op loud.
+A regression test: ``AppearanceControls()`` in an ortho ``Layout`` was once a
+**silent no-op**: both renderers read ``viewer.scene``, an ``OrthoViewer``
+exposes only ``scenes``, and the dock came back ``None`` with no error.  The
+fix generalises the channel path's fan-out rather than making the no-op loud.
 
 Each fanned-out add records two controls groups: one widget drives the three
 2D panel visuals in lock-step, another the 3D panel's visual.  The dock's
 selector offers both, as ``"{name} (2D views)"`` and ``"{name} (3D view)"``.
 
-Mirrors ``test_channel_controls.py``, which is the template section 8.5 names.
+Mirrors ``test_channel_controls.py``.
 """
 
 from __future__ import annotations
@@ -200,11 +199,11 @@ def _qt_image_control(ortho, label="image (2D views)"):
 
 
 def test_qt_2d_edit_reaches_the_2d_panels_only(qtbot):
-    """The regression test for section 4.1, driven through a real controller.
+    """The regression test for the silent no-op, driven through a real controller.
 
     ``clim`` rather than ``color_map`` deliberately: writing ``color_map``
-    poisons ``==`` on the appearance class for the rest of the process
-    (section 6.2.2), which would break unrelated round-trip tests.
+    poisons ``==`` on the appearance class for the rest of the process,
+    which would break unrelated round-trip tests.
     """
     ortho, visuals = _ortho_with_controls()
     widget = _qt_image_control(ortho)
@@ -249,7 +248,7 @@ def test_aabb_edit_reaches_the_2d_panels(qtbot):
 
 
 def test_a_foreign_write_to_one_panel_reaches_the_widget(qtbot):
-    """Subscribe-to-all, not subscribe-to-first (section 8.1 part 2).
+    """Subscribe-to-all, not subscribe-to-first.
 
     A sibling written by something other than the widget -- here the yz
     panel, never the representative -- must still update the control.
@@ -283,7 +282,7 @@ def test_the_widgets_own_echoes_are_all_dropped(qtbot):
 
 
 def test_ortho_composite_and_channel_edits_mirror_to_all_four_panels():
-    """Mode and settings are mirrored through the group methods (D3)."""
+    """Mode and settings are mirrored through the group methods."""
     from cellier.visuals import InMemoryImageChannelAppearance
 
     ortho = OrthoViewer([("c", "channel"), *spatial_axes("z", "y", "x")])
@@ -311,7 +310,7 @@ def test_ortho_composite_and_channel_edits_mirror_to_all_four_panels():
 
 
 def test_ortho_cannot_composite_a_spatial_axis():
-    """Some panel always displays a spatial axis (design 3.4)."""
+    """Some panel always displays a spatial axis."""
     ortho = OrthoViewer(spatial_axes("z", "y", "x"))
     data = np.zeros((8, 16, 16), dtype=np.float32)
     visuals = ortho.add_image(ImageMemoryStore(data=data), channel_axis=0)
@@ -351,7 +350,7 @@ def test_the_2d_views_control_hides_the_3d_only_rows(qtbot):
 
 
 def test_appearance_dock_renders_on_an_ortho_viewer_qt(qtbot):
-    """Was ``None`` before stage 2 -- no dock, no error (section 4.1)."""
+    """Was once ``None`` -- no dock, no error."""
     from tests.convenience._qt_acceptance import assert_panel_renders, control_labels
 
     ortho, _visuals = _ortho_with_controls(appearance=["color_map", "clim"])
@@ -417,7 +416,7 @@ def test_appearance_dock_renders_on_an_ortho_viewer_anywidget():
 
 
 # ---------------------------------------------------------------------------
-# The controller's write-side companions (design section 8.3 step 2)
+# The controller's write-side companions
 # ---------------------------------------------------------------------------
 
 

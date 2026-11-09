@@ -5,21 +5,22 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, Literal, Union
 from uuid import UUID, uuid4
 
-from pydantic import UUID4, BaseModel, ConfigDict, Field, model_validator
+from pydantic import UUID4, ConfigDict, Field, model_validator
 from typing_extensions import Self
 
+from cellier._model import CellierModel
 from cellier.transform._axis import Axis, AxisRef
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-class CoordinateSystem(BaseModel):
+class CoordinateSystem(CellierModel):
     """An ordered set of axes.
 
-    Coordinate systems are frozen (D7).  Changing the axes of a system
-    means constructing a replacement, so that a transform already
-    validated against a system cannot silently face a different one.
+    Coordinate systems are frozen.  Changing the axes of a system means
+    constructing a replacement, so that a transform already validated
+    against a system cannot silently face a different one.
 
     Parameters
     ----------
@@ -43,7 +44,7 @@ class CoordinateSystem(BaseModel):
 
     @model_validator(mode="after")
     def _validate_axes(self) -> Self:
-        """Require at least one axis and unique axis ids (D6)."""
+        """Require at least one axis and unique axis ids."""
         if not self.axes:
             raise ValueError("A coordinate system must have at least one axis.")
         ids = [axis.id for axis in self.axes]
@@ -92,7 +93,7 @@ class CoordinateSystem(BaseModel):
     def axis_by_name(self, name: str) -> Axis:
         """Return the single axis with the given name.
 
-        Axis names are not required to be unique (Q6), so ambiguity is a
+        Axis names are not required to be unique, so ambiguity is a
         property of the query rather than of the model: this raises
         instead of returning the first match.
 
@@ -176,8 +177,8 @@ class DataCoordinateSystem(CoordinateSystem):
         Discriminator field.
     datastore_id : UUID4
         The id of the datastore this system belongs to.  ``name`` is the
-        datastore's name by convention (Q7), but the model has no access
-        to the datastore and does not validate that.
+        datastore's name by convention, but the model has no access to
+        the datastore and does not validate that.
     """
 
     coordinate_system_type: Literal["data"] = "data"
@@ -185,7 +186,7 @@ class DataCoordinateSystem(CoordinateSystem):
 
 
 class VisualCoordinateSystem(CoordinateSystem):
-    """The space one visual's GPU geometry is indexed in (D45).
+    """The space one visual's GPU geometry is indexed in.
 
     This is the space ``node.local.matrix`` maps *from*: the index space
     of the array a datastore returned, or the normalized proxy-box space
@@ -236,8 +237,8 @@ class VisualCoordinateSystem(CoordinateSystem):
         Mirrors :meth:`RenderedCoordinateSystem.from_world` exactly: each
         visual axis corresponds to one data axis, so ``name``,
         ``axis_type`` and ``unit`` are inherited from it rather than
-        re-specified (R5), and the axis ids are **fresh** because these
-        are distinct axes of a distinct system (D33).
+        re-specified, and the axis ids are **fresh** because these are
+        distinct axes of a distinct system.
 
         Parameters
         ----------
@@ -298,13 +299,13 @@ class WorldCoordinateSystem(CoordinateSystem):
 class RenderedCoordinateSystem(CoordinateSystem):
     """The 2D or 3D scene drawn on one canvas.
 
-    This is scene space in world units (R1); the camera transform from
-    scene space to normalized device coordinates is a separate concern
-    and is not modelled here.
+    This is scene space in world units; the camera transform from scene
+    space to normalized device coordinates is a separate concern and is
+    not modelled here.
 
     There is deliberately no ``world_coordinate_system`` backref: the link
     to the world system is carried by the transform between them, which
-    already stores both ids (D33).
+    already stores both ids.
 
     Parameters
     ----------
@@ -314,7 +315,7 @@ class RenderedCoordinateSystem(CoordinateSystem):
         Human-readable name.  Defaults to ``"rendered"``.
     canvas_id : UUID4
         The id of the canvas this system is drawn on.  One system per
-        canvas (R2).
+        canvas.
     """
 
     coordinate_system_type: Literal["rendered"] = "rendered"
@@ -323,7 +324,7 @@ class RenderedCoordinateSystem(CoordinateSystem):
 
     @model_validator(mode="after")
     def _validate_rank(self) -> Self:
-        """Require a rank of 2 or 3, which is what a camera can draw (D33)."""
+        """Require a rank of 2 or 3, which is what a camera can draw."""
         if self.ndim not in (2, 3):
             raise ValueError(
                 f"A rendered coordinate system must have 2 or 3 axes, got "
@@ -343,10 +344,9 @@ class RenderedCoordinateSystem(CoordinateSystem):
 
         Each rendered axis corresponds to exactly one world axis, so
         ``name``, ``axis_type`` and ``unit`` are inherited from that world
-        axis rather than re-specified (R5).  The axis ids are **fresh**:
-        these are distinct axes of a distinct coordinate system, and
-        reusing the world ids would make ``index_of`` ambiguous across
-        systems.
+        axis rather than re-specified.  The axis ids are **fresh**: these
+        are distinct axes of a distinct coordinate system, and reusing the
+        world ids would make ``index_of`` ambiguous across systems.
 
         Parameters
         ----------
@@ -399,4 +399,4 @@ CoordinateSystemType = Annotated[
     ],
     Field(discriminator="coordinate_system_type"),
 ]
-"""Discriminated union over every coordinate system kind (D8)."""
+"""Discriminated union over every coordinate system kind."""

@@ -8,7 +8,7 @@ and handles widgets.  Keeping them apart keeps that promise true.
 Everything toolkit-specific is reached through the injected
 :class:`~cellier.convenience._hosts.LayoutHost` and the
 :class:`~cellier.convenience._backend.GuiBackend` it carries, so this file
-imports neither Qt nor anywidget (``plans/gui_backend_seam.md``).
+imports neither Qt nor anywidget.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""A multiscale visual in ``"plane"`` render mode, for the Phase 7 tests.
+"""A multiscale visual in ``"plane"`` render mode, for the plane render tests.
 
 Small pyramids whose levels hold a known pattern, a rig that places the
 camera, plans, loads and draws, and the level-aware comparison with the CPU

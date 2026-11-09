@@ -1,7 +1,4 @@
-"""Link clipping planes across the OrthoViewer panels of one dataset.
-
-See ``plans/clipping_planes_linking_design.md`` (sections 4 and 5).
-"""
+"""Link clipping planes across the OrthoViewer panels of one dataset."""
 
 from __future__ import annotations
 

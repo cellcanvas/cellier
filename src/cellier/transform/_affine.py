@@ -1,4 +1,4 @@
-"""The affine transform model (design section 9)."""
+"""The affine transform model."""
 
 from __future__ import annotations
 
@@ -30,8 +30,8 @@ class AffineTransform(BaseTransform):
     """An affine transform between two coordinate systems.
 
     The matrix is ``(D_out + 1, D_in + 1)``; non-square is normal, not an
-    edge case.  It is stored at float64 (D20): narrowing to float32 is
-    the renderer's job at upload, and chained affines across several
+    edge case.  It is stored at float64: narrowing to float32 is the
+    renderer's job at upload, and chained affines across several
     coordinate systems are exactly where float32 error accumulates.
 
     Composition is :meth:`then`.  There is no ``__matmul__`` and no
@@ -53,7 +53,7 @@ class AffineTransform(BaseTransform):
         indistinguishable from "constant zero", and the two differ for
         extents: a broadcast dataset occupies *all* of that axis in the
         output space, not the point ``{0}``.  Recording it is not
-        reconstructible later (D25).
+        reconstructible later.
     """
 
     transform_type: Literal["affine"] = "affine"
@@ -72,7 +72,7 @@ class AffineTransform(BaseTransform):
 
     @field_serializer("transform")
     def _serialize_affine(self, value: Affine) -> list[list[float]]:
-        """Emit the matrix as a nested list of floats (D17)."""
+        """Emit the matrix as a nested list of floats."""
         return value.matrix.tolist()
 
     # -- matrix views --------------------------------------------------
@@ -92,11 +92,11 @@ class AffineTransform(BaseTransform):
         """The ``(D_out,)`` translation column."""
         return self.transform.matrix[:-1, -1]
 
-    # -- the inverse (D24) ---------------------------------------------
+    # -- the inverse ---------------------------------------------------
 
     @cached_property
     def _inverse_blocks(self) -> tuple[np.ndarray, np.ndarray] | None:
-        """The inverse linear block and translation, or ``None`` (D24).
+        """The inverse linear block and translation, or ``None``.
 
         Cached so that repeated inverse mapping does not re-invert the
         matrix.
@@ -133,14 +133,14 @@ class AffineTransform(BaseTransform):
                 f"{operation} requires an inverse, but this "
                 f"{self.input_ndim}D -> {self.output_ndim}D transform has "
                 f"none: it is rank deficient or loses a dimension, so no left "
-                f"inverse exists (D24 case 3)."
+                f"inverse exists."
             )
         return blocks
 
     def inverse(self) -> AffineTransform | None:
         """Return the inverse transform, or ``None``.
 
-        Three cases (D24): exact for a non-singular square matrix; the
+        Three cases: exact for a non-singular square matrix; the
         pseudo-inverse of the linear block for a full-column-rank
         embedding, which is an exact **left** inverse; ``None``
         otherwise.  A dimension-reducing transform is not silently handed
@@ -184,9 +184,9 @@ class AffineTransform(BaseTransform):
         """Map points from the input system to the output system.
 
         Accepts ``(N, D_in)`` or ``(D_in,)`` and returns matching rank.
-        Homogeneous ``(N, D_in + 1)`` input is rejected (D12).  The
-        result is always a distinct array, even for an identity affine,
-        where ``transformnd`` would return the input object (D11).
+        Homogeneous ``(N, D_in + 1)`` input is rejected.  The result is
+        always a distinct array, even for an identity affine, where
+        ``transformnd`` would return the input object.
 
         Parameters
         ----------
@@ -216,18 +216,18 @@ class AffineTransform(BaseTransform):
         Raises
         ------
         NonInvertibleTransformError
-            If this transform has no left inverse (D24 case 3).
+            If this transform has no left inverse.
         """
         inverse_linear, _ = self._require_inverse("imap_coordinates")
         return ops.imap_points(coordinates, inverse_linear, self.translation)
 
-    # -- vectors (D27, D28) --------------------------------------------
+    # -- vectors -------------------------------------------------------
 
     def map_direction(self, direction: np.ndarray) -> np.ndarray:
         """Map displacement vectors forward by ``A``.
 
         Needs no inverse, so it works on a transform whose
-        :meth:`inverse` is ``None``.  Nothing is normalized (D28).
+        :meth:`inverse` is ``None``.  Nothing is normalized.
 
         Parameters
         ----------
@@ -263,11 +263,11 @@ class AffineTransform(BaseTransform):
         return ops.imap_directions(direction, inverse_linear)
 
     def map_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Map plane normals forward by ``(A+)^T`` (covariant, D27).
+        """Map plane normals forward by ``(A+)^T`` (covariant).
 
         A normal is not a displacement: it transforms by the inverse
         transpose, and using ``A`` is correct only for a rigid transform.
-        Nothing is normalized (D28).
+        Nothing is normalized.
 
         Parameters
         ----------
@@ -284,13 +284,13 @@ class AffineTransform(BaseTransform):
         NonInvertibleTransformError
             If this transform has no left inverse.
         DegenerateNormalError
-            If a normal maps to the zero vector (D32).
+            If a normal maps to the zero vector.
         """
         inverse_linear, _ = self._require_inverse("map_normal")
         return ops.map_normals(normal, inverse_linear)
 
     def imap_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Map plane normals back by ``A^T`` (covariant, D27).
+        """Map plane normals back by ``A^T`` (covariant).
 
         Needs no inverse, so it works on a transform whose
         :meth:`inverse` is ``None``.  Not injective: a normal tilted
@@ -310,7 +310,7 @@ class AffineTransform(BaseTransform):
         Raises
         ------
         DegenerateNormalError
-            If a normal maps to the zero vector (D32).
+            If a normal maps to the zero vector.
         """
         return ops.imap_normals(normal, self.linear)
 
@@ -336,7 +336,7 @@ class AffineTransform(BaseTransform):
         NonInvertibleTransformError
             If this transform has no left inverse.
         DegenerateNormalError
-            If the normal maps to the zero vector (D32).
+            If the normal maps to the zero vector.
         """
         self._check_input_coordinate_system(plane.coordinate_system)
         inverse_linear, _ = self._require_inverse("map_plane")
@@ -370,7 +370,7 @@ class AffineTransform(BaseTransform):
         ValueError
             If the plane is not in this transform's output system.
         DegenerateNormalError
-            If the normal maps to the zero vector (D32).
+            If the normal maps to the zero vector.
         """
         self._check_output_coordinate_system(plane.coordinate_system)
         normal, offset = ops.imap_plane(
@@ -382,7 +382,7 @@ class AffineTransform(BaseTransform):
             offset=offset,
         )
 
-    # -- bounding boxes (D30, D31) -------------------------------------
+    # -- bounding boxes ------------------------------------------------
 
     def map_bounding_box(
         self,
@@ -391,10 +391,10 @@ class AffineTransform(BaseTransform):
     ) -> AxisAlignedBoundingBox:
         """Map a box forward, conservatively.
 
-        The result is the smallest axis-aligned box *enclosing* the
-        image, which is a superset unless the linear block is diagonal or
-        a signed permutation.  Every axis in ``broadcast_axes`` comes back
-        ``(-inf, +inf)`` (D31).
+        The result is the smallest axis-aligned box *enclosing* the image,
+        which is a superset unless the linear block is diagonal or a
+        signed permutation.  Every axis in ``broadcast_axes`` comes back
+        ``(-inf, +inf)``.
 
         The output coordinate system is required because
         ``broadcast_axes`` holds axis **ids** and the arithmetic needs
@@ -448,9 +448,9 @@ class AffineTransform(BaseTransform):
     def imap_bounding_box(self, box: AxisAlignedBoundingBox) -> AxisAlignedBoundingBox:
         """Map a box back, conservatively.
 
-        Needs no broadcast handling (D31): the pseudo-inverse has an
-        all-zero column for a broadcast axis, so that axis's extent is
-        dropped whether it is finite or infinite.
+        Needs no broadcast handling: the pseudo-inverse has an all-zero
+        column for a broadcast axis, so that axis's extent is dropped
+        whether it is finite or infinite.
 
         Parameters
         ----------
@@ -483,7 +483,7 @@ class AffineTransform(BaseTransform):
             max_coordinate=upper,
         )
 
-    # -- regions (D39, D41) --------------------------------------------
+    # -- regions -------------------------------------------------------
 
     def map_region(self, region: ConvexRegion) -> ConvexRegion:
         """Map a convex region forward.
@@ -525,16 +525,16 @@ class AffineTransform(BaseTransform):
 
         This is the operation the slicer runs, and it needs nothing but
         ``A^T`` -- exact, cheap, and available on a transform whose
-        :meth:`inverse` is ``None`` (D39).
+        :meth:`inverse` is ``None``.
 
-        The result is a region, **never** a collapsed bounding box
-        (D41).  Reducing to a box at the world level costs about 6x the
-        voxels for a 45-degree slab, and the datastore wants both: the
-        box for chunk selection and the constraints for the per-voxel
-        mask.  Callers that want the box ask for it themselves.
+        The result is a region, **never** a collapsed bounding box.
+        Reducing to a box at the world level costs about 6x the voxels
+        for a 45-degree slab, and the datastore wants both: the box for
+        chunk selection and the constraints for the per-voxel mask.
+        Callers that want the box ask for it themselves.
 
         Constraints on a **broadcast** axis are dropped before ``A^T`` is
-        applied (D8).  A broadcast axis is a free variable -- the source
+        applied.  A broadcast axis is a free variable -- the source
         exists at *every* position on it -- so such a constraint can
         always be satisfied by moving along that axis.  This is exactly
         Fourier-Motzkin elimination of the broadcast axes specialised to
@@ -555,9 +555,8 @@ class AffineTransform(BaseTransform):
         :meth:`ConvexRegion.simplify` to drop the vacuous ones.
 
         ``map_region`` is deliberately **not** given the symmetric
-        treatment: the asymmetry is D31's, and ``broadcast_axes``
-        affects the forward direction as unboundedness rather than as a
-        dropped constraint.
+        treatment: ``broadcast_axes`` affects the forward direction as
+        unboundedness rather than as a dropped constraint.
 
         Parameters
         ----------
@@ -603,8 +602,9 @@ class AffineTransform(BaseTransform):
         Split out of :meth:`imap_region` for the one caller that knows
         the indices without holding the coordinate system object:
         :class:`~cellier.transform.RegionSelection`, whose validator
-        runs on a ``rendered -> world`` embedding that carries no
-        broadcast axes at all (D34/D35).
+        runs on a ``rendered -> world`` embedding, which states the slice
+        position as constant output axes and so carries no broadcast axes at
+        all.
 
         Parameters
         ----------
@@ -632,7 +632,7 @@ class AffineTransform(BaseTransform):
             half_spaces=half_spaces_from_arrays(normals, offsets),
         )
 
-    # -- composition (D10, D19) ----------------------------------------
+    # -- composition ---------------------------------------------------
 
     def then(
         self,
@@ -675,7 +675,7 @@ class AffineTransform(BaseTransform):
         ------
         ValueError
             If the coordinate systems do not line up.  A mismatch raises
-            even when the ranks happen to agree (D19).
+            even when the ranks happen to agree.
         """
         if self.output_coordinate_system != other.input_coordinate_system:
             raise ValueError(
@@ -716,7 +716,7 @@ class AffineTransform(BaseTransform):
             broadcast_axes=frozenset(broadcast),
         )
 
-    # -- constructors (D18, D22, D23, D26, D35) -------------------------
+    # -- constructors ---------------------------------------------------
 
     @classmethod
     def from_axis_map(
@@ -747,13 +747,13 @@ class AffineTransform(BaseTransform):
         ----------
         input_coordinate_system : CoordinateSystem
             The system to map from.  The object, not the id: building the
-            matrix needs its axes (D23).
+            matrix needs its axes.
         output_coordinate_system : CoordinateSystem
             The system to map to.
         axis_map : Mapping[AxisRef, AxisRef]
             ``{input axis: output axis}``.  Every input axis must appear.
-            Mapped pairs must share an ``axis_type`` (D26); units are not
-            checked (D16).
+            Mapped pairs must share an ``axis_type``; units are not
+            checked.
         scale : Mapping[AxisRef, float] or None
             Per-input-axis scale factors.  Default 1.
         translation : Mapping[AxisRef, float] or None
@@ -766,7 +766,7 @@ class AffineTransform(BaseTransform):
             fixed value -- a slice index.  These get a zero row and that
             value in the translation column, and are **not** recorded in
             ``broadcast_axes``: a broadcast axis is unbounded, a slice
-            index is not (D35).
+            index is not.
         name : str or None
             Optional name for the transform.
 
@@ -899,9 +899,9 @@ class AffineTransform(BaseTransform):
     ) -> Self:
         """Build a transform from a matrix, the escape hatch.
 
-        Both coordinate systems are still required (D18): a transform
-        without both endpoints is meaningless in this model, and there is
-        no ``identity(ndim)`` that invents or omits them.
+        Both coordinate systems are still required: a transform without
+        both endpoints is meaningless in this model, and there is no
+        ``identity(ndim)`` that invents or omits them.
 
         Parameters
         ----------
@@ -912,7 +912,7 @@ class AffineTransform(BaseTransform):
         output_coordinate_system : CoordinateSystem
             The system to map to.
         broadcast_output_axes : Sequence[AxisRef]
-            Output axes the input has no extent along (D25).
+            Output axes the input has no extent along.
         name : str or None
             Optional name for the transform.
 
@@ -975,7 +975,7 @@ class AffineTransform(BaseTransform):
         return self.broadcast_axes
 
     def axis_coupling(self) -> np.ndarray:
-        """The linear block's non-zero pattern under D7's tolerance.
+        """The linear block's non-zero pattern under the coupling tolerance.
 
         Returns
         -------
@@ -1111,7 +1111,7 @@ class AffineTransform(BaseTransform):
         """
         return self
 
-    # -- equality (D21) -------------------------------------------------
+    # -- equality -------------------------------------------------------
 
     def __eq__(self, other: object) -> bool:
         """Compare by endpoints, matrix and broadcast axes, not by id.

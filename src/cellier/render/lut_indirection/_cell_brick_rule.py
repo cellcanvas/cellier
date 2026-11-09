@@ -152,9 +152,9 @@ def max_out_of_brick(
 ) -> tuple[float, tuple[int, ...]]:
     """How far a sample can land outside the brick that owns its cell.
 
-    In the centre convention (plan v2, D1; ``cellier.render._level_mapping``):
-    the cells brick ``g`` owns cover level-0 voxels ``[start * bs, stop *
-    bs)`` (clipped to the data), i.e. data ``p`` in ``[start * bs - 0.5, stop
+    In the centre convention (``cellier.render._level_mapping``): the cells
+    brick ``g`` owns cover level-0 voxels ``[start * bs, stop * bs)``
+    (clipped to the data), i.e. data ``p`` in ``[start * bs - 0.5, stop
     * bs - 0.5]``, which is level-k ``u = (p - t) / s``; the brick's own
     interior is ``u`` in ``[g * bs - 0.5, (g + 1) * bs - 0.5]``.  The
     difference is what the brick's padding has to absorb.

@@ -1,8 +1,8 @@
 """``LevelResidency`` on the real scheduler core, driven synchronously.
 
-``plans/mesh_refactor_v3.md`` L2 and L3: the plan's keys, the release of a
-level whose key leaves the plan (D9), the keep rule (D23), and the display
-rule (D8): a level is drawable only while it holds the newest plan's key.
+The plan's keys, the release of a level whose key leaves the plan, the
+keep rule, and the display rule: a level is drawable only while it holds
+the newest plan's key.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def test_an_unchanged_plan_reads_nothing():
 
 
 def test_a_new_plan_releases_the_level_when_it_is_made():
-    """D9: the release happens in ``desired``, before the pass is applied."""
+    """The release happens in ``desired``, before the pass is applied."""
     rig = Rig()
     rig.plan("a")
     rig.land()
@@ -156,7 +156,7 @@ def test_a_read_still_in_flight_is_reused_when_its_position_returns():
 
 
 def test_the_keep_rule_keeps_a_level_whose_key_is_unchanged():
-    """D23: a level the mode omits stays planned while its key is the same."""
+    """A level the mode omits stays planned while its key is the same."""
     rig = Rig(n_levels=2)
     rig.plan("a")
     rig.land()
@@ -282,7 +282,7 @@ def test_n_levels_must_be_positive():
 
 # ---------------------------------------------------------------------------
 # keeps_previous: a level stays on screen across a change that leaves its
-# result in the right place (clipping planes design 5.2, D31)
+# result in the right place
 # ---------------------------------------------------------------------------
 
 

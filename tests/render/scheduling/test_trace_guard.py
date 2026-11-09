@@ -1,10 +1,9 @@
 """With default policies the scheduler core decides as it did before them.
 
-``plans/mesh_refactor_v3.md`` 5.2, "Guard for image and labels".  The core
-gained per-cache policies (a cap on target reads, a compute lane, a failure
-rule).  Image and labels atlases carry the default policy, and for them
-nothing may change: not which read is issued, not its lane, not what a
-commit round evicts.
+The core gained per-cache policies (a cap on target reads, a compute lane,
+a failure rule).  Image and labels atlases carry the default policy, and
+for them nothing may change: not which read is issued, not its lane, not
+what a commit round evicts.
 
 ``trace_baseline.json`` was recorded from the core before the change.  **A
 failure here is a stop condition, not a baseline to regenerate.**

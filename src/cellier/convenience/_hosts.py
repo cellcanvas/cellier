@@ -3,7 +3,7 @@
 The leaves are host-uniform (the per-control appearance anywidgets, the
 ``rendercanvas.anywidget`` canvas, the toggle).  Only composition and
 presentation differ between Jupyter and marimo, isolated behind one injected
-object (design doc section 10).
+object.
 
 ``gui="anywidget"`` selects the toolkit; the *host* (Jupyter vs marimo) is
 detected by default with an explicit ``host=`` override via

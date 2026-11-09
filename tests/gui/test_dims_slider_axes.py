@@ -123,7 +123,7 @@ def test_a_refused_toggle_leaves_the_widget_on_its_previous_mode(gui, monkeypatc
 
 
 async def test_a_slider_tick_is_an_interactive_tick(gui):
-    """A drag with no scope scrubs, and ends on stillness (tracker design 4.8)."""
+    """A drag with no scope scrubs, and ends on stillness."""
     import asyncio
 
     viewer = _viewer(gui)

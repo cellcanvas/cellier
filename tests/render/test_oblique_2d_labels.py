@@ -1,10 +1,10 @@
-"""Oblique 2D design v3, Phase 3: multiscale labels on the brick route.
+"""Multiscale labels on the brick route.
 
-``plans/oblique_2d_raster_design_v3.md`` 5.8 and Phase 3.  A multiscale
-labels visual whose transform tilts a 2D view's slice is drawn by its 3D
-node in the plane render mode (the slice node), as multiscale images are
-from Phase 2.  The labels rule: every drawn pixel shows the label of the
-voxel under its centre, and no label that is not in the data.
+A multiscale labels visual whose transform tilts a 2D view's slice is
+drawn by its 3D node in the plane render mode (the slice node), as
+multiscale images are.  The labels rule: every drawn pixel shows the
+label of the voxel under its centre, and no label that is not in the
+data.
 
 Expectations are analytic (the transform, the camera) or properties of the
 data -- never another library's rendering (memory: no cross-library tests).
@@ -144,7 +144,7 @@ def _expected_labels(camera, matrix, slice_z, data):
 
 
 # ---------------------------------------------------------------------------
-# Placement, landmarks and the labels rule (D11)
+# Placement, landmarks and the labels rule
 # ---------------------------------------------------------------------------
 
 
@@ -159,7 +159,7 @@ def test_a_tilted_labels_view_is_placed_on_the_slice_node(tmp_path):
         assert gfx_visual.material_3d.render_mode == "plane"
         assert gfx_visual.material_3d.slice_2d
         assert viewer.controller.draw_status(visual.id).drawable
-        # The model's render mode is untouched (D5).
+        # The model's render mode is untouched.
         assert visual.appearance.render_mode == "iso_categorical"
     finally:
         viewer.controller.close()
@@ -215,7 +215,7 @@ def test_labels_move_to_and_from_the_route_with_the_transform(tmp_path):
         asyncio.run(_assign(world_matrix(np.eye(3))))
         assert gfx_visual.slice_axes is None
         assert _active_node(viewer, visual) is gfx_visual.node_2d
-        # Back on today's path the 3D material is in the model's mode again.
+        # Back on the planar path the 3D material is in the model's mode again.
         assert gfx_visual.material_3d.render_mode == "iso_categorical"
         assert not gfx_visual.material_3d.slice_2d
         assert render(viewer)[0][..., :3].max() > 0
@@ -243,7 +243,7 @@ def test_a_2d_only_scene_gains_the_3d_mode_for_labels(tmp_path):
 
 @pytest.mark.parametrize("fraction", [0.02, 0.98])
 def test_the_2d_camera_never_clips_the_labels_slice_node(tmp_path, fraction):
-    """K26 for labels: a narrow explicit depth range still draws it all."""
+    """For labels: a narrow explicit depth range still draws it all."""
     matrix = world_matrix(rot(0, 2, 30.0))
     data = np.tile(_random_labels(2), (12, 1, 1))[:256]
     viewer = new_viewer("2d")
@@ -308,7 +308,7 @@ def _draw_outlined(viewer: Viewer, size: int = 320) -> tuple[np.ndarray, object]
 
     from cellier.render._cellier_blender import (
         OUTLINE_ID_TARGET,
-        install_cellier_blender,
+        ensure_extra_targets,
     )
     from cellier.render._outline import OutlinePass
     from cellier.render._pick_buffer import enable_pick_texture_binding
@@ -325,7 +325,7 @@ def _draw_outlined(viewer: Viewer, size: int = 320) -> tuple[np.ndarray, object]
     renderer = gfx.WgpuRenderer(canvas)
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
-    install_cellier_blender(renderer, [OUTLINE_ID_TARGET])
+    ensure_extra_targets(renderer, [OUTLINE_ID_TARGET])
     enable_pick_texture_binding(renderer)
     outline = OutlinePass(renderer, get_shared_visual_lut(), lambda: camera)
     outline.apply_config(controller.render_config.outline)
@@ -400,7 +400,7 @@ def test_every_outline_pixel_lies_on_a_label_boundary(tmp_path, mode):
 
 
 def test_depth_threshold_draws_as_all_boundaries_on_the_slice_node(tmp_path):
-    """5.8: the slice node is one plane; no depth range is sent for it."""
+    """The slice node is one plane; no depth range is sent for it."""
     viewer, visual, *_ = _outline_viewer(tmp_path, "all_boundaries")
     try:
         expected, _ = _draw_outlined(viewer)
@@ -415,12 +415,12 @@ def test_depth_threshold_draws_as_all_boundaries_on_the_slice_node(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Stacking (U9): labels on the brick node over today's image
+# Stacking: labels on the brick node over a planar image
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("labels_on_top", [True, False])
-def test_brick_labels_over_todays_image_follow_render_order(tmp_path, labels_on_top):
+def test_brick_labels_over_a_planar_image_follow_render_order(tmp_path, labels_on_top):
     matrix = world_matrix(LINEARS["rot_zx"])
     viewer = new_viewer("2d")
     try:
@@ -461,7 +461,7 @@ def test_brick_labels_over_todays_image_follow_render_order(tmp_path, labels_on_
 
 
 # ---------------------------------------------------------------------------
-# Picks (5.6) and statuses (5.2.5)
+# Picks and statuses
 # ---------------------------------------------------------------------------
 
 

@@ -96,9 +96,9 @@ def test_edge_span_empty_graph():
 
 
 def test_store_json_roundtrip():
-    """The direct regression for Phase 0's P4 finding.
+    """The flat arrays, not a ``SpatialGraph``, are the serialized fields.
 
-    v1's layout held the SpatialGraph as a field and raised
+    A layout that held the SpatialGraph as a field raised
     ``PydanticSerializationError`` here.
     """
     store = _store(
@@ -126,7 +126,7 @@ def test_store_json_roundtrip_through_data_store_union():
 
 @pytest.mark.skipif(_spatial_graph is None, reason="spatial-graph not installed")
 def test_index_is_lazy():
-    """No SpatialGraph is built at construction (A1)."""
+    """No SpatialGraph is built at construction."""
     store = _store()
     assert store._graph is None
     graph = store.graph
@@ -135,14 +135,14 @@ def test_index_is_lazy():
 
 @pytest.mark.skipif(_spatial_graph is None, reason="spatial-graph not installed")
 def test_spatial_graph_ids_are_rows():
-    """The index's node ids are arange(N), not the caller's ids (D18)."""
+    """The index's node ids are arange(N), not the caller's ids."""
     store = _store(node_ids=np.array([10, 20, 45, 900], dtype=np.uint64))
     node_ids = np.sort(np.asarray(store.graph.nodes).astype(np.int64))
     assert np.array_equal(node_ids, np.arange(store.n_nodes))
 
 
 def test_roi_without_spatial_graph_raises(monkeypatch):
-    """slice_strategy='roi' with the extra absent raises, naming it (D17)."""
+    """slice_strategy='roi' with the extra absent raises, naming it."""
     import cellier.data.graph._graph_memory_store as module
 
     monkeypatch.setattr(module, "_spatial_graph_available", lambda: False)

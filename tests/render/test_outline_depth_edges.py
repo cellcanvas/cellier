@@ -688,7 +688,7 @@ def _draw_scene(controller, scene, placement, depth_range, size=(192, 192)):
 
     from cellier.render._cellier_blender import (
         OUTLINE_ID_TARGET,
-        install_cellier_blender,
+        ensure_extra_targets,
     )
     from cellier.render._outline import OutlinePass
     from cellier.render._pick_buffer import enable_pick_texture_binding
@@ -703,7 +703,7 @@ def _draw_scene(controller, scene, placement, depth_range, size=(192, 192)):
     renderer = gfx.WgpuRenderer(canvas)
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
-    install_cellier_blender(renderer, [OUTLINE_ID_TARGET])
+    ensure_extra_targets(renderer, [OUTLINE_ID_TARGET])
     enable_pick_texture_binding(renderer)
 
     outline = OutlinePass(renderer, get_shared_visual_lut(), lambda: camera)

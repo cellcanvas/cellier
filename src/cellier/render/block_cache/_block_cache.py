@@ -63,10 +63,10 @@ class BlockCache3D:
     def allocate_on_gpu(self) -> None:
         """Put the atlas texture on the GPU now, ahead of its first draw.
 
-        Oblique 2D design v3, U12: a 2D view's slice node prepares its atlas
-        before its first switch.  An atlas nothing was written into is
-        created zero-filled with no upload; otherwise its data uploads with
-        the next draw, as it would have.
+        A 2D view's slice node prepares its atlas before its first switch.
+        An atlas nothing was written into is created zero-filled with no
+        upload; otherwise its data uploads with the next draw, as it would
+        have.
         """
         if not self._written:
             from cellier.render._gpu_lifetime import allocate_zeroed_texture

@@ -10,11 +10,11 @@ the tile, and nothing wrote the last row at level 3.  See
 
 Each test renders the same data forced to the finest and to the coarsest
 level and compares the two.  In 2D the comparison runs right up to the
-silhouette: since plan v2 Phase 5 every level is placed by its level
-transform, so the coarse level's outermost texels land where the finest
-level's do.  3D still compares away from the silhouette (``EROSION_3D``):
-its shaders keep their own edge convention until Phase 6.  The LUT-level
-guarantees (every cell written, by the brick the rule names) are in
+silhouette: every level is placed by its level transform, so the coarse
+level's outermost texels land where the finest level's do.  3D compares
+away from the silhouette (``EROSION_3D``), where the coarse level's
+outermost half texel still lands differently.  The LUT-level guarantees
+(every cell written, by the brick the rule names) are in
 ``lut_indirection/test_non_integer_pyramid_lut.py``.
 """
 
@@ -107,7 +107,7 @@ def bands_root(tmp_path):
 
 
 #: Pixels kept clear of the silhouette in 3D, where the coarse level's
-#: outermost half texel still lands differently (plan v2 Phase 6).
+#: outermost half texel still lands differently.
 EROSION_3D = 4
 
 

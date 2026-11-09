@@ -1,17 +1,15 @@
 """In-memory geometry on the chunk scheduler, end to end through the controller.
 
-``plans/scheduler_only_loading_design_v2.md`` 4.3 and 4.4, Phases 1-2.  The
-points, lines and graph visuals load their whole filtered slice through a
-single-level ``LevelResidency``:
+The points, lines and graph visuals load their whole filtered slice
+through a single-level ``LevelResidency``:
 
 - an unchanged request reads nothing, and a scrub keeps at most two reads
-  in flight per visual (D2);
+  in flight per visual;
 - the previous result stays drawn while the next one loads, and a
-  superseded arrival of a compatible key is drawn too (D1); an
-  incompatible one (another placement) is not (D7);
-- a contents change keeps the old result drawn until the re-read lands
-  (D12, D13), and a filter that raised is read again after the next change
-  (D11);
+  superseded arrival of a compatible key is drawn too; an incompatible
+  one (another placement) is not;
+- a contents change keeps the old result drawn until the re-read lands,
+  and a filter that raised is read again after the next change;
 - progress is reported, and a failed read still completes.
 
 A frame here is a real frame of an offscreen canvas: the scheduler's commit
@@ -281,7 +279,7 @@ async def test_a_scrub_keeps_two_reads_in_flight_and_never_blanks(rig, reads):
         frames.append(rig.drawn())
     assert reads.held() == 2
     assert reads.max_in_flight == 2
-    # The previous result stays drawn while the next loads (D1).
+    # The previous result stays drawn while the next loads.
     assert all(frame is not None for frame in frames)
     reads.hold = False
     reads.release_all()
@@ -305,7 +303,7 @@ async def test_a_superseded_compatible_arrival_is_drawn(rig, reads):
 
 
 async def test_an_incompatible_arrival_is_not_drawn(rig, reads):
-    """A 2D read landing after a switch to 3D places nothing (D7)."""
+    """A 2D read landing after a switch to 3D places nothing."""
     rig.controller.reslice_all()
     await rig.settle()
     reads.hold = True
@@ -372,7 +370,7 @@ async def test_a_failed_read_completes_and_is_read_again_after_a_change(
         for _ in range(2):
             rig.controller.reslice_all()
             await rig.settle()
-    assert reads.count == 1  # one attempt (D11)
+    assert reads.count == 1  # one attempt
     assert ready == [1]  # a failed read still completes
     assert rig.drawn() is None
     progress = rig.controller._render_manager.loading_progress(rig.visual.id)
@@ -404,7 +402,7 @@ async def test_a_hidden_visual_is_retired_and_shown_again_reads_nothing(rig, rea
     rig.store.notify_changed("contents")
     await rig.settle()
     rig.controller.update_appearance_field(rig.visual.id, "visible", True)
-    assert rig.drawn() == rig.kind.element_of(0)  # D12: kept while it reloads
+    assert rig.drawn() == rig.kind.element_of(0)  # Kept while it reloads
     await rig.settle()
     assert reads.count == 2
     assert rig.drawn() == rig.kind.element_of(0)
@@ -464,7 +462,7 @@ async def test_the_first_load_holds_the_draw(rig, reads):
 async def test_a_trail_change_keeps_the_previous_result_while_it_loads(
     monkeypatch, strategy
 ):
-    """A trail is in the request key: a change reads again, kept meanwhile (D1)."""
+    """A trail is in the request key: a change reads again, kept meanwhile."""
     from cellier.visuals._graph_memory import TrailConfig
 
     kind = Kind("graph", GraphMemoryStore, strategy)

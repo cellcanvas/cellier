@@ -5,8 +5,7 @@ Its blocks act on disjoint subsets of the input and output axes, which is
 what makes every operation decompose: a question about the affine axes is
 answered by the affine block and never reaches the non-uniform one.
 
-Mirrors RFC-5's ``byDimension``.  See
-``plans/nonuniform_time_axis_transform_design.md``.
+Mirrors RFC-5's ``byDimension``.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, field_serializer, model_validator
+from pydantic import ConfigDict, field_serializer, model_validator
 
 # Imported at runtime, not under TYPE_CHECKING: pydantic resolves field
 # annotations at class-creation time and cannot see a deferred import.
@@ -23,6 +22,7 @@ from transformnd.transforms.affine import Affine
 from transformnd.transforms.by_dimension import ByDimension, SubTransform
 from typing_extensions import Self
 
+from cellier._model import CellierModel
 from cellier.transform._affine import AffineTransform, _resolve_fixed_axes
 from cellier.transform._base import BaseTransform
 from cellier.transform._coordinate_system import CoordinateSystem
@@ -74,7 +74,7 @@ def _derived_system_id(*parts: object) -> uuid.UUID:
     return uuid.UUID(bytes=bytes(forced))
 
 
-class TransformBlock(BaseModel):
+class TransformBlock(CellierModel):
     """One block of a :class:`ByDimensionTransform`.
 
     Parameters
@@ -213,8 +213,9 @@ class ByDimensionTransform(BaseTransform):
 
         Every argument but ``axis_transforms`` keeps the meaning it has in
         :meth:`AffineTransform.from_axis_map`, so a caller who needs no
-        per-axis block writes exactly today's call and the non-uniform case
-        is a one-key diff rather than a different idiom.
+        per-axis block writes exactly the ``from_axis_map`` call and the
+        non-uniform case is a one-key diff rather than a different
+        idiom.
 
         Blocks are assembled as one 1-D block per ``axis_transforms`` entry,
         plus one affine block covering every remaining input axis -- which
@@ -641,7 +642,7 @@ class ByDimensionTransform(BaseTransform):
     ) -> BaseTransform:
         """Pin input axes, deciding per block what that means.
 
-        Three cases, per the design:
+        Three cases:
 
         * **Block entirely fixed** -- evaluated at the fixed value, giving a
           constant that is folded into the remaining translation.  Legal
@@ -844,7 +845,7 @@ class ByDimensionTransform(BaseTransform):
     ) -> ConvexRegion:
         """Map a convex region back, exactly.
 
-        Two cases, and the split is the design's:
+        Two cases:
 
         * **Axis-aligned** -- every half-space normal lies along a single
           axis, which is what ``AxisAlignedSelection`` produces and so what
@@ -856,10 +857,9 @@ class ByDimensionTransform(BaseTransform):
 
         **The refusal is a permanent, documented restriction, not a TODO.**
         A half-space whose normal mixes a non-affine block's axis with
-        another has no exact preimage, and no approximation is offered.
-        Nothing produces that case today -- ``PlaneSelection`` is an
-        unimplemented stub -- but an oblique selection over a non-uniform
-        axis would.
+        another has no exact preimage, and no approximation is offered.  An
+        oblique selection over a non-uniform axis is the case that produces
+        one.
 
         Parameters
         ----------
@@ -884,8 +884,8 @@ class ByDimensionTransform(BaseTransform):
         box = region.bounding_box()
         pulled = self._route_box(box, self.input_coordinate_system, forward=False)
 
-        # Broadcast axes lose their constraint (D8): a block the input has
-        # no extent along cannot bound anything.
+        # Broadcast axes lose their constraint: a block the input has no
+        # extent along cannot bound anything.
         broadcast = set()
         for block in self.blocks:
             affine = (

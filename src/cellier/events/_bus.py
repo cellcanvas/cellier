@@ -1,4 +1,4 @@
-"""EventBus implementation for cellier v2."""
+"""EventBus implementation."""
 
 from __future__ import annotations
 
@@ -327,7 +327,7 @@ def _build_subscriber_info(subscription: _Subscription) -> SubscriberInfo:
 
 
 class EventBus:
-    """Synchronous, typed event bus for cellier v2.
+    """Synchronous, typed event bus.
 
     Subscribers declare the event type they want, optionally scoped to a
     specific entity (scene, visual, canvas, data store).  All dispatch is

@@ -1,7 +1,7 @@
 """Paint controller for multiscale (zarr-backed) label data stores.
 
-Architecture (Phase 3 — pyramid rebuild + autosave loop)
----------------------------------------------------------
+Architecture (pyramid rebuild + autosave loop)
+----------------------------------------------
 Each brush application:
 
 1. Reads pre-paint values from the open ``WriteBuffer`` (read-your-writes
@@ -80,7 +80,7 @@ class MultiscalePaintController(AbstractPaintController):
     displayed_axes :
         The two data-array axes currently displayed in 2D for the bound
         canvas, in ``(row_axis, col_axis)`` order.  3D paint feedback is
-        a follow-up; passing a 3-tuple raises ``NotImplementedError``.
+        not supported; passing a 3-tuple raises ``NotImplementedError``.
     brush_value : int
     brush_radius_voxels :
     history_depth :
@@ -108,7 +108,7 @@ class MultiscalePaintController(AbstractPaintController):
             raise NotImplementedError(
                 "MultiscalePaintController currently only supports 2-D "
                 f"displayed-axis configurations; got {displayed_axes!r}.  "
-                "3-D paint feedback is a Phase 3 follow-up."
+                "3-D paint feedback is not supported yet."
             )
         if not data_store._ts_stores:
             raise ValueError(
@@ -441,7 +441,7 @@ class MultiscalePaintController(AbstractPaintController):
     # ------------------------------------------------------------------
 
     def _invalidate_dirty_bricks(self) -> list[int]:
-        """Drop GPU data over every dirty brick, at every level (design 5.14).
+        """Drop GPU data over every dirty brick, at every level.
 
         Each dirty level-0 brick becomes a level-0 data region; the chunk
         scheduler drops the resident bricks and tiles of every atlas reading

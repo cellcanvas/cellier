@@ -1,8 +1,7 @@
 """The mesh on the chunk scheduler, end to end through the controller.
 
-``plans/mesh_refactor_v3.md`` Phase 3 (L1-L6, M5).  The rule under test
-everywhere: **a mesh never draws a position other than the slider's.**  While
-a new position loads, the mesh is not drawn.
+The rule under test everywhere: **a mesh never draws a position other than
+the slider's.**  While a new position loads, the mesh is not drawn.
 
 A frame here is a real frame of an offscreen canvas: the scheduler's commit
 round, then the per-canvas ``prepare_draw``, then the render.
@@ -368,7 +367,7 @@ async def test_an_appearance_change_or_a_camera_move_does_not_hide(rig, reads):
 
 
 async def test_a_level_that_leaves_the_plan_is_released_and_read_again(rig, reads):
-    """D9: no revisit guarantee."""
+    """No revisit guarantee."""
     series = rig.add_mesh(_series_store())
     rig.controller.reslice_all()
     await rig.settle()
@@ -405,7 +404,7 @@ async def test_on_ready_during_a_scrub_fires_once_with_the_final_position(rig, r
     reads.release_all()
     await rig.settle()
 
-    # Once, and the picture it announces is already built (K5).
+    # Once, and the picture it announces is already built.
     assert ready == [[3]]
 
 
@@ -437,7 +436,7 @@ async def test_a_capture_mid_scrub_shows_the_final_position(rig, reads):
     assert set(rig.gfx(series)._drawn) <= {rig.canvas_id}
 
 
-# -- lifecycle (L6) -----------------------------------------------------------
+# -- lifecycle ----------------------------------------------------------------
 
 
 async def test_a_store_change_mid_read_never_draws_the_earlier_data(rig, reads):
@@ -590,7 +589,7 @@ async def test_a_transform_change_that_keeps_the_region_reads_nothing(rig, reads
 
 
 async def test_fit_camera_is_the_same_hidden_empty_and_shown(rig, reads):
-    """M5: the fit frames the store's extent, whatever the mesh holds."""
+    """The fit frames the store's extent, whatever the mesh holds."""
     series = rig.add_mesh(_series_store())
 
     def fitted():
@@ -652,10 +651,9 @@ async def test_a_2d_view_loads_through_the_same_path(reads):
 async def test_a_mesh_scrub_leaves_an_image_beside_it_alone(rig, reads, monkeypatch):
     """The image loads as it does alone: at most one read per position, last wins.
 
-    Both load through the scheduler's compute lane (scheduler-only loading
-    design v2, D3), so how many positions a scrub skips depends on timing;
-    with or without the mesh, no position is read twice and the image ends
-    on the last one.
+    Both load through the scheduler's compute lane, so how many positions
+    a scrub skips depends on timing; with or without the mesh, no position
+    is read twice and the image ends on the last one.
     """
     image_reads: list[object] = []
     inner = ImageMemoryStore.get_data

@@ -1,21 +1,18 @@
-"""The five control types stage 4 adds, in both toolkits.
+"""The five layer-2 control types, in both toolkits.
 
-Stage 4 of ``plans/convenience_cleanup.md`` (section 10).  The layer-1 bus
-contract was already covered against a stub subclass by
+The layer-1 bus contract was already covered against a stub subclass by
 ``tests/gui/test_appearance_fields.py`` and the two ``*_visible_toggle``
 modules; what is new here is **layer 2** -- one class per control type,
 implementing the ``_build`` / ``_read`` / ``_apply`` seam -- and the layer-3
-classes, which section 10.6 predicted would need only thin tests because the
-behaviour is the base's.
+classes, which need only thin tests because the behaviour is the base's.
 
 Both toolkits live in one module and are asserted **against each other**: a
 field must not exist on one side and not the other, and that is worth a test
 rather than a convention.  The 44 classes state their field, label and
-defaults twice, once per toolkit, and
-``plans/gui_backend_unification.md`` section 4 records why that duplication is
-being left alone: these assertions already give the guarantee that collapsing
-it would give by construction, so the remaining cost is maintenance rather
-than risk.
+defaults twice, once per toolkit.  That duplication is left alone on
+purpose: these assertions already give the guarantee that collapsing it
+would give by construction, so the remaining cost is maintenance rather than
+risk.
 
 Which makes :data:`CATALOG` the load-bearing part.  It is written by hand, so
 the tests that iterate it are only as complete as it is -- and
@@ -43,8 +40,9 @@ pytest.importorskip("superqt")
 import cellier.gui.anywidget.visuals as anywidget_visuals
 import cellier.gui.qt.visuals as qt_visuals
 
-# (field-class stem, field name, label) -- the section 10.4 catalog, minus
-# ``visible`` (stage 0) and ``settled_lod_bias`` (an existing widget, not a new class).
+# (field-class stem, field name, label) -- every field class, minus ``visible``
+# (its own module pair) and ``settled_lod_bias`` (an existing widget, not a new
+# class).
 CATALOG = [
     ("OpacitySlider", "opacity", "Opacity"),
     ("LabelsRenderModeCombo", "render_mode", "Render mode"),
@@ -70,7 +68,7 @@ CATALOG = [
     ("EdgeThicknessSpin", "edge_thickness", "Edge thickness"),
     ("EdgeThicknessSpaceCombo", "edge_thickness_space", "Edge thickness space"),
     # The image field controls are gone: the unified image control draws every
-    # image field (unified image design 3.10).
+    # image field.
 ]
 
 
@@ -134,8 +132,8 @@ def test_both_toolkits_share_the_remaining_per_field_defaults(
 def test_the_two_slider_granularity_spellings_mean_the_same_thing():
     """``QtBoundedSlider`` says ``decimals``; its twin says ``step``.
 
-    Both describe how finely the opacity slider moves, and they agree today
-    (2 decimals is a step of 0.01).  They are two independent constants, so
+    Both describe how finely the opacity slider moves, and they agree (2
+    decimals is a step of 0.01).  They are two independent constants, so
     nothing but this keeps them agreeing -- and a slider that steps by 0.01 on
     one front end and 0.1 on the other is a real difference in what a user can
     express.
@@ -186,8 +184,8 @@ def test_neither_toolkit_has_a_field_class_the_other_lacks():
 def test_the_catalog_lists_every_field_class():
     """``CATALOG`` is complete, so the tests that iterate it cover everything.
 
-    ``VisibleToggle`` is the one documented omission -- it landed in stage 0
-    and keeps its own module pair (``test_qt_visible_toggle.py`` /
+    ``VisibleToggle`` is the one documented omission -- it keeps its own
+    module pair (``test_qt_visible_toggle.py`` /
     ``test_visible_toggle.py``), which covers it more thoroughly than a row
     here would.
     """
@@ -220,7 +218,7 @@ def test_the_field_name_matches_a_real_appearance_model_field(stem, field, _labe
     from cellier.visuals._points_memory import PointsMarkerAppearance
 
     models = (
-        # Image models too, since D10 made the image field controls public.
+        # Image models too, since the image field controls are public.
         InMemoryImageAppearance,
         MultiscaleImageAppearance,
         BaseAppearance,
@@ -237,8 +235,7 @@ def test_the_field_name_matches_a_real_appearance_model_field(stem, field, _labe
 def test_colormap_mode_has_no_control_in_either_toolkit():
     """It is ``frozen=True``, so a control wired to it could only raise.
 
-    Section 10.4 listed it; section 6.5.1 proposal 4 removed it.  Asserted so
-    it cannot creep back in with the rest of the labels controls.
+    Asserted so it cannot creep back in with the rest of the labels controls.
     """
     for module in (qt_visuals, anywidget_visuals):
         assert not any("ColormapMode" in name for name in module.__all__)
@@ -329,7 +326,7 @@ def test_every_control_type_applies_a_foreign_write_without_re_emitting(qtbot, t
         assert emitted == [], f"{toolkit}/{name} re-emitted on an inbound write"
         # One spelling on both toolkits now: Qt's ``value`` is a property
         # like the anywidget trait, so the branch this line used to need
-        # is gone (``plans/gui_backend_unification.md`` D7).
+        # is gone.
         actual = widget.value
         if name == "color_picker":
             assert tuple(actual) == pytest.approx(foreign)
@@ -420,7 +417,7 @@ def test_the_debug_render_mode_never_reaches_a_control():
     """``gradient_debug`` renders a diagnostic that looks like a bug.
 
     Denylisted rather than allowlisted, so a future *real* mode appears
-    automatically (section 6.5.1 proposal 4).
+    automatically.
     """
     from cellier.visuals._labels import MultiscaleLabelsAppearance
 
@@ -536,7 +533,7 @@ def test_a_colour_edit_emits_one_event_carrying_all_four_components(qtbot):
 
 
 # ---------------------------------------------------------------------------
-# One asset per control type (design section 10.2 / 6.2.1)
+# One asset per control type
 # ---------------------------------------------------------------------------
 
 
@@ -547,8 +544,8 @@ def test_each_control_type_has_exactly_one_shared_esm_asset():
     declares it in its **own** ``__dict__``, so layer-3 classes inherit the
     layer-2 object rather than re-reading the file.  That is what makes "one
     ``.js`` per control type, not per field" true rather than aspirational --
-    and it is why the section 6.1.1 browser procedure runs once per asset
-    (section 6.5.2 decision 8).
+    and it is why the browser check of the JS runs once per asset, not once
+    per field.
     """
     from cellier.gui.anywidget.visuals._base import (
         AnywidgetBoundedSlider,

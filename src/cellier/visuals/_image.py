@@ -1,9 +1,10 @@
-"""Multiscale image visual models (unified image design 3.1)."""
+"""Multiscale image visual models."""
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
+from cellier._model import CellierModel
 from cellier.transform import AffineTransform
 from cellier.visuals._image_memory import (
     BaseImageAppearance,
@@ -104,7 +105,7 @@ class MultiscaleImageChannelAppearance(MultiscaleImageSingleAppearance):
     visible: bool = True
 
 
-class MultiscaleImageRenderConfig(BaseModel):
+class MultiscaleImageRenderConfig(CellierModel):
     """Render-layer configuration for a multiscale image visual.
 
     These parameters control GPU resource allocation.  They are stored in the

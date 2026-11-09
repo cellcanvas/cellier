@@ -7,9 +7,9 @@ from anywhere else.  ``PlaneGizmoController`` is the session; its two
 kinds differ only in the plane they edit:
 
 - ``ClippingPlaneGizmoController``: a ``ClippingPlane``, in the visual's
-  data coordinates (clipping plane gizmo design v2, 5.2 to 5.5).
+  data coordinates.
 - ``RenderPlaneGizmoController``: a ``RenderPlane``, in world coordinates,
-  with its whole frame and its extents (plane rendering design v3, 8.3).
+  with its whole frame and its extents.
 
 A canvas has one gizmo, of either kind.
 """
@@ -465,8 +465,7 @@ def scale_handle_axes(plane: Any) -> tuple[int, ...]:
 
     Gizmo axis 1 is ``in_plane_axis_0`` and axis 2 is ``in_plane_axis_1``.
     An axis has a handle when both sides of its extent are finite; with an
-    unbounded side there is no size to scale (plane rendering design v3,
-    8.3).
+    unbounded side there is no size to scale.
 
     Parameters
     ----------

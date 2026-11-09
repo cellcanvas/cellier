@@ -1,7 +1,4 @@
-"""The 2D/3D toggle's memory and its defaults (``cellier.gui._dims``).
-
-``plans/displayed_axes_required.md`` sections 4.1 and 5.2.
-"""
+"""The 2D/3D toggle's memory and its defaults (``cellier.gui._dims``)."""
 
 from __future__ import annotations
 
@@ -103,11 +100,11 @@ TZYX = ("time", "space", "space", "space")
         ((1, 2), SPACE3, ((1, 2), (0, 1, 2))),
         ((2, 1), SPACE3, ((2, 1), (0, 1, 2))),
         ((2, 3), TZYX, ((2, 3), (1, 2, 3))),
-        # Several space axes remain: the last in world order (D13).
+        # Several space axes remain: the last in world order.
         ((2, 3), ("space", "space", "space", "space"), ((2, 3), (1, 2, 3))),
         ((0, 1), ("space", "space", "space", "space"), ((0, 1), (0, 1, 3))),
         ((1, 2), ("space", "space", "space", "time"), ((1, 2), (0, 1, 2))),
-        # No space axis remains: the last remaining axis of any type (D8).
+        # No space axis remains: the last remaining axis of any type.
         ((1, 2), ("time", "space", "space"), ((1, 2), (0, 1, 2))),
         ((2, 3), ("time", "channel", "space", "space"), ((2, 3), (1, 2, 3))),
         # 3D stated: the last two in world order.

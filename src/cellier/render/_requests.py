@@ -43,12 +43,12 @@ class ReslicingRequest(NamedTuple):
     dims_state : DimsState
         Current dimension display state.
     selection : RegionSelection or None
-        Where this canvas's slice is and how thick, as one frozen artifact
-        (D43).  The transform is the ``rendered -> world`` embedding whose
-        constant column carries the slice positions; the region is in
-        **world** coordinates.  ``None`` when the controller could not build
-        one -- a scene with no rendered system yet -- in which case the
-        planning phase falls back to ``dims_state``.
+        Where this canvas's slice is and how thick, as one frozen artifact.
+        The transform is the ``rendered -> world`` embedding whose constant
+        column carries the slice positions; the region is in **world**
+        coordinates.  ``None`` when the controller could not build one -- a
+        scene with no rendered system yet -- in which case the planning
+        phase falls back to ``dims_state``.
     request_id : UUID
         Unique identifier per trigger; used for cancellation.
     scene_id : UUID

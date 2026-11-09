@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar
 from uuid import uuid4
 
 import numpy as np
-from psygnal import EventedModel, Signal
+from psygnal import Signal
 from pydantic import UUID4, AfterValidator, Field, PrivateAttr, model_validator
 
+from cellier._model import CellierEventedModel
 from cellier.data._axes import identity_transform, install_level_transforms
 from cellier.data._changes import STORE_CHANGE_KINDS, StoreChange
 from cellier.data._dataset_info import DatasetInfo, RowSection
@@ -92,7 +93,7 @@ def geometry_axis_extents(
     )
 
 
-class BaseDataStore(EventedModel):
+class BaseDataStore(CellierEventedModel):
     """The base class for all DataStores.
 
     Parameters
@@ -156,8 +157,7 @@ class BaseDataStore(EventedModel):
         store's data changes: automatically when a data field is reassigned,
         and on :meth:`notify_changed` after an in-place write.  A controller
         that registers the store relays it to the event bus and reslices the
-        visuals reading the store (``plans/store_change_events.md``).
-        Changes must happen on the main thread.
+        visuals reading the store.  Changes must happen on the main thread.
     """
 
     data_changed: ClassVar[Signal] = Signal(object)

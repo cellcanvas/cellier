@@ -211,9 +211,8 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     t_end = clipped.y;
     if (t_start >= t_end) { discard; }
     $$ if render_mode == "plane"
-    // Plane mode (plane rendering design v3, 5.1, 5.2): the label at the
-    // nearest render plane the ray meets.  Background is passed over and
-    // the next plane along the ray tried.
+    // Plane mode: the label at the nearest render plane the ray meets.
+    // Background is passed over and the next plane along the ray tried.
     let plane_ray_o = (u_wobject.world_transform * vec4<f32>(near_pos, 1.0)).xyz;
     let plane_ray_d = (u_wobject.world_transform * vec4<f32>(ray_dir, 0.0)).xyz;
     var plane_found = false;

@@ -169,7 +169,7 @@ def test_visual_requires_camera_reslice_is_true():
     assert v.requires_camera_reslice is True
 
 
-# ── Phase 2: MultiscaleLabelsAppearance inherits from BaseLabelsAppearance ────
+# ── MultiscaleLabelsAppearance inherits from BaseLabelsAppearance ─────────────
 
 
 def test_label_appearance_inherits_colormap_mode_frozen():
@@ -189,7 +189,7 @@ def test_label_appearance_inherits_salt_mutation():
 
 
 def test_label_appearance_render_mode_is_live():
-    """render_mode must not be frozen — Phase 1 added a live GFX handler for it."""
+    """render_mode must not be frozen: the GFX visual has a live handler for it."""
     a = MultiscaleLabelsAppearance()
     received = []
     a.events.render_mode.connect(lambda v: received.append(v))

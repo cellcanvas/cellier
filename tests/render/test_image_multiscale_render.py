@@ -1,4 +1,4 @@
-"""Render + commit tests for ``GFXMultiscaleImageVisual`` (Phase 3).
+"""Render + commit tests for ``GFXMultiscaleImageVisual``.
 
 Exercises the multiscale image commit path -- tile/brick upload, LUT rebuild,
 and ``build_material`` -- that the planning-only tests never reach, then reads
@@ -220,8 +220,8 @@ def _tzyx_store_with_a_nonuniform_t(controller, scene_id, tmp_path):
     real light-sheet viewer collapses in 3D too, which is what makes this
     the representative case rather than ``_nonuniform_z_transform``'s
     (which puts the leaf on an axis 3D mode would display, and correctly
-    raises ``NonAffineTransformError`` there -- see the design doc, "The GPU
-    still gets a matrix").
+    raises ``NonAffineTransformError`` there: the GPU gets a matrix only
+    once the non-uniform axis is sliced).
     """
     import tensorstore as ts
 
@@ -281,14 +281,14 @@ async def test_reslice_3d_with_a_nonuniform_axis_transform(
 ):
     """A 3D reslice does not need ``.inverse()`` on the ``data -> world`` transform.
 
-    Regression test: the camera/frustum pull-back (``_to_level0_displayed``,
-    formerly via ``_rendered_to_level0``) composed
-    ``rendered_to_world.then(transform.inverse())``.
+    Regression test: the camera/frustum pull-back (``_to_level0_displayed``)
+    once composed ``rendered_to_world.then(transform.inverse())``.
     ``NonUniformAxisTransform.inverse()`` is structurally ``None`` (the map
     is invertible; its inverse is not itself a transform of that class), so
-    every ``ByDimensionTransform`` carrying one raised before the camera
-    pull-back went through ``imap_coordinates`` in two steps instead.  ``t``
-    is collapsed (not displayed) in 3D, matching the real light-sheet viewer.
+    every ``ByDimensionTransform`` carrying one raised.  The pull-back now
+    goes through the node's placement transform, which pins the collapsed
+    ``t`` first (``affine_for_node``) and so is affine.  ``t`` is collapsed
+    (not displayed) in 3D, matching the real light-sheet viewer.
     """
     scene = controller.add_scene(
         displayed_axes=("z", "y", "x"),

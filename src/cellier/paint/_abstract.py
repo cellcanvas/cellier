@@ -154,8 +154,8 @@ class AbstractPaintController(ABC):
             self._history.push(command)
             self._on_stroke_completed(command)
         # The view or the transform may have changed since this controller
-        # was made (full affine design v2, D5): a stroke that cannot be
-        # painted faithfully is not started.
+        # was made: a stroke that cannot be painted faithfully is not
+        # started.
         refusal = self._controller.paint_refusal(self._visual_id)
         if refusal is not None:
             if refusal != self._last_refusal:
@@ -229,8 +229,7 @@ class AbstractPaintController(ABC):
         voxel_center = np.round(voxel_coord).astype(np.int64)
         voxel_indices = self._voxels_in_radius(voxel_center, self._brush_radius)
         # The brush is a ball of voxels round the pick and would reach
-        # across a clipping plane: write only the voxels that are drawn
-        # (clipping planes design D26).
+        # across a clipping plane: write only the voxels that are drawn.
         planes = plane_tuples(visual_model.clipping_planes)
         if planes and voxel_indices.shape[0]:
             voxel_indices = voxel_indices[

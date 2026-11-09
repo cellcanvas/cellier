@@ -1,4 +1,3 @@
-# tests/v2/data/points/test_points_memory_store.py
 """Tests for PointsMemoryStore construction and get_data."""
 
 import asyncio
@@ -26,8 +25,7 @@ def _req(
     """One request, with the filter as the region the store now takes.
 
     ``sliced`` maps axis to a **data**-space position; each becomes a slab of
-    half-width *thickness*, which is exactly what ``slice_indices`` plus
-    ``thickness`` meant before Phase 8 deleted them (R8.3).
+    half-width *thickness*.
     """
     if sliced is None:
         sliced = {}

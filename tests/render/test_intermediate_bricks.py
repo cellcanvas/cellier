@@ -1,8 +1,7 @@
 """Intermediate loading stages: the ancestors of a target plan.
 
-``plans/progressive_intermediate_level_design_v2.md``, sections 3 and 6.
 The expected ancestors are stored in ``intermediate_bricks_cases.json``
-(reviewed with the design; never regenerated), not recomputed here.
+(reviewed by hand; never regenerated), not recomputed here.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ from cellier.render.scheduling import DEAD, ChunkClass, Tier
 from cellier.render.visuals._chunked import (
     desired_bricks,
     log_intermediate_cap_once,
-    target_room,
+    max_target_bricks,
 )
 from cellier.visuals import MultiscaleImageSingleAppearance, ProgressiveLoadingConfig
 from cellier.visuals._image import (
@@ -198,13 +197,15 @@ def test_no_stage_at_the_backstop_level_even_without_a_backstop_array() -> None:
     assert (ds.cls == ChunkClass.TARGET).all()
 
 
-def test_target_room_subtracts_a_two_dimensional_estimate() -> None:
+def test_max_target_bricks_subtracts_a_two_dimensional_estimate() -> None:
     residency = _residency(400)
     budget = residency.n_slots - 1
     room = budget - 1  # one backstop brick
 
     def asked(**loading) -> int:
-        return target_room(residency, BACKSTOP, ProgressiveLoadingConfig(**loading))
+        return max_target_bricks(
+            residency, BACKSTOP, ProgressiveLoadingConfig(**loading)
+        )
 
     assert asked() == room
     assert asked(intermediate_offsets=(2,)) == room - room // 16

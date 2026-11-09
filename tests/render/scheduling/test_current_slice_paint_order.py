@@ -1,10 +1,9 @@
 """2D: loaded tiles of the slice on screen stay above the backstop.
 
-Through a real controller and store
-(``plans/2d_current_slice_paint_order.md``).  The fixture is a 64^2 plane,
-8 deep, with four levels and ``block_size=8``: an 8 x 8 grid of base cells,
-level 4 (the backstop) one tile.  ``force_level`` picks each plan's target,
-so the canvas size does not.
+Through a real controller and store.  The fixture is a 64^2 plane, 8 deep,
+with four levels and ``block_size=8``: an 8 x 8 grid of base cells, level 4
+(the backstop) one tile.  ``force_level`` picks each plan's target, so the
+canvas size does not.
 """
 
 from __future__ import annotations

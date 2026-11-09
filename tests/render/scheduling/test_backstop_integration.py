@@ -1,4 +1,4 @@
-"""The backstop through a real controller and store (design v3, 5.9, Phase 4).
+"""The backstop through a real controller and store.
 
 The fixture is a 16^3 volume with two levels and ``force_level=1``, so the
 target is level 1 (store scale 0) and the backstop is level 2 (scale 1).

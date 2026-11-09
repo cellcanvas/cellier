@@ -3,10 +3,9 @@
 The Qt and anywidget indicators (``QtLoadingIndicator``,
 ``AnywidgetLoadingIndicator``) draw a bar and a line of text.  Which bar and
 which text follows from the visual's
-:class:`~cellier.events.LoadingProgress`
-(``plans/progressive_loading_design_v3.md`` 5.13); this module turns one into
-the other, and sums a group of visuals (an ``OrthoViewer``'s four panels
-share one control) into one progress.
+:class:`~cellier.events.LoadingProgress`; this module turns one into the
+other, and sums a group of visuals (an ``OrthoViewer``'s four panels share
+one control) into one progress.
 
 Nothing here imports a toolkit.
 """

@@ -1,31 +1,29 @@
 """The chunk scheduler's state machine, without an event loop.
 
-Design: ``plans/progressive_loading_design_v3.md`` sections 5.2-5.7, 5.13
-and 5.14.  :class:`SchedulerCore` owns one registry per cache and makes every
-decision: what a pass keeps and drops, which read to issue next, what an
-arrival becomes, which slot a commit takes and what it evicts, and when a
-cache's view is complete.  It never awaits anything and never reads a clock
-on its own: the caller passes ``now``, starts the reads it returns, and
-reports each result back.  :class:`~cellier.render.scheduling.ChunkScheduler`
-is that caller on asyncio; the property test drives the core directly with
-a simulated clock.
+:class:`SchedulerCore` owns one registry per cache and makes every decision:
+what a pass keeps and drops, which read to issue next, what an arrival
+becomes, which slot a commit takes and what it evicts, and when a cache's
+view is complete.  It never awaits anything and never reads a clock on its
+own: the caller passes ``now``, starts the reads it returns, and reports each
+result back.  :class:`~cellier.render.scheduling.ChunkScheduler` is that
+caller on asyncio; the property test drives the core directly with a
+simulated clock.
 
-The order of ``RECENT`` records (design 5.5), most important first::
+The order of ``RECENT`` records, most important first::
 
     (cls == BACKSTOP desc, wanted_gen desc, cls desc, rank asc)
 
 Every ``VISIBLE`` record outranks every ``RECENT`` one.  The backstop keeps
 its class priority; every other class is ordered by age first, so the
 intermediate stages of the views visited do not outlive the fine bricks of
-the view just left (``plans/progressive_intermediate_level_design_v2.md``
-5.2).  With two classes this is ``(cls, wanted_gen, rank)``.
+the view just left.  With two classes this is ``(cls, wanted_gen, rank)``.
 
 A cache declares how its reads are treated with a
-:class:`~cellier.render.scheduling.CachePolicy` (``plans/mesh_refactor_v3.md``
-5.2): a cap on target reads in flight, the resource a read occupies (I/O or
-compute), and what a failure costs.  With the default policy on every cache
-the core decides exactly as it did before policies existed; the trace guard
-in ``tests/render/scheduling/test_trace_guard.py`` holds it to that.
+:class:`~cellier.render.scheduling.CachePolicy`: a cap on target reads in
+flight, the resource a read occupies (I/O or compute), and what a failure
+costs.  With the default policy on every cache the core decides exactly as it
+did before policies existed; the trace guard in
+``tests/render/scheduling/test_trace_guard.py`` holds it to that.
 """
 
 from __future__ import annotations
@@ -183,7 +181,7 @@ class SchedulerCore:
     on_progress : Callable[[int], None] | None
         ``cache_id``, whenever its counts may have changed: after a pass, a
         commit round that touched it, a read given up, or an invalidation.
-        Consumers coalesce (design 5.13).
+        Consumers coalesce.
     trace : Callable[[str, tuple], None] | None
         Test hook: every decision, as ``(kind, payload)``.  ``None`` costs
         nothing.
@@ -276,7 +274,7 @@ class SchedulerCore:
         own = cache.policy.retry_max_attempts
         return self.config.retry_max_attempts if own is None else own
 
-    # -- passes (5.4) ----------------------------------------------------------
+    # -- passes ----------------------------------------------------------------
 
     def set_desired(self, desired: DesiredSet) -> None:
         """Record the latest desired set for its cache; applied by :meth:`process`.
@@ -287,7 +285,7 @@ class SchedulerCore:
             If the cache is not registered.
         ValueError
             If the keys repeat, or there are more than ``n_slots - 1`` of them
-            (the planner must truncate, design 5.3).
+            (the planner must truncate).
         """
         cache = self._caches.get(desired.cache_id)
         if cache is None:
@@ -303,7 +301,7 @@ class SchedulerCore:
         self._pending[desired.cache_id] = desired
 
     def retire(self, cache_id: int) -> None:
-        """Queue an empty pass for *cache_id* (design 5.4).
+        """Queue an empty pass for *cache_id*.
 
         Queued records are deleted and everything else becomes ``RECENT``;
         residents stay until the ``RECENT`` order evicts them.
@@ -350,7 +348,7 @@ class SchedulerCore:
         return passed
 
     def _apply(self, cache: _Cache, desired: DesiredSet | None) -> None:
-        """Diff one desired set against the cache's registry (design 5.4)."""
+        """Diff one desired set against the cache's registry."""
         reg = cache.registry
         reg.compact()
         cache.generation += 1
@@ -416,7 +414,7 @@ class SchedulerCore:
         if self.trace is not None:
             self.trace("pass", (cache.cache_id, gen, keys.copy(), cls.copy()))
 
-    # -- fetching (5.5, 5.6) -----------------------------------------------------
+    # -- fetching ----------------------------------------------------------------
 
     def _head(self, cache: _Cache) -> tuple[int, int] | None:
         """``(cls, key)`` of the cache's next read, or ``None``."""
@@ -572,7 +570,7 @@ class SchedulerCore:
     def complete_read(
         self, ticket: ReadTicket, data: Any = None, error: BaseException | None = None
     ) -> str:
-        """Report a finished read (design 5.6).
+        """Report a finished read.
 
         Parameters
         ----------
@@ -601,9 +599,9 @@ class SchedulerCore:
                 f"that is not FETCHING"
             )
         if reg.stale[row]:
-            # Invalidated in flight (5.14): never commit pre-invalidation data
-            # as the record's own.  A ``commit_stale`` cache still shows it,
-            # as kept, from the next commit round.
+            # Invalidated in flight: never commit pre-invalidation data as the
+            # record's own.  A ``commit_stale`` cache still shows it, as kept,
+            # from the next commit round.
             reg.stale[row] = False
             reg.attempts[row] = 0
             if reg.tier[row] == _VISIBLE:
@@ -637,11 +635,11 @@ class SchedulerCore:
                 error,
             )
             if attempts >= max_attempts:
-                # Trigger 4 (5.8): completion, and so the background, may change.
+                # Trigger 4: completion, and so the background, may change.
                 self._settle(cache)
                 return ReadOutcome.GAVE_UP
             return ReadOutcome.RETRY
-        # 5.2: a good read is kept, wanted or not; the commit round decides.
+        # A good read is kept, wanted or not; the commit round decides.
         reg.state[row] = _ARRIVED
         cache.arrived[ticket.key] = data
         if cache.arrived_since is None:
@@ -696,7 +694,7 @@ class SchedulerCore:
                 n += k
         return n
 
-    # -- commit rounds (5.7) -----------------------------------------------------
+    # -- commit rounds -----------------------------------------------------------
 
     def oldest_arrival(self) -> float | None:
         """When the longest-waiting arrival (or stale result) landed, or ``None``."""
@@ -881,7 +879,7 @@ class SchedulerCore:
             int(reg.cls[row]), int(reg.wanted_gen[row]), int(reg.rank[row])
         )
 
-    # -- invalidation (5.14) -----------------------------------------------------
+    # -- invalidation ------------------------------------------------------------
 
     def invalidate(self, store_id: Any, region: Any = None) -> list[int]:
         """Forget data read from a store in *region* (all of it for ``None``).
@@ -966,7 +964,7 @@ class SchedulerCore:
             touched.append(cache.cache_id)
         return touched
 
-    # -- completion, drawing, progress (5.8, 5.13) -------------------------------
+    # -- completion, drawing, progress -------------------------------------------
 
     def _done_mask(self, cache: _Cache) -> np.ndarray:
         reg = cache.registry
@@ -1029,7 +1027,7 @@ class SchedulerCore:
         return self._caches[cache_id].generation
 
     def progress(self, cache_id: int) -> CacheProgress:
-        """Loading progress for one cache (design 5.13)."""
+        """Loading progress for one cache."""
         cache = self._caches[cache_id]
         reg = cache.registry
         visible = (reg.tier == _VISIBLE) & (reg.state != DEAD)

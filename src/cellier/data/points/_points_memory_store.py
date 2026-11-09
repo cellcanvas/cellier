@@ -1,4 +1,3 @@
-# src/cellier/v2/data/points/_points_memory_store.py
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +22,7 @@ def _placeholder_positions(n_display: int) -> np.ndarray:
     pygfx will not accept empty geometry, so the store returns a single
     zeroed vertex instead.  It is sized to the retained axes rather than
     fixed at three: a rank-4 store displaying data axes ``(2, 3)`` would
-    otherwise index a ``(1, 3)`` constant with axis 3 and raise (F8.4).
+    otherwise index a ``(1, 3)`` constant with axis 3 and raise.
     """
     return np.zeros((1, n_display), dtype=np.float32)
 
@@ -32,8 +31,8 @@ class PointsMemoryStore(BaseDataStore):
     """In-memory point-cloud data store backed by numpy arrays.
 
     ``get_data`` runs the filter in the event loop's default executor, so
-    a large cloud does not stall the loop (``plans/scheduler_only_loading_
-    design_v2.md`` D4); :meth:`read` is the same filter, synchronous.
+    a large cloud does not stall the loop; :meth:`read` is the same
+    filter, synchronous.
 
     Positions are stored in *data-axis order*: column 0 is axis 0 (z),
     column 1 is axis 1 (y), column 2 is axis 2 (x).  The render layer
@@ -70,8 +69,8 @@ class PointsMemoryStore(BaseDataStore):
     """
 
     store_type: Literal["points_memory"] = "points_memory"
-    # Reassigning these announces a change on ``data_changed``
-    # (plans/store_change_events.md): positions move the extent.
+    # Reassigning these announces a change on ``data_changed``:
+    # positions move the extent.
     _EXTENT_FIELDS: ClassVar[frozenset[str]] = frozenset({"positions"})
     _CONTENTS_FIELDS: ClassVar[frozenset[str]] = frozenset({"colors", "sizes"})
     DATASET_INFO_LABEL: ClassVar[str] = "in-memory points"
@@ -155,9 +154,8 @@ class PointsMemoryStore(BaseDataStore):
 
         **Descriptive only.**  It reports what this store carries; it does
         not decide what the material does.  Where RGB comes from is declared
-        on the appearance and honoured verbatim (D20) -- the render layer
-        never infers it from the data and never writes it back at commit
-        time.
+        on the appearance and honoured verbatim -- the render layer never
+        infers it from the data and never writes it back at commit time.
         """
         return "vertex" if self.colors is not None else "uniform"
 
@@ -229,24 +227,22 @@ class PointsMemoryStore(BaseDataStore):
         colors = self.colors
         sizes = self.sizes
         # Ascending: the uploaded vertex buffer's axis order is the data's,
-        # and a display permutation lives in the node matrix (design 3.14).
+        # and a display permutation lives in the node matrix.
         # ``retained_axes`` is read off the visual's ``data -> world``
         # transform.  ``displayed_axes`` indexes the **world**, so using it
         # here would raise on a store of lower rank than the world and
         # silently upload the wrong columns on a transform that permutes its
-        # axes; it was the fallback for a headlessly constructed visual until
-        # v1 was retired (R8.3).
+        # axes.
         displayed = list(request.retained_axes)
 
         # ── Phase 1: build proximity mask ────────────────────────────
         # A point survives if it passes the proximity test on EVERY
-        # non-displayed (sliced) axis.
-        # The region *is* the filter (design 3.12).  For images it is reduced
-        # to a bounding box and rounded; for points there is nothing to round
-        # -- the constraints apply to the points themselves.  A 3-D view has
-        # no slabs, so the region is unbounded, ``contains`` is all-True, and
-        # the "no sliced axes so the loop does not run" special case
-        # disappears.
+        # non-displayed (sliced) axis.  The region *is* the filter.  For
+        # images it is reduced to a bounding box and rounded; for points
+        # there is nothing to round -- the constraints apply to the points
+        # themselves.  A 3-D view has no slabs, so the region is unbounded,
+        # ``contains`` is all-True, and the "no sliced axes so the loop does
+        # not run" special case disappears.
         point_mask = request.region.contains(positions)
 
         # ── Phase 2: gather surviving points ─────────────────────────
@@ -265,7 +261,7 @@ class PointsMemoryStore(BaseDataStore):
             )
 
         new_positions = positions[surviving_indices][:, displayed]  # (n_surv, n_disp)
-        # The collapsed columns a coupled view folds in (design v2, D11).
+        # The collapsed columns a coupled view folds in.
         fold_positions = (
             positions[surviving_indices][:, list(request.fold_axes)]
             if request.fold_axes

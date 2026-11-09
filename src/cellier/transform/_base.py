@@ -1,4 +1,4 @@
-"""The transform base class (design section 8)."""
+"""The transform base class."""
 
 from __future__ import annotations
 
@@ -7,13 +7,14 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import numpy as np
-from pydantic import UUID4, BaseModel, ConfigDict, Field
+from pydantic import UUID4, ConfigDict, Field
 
 # Transform is imported at runtime, not under TYPE_CHECKING: pydantic
 # resolves field annotations at class-creation time and cannot see a
 # deferred import.
 from transformnd.base import Transform  # noqa: TC002
 
+from cellier._model import CellierModel
 from cellier.transform._geometry_ops import (
     DegenerateNormalError,
     NonInvertibleTransformError,
@@ -35,7 +36,7 @@ __all__ = [
 ]
 
 
-class BaseTransform(BaseModel, ABC):
+class BaseTransform(CellierModel, ABC):
     """A transform between two coordinate systems.
 
     Wraps a :class:`transformnd.base.Transform` rather than
@@ -45,12 +46,11 @@ class BaseTransform(BaseModel, ABC):
     transform.  Owning the source/target pairing here is what avoids
     inheriting that bug.
 
-    Transforms are frozen (Q13).  Dimensionality is **not** stored: it
-    lives on the wrapped transform and is read through, so the model
-    cannot disagree with itself (D9).  The cross-check against the
-    coordinate systems' axis counts cannot happen here, because the model
-    holds ids rather than systems; it is factored into
-    :meth:`validate_against`.
+    Transforms are frozen.  Dimensionality is **not** stored: it lives on
+    the wrapped transform and is read through, so the model cannot
+    disagree with itself.  The cross-check against the coordinate
+    systems' axis counts cannot happen here, because the model holds ids
+    rather than systems; it is factored into :meth:`validate_against`.
 
     Parameters
     ----------
@@ -65,7 +65,7 @@ class BaseTransform(BaseModel, ABC):
     id : UUID4
         Unique identifier.  Auto-generated.  Not ``(input, output)``,
         because two coordinate systems may be joined by more than one
-        transform (D14).
+        transform.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -76,7 +76,7 @@ class BaseTransform(BaseModel, ABC):
     transform: Transform
     id: UUID4 = Field(default_factory=uuid4, frozen=True)
 
-    # -- dimensionality, read through to the wrapped transform (D9) ----
+    # -- dimensionality, read through to the wrapped transform ---------
 
     @property
     def input_ndim(self) -> int:
@@ -97,10 +97,11 @@ class BaseTransform(BaseModel, ABC):
     ) -> None:
         """Check this transform against the two systems it claims to join.
 
-        The four checks of D9: both ids match, and both axis counts match
-        the wrapped transform's dimensionality.  A future registry calls
-        this on insertion; defining it now means the registry inherits a
-        decided rule rather than inventing one.
+        Four checks: both ids match, and both axis counts match the wrapped
+        transform's dimensionality, which is the one place the number of axes
+        is stored.  :meth:`compose` runs it on its second operand; anything
+        that files transforms under a pair of systems should run it too, rather
+        than invent its own rule.
 
         Parameters
         ----------
@@ -191,7 +192,7 @@ class BaseTransform(BaseModel, ABC):
     def imap_coordinates(self, coordinates: np.ndarray) -> np.ndarray:
         """Map points from the output system back to the input system."""
 
-    # -- vectors, two kinds and never one (D27) ------------------------
+    # -- vectors, two kinds and never one ------------------------------
 
     @abstractmethod
     def map_direction(self, direction: np.ndarray) -> np.ndarray:
@@ -241,7 +242,7 @@ class BaseTransform(BaseModel, ABC):
         region: ConvexRegion,
         output_coordinate_system: CoordinateSystem,
     ) -> ConvexRegion:
-        """Map a convex region back, dropping broadcast constraints (D8)."""
+        """Map a convex region back, dropping broadcast constraints."""
 
     # -- structure ------------------------------------------------------
 
@@ -277,10 +278,10 @@ class BaseTransform(BaseModel, ABC):
 
         The correspondence is **not stored** -- keeping it beside the
         transform that already encodes it would be a second source of truth
-        (D23) -- so each transform reads it back from whatever it does hold.
-        An affine reads it off its matrix; a block container reads it off
-        its block declarations, structurally, with no matrix involved, which
-        is what lets a non-affine transform answer at all.
+        -- so each transform reads it back from whatever it does hold. An
+        affine reads it off its matrix; a block container reads it off its
+        block declarations, structurally, with no matrix involved, which is
+        what lets a non-affine transform answer at all.
 
         Returns
         -------
@@ -305,7 +306,7 @@ class BaseTransform(BaseModel, ABC):
     def axis_coupling(self) -> np.ndarray:
         """Return which output axes each input axis reaches, as booleans.
 
-        The non-zero pattern of the linear block under decision D7's relative
+        The non-zero pattern of the linear block under the relative coupling
         tolerance (``cellier.transform._alignment.coupling_pattern``):
         ``coupling[o, i]`` is whether input axis ``i`` contributes to output
         axis ``o``.  Unlike :meth:`axis_correspondence` it never raises -- a
@@ -339,14 +340,14 @@ class BaseTransform(BaseModel, ABC):
     def exclusive_axis_correspondence(self) -> dict[int, int]:
         """Return ``{input axis: output axis}`` for the **uncoupled** pairs only.
 
-        An input axis is in the result when, under D7's pattern
+        An input axis is in the result when, under the coupling pattern
         (:meth:`axis_coupling`), it reaches exactly one output axis and that
         output axis is reached by nothing else.  Where
         :meth:`axis_correspondence` holds it is that mapping; under a
         rotation or shear it keeps the pairs the coupling leaves alone (a
-        time axis beside a rotated volume, a channel axis) and drops the
-        rest instead of raising.  Callers that need a per-axis pairing use it
-        on the axes the classifier shows uncoupled (design v2, I2).
+        time axis beside a rotated volume, a channel axis) and drops the rest
+        instead of raising.  Callers that need a per-axis pairing use it on
+        the axes the classifier shows uncoupled.
 
         Returns
         -------

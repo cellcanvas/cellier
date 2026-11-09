@@ -1,8 +1,8 @@
 """Plane outlines: the line around a render plane or a clipping plane.
 
-Plane outline design (``plans/plane_outline_design.md``), section 4.  An
-outline is a field of the plane it is drawn around, so it travels with the
-plane: through the controller, the events, the linkers and a saved scene.
+An outline is a field of the plane it is drawn around, so it travels with
+the plane: through the controller, the events, the linkers and a saved
+scene.
 
 Not to be confused with the screen-space outline pass
 (:class:`~cellier.visuals.VisualOutline`), which draws the contour of what
@@ -14,7 +14,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
+
+from cellier._model import CellierModel
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
 Rgba = tuple[float, float, float, float]
 
 
-class PlaneOutline(BaseModel):
+class PlaneOutline(CellierModel):
     """The line along the edge of the polygon a plane makes in its visual.
 
     For a render plane the polygon is what is drawn of it: the plane cut by
@@ -77,8 +79,7 @@ def without_outlines(planes: Iterable[Any]) -> tuple:
     """*planes* with every outline set aside.
 
     Two tuples that are equal after this differ in their outlines at most:
-    the planes are where they were, so nothing has to be read again
-    (plane outline design 4.3).
+    the planes are where they were, so nothing has to be read again.
 
     Parameters
     ----------

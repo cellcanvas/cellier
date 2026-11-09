@@ -131,7 +131,10 @@ def test_base_cell_range():
 def test_planning_helpers_agree_on_centres_and_boxes():
     """build_*_grids, the sorts and the culls all place bricks the same way."""
     from cellier.render._frustum import compute_brick_aabb_corners
-    from cellier.render._level_of_detail import build_level_grids, sort_arr_by_distance
+    from cellier.render._level_of_detail import (
+        build_level_grids,
+        sort_bricks_by_distance,
+    )
     from cellier.render._level_of_detail_2d import build_tile_grids_2d, viewport_cull_2d
     from cellier.render.block_cache import BlockKey3D
     from cellier.render.lut_indirection import BlockLayout3D
@@ -149,7 +152,7 @@ def test_planning_helpers_agree_on_centres_and_boxes():
     )
     # The sort ranks by the same centres: the nearest to a centre is that brick.
     for row in (0, len(arr) - 1):
-        ranked = sort_arr_by_distance(arr, centres[row], 8, scales, translations)
+        ranked = sort_bricks_by_distance(arr, centres[row], 8, scales, translations)
         np.testing.assert_array_equal(ranked[0], arr[row])
     # The frustum's AABB is the brick box.
     key = BlockKey3D(

@@ -1,18 +1,18 @@
-"""Clipping, SSAO and outlines on the masked path (masked image design v2, Phase 6).
+"""Clipping, SSAO and outlines on the masked path.
 
-* **The cross section** (9.1, MI-P10): a clipping plane keeping ``z >= CUT``
-  cuts the example's ellipsoid, and the camera looks at the cut face.  A cut
-  face is a surface whose inward normal is the plane's (into the kept side),
-  so with the value a ramp ``value = z``, an inward ``max`` over ``THICKNESS``
-  reads ``CUT + THICKNESS - 1/2`` (the midpoint rule) and a ``mean``
+* **The cross section**: a clipping plane keeping ``z >= CUT`` cuts the
+  example's ellipsoid, and the camera looks at the cut face.  A cut face is a
+  surface whose inward normal is the plane's (into the kept side), so with the
+  value a ramp ``value = z``, an inward ``max`` over ``THICKNESS`` reads
+  ``CUT + THICKNESS - 1/2`` (the midpoint rule) and a ``mean``
   ``CUT + THICKNESS / 2``.  The wrong sign would read ``CUT - 1/2`` and
-  ``CUT - THICKNESS / 2``.  The colormap's three primaries over ``CLIM``
-  put each of the four answers in its own colour.
-* **The value side's cull** (5.1): the value side plans with the mask's
-  planes pulled back to its own data coordinates, so its target bricks on
-  the clipped side are not fetched.
-* **The targets** (9.2): the pick, depth and normal targets of a masked frame
-  are byte-identical to the plain iso frame's, so SSAO (which reads depth and
+  ``CUT - THICKNESS / 2``.  The colormap's three primaries over ``CLIM`` put
+  each of the four answers in its own colour.
+* **The value side's cull**: the value side plans with the mask's planes
+  pulled back to its own data coordinates, so its target bricks on the
+  clipped side are not fetched.
+* **The targets**: the pick, depth and normal targets of a masked frame are
+  byte-identical to the plain iso frame's, so SSAO (which reads depth and
   normal) and outlines (which read the pick target) treat a MaskedImage as an
   image.  The masked branch only replaces the colour.
 """
@@ -27,8 +27,8 @@ import pytest
 from pygfx.renderers.wgpu import get_shared
 from rendercanvas.offscreen import RenderCanvas
 
-from cellier.convenience.capture import _wait_for_slicer
-from cellier.render._cellier_blender import NORMAL_TARGET, install_cellier_blender
+from cellier.convenience.capture import _wait_until_loaded
+from cellier.render._cellier_blender import NORMAL_TARGET, ensure_extra_targets
 from cellier.render.scheduling import ChunkClass
 from cellier.render.visuals._masked_image import value_clipping_planes
 from cellier.visuals import ClippingPlane, MaskedImageSingleAppearance
@@ -83,7 +83,7 @@ def _render(viewer, targets=()):
     renderer.pixel_scale = 1
     renderer.ppaa = "none"
     if targets:
-        assert install_cellier_blender(renderer, list(targets)) is True
+        assert ensure_extra_targets(renderer, list(targets)) is True
     canvas.request_draw(lambda: renderer.render(scene, view.camera))
     return np.asarray(canvas.draw()), renderer
 
@@ -109,7 +109,7 @@ def _read_target(renderer, name: str) -> np.ndarray:
     return rows[:, : size * width].copy()
 
 
-# -- the cross section (9.1, MI-P10) ----------------------------------------------
+# -- the cross section ------------------------------------------------------------
 
 
 def _cut_viewer(tmp_path, kind, op, value_scale=1, keep=1.0):
@@ -188,7 +188,7 @@ def face_counts(tmp_path_factory):
             try:
                 for op in CUT_OPS:
                     model.single.surface_projection = op
-                    asyncio.run(_wait_for_slicer(viewer.controller))
+                    asyncio.run(_wait_until_loaded(viewer.controller))
                     out[op] = _face_counts(viewer, model)
             finally:
                 viewer.controller.close()
@@ -220,7 +220,7 @@ def test_a_cut_face_keeping_the_other_side_projects_into_it(face_counts, op):
 
 
 def test_a_cut_face_projects_on_the_value_grid(tmp_path):
-    """The same on a value at twice the mask's resolution (MI-D4)."""
+    """The same on a value at twice the mask's resolution."""
     viewer, model = _cut_viewer(tmp_path, "memory", "max", value_scale=2)
     try:
         counts = _face_counts(viewer, model)
@@ -263,7 +263,7 @@ def test_the_cut_face_is_a_section_of_the_bands(tmp_path):
         viewer.controller.close()
 
 
-# -- the value side's cull (5.1) --------------------------------------------------
+# -- the value side's cull --------------------------------------------------------
 
 
 def test_the_value_side_gets_the_planes_in_its_own_coordinates(tmp_path):
@@ -299,8 +299,8 @@ def test_the_value_side_gets_the_planes_in_its_own_coordinates(tmp_path):
 def test_the_value_side_does_not_fetch_clipped_targets(tmp_path):
     """A lazy value plans fewer target bricks with the plane than without.
 
-    The backstop is never culled (clipping planes design D24); the target
-    bricks wholly on the clipped side are.
+    The backstop is never culled; the target bricks wholly on the clipped
+    side are.
     """
     mask_data, _ = band_pair(SIDE)
 
@@ -340,7 +340,7 @@ def test_the_value_side_does_not_fetch_clipped_targets(tmp_path):
     assert clipped <= 0.6 * whole, (clipped, whole)
 
 
-# -- the targets (9.2) ------------------------------------------------------------
+# -- the targets ------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("kind", ["memory", "lazy"])

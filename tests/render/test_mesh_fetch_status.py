@@ -1,8 +1,8 @@
 """The "Data fetch status" indicator for a mesh.
 
-``plans/mesh_refactor_v3.md`` Phase 9.  A mesh is not drawn while a new
-position loads, and the indicator is what says that it is loading.  A mesh
-reads a level whole, so the text names the level, not a chunk count.
+A mesh is not drawn while a new position loads, and the indicator is what
+says that it is loading.  A mesh reads a level whole, so the text names
+the level, not a chunk count.
 """
 
 from __future__ import annotations

@@ -14,7 +14,6 @@ import pytest
 from cellier.render._frustum import (
     _compute_plane_parameters,
     bricks_in_frustum,
-    bricks_in_frustum_arr,
     compute_brick_aabb_corners,
     frustum_planes_from_corners,
 )
@@ -177,7 +176,7 @@ EXPECTED_MIRRORED_SURVIVORS = [
 
 
 @pytest.mark.parametrize("mirrored", [False, True])
-def test_bricks_in_frustum_arr_mirrored_corners_select_same_bricks(mirrored):
+def test_bricks_in_frustum_mirrored_corners_select_same_bricks(mirrored):
     """A mirrored frustum keeps the bricks the unmirrored one keeps.
 
     Regression: with the corners mirrored, every plane normal pointed
@@ -192,7 +191,7 @@ def test_bricks_in_frustum_arr_mirrored_corners_select_same_bricks(mirrored):
     planes = frustum_planes_from_corners(corners)
     grid = [[1, gz, gy, gx] for gz in (0, 1) for gy in (0, 1) for gx in (0, 1)]
     arr = np.array([*grid, [1, 9, 9, 9]], dtype=np.int32)
-    visible, _ = bricks_in_frustum_arr(arr, block_size=8, frustum_planes=planes)
+    visible, _ = bricks_in_frustum(arr, block_size=8, frustum_planes=planes)
     assert visible.tolist() == EXPECTED_MIRRORED_SURVIVORS
 
 
@@ -206,8 +205,8 @@ def test_aabb_corners_isotropic_axis_swap_level1():
     key = BlockKey3D(level=1, g0=1, g1=2, g2=3)
     corners = compute_brick_aabb_corners(key, block_size=8)
     assert corners.shape == (8, 3)
-    # Centre convention (plan v2, D1): x spans voxels g2*8 .. (g2+1)*8 - 1,
-    # i.e. [g2*8 - 0.5, (g2+1)*8 - 0.5]; y from g1, z from g0.
+    # Centre convention: x spans voxels g2*8 .. (g2+1)*8 - 1, i.e. [g2*8 -
+    # 0.5, (g2+1)*8 - 0.5]; y from g1, z from g0.
     assert corners[:, 0].min() == 23.5 and corners[:, 0].max() == 31.5  # x <- g2
     assert corners[:, 1].min() == 15.5 and corners[:, 1].max() == 23.5  # y <- g1
     assert corners[:, 2].min() == 7.5 and corners[:, 2].max() == 15.5  # z <- g0
@@ -257,20 +256,20 @@ def test_aabb_corners_level1_isotropic_matches_unit_anisotropic():
 
 
 # ---------------------------------------------------------------------------
-# bricks_in_frustum_arr
+# bricks_in_frustum
 # ---------------------------------------------------------------------------
 
 
-def test_bricks_in_frustum_arr_empty_input():
+def test_bricks_in_frustum_empty_input():
     arr = np.empty((0, 4), dtype=np.int32)
     planes = _box_frustum(0, 20, 0, 20, 0, 20)
-    visible, timings = bricks_in_frustum_arr(arr, block_size=8, frustum_planes=planes)
+    visible, timings = bricks_in_frustum(arr, block_size=8, frustum_planes=planes)
     assert visible.shape == (0, 4)
     assert set(timings) == TIMING_KEYS
     assert all(v == 0.0 for v in timings.values())
 
 
-def test_bricks_in_frustum_arr_inside_outside_straddle():
+def test_bricks_in_frustum_inside_outside_straddle():
     planes = _box_frustum(0, 20, 0, 20, 0, 20)
     # columns: [level, gz, gy, gx]
     arr = np.array(
@@ -281,7 +280,7 @@ def test_bricks_in_frustum_arr_inside_outside_straddle():
         ],
         dtype=np.int32,
     )
-    visible, timings = bricks_in_frustum_arr(arr, block_size=8, frustum_planes=planes)
+    visible, timings = bricks_in_frustum(arr, block_size=8, frustum_planes=planes)
     assert set(timings) == TIMING_KEYS
     survivors = {tuple(r) for r in visible}
     assert (1, 0, 0, 0) in survivors  # inside kept
@@ -289,7 +288,7 @@ def test_bricks_in_frustum_arr_inside_outside_straddle():
     assert (1, 4, 4, 4) not in survivors  # fully outside culled
 
 
-def test_bricks_in_frustum_arr_isotropic_anisotropic_parity():
+def test_bricks_in_frustum_isotropic_anisotropic_parity():
     planes = _box_frustum(0, 40, 0, 40, 0, 40)
     arr = np.array(
         [
@@ -300,7 +299,7 @@ def test_bricks_in_frustum_arr_isotropic_anisotropic_parity():
         ],
         dtype=np.int32,
     )
-    iso_visible, _ = bricks_in_frustum_arr(arr, block_size=8, frustum_planes=planes)
+    iso_visible, _ = bricks_in_frustum(arr, block_size=8, frustum_planes=planes)
 
     n_levels = 2
     scale = np.ones((n_levels, 3))
@@ -309,7 +308,7 @@ def test_bricks_in_frustum_arr_isotropic_anisotropic_parity():
     # NO power-of-2 level scaling.  To reproduce the isotropic 2**(level-1)
     # widths we bake the level scale into the per-level scale vectors.
     scale[1] = 2.0  # level 2 -> 2x
-    aniso_visible, _ = bricks_in_frustum_arr(
+    aniso_visible, _ = bricks_in_frustum(
         arr,
         block_size=8,
         frustum_planes=planes,
@@ -317,65 +316,3 @@ def test_bricks_in_frustum_arr_isotropic_anisotropic_parity():
         level_translation_arr_shader=translation,
     )
     np.testing.assert_array_equal(iso_visible, aniso_visible)
-
-
-# ---------------------------------------------------------------------------
-# bricks_in_frustum (dict/set path)
-# ---------------------------------------------------------------------------
-
-
-def test_bricks_in_frustum_empty():
-    planes = _box_frustum(0, 20, 0, 20, 0, 20)
-    visible, timings = bricks_in_frustum(set(), block_size=8, frustum_planes=planes)
-    assert visible == {}
-    assert set(timings) == TIMING_KEYS
-    assert all(v == 0.0 for v in timings.values())
-
-
-def test_bricks_in_frustum_set_input():
-    planes = _box_frustum(0, 20, 0, 20, 0, 20)
-    inside = BlockKey3D(level=1, g0=0, g1=0, g2=0)
-    outside = BlockKey3D(level=1, g0=4, g1=4, g2=4)
-    visible, _ = bricks_in_frustum(
-        {inside, outside}, block_size=8, frustum_planes=planes
-    )
-    assert inside in visible
-    assert outside not in visible
-
-
-def test_bricks_in_frustum_dict_preserves_values():
-    planes = _box_frustum(0, 20, 0, 20, 0, 20)
-    inside = BlockKey3D(level=1, g0=0, g1=0, g2=0)
-    outside = BlockKey3D(level=1, g0=4, g1=4, g2=4)
-    visible, _ = bricks_in_frustum(
-        {inside: 7, outside: 9}, block_size=8, frustum_planes=planes
-    )
-    assert visible == {inside: 7}
-
-
-def test_bricks_in_frustum_agrees_with_arr_pipeline():
-    planes = _box_frustum(0, 30, 0, 30, 0, 30)
-    keys = [
-        BlockKey3D(level=1, g0=0, g1=0, g2=0),
-        BlockKey3D(level=1, g0=2, g1=1, g2=3),
-        BlockKey3D(level=1, g0=5, g1=5, g2=5),
-        BlockKey3D(level=2, g0=1, g1=1, g2=1),
-    ]
-    dict_visible, _ = bricks_in_frustum(set(keys), block_size=8, frustum_planes=planes)
-
-    arr = np.array([[k.level, k.g0, k.g1, k.g2] for k in keys], dtype=np.int32)
-    arr_visible, _ = bricks_in_frustum_arr(arr, block_size=8, frustum_planes=planes)
-    arr_keys = {
-        BlockKey3D(level=int(r[0]), g0=int(r[1]), g1=int(r[2]), g2=int(r[3]))
-        for r in arr_visible
-    }
-    assert set(dict_visible.keys()) == arr_keys
-
-
-@pytest.mark.parametrize("container", ["set", "dict"])
-def test_bricks_in_frustum_container_types(container):
-    planes = _box_frustum(0, 20, 0, 20, 0, 20)
-    key = BlockKey3D(level=1, g0=0, g1=0, g2=0)
-    brick_keys = {key} if container == "set" else {key: 3}
-    visible, _ = bricks_in_frustum(brick_keys, block_size=8, frustum_planes=planes)
-    assert key in visible

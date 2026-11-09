@@ -1,9 +1,8 @@
 """``LevelResidency`` for whole-item caches under a change stream.
 
-``plans/scheduler_only_loading_design_v2.md`` 4.2: the ``policy`` argument,
-``keeps_through_invalidation`` (D12), ``write_kept`` and the step that draws
-a kept stale result (D14).  The mesh's behaviour (all of it off) is
-``test_level_residency.py``'s, unchanged.
+The ``policy`` argument, ``keeps_through_invalidation``, ``write_kept`` and
+the step that draws a kept stale result.  The mesh's behaviour (all of it
+off) is ``test_level_residency.py``'s, unchanged.
 """
 
 from __future__ import annotations
@@ -84,7 +83,7 @@ def test_the_policy_is_an_argument() -> None:
 
 
 def test_the_memory_policies() -> None:
-    """D17: cap 1 for raster and 2 for geometry; compute, one attempt."""
+    """Cap 1 for raster and 2 for geometry; compute, one attempt."""
     for policy, cap in ((MEMORY_RASTER_POLICY, 1), (MEMORY_GEOMETRY_POLICY, 2)):
         assert policy.max_target_fetching == cap
         assert policy.resource == "compute"
@@ -95,7 +94,7 @@ def test_the_memory_policies() -> None:
 
 
 def test_an_invalidation_keeps_the_held_result_drawn() -> None:
-    """D12: the planned key is invalidated; its upload stays until the re-read."""
+    """The planned key is invalidated; its upload stays until the re-read."""
     rig = Rig()
     rig.plan("a")
     rig.land("a1")
@@ -118,7 +117,7 @@ def test_without_the_flag_an_invalidation_releases() -> None:
 
 
 def test_a_stale_read_of_the_planned_key_is_drawn_as_kept() -> None:
-    """D14: the read in flight lands stale and is drawn at the next round."""
+    """The read in flight lands stale and is drawn at the next round."""
     rig = Rig()
     rig.plan("a")
     rig.land("a1")
@@ -181,7 +180,7 @@ def test_a_kept_result_does_not_replace_a_newer_resident_one() -> None:
 
 
 def test_a_retired_cache_shown_again_reads_nothing_and_stays_drawn() -> None:
-    """D18: hide (retire) then show at an unchanged key."""
+    """Hide (retire) then show at an unchanged key."""
     rig = Rig()
     rig.plan("a")
     rig.land("a1")

@@ -2,11 +2,11 @@
 
 Multiscale visuals no longer build store requests while planning: ``plan()``
 returns desired sets of packed keys, and the chunk scheduler builds requests
-as it issues reads (``plans/progressive_loading_design_v3.md`` 5.3).  Tests
-that assert on the requests a plan implies -- which planes, which levels,
-which channels -- ask for all of them here: every wanted key, as into an
-empty atlas, in the order the planner wants them (drawn channels
-interleaved, as the old per-channel materialisation produced them).
+as it issues reads.  Tests that assert on the requests a plan implies --
+which planes, which levels, which channels -- ask for all of them here:
+every wanted key, as into an empty atlas, in the order the planner wants
+them (drawn channels interleaved, as the old per-channel materialisation
+produced them).
 """
 
 from __future__ import annotations
@@ -29,9 +29,9 @@ if TYPE_CHECKING:
 def _target_alone():
     """Plan with no backstop: the target only, with every slot to itself.
 
-    The backstop cannot be switched off on a visual (plane rendering design
-    v3, D-P45), so a test that wants the target's requests alone plans with
-    the backstop planners and the backstop's slot cap stubbed out.
+    The backstop cannot be switched off on a visual, so a test that wants the
+    target's requests alone plans with the backstop planners and the backstop's
+    slot cap stubbed out.
     """
     from cellier.render.visuals import _image, _label_multiscale
 
@@ -192,11 +192,11 @@ def commit_whole_item(
 ) -> None:
     """Upload *data* as the result of *request*, as ``rebuild_draw`` would.
 
-    A pure commit test (``plans/scheduler_only_loading_design_v2.md`` 4.11):
-    no plan and no scheduler.  A geometry visual (points, lines, graph)
-    uploads through ``visual.upload(0, key, data)``; an in-memory image or
-    labels visual through ``visual.upload_slice(slot, mode, key, data)``.
-    *mode* and *slot* are read for the raster visuals only.
+    A pure commit test: no plan and no scheduler.  A geometry visual
+    (points, lines, graph) uploads through ``visual.upload(0, key, data)``;
+    an in-memory image or labels visual through ``visual.upload_slice(slot,
+    mode, key, data)``.  *mode* and *slot* are read for the raster visuals
+    only.
     """
     key = visual.request_key(request)
     if hasattr(visual, "upload_slice"):
@@ -211,8 +211,9 @@ def land_planned(visual: Any, data_for: Any) -> int:
     For each of the visual's caches whose newest plan names a key it does
     not hold, upload ``data_for(request_key)`` and mark the key held, the
     way ``LevelResidency.rebuild_draw`` does when the read is resident.  No
-    scheduler: for tests that plan by hand and then need the slice drawn
-    (the visibility rule, design v2 D16).  Returns the number landed.
+    scheduler: for tests that plan by hand and then need the slice drawn (a
+    slot draws only once its residency for the mode is drawable). Returns
+    the number landed.
     """
     landed = 0
     for residency in visual.residencies().values():
