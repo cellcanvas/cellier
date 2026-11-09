@@ -11,7 +11,6 @@ from typing import Any, ClassVar, Literal
 
 import numpy as np
 from pydantic import (
-    BaseModel,
     ConfigDict,
     Field,
     PrivateAttr,
@@ -20,6 +19,7 @@ from pydantic import (
     model_validator,
 )
 
+from cellier._model import CellierModel
 from cellier.data._base_data_store import BaseDataStore, geometry_axis_extents
 from cellier.data._dataset_info import (
     DatasetInfo,
@@ -40,7 +40,7 @@ from cellier.data.mesh._mesh_slicing import (
 )
 
 
-class MeshLevel(BaseModel):
+class MeshLevel(CellierModel):
     """One level of detail of a mesh.
 
     Parameters

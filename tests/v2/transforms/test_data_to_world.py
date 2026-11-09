@@ -26,7 +26,7 @@ from tests._v2 import bound, scale_and_translation, systems
 
 
 def _appearance():
-    return InMemoryImageAppearance(color_map="gray", clim=(0.0, 1.0))
+    return InMemoryImageAppearance()
 
 
 def _controller_and_scene(axes=None):

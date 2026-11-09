@@ -11,9 +11,9 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from cmap import Colormap
-from psygnal import EventedModel
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
+from cellier._model import CellierEventedModel, CellierModel
 from cellier.visuals._base_visual import BaseDrawAppearance, BaseVisual
 from cellier.visuals._loading import ProgressiveLoadingConfig
 from cellier.visuals._render_plane import PLANE_RENDER_MODE, RenderPlane
@@ -84,7 +84,7 @@ class BaseImageAppearance(BaseDrawAppearance):
     projection_steps_per_voxel: float = Field(default=1.0, ge=0.25, le=8.0)
 
 
-class BaseImageSingleAppearance(EventedModel):
+class BaseImageSingleAppearance(CellierEventedModel):
     """The mode-dependent fields both image families share.
 
     Parameters
@@ -350,7 +350,7 @@ def effective_transparency_mode(visual: Any) -> str:
     return "add" if visual.composite else "blend"
 
 
-class InMemoryImageRenderConfig(BaseModel):
+class InMemoryImageRenderConfig(CellierModel):
     """Render-layer configuration of an in-memory image's brick route.
 
     Used only while a 2D view draws the image from 3D bricks (a tilted view,

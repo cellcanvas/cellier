@@ -6,11 +6,12 @@ import uuid
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, Field
 
+from cellier._model import CellierEventedModel
 
-class CanvasOverlay(EventedModel):
+
+class CanvasOverlay(CellierEventedModel):
     """Base model for all canvas-space overlays.
 
     Overlays are rendered as a post-pass on top of the main scene using a
@@ -34,7 +35,7 @@ class CanvasOverlay(EventedModel):
     visible: bool = True
 
 
-class CenteredAxes2DAppearance(EventedModel):
+class CenteredAxes2DAppearance(CellierEventedModel):
     """Appearance model for a :class:`CenteredAxes2D` overlay.
 
     Parameters

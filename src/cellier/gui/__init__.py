@@ -6,10 +6,11 @@ helpers read and write the RGBA tuples cellier's models use, and the
 clipping planes helpers read what a clipping planes control of either
 toolkit is built from (its planes, its store's bounds, and where its gizmo
 is drawn); the render planes helpers do the same for a render planes
-control.
+control.  The axis values models say which values each dims slider can take.
 """
 
 from cellier.gui._appearance_fields import as_rgba, hex_to_rgba, rgba_to_hex
+from cellier.gui._axis_values import ContinuousAxisValues, DiscreteAxisValues
 from cellier.gui._clipping_planes import (
     ClippingPlaneGizmoTarget,
     get_axis_bounds_from_store,
@@ -24,6 +25,8 @@ from cellier.gui._render_planes import (
 
 __all__ = [
     "ClippingPlaneGizmoTarget",
+    "ContinuousAxisValues",
+    "DiscreteAxisValues",
     "RenderPlaneGizmoTarget",
     "as_rgba",
     "get_axis_bounds_from_store",

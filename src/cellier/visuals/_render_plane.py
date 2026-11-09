@@ -15,7 +15,6 @@ from uuid import UUID, uuid4
 import numpy as np
 from pydantic import (
     UUID4,
-    BaseModel,
     ConfigDict,
     Field,
     TypeAdapter,
@@ -24,6 +23,7 @@ from pydantic import (
 )
 from typing_extensions import Self
 
+from cellier._model import CellierModel
 from cellier.transform import AxisRef
 from cellier.visuals._plane_outline import PlaneOutline
 
@@ -97,7 +97,7 @@ def _quaternion_to_matrix(quaternion: np.ndarray) -> np.ndarray:
     )
 
 
-class RenderPlane(BaseModel):
+class RenderPlane(CellierModel):
     """One plane a visual in ``"plane"`` render mode draws its data on.
 
     The plane is in the scene's **world** space, on three named world axes.

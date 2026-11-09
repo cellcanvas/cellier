@@ -24,6 +24,13 @@ if TYPE_CHECKING:
 class StartupState(str, Enum):
     """How far a scene (or a whole viewer) has got through startup.
 
+    Read it from ``Viewer.startup_state`` (the whole viewer) or
+    ``Viewer.scene_startup_states`` (per scene; one per panel of an
+    ``OrthoViewer``).  A scene goes ``IDLE`` -> ``WAITING_FOR_CANVAS`` ->
+    ``WAITING_FOR_FRAME`` -> ``LOADING`` -> ``READY``, or ends in
+    ``STALLED`` when it makes no progress within ``stall_timeout`` (an
+    argument of ``display`` and ``run``).
+
     Ordered: a viewer's aggregate state is the least-advanced of its scenes,
     so one stuck panel is never hidden behind three finished ones.
     """

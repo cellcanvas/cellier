@@ -366,9 +366,3 @@ class SliceCoordinator:
                 source_id=self.id, scene_id=scene_id, visual_id=visual_id
             )
         )
-
-    # ── EventBus handler methods ─────────────────────────────────────────
-
-    def _on_appearance_changed(self, event) -> None:
-        """Not subscribed to the bus; does nothing."""
-        pass

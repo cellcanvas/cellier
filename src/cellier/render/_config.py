@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any
+
+from pydantic import ConfigDict, Field, field_validator, model_validator
+
+from cellier._model import CellierModel
 
 DEFAULT_CAMERA_SETTLE_THRESHOLD_S: float = 0.3
 
 
-class SchedulerConfig(BaseModel):
+class SchedulerConfig(CellierModel):
     """Configuration for the chunk scheduler that loads every visual.
 
     Construction-time only: changing it after ``RenderManager`` is created
@@ -62,7 +66,7 @@ class SchedulerConfig(BaseModel):
     retry_backoff_s: float = Field(default=0.25, ge=0.0)
 
 
-class TemporalAccumulationConfig(BaseModel):
+class TemporalAccumulationConfig(CellierModel):
     """Configuration for the temporal accumulation post-processing pass.
 
     Parameters
@@ -97,7 +101,7 @@ DEFAULT_OUTLINE_PALETTE: list[RGBA] = [
 ]
 
 
-class OutlineLayerConfig(BaseModel):
+class OutlineLayerConfig(CellierModel):
     """Configuration for one screen-space outline layer.
 
     Two layers run in the same fragment invocation and can both be active:
@@ -142,7 +146,7 @@ class OutlineLayerConfig(BaseModel):
     color: RGBA = (1.0, 1.0, 1.0, 0.4)
 
 
-class OutlineConfig(BaseModel):
+class OutlineConfig(CellierModel):
     """Configuration for the screen-space outline pass.
 
     Parameters
@@ -210,7 +214,7 @@ class OutlineConfig(BaseModel):
         return value
 
 
-class AmbientOcclusionConfig(BaseModel):
+class AmbientOcclusionConfig(CellierModel):
     """Configuration for the screen-space ambient occlusion pass.
 
     The pass reads the depth buffer (and, where a shader wrote one, the
@@ -281,7 +285,7 @@ class AmbientOcclusionConfig(BaseModel):
     power: float = Field(default=1.0, gt=0.0)
 
 
-class CameraConfig(BaseModel):
+class CameraConfig(CellierModel):
     """Configuration for camera-driven automatic reslicing.
 
     Parameters
@@ -303,7 +307,7 @@ class CameraConfig(BaseModel):
     settle_threshold_s: float = Field(default=DEFAULT_CAMERA_SETTLE_THRESHOLD_S, gt=0.0)
 
 
-class RenderManagerConfig(BaseModel):
+class RenderManagerConfig(CellierModel):
     """Top-level rendering performance configuration.
 
     Pass an instance to ``CellierController(render_config=...)`` at
@@ -358,3 +362,16 @@ class RenderManagerConfig(BaseModel):
         default_factory=AmbientOcclusionConfig
     )
     draw_hold_ms: float = Field(default=50.0, ge=0.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_slicing(cls, data: Any) -> Any:
+        """Drop ``slicing``, the settings of the retired async slicer.
+
+        Viewer files saved by cellier 0.0.29 and earlier carry it.  It
+        configures nothing now, and dropping it here lets those files load
+        under ``extra="forbid"``.
+        """
+        if isinstance(data, dict) and "slicing" in data:
+            data = {key: value for key, value in data.items() if key != "slicing"}
+        return data

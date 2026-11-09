@@ -2,16 +2,16 @@ import uuid
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, ConfigDict, Field
 
+from cellier._model import CellierEventedModel
 from cellier.render._config import MAX_OUTLINE_SLOT
 from cellier.transform import TransformType
 from cellier.visuals._clipping import ClippingPlane, validate_clipping_planes
 from cellier.visuals._render_plane import validate_render_planes
 
 
-class AABBParams(EventedModel):
+class AABBParams(CellierEventedModel):
     """Parameters for an axis-aligned bounding box wireframe overlay.
 
     Parameters
@@ -29,7 +29,7 @@ class AABBParams(EventedModel):
     line_width: float = 2.0
 
 
-class VisualOutline(EventedModel):
+class VisualOutline(CellierEventedModel):
     """Screen-space outline assignment for one visual.
 
     The *global* outline configuration -- palette, thicknesses, layer
@@ -73,7 +73,7 @@ class VisualOutline(EventedModel):
     placement: Literal["inward", "outward"] | None = None
 
 
-class BaseDrawAppearance(EventedModel):
+class BaseDrawAppearance(CellierEventedModel):
     """How any visual is drawn, apart from its opacity.
 
     Split out of :class:`BaseAppearance` so an image, whose opacity is per
@@ -119,7 +119,7 @@ class BaseAppearance(BaseDrawAppearance):
     opacity: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
-class BaseVisual(EventedModel):
+class BaseVisual(CellierEventedModel):
     """The base class for all Visuals.
 
     Parameters

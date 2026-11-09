@@ -7,16 +7,16 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, Union
 from uuid import uuid4
 
 import numpy as np
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, ConfigDict, Field
 
+from cellier._model import CellierEventedModel
 from cellier.types import NumpyFloat32Array
 
 if TYPE_CHECKING:
     from psygnal import EmissionInfo
 
 
-class BaseCameraController(EventedModel):
+class BaseCameraController(CellierEventedModel):
     """Base model for camera controllers.
 
     Parameters
@@ -63,7 +63,7 @@ CameraControllerType = Annotated[
 ]
 
 
-class BaseCamera(EventedModel):
+class BaseCamera(CellierEventedModel):
     """Base model for cameras.
 
     Parameters

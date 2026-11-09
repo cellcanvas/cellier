@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from psygnal import EventedModel
+from cellier._model import CellierEventedModel
 
 RGBA = tuple[float, float, float, float]
 
@@ -19,7 +19,7 @@ DEFAULT_TOP_COLOR: RGBA = (169 / 255, 167 / 255, 168 / 255, 1.0)
 VIEWER_BACKGROUND_COLOR: RGBA = (0.0, 0.0, 0.0, 1.0)
 
 
-class BackgroundAppearance(EventedModel):
+class BackgroundAppearance(CellierEventedModel):
     """Appearance of the background drawn behind a scene's visuals.
 
     The background belongs to the scene rather than the canvas: pygfx draws

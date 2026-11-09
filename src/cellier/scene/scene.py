@@ -7,9 +7,9 @@ from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 import numpy as np
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, Field, PrivateAttr, field_serializer
 
+from cellier._model import CellierEventedModel
 from cellier.scene._background import BackgroundAppearance
 from cellier.scene.canvas import Canvas
 from cellier.scene.dims import DimsManager
@@ -52,7 +52,7 @@ def _sliced_world_axes(visual: Any) -> set[int]:
     return axes
 
 
-class Scene(EventedModel):
+class Scene(CellierEventedModel):
     """One rendered scene.
 
     Parameters

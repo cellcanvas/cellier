@@ -86,9 +86,9 @@ from cellier.render.visuals._chunked import (
     viewport_prism,
 )
 from cellier.render.visuals._image import (
-    ImageGeometry3D,
     MultiscaleBrickLayout3D,
     MultiscaleRegionPlanner,
+    MultiscaleTileLayout2D,
     NormSizedVolume,
     _carry_over_node_state,
     _displayed_submatrix,
@@ -166,7 +166,7 @@ class GFXMultiscaleLabelVisual(
         ID of the associated ``MultiscaleLabelVisual`` model.
     volume_geometry : MultiscaleBrickLayout3D or None
         Pre-built metadata cache (level shapes, LOAD grids). ``None`` skips 3D.
-    image_geometry_2d : ImageGeometry3D or None
+    image_geometry_2d : MultiscaleTileLayout2D or None
         Pre-built 2D tile geometry. ``None`` skips 2D.
     render_modes : set[str]
         Which nodes to build: ``{"3d"}``, ``{"2d"}``, or ``{"2d", "3d"}``.
@@ -204,7 +204,7 @@ class GFXMultiscaleLabelVisual(
         self,
         visual_model_id: UUID,
         volume_geometry: MultiscaleBrickLayout3D | None,
-        image_geometry_2d: ImageGeometry3D | None,
+        image_geometry_2d: MultiscaleTileLayout2D | None,
         render_modes: set[str],
         displayed_axes: tuple[int, ...] | None = None,
         background_label: int = 0,
@@ -508,13 +508,13 @@ class GFXMultiscaleLabelVisual(
                 fetch_axes=fetch_3d,
             )
 
-        image_geometry_2d: ImageGeometry3D | None = None
+        image_geometry_2d: MultiscaleTileLayout2D | None = None
         if "2d" in render_modes:
             fetch_2d = _geometry_fetch_axes(
                 model.transform, axes_2d, len(level_shapes[0])
             )
             shapes_2d = [select_axes(s, fetch_2d) for s in level_shapes]
-            image_geometry_2d = ImageGeometry3D(
+            image_geometry_2d = MultiscaleTileLayout2D(
                 level_shapes=shapes_2d,
                 block_size=block_size,
                 n_levels=len(level_shapes),
@@ -846,7 +846,7 @@ class GFXMultiscaleLabelVisual(
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
         geo = self._image_geometry_2d
         if fetch_2d != geo.fetch_axes:
-            self._image_geometry_2d = ImageGeometry3D(
+            self._image_geometry_2d = MultiscaleTileLayout2D(
                 level_shapes=shapes_2d,
                 block_size=geo.block_size,
                 n_levels=len(level_shapes),
@@ -1956,11 +1956,21 @@ class GFXMultiscaleLabelVisual(
     def on_data_store_contents_changed(
         self, event: DataStoreContentsChangedEvent
     ) -> None:
+        """Do nothing: the controller invalidates the bricks a change touches.
+
+        It calls ``RenderManager.invalidate_store`` right after this event, so
+        the chunk scheduler reads those bricks again.
+        """
         pass
 
     def on_data_store_metadata_changed(
         self, event: DataStoreMetadataChangedEvent
     ) -> None:
+        """Do nothing: a change of the level shapes does not rebuild the geometry.
+
+        The controller has already invalidated the bricks the store fed and
+        refreshed the visual's extents.
+        """
         pass
 
     def tick(self) -> None:

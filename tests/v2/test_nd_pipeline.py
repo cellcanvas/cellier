@@ -1,16 +1,17 @@
 """End-to-end nD correctness tests for the multiscale image pipeline.
 
-These tests build ``MultiscaleBrickLayout3D`` / ``ImageGeometry3D`` and
-fetch slices from a synthetic 5D dataset (T, C, Z, Y, X) where each voxel
-encodes its own indices.  Decoding the fetched array verifies that:
+These tests build ``MultiscaleBrickLayout3D`` / ``MultiscaleTileLayout2D``
+and fetch slices from a synthetic 5D dataset (T, C, Z, Y, X) where each
+voxel encodes its own indices.  Decoding the fetched array verifies that:
 
 - ``displayed_axes`` is honoured at the data store layer (correct shape
   and content for non-contiguous displayed axes like ``(0, 4)``).
 - ``GFXMultiscaleImageVisual``-style geometry construction works for
   3D display where the displayed data axes are non-contiguous, e.g.
   ``displayed_axes=(0, 3, 4)`` selecting (T, Y, X) from a 5D dataset.
-- The shader-order vectors built by MultiscaleBrickLayout3D / ImageGeometry3D
-  are correct reversals of the displayed-axis-order inputs.
+- The shader-order vectors built by ``MultiscaleBrickLayout3D`` /
+  ``MultiscaleTileLayout2D`` are correct reversals of the displayed-axis-order
+  inputs.
 """
 
 from __future__ import annotations
@@ -25,8 +26,8 @@ from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.image._image_requests import ChunkRequest
 from cellier.render._spaces import select_axes
 from cellier.render.visuals._image import (
-    ImageGeometry3D,
     MultiscaleBrickLayout3D,
+    MultiscaleTileLayout2D,
 )
 from tests._v2 import level_transforms
 
@@ -187,7 +188,7 @@ def test_image_geometry_2d_non_contiguous_displayed_axes():
     displayed_axes = (0, 4)  # T, X
 
     shapes_2d = [select_axes(s, displayed_axes) for s in level_shapes]
-    ig = ImageGeometry3D(
+    ig = MultiscaleTileLayout2D(
         level_shapes=shapes_2d,
         block_size=2,
         n_levels=3,

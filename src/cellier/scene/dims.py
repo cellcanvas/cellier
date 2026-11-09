@@ -6,9 +6,9 @@ import uuid
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Union
 from uuid import uuid4
 
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, Field, model_validator
 
+from cellier._model import CellierEventedModel
 from cellier._state import (
     AxisAlignedSelectionState,
     DimsState,
@@ -220,7 +220,7 @@ def resolve_displayed_axes(
     return tuple(indices)
 
 
-class AxisAlignedSelection(EventedModel):
+class AxisAlignedSelection(CellierEventedModel):
     """Mutable selection model for axis-aligned slicing.
 
     Parameters
@@ -282,7 +282,7 @@ class AxisAlignedSelection(EventedModel):
         )
 
 
-class DimsManager(EventedModel):
+class DimsManager(CellierEventedModel):
     """Tracks which axes are displayed and the slice index for non-displayed axes.
 
     Single source of truth for render dimensionality, and the owner of

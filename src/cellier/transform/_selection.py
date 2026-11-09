@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import ConfigDict, model_validator
 from typing_extensions import Self
+
+from cellier._model import CellierModel
 
 # Both models are imported at runtime, not under TYPE_CHECKING: pydantic
 # resolves field annotations at class-creation time and cannot see a
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Collection
 
 
-class RegionSelection(BaseModel):
+class RegionSelection(CellierModel):
     """A slice position and its extent, as one frozen artifact.
 
     This is the authoritative artifact the slicer consumes.  A

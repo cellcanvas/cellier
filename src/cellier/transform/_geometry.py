@@ -7,13 +7,14 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from pydantic import (
     UUID4,
-    BaseModel,
     ConfigDict,
     field_serializer,
     field_validator,
     model_validator,
 )
 from typing_extensions import Self
+
+from cellier._model import CellierModel
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -31,7 +32,7 @@ from cellier.transform._arrays import (
 )
 
 
-class AxisAlignedBoundingBox(BaseModel):
+class AxisAlignedBoundingBox(CellierModel):
     """An axis-aligned box, in one named coordinate system.
 
     Bounds may be infinite: an unbounded axis is a first-class value
@@ -115,7 +116,7 @@ class AxisAlignedBoundingBox(BaseModel):
         )
 
 
-class Plane(BaseModel):
+class Plane(CellierModel):
     """The set of points where ``normal . p == offset``.
 
     Point-normal form is deliberately not used: the rules that map a

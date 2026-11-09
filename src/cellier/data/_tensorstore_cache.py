@@ -76,7 +76,9 @@ import weakref
 from typing import TYPE_CHECKING, Any, Literal
 
 import tensorstore as ts
-from pydantic import BaseModel, PrivateAttr, field_validator
+from pydantic import PrivateAttr, field_validator
+
+from cellier._model import CellierModel
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -204,7 +206,7 @@ def cache_metrics() -> tuple[int, int]:
     )
 
 
-class TensorStoreCacheMixin(BaseModel):
+class TensorStoreCacheMixin(CellierModel):
     """Adds a per-store tensorstore chunk cache to a data store.
 
     Mixed in ahead of ``BaseDataStore``.  Supplies the ``cache_pool_bytes``

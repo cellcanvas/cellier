@@ -49,13 +49,16 @@ from cellier.render._plane_planning import (
 from cellier.render._render_planes import RenderPlanesMixin, SlabSettings
 from cellier.render._spaces import (
     RenderSpaces,
+    affine_for_node,
     axis_correspondence,
     cellier_to_pygfx_order,
     node_follows_slice,
     node_matrix,
+    node_transform,
     pygfx_to_cellier_order,
     select_axes,
     swap_axes,
+    visual_to_data_transform,
 )
 from cellier.render.block_cache import (
     BlockCache3D,
@@ -338,8 +341,8 @@ def _general_displayed_submatrix(
 
     Rows are the displayed world axes in display order; columns are the
     retained data axes ascending (``_displayed_linear_block``); the last
-    column is the translation with every collapsed data axis at zero, which
-    is all the 2D planners read it for (a view and its LOD, not a slice).
+    column is the translation with every collapsed data axis at zero.  The
+    2D planners read only the linear block, for the LOD.
     Float32, as the axis-aligned branch.
     """
     block = _displayed_linear_block(affine, displayed_axes)
@@ -362,11 +365,11 @@ def _displayed_submatrix(
 ) -> np.ndarray:
     """The square displayed-axes block of a ``data -> world`` transform.
 
-    Two callers use it: the image family's 2-D planner (``_plan_tiles_2d``) and
-    the multiscale labels' own ``_plan_tiles_2d`` (its ``voxel_width``
-    computation).  Both go through a square sub-block, a reversal and
-    ``imap_coordinates``, where the *3D* path uses one
-    ``rendered_to_level0.map_coordinates``; moving them onto that is not done.
+    The 2D planners (the image slot's and the multiscale labels' ``_view_2d``)
+    read its linear block for the LOD's voxels per world unit
+    (``_world_to_voxel_scale_2d``).  The camera and the viewport are pulled
+    back by ``_to_level0_displayed`` instead, which carries the slice
+    position; the translation column here holds the collapsed axes at zero.
     The block is narrowed to **float32**, as those callers expect.
 
     Row ``i`` is world axis ``displayed_axes[i]``, column ``j`` is the data
@@ -426,33 +429,6 @@ def _displayed_submatrix(
     for row, out_axis in enumerate(displayed_axes):
         matrix[row, n] = translation[out_axis]
     return matrix.astype(np.float32)
-
-
-def _imap_square(matrix: np.ndarray, coordinates: np.ndarray) -> np.ndarray:
-    """Pull points back through a square homogeneous matrix.
-
-    Kept for ``_plan_tiles_2d`` alone (see ``_displayed_submatrix``).  The
-    inverse is taken and then narrowed to float32, and the product is formed in
-    float32, to match the float32 block ``_displayed_submatrix`` gives.
-
-    Parameters
-    ----------
-    matrix : np.ndarray
-        A square ``(n + 1, n + 1)`` homogeneous matrix.
-    coordinates : np.ndarray
-        ``(m, n)`` points in the matrix's output space.
-
-    Returns
-    -------
-    np.ndarray
-        ``(m, n)`` points in its input space.
-    """
-    ndim = matrix.shape[0] - 1
-    inverse = np.linalg.inv(matrix).astype(np.float32)
-    points = np.atleast_2d(coordinates)
-    if points.shape[1] == ndim:
-        points = np.pad(points, pad_width=((0, 0), (0, 1)), constant_values=1)
-    return np.dot(points, inverse.T)[:, :ndim]
 
 
 def _restricted_affine_for_display(
@@ -919,7 +895,7 @@ class MultiscaleBrickLayout3D:
         self._rebuild(level_shapes)
 
 
-class ImageGeometry3D:
+class MultiscaleTileLayout2D:
     """Pre-built metadata cache for a multiscale 2-D image.
 
     Analogous to ``MultiscaleBrickLayout3D`` but for 2D tile grids.
@@ -1384,32 +1360,25 @@ class MultiscaleRegionPlanner:
         """Map pygfx-order points to level-0 voxels on the displayed axes.
 
         Returns them back in pygfx order, which is what the LOD thresholds,
-        the distance sort and the frustum culler take.  The pulled-back point
-        also carries the collapsed axes -- the ``t`` the camera is looking
-        at, say -- which are harmless and dropped here.
+        the distance sort and the frustum culler take.
 
-        The camera and the frustum arrive in **pygfx** coordinates --
-        ``ReslicingRequest`` says so in a docstring and nowhere in the type
-        system -- so they are reversed once, by name, mapped **forward** to
-        world through ``rendered_to_world`` (always affine, so always a
-        matrix), and pulled **back** to level-0 data through
-        ``imap_coordinates`` rather than a materialized inverse.
-
-        The second step is not one composed matrix,
-        ``rendered_to_world.then(data_to_world.inverse())``: a
-        ``ByDimensionTransform`` carrying a ``NonUniformAxisTransform``
-        block has no such inverse *as a transform* -- the map is invertible,
-        but its inverse is not itself "a world position per data index",
-        which is what that class models. Every such transform still answers
-        ``imap_coordinates`` directly, which is the one path guaranteed to
-        exist regardless of what blocks the transform holds, so this
-        composes in two steps instead of one -- the same two-step shape
-        ``data_slice_positions`` uses.
+        The points are pulled back through the transform that places the
+        level-0 node (``visual -> data -> world -> rendered``, the one
+        ``node_matrix`` expresses), in float64.  That transform holds the
+        collapsed axes at the planes this plan draws, so in a view where a
+        sliced axis feeds a displayed one -- a shear ``x += s * z``, a drift
+        ``x += v * t`` -- the point lands on the voxel that is drawn under
+        it.  Pulling back through ``data -> world`` alone cannot: a rendered
+        point carries no slice position, so the collapsed world axes would
+        read as zero and the displayed ones would come back off by the shift.
 
         Raises
         ------
         RuntimeError
             If the visual has not been placed in a world.
+        NonAffineTransformError
+            If a non-affine block sits on a displayed axis, which the node
+            cannot be placed with either.
         """
         spaces = self._spaces
         if spaces is None or self._transform is None:
@@ -1419,12 +1388,16 @@ class MultiscaleRegionPlanner:
                 "multiscale visual must be given its coordinate systems "
                 "before it is planned."
             )
+        constants = self._node_constants()
+        placement = node_transform(
+            spaces,
+            affine_for_node(self._transform, constants),
+            visual_to_data_transform(spaces, constants),
+        )
         points = np.asarray(points, dtype=np.float64)
         flat = points.reshape(-1, points.shape[-1])
-        world = spaces.rendered_to_world.map_coordinates(pygfx_to_cellier_order(flat))
-        level0 = self._transform.imap_coordinates(world)
-        displayed = level0[:, list(spaces.retained_axes)]
-        return cellier_to_pygfx_order(displayed).reshape(points.shape)
+        level0 = placement.imap_coordinates(pygfx_to_cellier_order(flat))
+        return cellier_to_pygfx_order(level0).reshape(points.shape)
 
     def _viewport_cells_from_view_bounds(
         self,
@@ -1624,7 +1597,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         self,
         visual_model_id: UUID,
         volume_geometry: MultiscaleBrickLayout3D | None,
-        image_geometry_2d: ImageGeometry3D | None,
+        image_geometry_2d: MultiscaleTileLayout2D | None,
         render_modes: set[str],
         displayed_axes: tuple[int, ...] | None = None,
         colormap: gfx.TextureMap | None = None,
@@ -2046,7 +2019,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
         geo = self._image_geometry_2d
         if fetch_2d != geo.fetch_axes:
-            self._image_geometry_2d = ImageGeometry3D(
+            self._image_geometry_2d = MultiscaleTileLayout2D(
                 level_shapes=shapes_2d,
                 block_size=geo.block_size,
                 n_levels=len(level_shapes),
@@ -2222,7 +2195,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         )
         shapes_2d_full = [select_axes(s, fetch_axes) for s in self._full_level_shapes]
         shapes_2d = [(s[0], s[1]) for s in shapes_2d_full]
-        self._image_geometry_2d = ImageGeometry3D(
+        self._image_geometry_2d = MultiscaleTileLayout2D(
             level_shapes=shapes_2d,
             block_size=self._block_size,
             n_levels=len(self._full_level_shapes),
@@ -2796,34 +2769,34 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         )
         voxel_width = world_width * world_to_voxel_scale_2d
 
-        camera_pos_2d = _imap_square(
-            sub_2d, camera_pos_world[[1, 0]].reshape(1, -1)
-        ).flatten()[[1, 0]]
+        camera_pos_2d = self._to_level0_displayed(
+            np.asarray(camera_pos_world)[:2].reshape(1, -1)
+        ).flatten()
         camera_pos = np.array(
             [camera_pos_2d[0], camera_pos_2d[1], 0.0], dtype=np.float32
         )
-
-        if view_min_world is not None and view_max_world is not None:
-            cx = float(camera_pos_world[0])
-            cy = float(camera_pos_world[1])
-            half_w = world_width / 2.0
-            half_h = (float(view_max_world[1]) - float(view_min_world[1])) / 2.0
-            corners_world_2d = np.array(
-                [
-                    [cy - half_h, cx - half_w],
-                    [cy - half_h, cx + half_w],
-                    [cy + half_h, cx + half_w],
-                    [cy + half_h, cx - half_w],
-                ],
-                dtype=np.float32,
-            )
-            corners_data_2d = _imap_square(sub_2d, corners_world_2d)[:, [1, 0]]
-            view_min = corners_data_2d.min(axis=0)
-            view_max = corners_data_2d.max(axis=0)
-        else:
-            view_min = None
-            view_max = None
-        return camera_pos, view_min, view_max, voxel_width
+        if view_min_world is None or view_max_world is None:
+            return camera_pos, None, None, voxel_width
+        cx = float(camera_pos_world[0])
+        cy = float(camera_pos_world[1])
+        half_w = world_width / 2.0
+        half_h = (float(view_max_world[1]) - float(view_min_world[1])) / 2.0
+        corners_pygfx = np.array(
+            [
+                [cx - half_w, cy - half_h],
+                [cx + half_w, cy - half_h],
+                [cx + half_w, cy + half_h],
+                [cx - half_w, cy + half_h],
+            ],
+            dtype=np.float64,
+        )
+        corners_data_2d = self._to_level0_displayed(corners_pygfx)
+        return (
+            camera_pos,
+            corners_data_2d.min(axis=0),
+            corners_data_2d.max(axis=0),
+            voxel_width,
+        )
 
     def residency_2d(self) -> ImageResidency2D | None:
         """The chunk scheduler's adapter for this slot's 2D atlas.
@@ -3255,7 +3228,7 @@ def _slot_geometries(
     render_modes: set[str],
     displayed_axes: tuple[int, ...],
     block_size: int,
-) -> tuple[MultiscaleBrickLayout3D | None, ImageGeometry3D | None]:
+) -> tuple[MultiscaleBrickLayout3D | None, MultiscaleTileLayout2D | None]:
     """Build a slot's geometry for the mode *displayed_axes* selects.
 
     The other mode's geometry is built lazily on first entry into it.
@@ -3273,7 +3246,7 @@ def _slot_geometries(
             fetch_axes=fetch,
         )
     elif len(displayed_axes) == 2 and "2d" in render_modes:
-        image_geometry_2d = ImageGeometry3D(
+        image_geometry_2d = MultiscaleTileLayout2D(
             level_shapes=[select_axes(s, fetch) for s in level_shapes],
             block_size=block_size,
             n_levels=len(level_shapes),

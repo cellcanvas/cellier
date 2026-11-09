@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from psygnal import EventedModel
 from pydantic import Field
 
+from cellier._model import CellierEventedModel
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
 
 
-class TrailConfig(EventedModel):
+class TrailConfig(CellierEventedModel):
     """Asymmetric window on one sliced axis.
 
     Extends the slab on a single axis to ``[index - before, index + after]``,

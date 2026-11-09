@@ -18,14 +18,7 @@ from uuid import uuid4
 
 import numpy as np
 
-from cellier.convenience import (
-    AppearanceControls,
-    ContinuousAxisValues,
-    DiscreteAxisValues,
-    Layout,
-    Viewer,
-    run,
-)
+from cellier.convenience import AppearanceControls, Layout, Viewer, run
 from cellier.convenience.gui import (
     BoundingBoxControl,
     DatasetInfoControl,
@@ -36,6 +29,7 @@ from cellier.convenience.gui import (
     build_canvas_widget,
 )
 from cellier.data.mesh._mesh_memory_store import MeshMemoryStore
+from cellier.gui import ContinuousAxisValues, DiscreteAxisValues
 from cellier.render import OutlineConfig, RenderManagerConfig
 from cellier.scene.dims import spatial_axes
 from cellier.transform import Axis, DataCoordinateSystem

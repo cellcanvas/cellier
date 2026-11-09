@@ -38,18 +38,14 @@ from cellier.convenience.layout import (
     RenderControls,
     VStack,
 )
-from cellier.gui._axis_values import ContinuousAxisValues, DiscreteAxisValues
-from cellier.scene.dims import spatial_axes, world_coordinate_system
 
 __all__ = [
     "AmbientOcclusionControl",
     "AppearanceControls",
     "BoundingBoxControl",
     "ClippingPlanesControl",
-    "ContinuousAxisValues",
     "Control",
     "DatasetInfoControl",
-    "DiscreteAxisValues",
     "DisplayHandle",
     "FieldControls",
     "Grid",
@@ -80,6 +76,4 @@ __all__ = [
     "run",
     "screenshot_window",
     "show",
-    "spatial_axes",
-    "world_coordinate_system",
 ]

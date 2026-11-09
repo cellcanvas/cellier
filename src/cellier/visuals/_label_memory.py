@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
 
+from cellier._model import CellierModel
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
 from cellier.visuals._loading import ProgressiveLoadingConfig
 from cellier.visuals._render_plane import PLANE_RENDER_MODE, RenderPlane
@@ -138,7 +139,7 @@ class InMemoryLabelsAppearance(BaseLabelsAppearance):
     force_level: int | None = None
 
 
-class InMemoryLabelRenderConfig(BaseModel):
+class InMemoryLabelRenderConfig(CellierModel):
     """Render-layer configuration of an in-memory labels visual's brick route.
 
     Used only while a tilted 2D view draws the labels from 3D bricks.

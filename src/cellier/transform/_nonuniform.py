@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from pydantic import (
-    BaseModel,
     ConfigDict,
     field_serializer,
     model_validator,
@@ -24,6 +23,7 @@ from transformnd.transforms.bijection import Bijection
 from transformnd.transforms.grid import GridInterpolation
 from typing_extensions import Self
 
+from cellier._model import CellierModel
 from cellier._rounding import round_half_up_clamped
 from cellier.transform._base import BaseTransform
 from cellier.transform._geometry import AxisAlignedBoundingBox
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 __all__ = ["AxisCoordinates", "NonUniformAxisTransform"]
 
 
-class AxisCoordinates(BaseModel):
+class AxisCoordinates(CellierModel):
     """The sample positions of one irregularly-spaced axis.
 
     ``values`` are the world positions of the sample **centres** -- one per

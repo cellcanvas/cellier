@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from pydantic import (
     UUID4,
-    BaseModel,
     ConfigDict,
     field_serializer,
     field_validator,
@@ -15,6 +14,7 @@ from pydantic import (
 )
 from typing_extensions import Self
 
+from cellier._model import CellierModel
 from cellier.transform._arrays import (
     coerce_float_array,
     reject_non_finite,
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from cellier.transform._coordinate_system import CoordinateSystem
 
 
-class HalfSpace(BaseModel):
+class HalfSpace(CellierModel):
     """The set ``{p : normal . p <= offset}``.
 
     There is no ``inside`` field: the sign of the normal carries the
@@ -115,7 +115,7 @@ class HalfSpace(BaseModel):
         return hash((self.normal.tobytes(), self.offset))
 
 
-class ConvexRegion(BaseModel):
+class ConvexRegion(CellierModel):
     """An intersection of half-spaces.  An empty tuple is all of space.
 
     This is the *query* type; :class:`AxisAlignedBoundingBox` is the

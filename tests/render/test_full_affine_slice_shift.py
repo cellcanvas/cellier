@@ -16,14 +16,27 @@ import numpy as np
 import pytest
 
 from cellier.convenience._geometry import axis_values_from_viewer
-from cellier.convenience.capture import _ensure_canvases, _load_data
-from cellier.data import ImageMemoryStore
+from cellier.convenience.capture import (
+    _ensure_canvases,
+    _load_data,
+    _wait_until_loaded,
+)
+from cellier.data import ImageMemoryStore, MultiscaleZarrDataStore
 from cellier.data.graph._graph_memory_store import GraphMemoryStore
 from cellier.data.lines._lines_memory_store import LinesMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
 from cellier.gui._axis_values import DiscreteAxisValues
 from cellier.transform import Axis, DataCoordinateSystem
-from cellier.visuals import LinesMemoryAppearance, PointsMarkerAppearance
+from cellier.visuals import (
+    LinesMemoryAppearance,
+    MultiscaleImageAppearance,
+    MultiscaleImageRenderConfig,
+    MultiscaleImageSingleAppearance,
+    MultiscaleLabelRenderConfig,
+    MultiscaleLabelsAppearance,
+    PointsMarkerAppearance,
+)
+from tests._gpu_budget import SMALL_BUDGETS
 from tests.render._affine import (
     FAMILIES,
     GEOMETRY,
@@ -51,6 +64,7 @@ from tests.render._affine import (
     to_world,
     world_matrix,
 )
+from tests.render.conftest import _write_multiscale_zarr
 
 # ---------------------------------------------------------------------------
 # shear_x_by_z in a (y, x) view
@@ -273,3 +287,130 @@ def test_model_sizes_are_equal_across_the_two_paths(tmp_path):
             viewer.controller.close()
     assert areas[0] > 50
     assert areas[0] == areas[1]
+
+
+# ---------------------------------------------------------------------------
+# The 2D multiscale planner looks where the slab is drawn
+# ---------------------------------------------------------------------------
+
+# A long x axis, so a slice deep in z shifts the drawn slab well past a
+# zoomed-in view: at z = 48 the shear moves it 24 voxels, more than the
+# 16-voxel view plus a tile.
+_DEEP_SHAPE = (64, 32, 256)
+_DEEP_Z = 48.0
+_DEEP_SHEAR = 0.5
+_DEEP_TARGET = np.array([16.0, 128.0])  # the data (y, x) the camera looks at
+_DEEP_WIDTH = 16.0
+
+
+def _two_level_store(root, name: str, dtype, fine, coarse):
+    """A two-level zarr store holding *fine* at level 0 and *coarse* at 1."""
+    root = root / name
+    coarse_shape = tuple(s // 2 for s in _DEEP_SHAPE)
+
+    def fill(arr):
+        arr[...] = fine if arr.shape == _DEEP_SHAPE else coarse
+
+    _write_multiscale_zarr(
+        root,
+        levels=[("s0", _DEEP_SHAPE), ("s1", coarse_shape)],
+        fill=fill,
+        dtype=dtype,
+    )
+    return MultiscaleZarrDataStore.from_scale_and_translation(
+        zarr_path=str(root),
+        scale_names=["s0", "s1"],
+        level_scales=[(1.0, 1.0, 1.0), (2.0, 2.0, 2.0)],
+        level_translations=[(0.0, 0.0, 0.0), (0.5, 0.5, 0.5)],
+        name=name,
+    )
+
+
+def _target_world_xy(matrix: np.ndarray) -> np.ndarray:
+    """Where the target voxel on the slice is drawn, pygfx ``(x, y)``."""
+    _, y, x = to_world(matrix, np.array([_DEEP_Z, *_DEEP_TARGET]))
+    return np.array([x, y])
+
+
+def _zoom_onto_the_target(viewer, matrix: np.ndarray) -> None:
+    """Centre the 2D camera on the target's drawn position and reload."""
+    camera = canvas_view(viewer).camera
+    camera.width = camera.height = _DEEP_WIDTH
+    world_x, world_y = _target_world_xy(matrix)
+    camera.local.position = (float(world_x), float(world_y), 0.0)
+
+    async def _run():
+        # Not ``_load_data``: it fits the camera to the data first.
+        viewer.controller.reslice_all()
+        await _wait_until_loaded(viewer.controller)
+
+    asyncio.run(_run())
+
+
+def _planned_view(planner, matrix) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(camera, view_min, view_max)`` in level-0 ``(x, y)`` for the zoom."""
+    centre = np.array([*_target_world_xy(matrix), 0.0])
+    half = _DEEP_WIDTH / 2.0
+    camera, view_min, view_max, _ = planner._view_2d(
+        centre, _DEEP_WIDTH, centre[:2] - half, centre[:2] + half
+    )
+    return camera[:2], view_min, view_max
+
+
+@pytest.mark.parametrize("family", ["image_multiscale", "labels_multiscale"])
+def test_a_sheared_2d_view_plans_the_tiles_under_the_camera(tmp_path, family):
+    """The 2D planner pulls the camera back with the slice shift included.
+
+    The view is a shear ``x += 0.5 z`` sliced at ``z = 48``, so the slab is
+    drawn 24 voxels to the right of where ``z = 0`` would put it.  The
+    planner must look at the voxels drawn under the camera; pulling back
+    through ``data -> world`` alone lost the shift and planned tiles 24
+    voxels to the right, off screen.
+    """
+    matrix = world_matrix(LINEARS["shear_x_by_z"])
+    assert matrix[2, 0] == _DEEP_SHEAR
+    viewer = new_viewer("2d")
+    try:
+        if family == "image_multiscale":
+            store = _two_level_store(tmp_path, "img", "float32", 1.0, 0.5)
+            visual = viewer.add_image_multiscale(
+                store,
+                appearance=MultiscaleImageAppearance(),
+                render_config=MultiscaleImageRenderConfig(
+                    **SMALL_BUDGETS, block_size=16
+                ),
+                single=MultiscaleImageSingleAppearance(
+                    color_map="gray", clim=(0.0, 1.0)
+                ),
+                transform=bind(viewer, store, matrix),
+            )
+        else:
+            store = _two_level_store(tmp_path, "lab", "int32", 1, 2)
+            visual = viewer.add_labels_multiscale(
+                store,
+                appearance=MultiscaleLabelsAppearance(),
+                render_config=MultiscaleLabelRenderConfig(
+                    **SMALL_BUDGETS, block_size=16
+                ),
+                transform=bind(viewer, store, matrix),
+            )
+        assert viewer.controller.draw_status(visual.id).alignment == "slice_shift"
+        load(viewer, slice_z=_DEEP_Z)
+        _zoom_onto_the_target(viewer, matrix)
+        gfx_visual = viewer.controller._render_manager._scenes[
+            viewer.scene.id
+        ].get_visual(visual.id)
+        planner = gfx_visual._slots[0] if family == "image_multiscale" else gfx_visual
+        camera, view_min, view_max = _planned_view(planner, matrix)
+        target_xy = _DEEP_TARGET[::-1]
+        np.testing.assert_allclose(camera, target_xy, atol=1e-4)
+        np.testing.assert_allclose(view_min, target_xy - _DEEP_WIDTH / 2, atol=1e-4)
+        np.testing.assert_allclose(view_max, target_xy + _DEEP_WIDTH / 2, atol=1e-4)
+        if family == "image_multiscale":
+            # Level 0 holds 1.0 and level 1 0.5, so a grey of 255 everywhere
+            # says every pixel was drawn from the fine tiles; the backstop
+            # alone shows 127.
+            frame, _, _ = render(viewer)
+            assert np.unique(frame[..., 0]).tolist() == [255]
+    finally:
+        viewer.controller.close()

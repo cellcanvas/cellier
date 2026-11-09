@@ -18,11 +18,12 @@ import uuid
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from psygnal import EventedModel
 from pydantic import UUID4, AfterValidator, ConfigDict, Field
 
+from cellier._model import CellierEventedModel
 
-class SceneOverlay(EventedModel):
+
+class SceneOverlay(CellierEventedModel):
     """Base model for all scene overlays.
 
     Parameters
@@ -42,7 +43,7 @@ class SceneOverlay(EventedModel):
     visible: bool = True
 
 
-class SceneBoundingBoxAppearance(EventedModel):
+class SceneBoundingBoxAppearance(CellierEventedModel):
     """Appearance model for a :class:`SceneBoundingBox`.
 
     Parameters

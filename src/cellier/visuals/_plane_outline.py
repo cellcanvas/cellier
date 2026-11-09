@@ -14,7 +14,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
+
+from cellier._model import CellierModel
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
 Rgba = tuple[float, float, float, float]
 
 
-class PlaneOutline(BaseModel):
+class PlaneOutline(CellierModel):
     """The line along the edge of the polygon a plane makes in its visual.
 
     For a render plane the polygon is what is drawn of it: the plane cut by

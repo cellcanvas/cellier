@@ -88,7 +88,14 @@ def _check_fields(fields: object, owner: str) -> list[str]:
 
 @dataclass
 class Control:
-    """Base class of the control models.  It has no fields."""
+    """Base class of the control models.
+
+    Every item of a ``controls=`` list is an instance of one of its
+    subclasses, and each subclass names one control of the appearance dock.
+    The base class has no fields and is not listed itself; which subclasses
+    a visual accepts depends on its kind, and ``add_*`` raises on a model
+    the visual has no control for.
+    """
 
 
 @dataclass
@@ -185,15 +192,24 @@ class FieldControls(Control):
 
 @dataclass
 class LevelOfDetailControl(Control):
-    """The level-of-detail control of a multiscale image or labels visual.
+    """The level-of-detail control of an image or labels visual.
 
-    The settled bias and "coarsest while moving".
+    A slider for the appearance's ``settled_lod_bias`` (higher is coarser)
+    and checkboxes for ``coarsest_while_moving_3d`` and
+    ``coarsest_while_moving_2d`` (draw only the coarsest level while the
+    visual moves).  For an in-memory or multiscale image, a MaskedImage,
+    and in-memory or multiscale labels.  It has no options.
     """
 
 
 @dataclass
 class BoundingBoxControl(Control):
-    """The bounding box control: on or off, line width and colour."""
+    """The bounding box control.
+
+    A checkbox, a line-width slider and a colour picker for the visual's
+    ``aabb`` (:class:`~cellier.visuals.AABBParams`): the box drawn round the
+    visual's data.  Every kind of visual has one.  It has no options.
+    """
 
 
 @dataclass
@@ -246,15 +262,23 @@ class AmbientOcclusionControl(Control):
 
 @dataclass
 class PickingControl(Control):
-    """The ``pick_write`` checkbox: whether the visual is in the pick buffer."""
+    """The ``pick_write`` checkbox: whether the visual is in the pick buffer.
+
+    A visual out of the pick buffer cannot be picked in the canvas, and
+    cannot be outlined or ambient-occluded, since both passes read that
+    buffer.  List it beside :class:`OutlineControl` or
+    :class:`AmbientOcclusionControl` to show the flag those controls turn
+    on.  For every kind of visual.  It has no options.
+    """
 
 
 @dataclass
 class LoadingIndicator(Control):
     """How far the visual's data has loaded: a bar and a status line.
 
-    For a multiscale image or labels visual, and for a mesh, which is not
-    drawn while a new position loads.
+    For an image or labels visual, whose data loads progressively, brick by
+    brick, and for a mesh, which is not drawn while a new position loads
+    (its status is worded in levels).  It has no options.
     """
 
 
@@ -262,7 +286,11 @@ class LoadingIndicator(Control):
 class LoadingConfigControl(Control):
     """A control for every ``ProgressiveLoadingConfig`` field.
 
-    Advanced settings of a multiscale image or labels visual.
+    Advanced settings of how an image or labels visual loads its data
+    progressively: the visual's ``render_config.loading``
+    (:class:`~cellier.visuals.ProgressiveLoadingConfig`).  For an in-memory
+    or multiscale image, a MaskedImage, and in-memory or multiscale labels.
+    It has no options.
     """
 
 

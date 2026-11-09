@@ -41,9 +41,7 @@ def _make_cs() -> WorldCoordinateSystem:
 
 
 def _make_appearance(**kwargs) -> MultiscaleImageAppearance:
-    defaults = {"color_map": "viridis", "clim": (0.0, 1.0)}
-    defaults.update(kwargs)
-    return MultiscaleImageAppearance(**defaults)
+    return MultiscaleImageAppearance(**kwargs)
 
 
 def _make_store(small_zarr_store, **kwargs) -> MultiscaleZarrDataStore:

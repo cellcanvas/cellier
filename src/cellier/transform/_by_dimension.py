@@ -14,7 +14,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, field_serializer, model_validator
+from pydantic import ConfigDict, field_serializer, model_validator
 
 # Imported at runtime, not under TYPE_CHECKING: pydantic resolves field
 # annotations at class-creation time and cannot see a deferred import.
@@ -22,6 +22,7 @@ from transformnd.transforms.affine import Affine
 from transformnd.transforms.by_dimension import ByDimension, SubTransform
 from typing_extensions import Self
 
+from cellier._model import CellierModel
 from cellier.transform._affine import AffineTransform, _resolve_fixed_axes
 from cellier.transform._base import BaseTransform
 from cellier.transform._coordinate_system import CoordinateSystem
@@ -73,7 +74,7 @@ def _derived_system_id(*parts: object) -> uuid.UUID:
     return uuid.UUID(bytes=bytes(forced))
 
 
-class TransformBlock(BaseModel):
+class TransformBlock(CellierModel):
     """One block of a :class:`ByDimensionTransform`.
 
     Parameters

@@ -68,6 +68,7 @@ nav = [
         { "Set the orientation of the 3D camera" = "How_To/camera_fit_orientation.md" },
     ] },
     { "API Reference" = [
+        { "Convenience" = "api/convenience.md" },
         { "CellierController" = "api/controller.md" },
         { "Data" = "api/data.md" },
         { "Visuals" = "api/visuals.md" },

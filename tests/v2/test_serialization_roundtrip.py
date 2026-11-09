@@ -77,17 +77,13 @@ def test_multiscale_render_config_roundtrip():
 
     interpolation is now on MultiscaleImageAppearance, not MultiscaleImageRenderConfig.
     """
-    from cmap import Colormap
-
     from cellier.visuals import MultiscaleImageVisual
 
     render_config = MultiscaleImageRenderConfig(
         block_size=64,
         gpu_budget_bytes=512 * 1024**2,
     )
-    appearance = MultiscaleImageAppearance(
-        color_map=Colormap("viridis"), clim=(0.0, 1.0), interpolation="linear"
-    )
+    appearance = MultiscaleImageAppearance(interpolation="linear")
     visual = MultiscaleImageVisual(
         name="img",
         data_store_id="00000000-0000-0000-0000-000000000001",

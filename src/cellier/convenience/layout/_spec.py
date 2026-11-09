@@ -22,14 +22,35 @@ than this, the controls cannot be laid out legibly."""
 
 @dataclass
 class HStack:
-    """Horizontal stack of center items or control specs."""
+    """Items side by side, left to right.
+
+    In ``Layout.center`` the items are canvas views or nested
+    ``HStack``/``VStack``/``Grid`` containers.  In a dock the items are
+    dock specs (:class:`AppearanceControls`, :class:`OverlayControls`,
+    :class:`RenderControls`, :class:`OrthoClippingControls`) or nested
+    stacks; an item that builds nothing is dropped.
+
+    Parameters
+    ----------
+    items : list
+        The items, in order.
+    """
 
     items: list
 
 
 @dataclass
 class VStack:
-    """Vertical stack of center items or control specs."""
+    """Items one above the other, top to bottom.
+
+    Takes the same items as :class:`HStack`: canvas views or containers in
+    ``Layout.center``, dock specs or stacks in a dock.
+
+    Parameters
+    ----------
+    items : list
+        The items, in order.
+    """
 
     items: list
 
@@ -244,6 +265,9 @@ class Layout:
     ) -> Layout:
         """Single-canvas preset.
 
+        Controls placed in the same dock stack top to bottom in the order
+        appearance, render.
+
         Parameters
         ----------
         canvas :
@@ -254,9 +278,6 @@ class Layout:
             Where to place the renderer settings panels (outlines, ambient
             occlusion, temporal accumulation).  ``False`` (default) omits
             them.
-
-        Controls placed in the same dock stack top to bottom in the order
-        appearance, render.
         """
         docks: dict[str, list] = {}
         for where, spec in (

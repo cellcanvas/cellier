@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from cellier._model import CellierModel
 from cellier.visuals._removed import REMOVED_LOADING_FIELDS, refuse_removed_fields
 
 #: The largest offset: a stage's request class is its offset, in a ``uint8``
@@ -13,7 +14,7 @@ from cellier.visuals._removed import REMOVED_LOADING_FIELDS, refuse_removed_fiel
 _MAX_OFFSET = 254
 
 
-class ProgressiveLoadingConfig(BaseModel):
+class ProgressiveLoadingConfig(CellierModel):
     """How a multiscale visual loads: a coarse backstop, then the target.
 
     A coarse *backstop* level is always loaded ahead of the target level, so
@@ -94,7 +95,7 @@ class ProgressiveLoadingConfig(BaseModel):
         return offsets
 
 
-class GeometryLodConfig(BaseModel):
+class GeometryLodConfig(CellierModel):
     """How a multiscale geometry visual uses its levels of detail.
 
     Two levels are kept loaded: the finest, and one coarse level.  Every

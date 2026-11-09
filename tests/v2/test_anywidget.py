@@ -404,7 +404,7 @@ def _image_viewer_with_controls():
     viewer.controller.add_data_store(store)
     viewer.add_image(
         store,
-        appearance={"color_map": "viridis", "clim": (0.0, 1.0)},
+        single={"color_map": "viridis", "clim": (0.0, 1.0)},
         controls=[ImageControl(fields=["color_map", "clim"]), BoundingBoxControl()],
     )
     return viewer, axis_values_from_viewer(viewer)

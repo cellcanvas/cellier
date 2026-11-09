@@ -3,13 +3,9 @@
 import numpy as np
 import pytest
 
-from cellier.convenience import (
-    ContinuousAxisValues,
-    OrthoViewer,
-    Viewer,
-    axis_values_from_ortho,
-)
+from cellier.convenience import OrthoViewer, Viewer, axis_values_from_ortho
 from cellier.data.image._image_memory_store import ImageMemoryStore
+from cellier.gui import ContinuousAxisValues
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import (
     InMemoryImageChannelAppearance,

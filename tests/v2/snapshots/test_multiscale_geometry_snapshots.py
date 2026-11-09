@@ -29,8 +29,8 @@ from tests._v2 import level_transforms as _levels
 from tests._v2 import scale_and_translation
 
 from cellier.render.visuals._image import (
-    ImageGeometry3D,
     MultiscaleBrickLayout3D,
+    MultiscaleTileLayout2D,
     _displayed_submatrix,
     _slot_geometries,
 )
@@ -72,7 +72,7 @@ def _assert_matches(name: str, snapshot: dict) -> None:
     )
 
 
-def _capture_geometry(geom: MultiscaleBrickLayout3D | ImageGeometry3D) -> dict:
+def _capture_geometry(geom: MultiscaleBrickLayout3D | MultiscaleTileLayout2D) -> dict:
     return {
         "level_shapes": [list(s) for s in geom.level_shapes],
         "scale_vecs_data": _round(geom._scale_vecs_data),

@@ -5,16 +5,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, Literal, Union
 from uuid import UUID, uuid4
 
-from pydantic import UUID4, BaseModel, ConfigDict, Field, model_validator
+from pydantic import UUID4, ConfigDict, Field, model_validator
 from typing_extensions import Self
 
+from cellier._model import CellierModel
 from cellier.transform._axis import Axis, AxisRef
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-class CoordinateSystem(BaseModel):
+class CoordinateSystem(CellierModel):
     """An ordered set of axes.
 
     Coordinate systems are frozen.  Changing the axes of a system means

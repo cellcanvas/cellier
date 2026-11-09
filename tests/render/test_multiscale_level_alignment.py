@@ -258,9 +258,9 @@ def _write_dataset(root, kind="offset"):
 
 
 def _build_viewer(path):
-    from cellier.convenience import Viewer, spatial_axes
+    from cellier.convenience import Viewer
     from cellier.data import OMEZarrImageDataStore, OMEZarrLabelDataStore
-    from cellier.scene import BackgroundAppearance
+    from cellier.scene import BackgroundAppearance, spatial_axes
     from cellier.transform import AffineTransform
     from cellier.visuals import (
         MultiscaleImageAppearance,

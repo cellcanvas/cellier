@@ -7,13 +7,14 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import numpy as np
-from pydantic import UUID4, BaseModel, ConfigDict, Field
+from pydantic import UUID4, ConfigDict, Field
 
 # Transform is imported at runtime, not under TYPE_CHECKING: pydantic
 # resolves field annotations at class-creation time and cannot see a
 # deferred import.
 from transformnd.base import Transform  # noqa: TC002
 
+from cellier._model import CellierModel
 from cellier.transform._geometry_ops import (
     DegenerateNormalError,
     NonInvertibleTransformError,
@@ -35,7 +36,7 @@ __all__ = [
 ]
 
 
-class BaseTransform(BaseModel, ABC):
+class BaseTransform(CellierModel, ABC):
     """A transform between two coordinate systems.
 
     Wraps a :class:`transformnd.base.Transform` rather than

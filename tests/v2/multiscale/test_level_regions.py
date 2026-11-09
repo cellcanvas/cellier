@@ -209,7 +209,7 @@ def test_the_camera_composition_matches_the_three_step_dance(pyramid):
         cellier_to_pygfx_order,
         pygfx_to_cellier_order,
     )
-    from cellier.render.visuals._image import _displayed_submatrix, _imap_square
+    from cellier.render.visuals._image import _displayed_submatrix
 
     spaces, data_to_world, _ = pyramid
     camera_pygfx = np.array([[12.0, 9.0, 40.0]])
@@ -221,7 +221,8 @@ def test_the_camera_composition_matches_the_three_step_dance(pyramid):
     new = cellier_to_pygfx_order(level0[:, list(spaces.retained_axes)]).flatten()
 
     sub_3d = _displayed_submatrix(data_to_world, (1, 2, 3))
-    old = _imap_square(sub_3d, camera_pygfx[:, [2, 1, 0]]).flatten()[[2, 1, 0]]
+    camera_homogeneous = np.append(camera_pygfx[0, [2, 1, 0]], 1.0)
+    old = (np.linalg.inv(sub_3d) @ camera_homogeneous)[:3][[2, 1, 0]]
 
     np.testing.assert_allclose(new, old, rtol=1e-6)
     # Design 3.11 C's printed values.

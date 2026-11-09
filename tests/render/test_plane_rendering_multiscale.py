@@ -272,10 +272,10 @@ def _record_plans(monkeypatch) -> list:
 async def test_a_dragged_plane_draws_held_bricks_or_the_backstop_never_nothing(
     controller, tmp_path, monkeypatch, labels
 ):
-    """C2 with a real plane: in a scope the extent grows, the plane moves out
-    of its bricks and a second plane is added.  Nothing is planned or read,
-    and every pixel of the planes still draws: from a brick the last plan
-    held, or from the backstop."""
+    """The held-plan check, with a real plane: in a scope the extent grows,
+    the plane moves out of its bricks and a second plane is added.  Nothing
+    is planned or read, and every pixel of the planes still draws: from a
+    brick the last plan held, or from the backstop."""
     controller._render_manager.config.scheduler.dims_settle_s = 10.0
     spec = ISO
     # Every level one value (level k is k + 1), so a pixel names its level

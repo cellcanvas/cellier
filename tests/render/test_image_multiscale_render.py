@@ -281,14 +281,14 @@ async def test_reslice_3d_with_a_nonuniform_axis_transform(
 ):
     """A 3D reslice does not need ``.inverse()`` on the ``data -> world`` transform.
 
-    Regression test: the camera/frustum pull-back (``_to_level0_displayed``,
-    formerly via ``_rendered_to_level0``) composed
-    ``rendered_to_world.then(transform.inverse())``.
+    Regression test: the camera/frustum pull-back (``_to_level0_displayed``)
+    once composed ``rendered_to_world.then(transform.inverse())``.
     ``NonUniformAxisTransform.inverse()`` is structurally ``None`` (the map
     is invertible; its inverse is not itself a transform of that class), so
-    every ``ByDimensionTransform`` carrying one raised before the camera
-    pull-back went through ``imap_coordinates`` in two steps instead.  ``t``
-    is collapsed (not displayed) in 3D, matching the real light-sheet viewer.
+    every ``ByDimensionTransform`` carrying one raised.  The pull-back now
+    goes through the node's placement transform, which pins the collapsed
+    ``t`` first (``affine_for_node``) and so is affine.  ``t`` is collapsed
+    (not displayed) in 3D, matching the real light-sheet viewer.
     """
     scene = controller.add_scene(
         displayed_axes=("z", "y", "x"),

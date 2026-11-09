@@ -2,8 +2,9 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
+from cellier._model import CellierModel
 from cellier.transform import AffineTransform
 from cellier.visuals._label_memory import BaseLabelsAppearance, BaseLabelsVisual
 from cellier.visuals._loading import ProgressiveLoadingConfig
@@ -89,7 +90,7 @@ class MultiscaleLabelsAppearance(BaseLabelsAppearance):
     ray_steps_per_voxel: float = Field(default=1.0, ge=0.5, le=8.0)
 
 
-class MultiscaleLabelRenderConfig(BaseModel):
+class MultiscaleLabelRenderConfig(CellierModel):
     model_config = ConfigDict(frozen=True)
     """Render-layer configuration for a multiscale label visual.
 

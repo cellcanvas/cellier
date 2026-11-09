@@ -8,9 +8,10 @@ geometry-only scene below -- which raised before this phase -- works.
 import numpy as np
 import pytest
 
-from cellier.convenience import ContinuousAxisValues, Viewer, axis_values_from_viewer
+from cellier.convenience import Viewer, axis_values_from_viewer
 from cellier.data.image._image_memory_store import ImageMemoryStore
 from cellier.data.points._points_memory_store import PointsMemoryStore
+from cellier.gui import ContinuousAxisValues
 from cellier.scene.dims import spatial_axes
 from cellier.visuals import InMemoryImageSingleAppearance
 from cellier.visuals._image_memory import InMemoryImageAppearance
