@@ -672,13 +672,39 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         (u_stdinfo.cam_transform * plane_world).xyz);
     $$ endif
     $$ if write_pick
-    // The existing volume payload: the normalised position of the hit.
-    let plane_pick = (plane_pos / norm_size) + vec3<f32>(0.5);
+    // The normalised position of the hit, clamped one quantum inside the
+    // voxel it is in (at most to the voxel's centre) and rounded, as the iso
+    // pick does, so the 14-bit encode cannot move it into the next voxel.
+    // A plane uses the drawn level's voxel, nearest by the rule sample_atlas
+    // reads with; a slab has no one brick and uses the level-0 voxel, whose
+    // faces are faces of the coarser levels' voxels too.
+    $$ if slab_op != 'none'
+    let plane_pick_lod    = vec3<f32>(1.0);
+    let plane_pick_offset = vec3<f32>(0.0);
+    $$ else
+    let plane_pick_lod    = plane_brick.lod_scale;
+    let plane_pick_offset = get_level_offset(i32(plane_brick.lut_entry.w));
+    $$ endif
+    let plane_pick_p      = norm_to_voxel(plane_pos, norm_size, dataset_size);
+    let plane_pick_index  = floor(
+        (plane_pick_p - plane_pick_offset) / plane_pick_lod + vec3<f32>(0.5));
+    let plane_pick_centre = plane_pick_lod * plane_pick_index + plane_pick_offset;
+    let plane_quantum     = max(
+        max(dataset_size.x, dataset_size.y), dataset_size.z
+    ) / 16383.0;
+    let plane_room        = 0.5 * plane_pick_lod
+                          - min(vec3<f32>(plane_quantum), 0.5 * plane_pick_lod);
+    let plane_inside      = clamp(
+        plane_pick_p, plane_pick_centre - plane_room, plane_pick_centre + plane_room);
+    let plane_pick = (
+        index_to_norm(plane_inside + vec3<f32>(0.5), norm_size, dataset_size)
+        / norm_size
+    ) + vec3<f32>(0.5);
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
-        pick_pack(u32(clamp(plane_pick.x, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_pick.y, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_pick.z, 0.0, 1.0) * 16383.0), 14)
+        pick_pack(u32(clamp(plane_pick.x * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_pick.y * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_pick.z * 16383.0 + 0.5, 0.0, 16383.0)), 14)
     );
     $$ endif
 

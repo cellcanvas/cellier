@@ -141,7 +141,7 @@
     "write_normal": false,
     "write_pick": true
    },
-   "00633818b74f098e1e303c4b88e40b10de91cb0b245b6c4f9a38101dad693621"
+   "6d940e8bebe38b1dfcf80f82e534a9ff7b5207c33ee05ecf3ea15b79d34d08bc"
   ]
  ],
  "slab_mean": [
@@ -177,7 +177,7 @@
     "write_normal": false,
     "write_pick": true
    },
-   "03befd6e962cb6fb4b4f3033b405a6ee86056f0ac15885cdd334960896af7b66"
+   "42653fad22de2fb92b7096e2ea524ded62a59efd73704e95244d5870e3cab71a"
   ]
  ],
  "slab_minip": [
@@ -213,7 +213,7 @@
     "write_normal": false,
     "write_pick": true
    },
-   "86d71db197a2cea899501669d5c9cc23db00556773a0d0b3ac5019bf37cba46b"
+   "65bd4b386ead695c0fe5e4b82394c9a583ec764b3dfdf52ccdeeb4b0ee2aebdf"
   ]
  ],
  "slab_mip": [
@@ -249,7 +249,7 @@
     "write_normal": false,
     "write_pick": true
    },
-   "5b33b206f74ff1518c5f2eb3aa307f5069c9f19bda49e66e97a49cfd00a8561a"
+   "87a42e66c027f3864b0430262c4dadc8ffb32a10d86aa1f88005cc9654fd1e94"
   ]
  ],
  "slice_linear": [
@@ -285,7 +285,7 @@
     "write_normal": false,
     "write_pick": true
    },
-   "e4bfa13bf33503a0c57aefe59f9dc79d288e37c914c72fefa0004c7afea80f63"
+   "642ff8febd8c7e47c20d52eb07616b35cde0fa80044cbf10d516c8836882c697"
   ]
  ],
  "slice_nearest": [],

@@ -224,11 +224,24 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         (u_stdinfo.cam_transform * plane_world).xyz);
     $$ endif
     $$ if write_pick
+    // The encode quantises each axis to 14 bits (steps of ``dim / 16383``
+    // voxels, the quantum), and a point near a voxel face could land in the
+    // neighbour.  Clamp the plane point one quantum inside the voxel it is in
+    // (at most to its centre) and round, as the surface pick below does.
+    let plane_quantum = max(max(sizef.x, sizef.y), sizef.z) / 16383.0;
+    let plane_room    = min(plane_quantum, 0.5);
+    let plane_voxel   = plane_coord * sizef;
+    let plane_cell    = clamp(floor(plane_voxel), vec3<f32>(0.0), sizef - vec3<f32>(1.0));
+    let plane_inside  = clamp(
+        plane_voxel,
+        plane_cell + vec3<f32>(plane_room),
+        plane_cell + vec3<f32>(1.0 - plane_room)
+    ) / sizef;
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
-        pick_pack(u32(clamp(plane_coord.x, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_coord.y, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_coord.z, 0.0, 1.0) * 16383.0), 14)
+        pick_pack(u32(clamp(plane_inside.x * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_inside.y * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_inside.z * 16383.0 + 0.5, 0.0, 16383.0)), 14)
     );
     $$ endif
     return out;

@@ -240,7 +240,6 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     }
     if (!plane_found) { discard; }
     let plane_pos = near_pos + ray_dir * plane_t;
-    let plane_coord = (plane_pos + vec3<f32>(0.5)) / vol_dimsf;
     let plane_world = u_wobject.world_transform * vec4<f32>(plane_pos, 1.0);
     let plane_ndc = u_stdinfo.projection_transform * u_stdinfo.cam_transform * plane_world;
 
@@ -258,11 +257,26 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     out.outline_id = label_outline_key(plane_lid);
     $$ endif
     $$ if write_pick
+    // The encode quantises each axis to 14 bits (steps of ``dim / 16383``
+    // voxels, the quantum), and a point near a voxel face could land in the
+    // neighbour, which may hold another label.  Clamp the plane point one
+    // quantum inside the voxel the loop above read (at most to its centre)
+    // and round, as the surface pick below does.
+    let plane_quantum = max(max(vol_dimsf.x, vol_dimsf.y), vol_dimsf.z) / 16383.0;
+    let plane_room    = min(plane_quantum, 0.5);
+    let plane_voxel   = vec3<f32>(clamp(
+        vec3<i32>(floor(plane_pos + vec3<f32>(0.5))),
+        vec3<i32>(0), vol_dims - vec3<i32>(1)));
+    let plane_inside  = (clamp(
+        plane_pos,
+        plane_voxel - vec3<f32>(0.5 - plane_room),
+        plane_voxel + vec3<f32>(0.5 - plane_room)
+    ) + vec3<f32>(0.5)) / vol_dimsf;
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
-        pick_pack(u32(clamp(plane_coord.x, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_coord.y, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_coord.z, 0.0, 1.0) * 16383.0), 14)
+        pick_pack(u32(clamp(plane_inside.x * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_inside.y * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_inside.z * 16383.0 + 0.5, 0.0, 16383.0)), 14)
     );
     $$ endif
     return out;

@@ -496,6 +496,9 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     var plane_normal = vec3<f32>(0.0);
     var plane_lid = background_label;
     var plane_color = vec4<f32>(0.0);
+    // The brick the label was read from, for the pick below.
+    var plane_lut_entry = vec4<u32>(0u);
+    var plane_lod_scale = vec3<f32>(1.0);
     for (var pass_i = 0; pass_i < u_render_planes.count; pass_i = pass_i + 1) {
         let plane = plane_nearest_hit(
             plane_ray_o, plane_ray_d, plane_t, t_end, pass_i == 0);
@@ -516,6 +519,8 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         plane_normal = plane.normal;
         plane_lid = lid;
         plane_color = lid_color;
+        plane_lut_entry = ctx.lut_entry;
+        plane_lod_scale = ctx.lod_scale;
         break;
     }
     if (!plane_found) { discard; }
@@ -541,13 +546,32 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     out.outline_id = label_outline_key(plane_lid);
     $$ endif
     $$ if write_pick
-    // The existing volume payload: the normalised position of the hit.
-    let plane_pick = (plane_pos / norm_size) + vec3<f32>(0.5);
+    // The normalised position of the hit, clamped one quantum inside the
+    // drawn-level voxel the label was read from (as the surface pick below
+    // does), so the 14-bit encode cannot move it into the voxel in front.
+    let plane_quantum = max(
+        max(dataset_size.x, dataset_size.y), dataset_size.z
+    ) / 16383.0;
+    let plane_offset  = get_level_offset(i32(plane_lut_entry.w));
+    let plane_voxel   = clamp(
+        norm_to_voxel(plane_pos, norm_size, dataset_size),
+        vec3<f32>(0.0),
+        dataset_size - vec3<f32>(0.001));
+    let plane_index   = floor(
+        (plane_voxel - vec3<f32>(0.5) - plane_offset) / plane_lod_scale
+        + vec3<f32>(0.5)
+    );
+    let plane_centre  = plane_lod_scale * plane_index + plane_offset + vec3<f32>(0.5);
+    let plane_room    = 0.5 * plane_lod_scale
+                      - min(vec3<f32>(plane_quantum), 0.5 * plane_lod_scale);
+    let plane_inside  = clamp(plane_voxel, plane_centre - plane_room, plane_centre + plane_room);
+    let plane_pick    = voxel_to_norm(plane_inside, norm_size, dataset_size) / norm_size
+                      + vec3<f32>(0.5);
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
-        pick_pack(u32(clamp(plane_pick.x, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_pick.y, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_pick.z, 0.0, 1.0) * 16383.0), 14)
+        pick_pack(u32(clamp(plane_pick.x * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_pick.y * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_pick.z * 16383.0 + 0.5, 0.0, 16383.0)), 14)
     );
     $$ endif
 

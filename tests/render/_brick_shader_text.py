@@ -25,8 +25,12 @@ instead of a fixed ``1e-4`` and to choose the voxel along the gradient, then to
 start the bisection at the crossing sample itself and reset ``prev_t`` past a
 skipped brick, so a pick no longer depends on the far plane).  The digests of the
 ``mip_linear`` and ``attenuated_mip_linear`` scenes were replaced by hand once,
-on 2026-11-11, when the MIP pick got the same clamp and rounding.  Only those
-four digests changed, and the other seven entries still match ``7e1b683f``.
+on 2026-11-11, when the MIP pick got the same clamp and rounding.  The digests
+of the ``plane_linear``, ``slice_linear``, ``slab_mip``, ``slab_mean`` and
+``slab_minip`` scenes were replaced by hand once, on 2026-11-14, when the
+render-plane and slab picks got the same clamp and rounding.  Only those nine
+digests changed (``iso_linear`` and ``slice_nearest`` record no entries), and
+the shader text is otherwise the text of ``7e1b683f``.
 """
 
 from __future__ import annotations
