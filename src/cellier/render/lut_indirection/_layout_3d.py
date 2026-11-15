@@ -44,33 +44,19 @@ class BlockLayout3D:
         Number of bricks needed to tile this LOAD level along each axis
         of the volume, in numpy axis order.
         Computed as ceil(volume_shape[i] / block_size) per axis.
-        This is also the shape of the LUT texture for this level.
+        This is also the shape of the LUT texture for this level, so it is
+        bounded by the device's 3D texture limit (2048 per axis under the
+        default WebGPU limits); ``build_lut_texture`` checks that bound.
     padded_shape : tuple[int, int, int]
         Volume extent rounded up to a whole number of bricks, in numpy
         axis order ``(D, H, W)``.  Bricks at the volume boundary may
         extend past ``volume_shape`` and are zero-padded on load.
     n_bricks : int
         Total number of bricks across all three axes.
-
-    Raises
-    ------
-    ValueError
-        If any grid dimension exceeds 255, which overflows the uint8
-        channels used by the LUT texture.  Reduce ``block_size`` or
-        switch to a uint16 LUT format to support larger volumes.
     """
 
     volume_shape: tuple[int, int, int]
     block_size: int = 32
-
-    def __post_init__(self) -> None:
-        grid_depth, grid_height, grid_width = self.grid_dims
-        if max(grid_depth, grid_height, grid_width) > 255:
-            raise ValueError(
-                f"Grid dimension {max(grid_depth, grid_height, grid_width)} "
-                "exceeds uint8 range (255). "
-                "Reduce block_size or use a uint16 LUT format."
-            )
 
     @property
     def grid_dims(self) -> tuple[int, int, int]:

@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import math
 import uuid
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Union
 from uuid import uuid4
 
 import numpy as np
-from pydantic import UUID4, AfterValidator, ConfigDict, Field, PrivateAttr
+from pydantic import (
+    UUID4,
+    AfterValidator,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+)
 
 from cellier._model import CellierEventedModel
 from cellier.types import NumpyFloat32Array
@@ -17,6 +24,34 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from psygnal import EmissionInfo
+
+
+def orbit_distance(fov: float, width: float, height: float) -> float | None:
+    """The distance ahead of a 3D camera of the point its orbit controller turns about.
+
+    pygfx's orbit controller turns the camera about the point where the
+    view is ``width`` by ``height``: ``0.5 / tan(fov / 2)`` times the mean of
+    the two.  The field of view is clamped as pygfx clamps it: below 0.5
+    degrees it is 0, below 1 it is 1, above 179 it is 179.
+
+    Parameters
+    ----------
+    fov : float
+        Vertical field of view in degrees.
+    width, height : float
+        The size of the view at that point, in world units (the camera's
+        ``width`` and ``height``, or a ``CameraState.extent``).
+
+    Returns
+    -------
+    float or None
+        The distance in world units; ``None`` at a field of view of 0,
+        where the camera turns about itself.
+    """
+    if fov < 0.5:
+        return None
+    fov = min(max(fov, 1.0), 179.0)
+    return 0.5 / math.tan(math.radians(fov) / 2.0) * 0.5 * (width + height)
 
 
 class BaseCameraController(CellierEventedModel):
@@ -56,6 +91,13 @@ class OrbitCameraController(BaseCameraController):
     ----------
     controller_type : Literal["orbit"]
         Discriminator field. Always ``"orbit"``.
+
+    Notes
+    -----
+    The controller turns the camera about a point straight ahead of it, at
+    the distance `orbit_distance` gives for the camera's field of view,
+    width and height: the camera's ``width`` and ``height`` are the size of
+    the view at that point.  The point is not stored anywhere else.
     """
 
     controller_type: Literal["orbit"] = "orbit"
@@ -90,8 +132,9 @@ class BaseCamera(CellierEventedModel):
 
     * After every camera move (mouse input, ``set_camera_state``, a fit)
       the controller writes the pose fields of the camera that moved:
-      ``position``, ``rotation``, ``zoom``, the clipping planes, and
-      ``fov`` / ``up_direction`` / ``frustum`` or ``width`` / ``height``.
+      ``position``, ``rotation``, the clipping planes, and
+      ``fov`` / ``up_direction`` / ``frustum`` / ``width`` / ``height``
+      or ``width`` / ``height``.
     * Assigning a field moves the live camera.  For the camera the canvas
       is showing this is a camera **jump**, as with
       ``CellierController.set_camera_state``: camera-sensitive visuals
@@ -199,8 +242,19 @@ class PerspectiveCamera(BaseCamera):
     fov : float
         Field of view in degrees. Default 70.0.  0 is an orthographic
         projection.
-    zoom : float
-        Zoom level. Default 1.0.
+    width : float or None
+        Width in world units of the view at the point the orbit controller
+        turns the camera about (`orbit_distance` ahead of the camera).  At
+        a ``fov`` of 0 the camera turns about itself and every plane is
+        this size, so it is the width of the view.  A wheel zoom changes
+        it (and moves the camera); the live camera writes it, as
+        ``CameraState.extent``.  Assigning it moves the orbit point, or at
+        a ``fov`` of 0 resizes the view.  ``None`` (the default) until the
+        live camera first writes it, and in files saved before the field
+        existed; a camera placed from such a model keeps its own size.
+    height : float or None
+        Height of the view at the orbit point, as ``width``.  Default
+        ``None``.
     near_clipping_plane : float
         Near clipping distance. Default 1.0.
     far_clipping_plane : float
@@ -232,7 +286,9 @@ class PerspectiveCamera(BaseCamera):
 
     camera_type: Literal["perspective"] = "perspective"
     fov: float = 70.0
-    zoom: float = 1.0
+    # The view's size at the orbit point; ``None`` until first written.
+    width: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    height: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     near_clipping_plane: float = 1.0
     far_clipping_plane: float = 8000.0
     position: NumpyFloat32Array = Field(
@@ -248,6 +304,18 @@ class PerspectiveCamera(BaseCamera):
         default_factory=lambda: np.zeros((2, 4, 3), dtype=np.float32)
     )
 
+    @property
+    def orbit_distance(self) -> float | None:
+        """How far ahead of the camera the orbit controller turns it.
+
+        Worked out from ``fov``, ``width`` and ``height`` by
+        `orbit_distance`; ``None`` at a ``fov`` of 0 (the camera turns about
+        itself) and while ``width`` or ``height`` is ``None``.
+        """
+        if self.width is None or self.height is None:
+            return None
+        return orbit_distance(self.fov, self.width, self.height)
+
 
 class OrthographicCamera(BaseCamera):
     """A canvas's 2D orthographic camera; see `BaseCamera`.
@@ -260,8 +328,6 @@ class OrthographicCamera(BaseCamera):
         Width of the view volume. Default 10.0.
     height : float
         Height of the view volume. Default 10.0.
-    zoom : float
-        Zoom level. Default 1.0.
     near_clipping_plane : float
         Near clipping distance. Default -500.0.
     far_clipping_plane : float
@@ -278,7 +344,7 @@ class OrthographicCamera(BaseCamera):
     controller: PanZoomCameraController
     width: float = 10.0
     height: float = 10.0
-    zoom: float = 1.0
+
     near_clipping_plane: float = -500.0
     far_clipping_plane: float = 500.0
     position: NumpyFloat32Array = Field(

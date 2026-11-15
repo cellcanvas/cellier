@@ -251,54 +251,51 @@ z_index   = event.dims_state.selection.slice_indices.get(0, 0)
 
 Numpy-free immutable snapshot suitable for event payloads, external callbacks, and
 serialization. Distinct from `ReslicingRequest`, which carries numpy arrays for the
-hot slicing path.
+hot slicing path. The same snapshot is what `get_camera_state` returns, what
+`set_camera_state` applies, what `CameraChangedEvent` carries and what the
+controller writes back into the canvas's camera model.
 
 ```python
 class CameraState(NamedTuple):
-    """Immutable snapshot of the active camera's logical state.
-
-    For perspective cameras: ``fov`` is populated; ``extent`` is
-    ``(0.0, 0.0)``.
-    For orthographic cameras: ``extent`` is populated; ``fov`` is
-    ``0.0``.
-    ``zoom`` applies to both types.
-
-    Parameters
-    ----------
-    camera_type :
-        ``"perspective"`` or ``"orthographic"``.
-    position :
-        World-space camera position ``(x, y, z)``.
-    rotation :
-        Camera orientation as a unit quaternion ``(x, y, z, w)``,
-        matching pygfx's convention.
-    up :
-        World-space up vector ``(x, y, z)``.
-    fov :
-        Vertical field of view in degrees.  Perspective cameras only;
-        ``0.0`` for orthographic.
-    zoom :
-        Unitless zoom multiplier.  Applies to both camera types.
-    extent :
-        ``(width, height)`` in world units.  Orthographic cameras only;
-        ``(0.0, 0.0)`` for perspective.
-    depth_range :
-        ``(near, far)`` clip distances, or ``None`` where the range is
-        automatic (a 2D camera's, until one is set).
-    """
-
     camera_type: Literal["perspective", "orthographic"]
-    position: tuple[float, float, float]
-    rotation: tuple[float, float, float, float]
+    position: tuple[float, float, float]        # renderer (x, y, z)
+    rotation: tuple[float, float, float, float] # quaternion (x, y, z, w)
     up: tuple[float, float, float]
-    fov: float
-    zoom: float
-    extent: tuple[float, float]
-    depth_range: tuple[float, float] | None
+    fov: float                                  # 0 for a 2D camera
+    extent: tuple[float, float]  # (width, height): 2D, or 3D at fov 0
+    depth_range: tuple[float, float] | None      # None = automatic
+    controller_state: OrbitControllerState | PanZoomControllerState | None = None
+
+
+class OrbitControllerState(NamedTuple):
+    controller_type: Literal["orbit"] = "orbit"
+
+
+class PanZoomControllerState(NamedTuple):
+    controller_type: Literal["pan_zoom"] = "pan_zoom"
 ```
 
-`CameraState` and `DimsState` are both defined in `src/cellier/v2/_state.py` and
-re-exported from `cellier.v2.events` so subscribers have a single import location.
+`extent` is filled for every camera. On a 3D camera it is the size of the
+view at the point the orbit controller turns the camera about: pygfx pivots
+`0.5 / tan(fov / 2) * mean(extent)` ahead of the camera
+(`cellier.scene.orbit_distance`), and at a field of view of 0 it turns the
+camera about itself and `extent` is the size of the whole view. A wheel zoom
+changes `extent`, so restoring a state restores the pivot; before 3D extents
+were recorded a restored view pivoted far from the data and the next click
+swung the camera away. A 3D `extent` with a component of 0 or less keeps the
+camera's size. The 3D camera model's `width` and `height` mirror it, and its
+`orbit_distance` property derives the distance.
+
+`controller_state` is a typed slot for the mouse controller's state, told
+apart by `controller_type`; both kinds hold nothing yet, and one of the wrong
+kind raises `ValueError`. Settings such as `controller.enabled` are not part
+of the snapshot: restoring a view never turns mouse input on or off. The
+per-frame check compares whole snapshots, so a change of `extent` alone is
+reported as a `CameraChangedEvent`.
+
+`CameraState`, `OrbitControllerState`, `PanZoomControllerState` and
+`DimsState` are defined in `src/cellier/_state.py` and re-exported from
+`cellier.events` so subscribers have a single import location.
 
 ---
 
@@ -1146,6 +1143,20 @@ the surface is coloured, and in 2D the value at the hit.  All are level-0
 nearest-voxel reads, in two passes (the mask and its normal, then the value),
 so a pick can differ slightly from a colour drawn from a coarse level or by
 linear interpolation.
+
+**Precision of 3D picks.**  A multiscale image, labels or MaskedImage visual
+drawn as a volume (a 3D canvas, or a tilted 2D view) writes the hit into 44
+bits of pygfx's pick buffer (the other 20 name the object).  The bits are
+shared between the three displayed axes by their lengths: an axis of `n`
+voxels first gets the `bit_length(n - 1)` bits that name each voxel, and the
+bits left over split a voxel into finer steps, so `floor(data_coordinate)` is
+the voxel hit whenever those bits add up to at most 44 and no displayed axis
+is longer than `2 ** 24` voxels.  A lightsheet volume of 2048 x 10000 x 40000
+voxels needs 11 + 14 + 16 = 41 bits, for example.  A larger volume resolves to
+steps of 2, 4 or more voxels on its longest axes; a `UserWarning` names the
+visual, the axes and the step when the visual's volume is built with that
+shape (once per visual and shape).  The events carry no precision field.  In
+the warning, `x`, `y` and `z` are the last, middle and first displayed axes.
 
 Detail extraction is **gated**: it runs only while a canvas has at least one
 `on_pick` subscriber (`RenderManager.set_pick_details_enabled`, driven by the

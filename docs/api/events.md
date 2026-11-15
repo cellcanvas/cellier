@@ -95,6 +95,8 @@ See [`CellierController.on_pick`](controller.md#cellier.CellierController.on_pic
 ::: cellier.events.CameraChangedEvent
 ::: cellier.events.CameraInteractionEvent
 ::: cellier.events.CameraState
+::: cellier.events.OrbitControllerState
+::: cellier.events.PanZoomControllerState
 
 ## Visuals
 

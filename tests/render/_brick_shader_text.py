@@ -28,9 +28,22 @@ skipped brick, so a pick no longer depends on the far plane).  The digests of th
 on 2026-11-11, when the MIP pick got the same clamp and rounding.  The digests
 of the ``plane_linear``, ``slice_linear``, ``slab_mip``, ``slab_mean`` and
 ``slab_minip`` scenes were replaced by hand once, on 2026-11-14, when the
-render-plane and slab picks got the same clamp and rounding.  Only those nine
-digests changed (``iso_linear`` and ``slice_nearest`` record no entries), and
-the shader text is otherwise the text of ``7e1b683f``.
+render-plane and slab picks got the same clamp and rounding.  All nine
+digests were replaced by hand once more, on 2026-11-15, when the fixed
+``MAX_BRICK_ITERS = 512`` loop guard became ``max_brick_iters()``, the sum of
+the LUT's sides: the fixed guard stopped a ray at its 512th cell and dropped
+what lay past it.  Before that replacement, reverting only the guard in the
+current source reproduced every previous digest.  All nine were replaced by
+hand again later on 2026-11-15, when the pick position moved from three
+14-bit fields to fields sized by the axis lengths (the
+``cellier.pick_encoding.wgsl`` include, ``pick_step_voxels`` in the clamp
+and ``pick_pack_voxel`` in the encode, at the plane, MIP and iso sites);
+reverting only those edits in the current source reproduced every previous
+digest first.  The recorded ``bindings_code`` predates the two pick rows of
+``u_vol_params``, so the hashed text declares a struct without them; the
+hash is of the text alone and is not compiled.  Only those nine digests
+changed (``iso_linear`` and ``slice_nearest`` record no entries), and the
+shader text is otherwise the text of ``7e1b683f``.
 """
 
 from __future__ import annotations

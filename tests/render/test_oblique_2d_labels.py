@@ -452,7 +452,8 @@ def test_brick_labels_over_a_planar_image_follow_render_order(tmp_path, labels_o
                 x, y, z = camera.local.position
                 camera.local.position = (x + 3.3, y - 2.1, z)
             elif move == "zoom":
-                camera.zoom = camera.zoom * 1.4
+                camera.width = camera.width / 1.4
+                camera.height = camera.height / 1.4
             frame, _, camera = render(viewer)
             # The grey labels read as "brick" (r == b) in the helper.
             assert _overlap_share(frame, camera, polygon, labels_on_top) > 0.99, move

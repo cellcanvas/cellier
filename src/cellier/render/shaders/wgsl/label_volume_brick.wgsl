@@ -5,7 +5,17 @@
 // ── Constants ──────────────────────────────────────────────────────────────
 const BORDER: f32          = 2.0;     // ghost border (level-k voxels); must match Python overlap=2
                                       // the smooth modes' 4x4x4 normal block also requires BORDER >= 2
-const MAX_BRICK_ITERS: u32 = 512u;
+
+// Outer loop guard: the most LUT cells a ray can visit.  The loop advances
+// one level-0 cell per iteration, crossing one cell face, and a ray crosses
+// at most lut_size - 1 faces per axis, so it visits at most
+// lut_x + lut_y + lut_z - 2 cells.  A ray that ends normally stops at t_end
+// first; the guard only ends one whose t stopped advancing.  (A fixed 512
+// stopped long rays early and dropped whatever lay past the 512th cell.)
+fn max_brick_iters() -> u32 {
+    return u32(u_vol_params.lut_size_x + u_vol_params.lut_size_y
+               + u_vol_params.lut_size_z);
+}
 
 // NOTE: Do NOT define struct LabelParams, VOL_PARAMS, or BlockScales here.
 // pygfx auto-generates them from numpy dtypes via structname=.
@@ -47,6 +57,7 @@ fn get_lod_scale(lut_w: u32) -> vec3<f32> {
 
 {$ include 'cellier.brick_rule.wgsl' $}
 {$ include 'cellier.level_mapping.wgsl' $}
+{$ include 'cellier.pick_encoding.wgsl' $}
 
 // ── Coordinate conversions ────────────────────────────────────────────────
 
@@ -546,12 +557,9 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     out.outline_id = label_outline_key(plane_lid);
     $$ endif
     $$ if write_pick
-    // The normalised position of the hit, clamped one quantum inside the
+    // The position of the hit, clamped one encoded step inside the
     // drawn-level voxel the label was read from (as the surface pick below
-    // does), so the 14-bit encode cannot move it into the voxel in front.
-    let plane_quantum = max(
-        max(dataset_size.x, dataset_size.y), dataset_size.z
-    ) / 16383.0;
+    // does), so the encode cannot move it into the voxel in front.
     let plane_offset  = get_level_offset(i32(plane_lut_entry.w));
     let plane_voxel   = clamp(
         norm_to_voxel(plane_pos, norm_size, dataset_size),
@@ -563,15 +571,11 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     );
     let plane_centre  = plane_lod_scale * plane_index + plane_offset + vec3<f32>(0.5);
     let plane_room    = 0.5 * plane_lod_scale
-                      - min(vec3<f32>(plane_quantum), 0.5 * plane_lod_scale);
+                      - min(pick_step_voxels(), 0.5 * plane_lod_scale);
     let plane_inside  = clamp(plane_voxel, plane_centre - plane_room, plane_centre + plane_room);
-    let plane_pick    = voxel_to_norm(plane_inside, norm_size, dataset_size) / norm_size
-                      + vec3<f32>(0.5);
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
-        pick_pack(u32(clamp(plane_pick.x * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
-        pick_pack(u32(clamp(plane_pick.y * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
-        pick_pack(u32(clamp(plane_pick.z * 16383.0 + 0.5, 0.0, 16383.0)), 14)
+        pick_pack_voxel(plane_inside)
     );
     $$ endif
 
@@ -617,7 +621,8 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
                     + i32(u_vol_params.block_size_z) + 4;
     $$ endif
 
-    for (var brick_iter = 0u; brick_iter < MAX_BRICK_ITERS; brick_iter++) {
+    let brick_iter_limit = max_brick_iters();
+    for (var brick_iter = 0u; brick_iter < brick_iter_limit; brick_iter++) {
         if (t >= t_end || surface_found) { break; }
 
         let brick = setup_brick(ray_origin, ray_dir, inv_ray_dir,
@@ -891,52 +896,42 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     // concave corner it is not even in a voxel of its label: report a point
     // in the middle half of the nearest voxel that carries the label.
     let pick_cell  = label_smooth_pick_point(smooth_cell_pos, surface_lid);
-    let pick_norm  = voxel_to_norm((pick_cell + surface_brick_corner_k) * surface_lod_scale,
-                                   norm_size, dataset_size);
-    let pick_coord = (pick_norm / norm_size) + vec3<f32>(0.5);
+    let pick_voxel = (pick_cell + surface_brick_corner_k) * surface_lod_scale;
     $$ else
     // Report a point safely inside the voxel this fragment drew, not on its
     // face.
     //
     // The hit sits on a voxel face to within the bisection bracket, and the
-    // encode below quantises each axis to 14 bits -- steps of ``dim / 16383``
-    // voxels, the quantum.  A point on a face can land on either side of it.
+    // encode below stores each axis in steps of ``pick_step_voxels()``
+    // (cellier.pick_encoding.wgsl).  A point on a face can land on either
+    // side of it.
     //
     // So start from ``surface_hi_p``, the foreground end of the bisection
     // bracket (inside the label by construction; the midpoint
     // ``surface_pos`` can be a hundredth of a voxel on the background side
     // after a skipped brick), find the voxel of the drawn level it is in, and
-    // clamp it to that voxel's interior, one quantum from every face (at most
-    // the voxel's centre).  The encode rounds to the nearest step, which moves
-    // the point by at most half a quantum, so it stays in the voxel for any
-    // axis shorter than 16383 voxels.  This is inside on every axis, edges
+    // clamp it to that voxel's interior, one step from every face (at most
+    // the voxel's centre).  The decoded step centre is within a step of the
+    // point, so it stays in the voxel.  This is inside on every axis, edges
     // and corners included, where a step along the ray would leave through
     // the face next to the one it entered by.  The voxel is found by the rule
     // sample_atlas_label samples with (cellier.level_mapping.wgsl).  Only the
     // pick coordinate moves: colour, depth and the normal use the exact
     // surface.
-    let pick_quantum = max(
-        max(dataset_size.x, dataset_size.y), dataset_size.z
-    ) / 16383.0;
     let pick_offset  = get_level_offset(i32(surface_lut_entry.w));
-    let pick_voxel   = norm_to_voxel(surface_hi_p, norm_size, dataset_size);
+    let pick_hit     = norm_to_voxel(surface_hi_p, norm_size, dataset_size);
     let pick_index   = floor(
-        (pick_voxel - vec3<f32>(0.5) - pick_offset) / surface_lod_scale
+        (pick_hit - vec3<f32>(0.5) - pick_offset) / surface_lod_scale
         + vec3<f32>(0.5)
     );
     let pick_centre  = surface_lod_scale * pick_index + pick_offset + vec3<f32>(0.5);
     let pick_room    = 0.5 * surface_lod_scale
-                     - min(vec3<f32>(pick_quantum), 0.5 * surface_lod_scale);
-    let pick_inside  = clamp(pick_voxel, pick_centre - pick_room, pick_centre + pick_room);
-    let pick_pos     = voxel_to_norm(pick_inside, norm_size, dataset_size);
-    // pick_pos is in centred normalised object space; encode as [0, 1].
-    let pick_coord = (pick_pos / norm_size) + vec3<f32>(0.5);
+                     - min(pick_step_voxels(), 0.5 * surface_lod_scale);
+    let pick_voxel   = clamp(pick_hit, pick_centre - pick_room, pick_centre + pick_room);
     $$ endif
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
-        pick_pack(u32(clamp(pick_coord.x * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
-        pick_pack(u32(clamp(pick_coord.y * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
-        pick_pack(u32(clamp(pick_coord.z * 16383.0 + 0.5, 0.0, 16383.0)), 14)
+        pick_pack_voxel(pick_voxel)
     );
     $$ endif
     $$ endif

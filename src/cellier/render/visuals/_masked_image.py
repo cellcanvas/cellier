@@ -195,6 +195,8 @@ class _ValueSlot(_MultiscaleImageSlot):
     """A value slot: paints only the current slice."""
 
     _current_slice_only = True
+    # Never drawn, so it writes no picks: the mask side picks, and warns.
+    _warns_pick_budget = False
 
 
 class _ValueImageVisual(GFXMultiscaleImageVisual):

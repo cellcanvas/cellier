@@ -214,7 +214,8 @@ def _cases(controller, pyramid_root):
             ]
             view.camera.fov = 0.0
             controller.fit_camera(scene.id)
-            view.camera.zoom = view.camera.zoom * zoom
+            view.camera.width = view.camera.width / zoom
+            view.camera.height = view.camera.height / zoom
             yield f"3d_ortho/{clip}/zoom{zoom}", _plan(controller, scene, visual)
             controller.remove_scene(scene.id)
     # 2D slices.

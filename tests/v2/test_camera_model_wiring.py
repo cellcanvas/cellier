@@ -68,16 +68,14 @@ def test_assigning_the_shown_cameras_position_moves_it(make_viewer):
     np.testing.assert_allclose(camera.position, target, rtol=1e-6)
 
 
-def test_assigning_zoom_and_fov_reaches_the_camera(make_viewer):
+def test_assigning_fov_reaches_the_camera(make_viewer):
     viewer = make_viewer()
     _, model, view = _canvas(viewer)
     camera = model.cameras["3d"]
 
-    camera.zoom = 2.5
     camera.fov = 30.0
 
     state = viewer.get_camera_state()
-    assert state.zoom == pytest.approx(2.5)
     assert state.fov == pytest.approx(30.0)
     assert view._camera_3d.fov == pytest.approx(30.0)
 
@@ -125,7 +123,7 @@ def test_assigning_the_other_cameras_pose_places_it_for_the_switch(make_viewer):
     position = np.array([3.0, 4.0, 0.0], np.float32)
 
     camera_2d.position = position
-    camera_2d.zoom = 3.0
+    camera_2d.width = 3.0
 
     # Not shown yet: the 3D camera did not move, the 2D one did.
     assert view._dim == "3d"
@@ -135,7 +133,7 @@ def test_assigning_the_other_cameras_pose_places_it_for_the_switch(make_viewer):
     assert view._dim == "2d"
     state = viewer.get_camera_state()
     np.testing.assert_allclose(state.position, position)
-    assert state.zoom == pytest.approx(3.0)
+    assert state.extent[0] == pytest.approx(3.0)
     assert viewer.controller._canvas_camera_placed(canvas_id)
 
 
@@ -192,7 +190,7 @@ def test_a_saved_viewer_comes_back_with_its_camera_pose(make_viewer, tmp_path):
     state = viewer.get_camera_state()
     moved = state._replace(
         position=tuple(np.asarray(state.position) + np.array([2.0, -1.0, 5.0])),
-        zoom=1.75,
+        extent=(state.extent[0] / 1.75, state.extent[1] / 1.75),
     )
     viewer.set_camera_state(moved)
     saved = viewer.get_camera_state()
@@ -205,7 +203,7 @@ def test_a_saved_viewer_comes_back_with_its_camera_pose(make_viewer, tmp_path):
         restored = loaded.get_camera_state()
         np.testing.assert_allclose(restored.position, saved.position, rtol=1e-6)
         np.testing.assert_allclose(restored.rotation, saved.rotation, atol=1e-6)
-        assert restored.zoom == pytest.approx(saved.zoom)
+        np.testing.assert_allclose(restored.extent, saved.extent, rtol=1e-6)
         canvas_id = loaded.canvases[0]
         # Startup's default fit keeps a placed camera.
         assert loaded.controller._canvas_camera_placed(canvas_id)
@@ -222,7 +220,6 @@ def test_a_saved_2d_viewer_comes_back_with_its_extent(make_viewer, tmp_path):
     moved = state._replace(
         position=(state.position[0] + 3.0, state.position[1] - 2.0, state.position[2]),
         extent=(state.extent[0] * 2.0, state.extent[1] * 2.0),
-        zoom=0.5,
     )
     viewer.set_camera_state(moved)
     saved = viewer.get_camera_state()
@@ -234,7 +231,6 @@ def test_a_saved_2d_viewer_comes_back_with_its_extent(make_viewer, tmp_path):
         restored = loaded.get_camera_state()
         np.testing.assert_allclose(restored.position, saved.position, rtol=1e-6)
         np.testing.assert_allclose(restored.extent, saved.extent, rtol=1e-6)
-        assert restored.zoom == pytest.approx(saved.zoom)
     finally:
         loaded.controller.close()
 

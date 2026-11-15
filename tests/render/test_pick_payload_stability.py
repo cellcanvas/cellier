@@ -24,30 +24,34 @@ from cellier.render._cellier_blender import (
     ensure_extra_targets,
 )
 
-# The 3D packing cellier's label and multiscale volume shaders write:
-#   pick_pack(global_id, 20) + pick_pack(x, 14) + pick_pack(y, 14)
-#                            + pick_pack(z, 14)
-# See label_volume_brick.wgsl and multiscale_volume_brick.wgsl.
-_COORD_STEPS = 16383.0
+# The 3D packing cellier's label and multiscale volume brick shaders write:
+#   pick_pack(global_id, 20) + pick_pack(qx, wx) + pick_pack(qy, wy)
+#                            + pick_pack(qz, wz)
+# with the widths of ``pick_bit_layout(dataset_size)``; see
+# cellier.pick_encoding.wgsl.
 
 
-def _pack_3d(global_id: int, x: int, y: int, z: int) -> int:
+def _pack_3d(global_id: int, q, widths) -> int:
     """Assemble a pick value exactly as the brick shaders lay it out."""
-    return (
-        (global_id & 0xFFFFF)
-        | ((x & 0x3FFF) << 20)
-        | ((y & 0x3FFF) << 34)
-        | ((z & 0x3FFF) << 48)
-    )
+    value = global_id & 0xFFFFF
+    shift = 20
+    for field, width in zip(q, widths, strict=True):
+        value |= (int(field) & ((1 << width) - 1)) << shift
+        shift += width
+    return value
 
 
-def test_3d_pick_layout_round_trips(offscreen_renderer):
-    """20 + 14x3 decodes back to the normalised position it encoded.
+@pytest.mark.parametrize(
+    "dataset_size", [(16, 32, 64), (2048, 10000, 40000), (32640, 32640, 32640)]
+)
+def test_3d_pick_layout_round_trips(offscreen_renderer, dataset_size):
+    """id + three layout-sized fields decode back to the position encoded.
 
-    Locks the layout the 3D label and volume shaders share.  If this
+    Locks the layout the 3D label and volume brick shaders share.  If this
     breaks, ``LabelsPickInfo.data_coordinate`` silently starts reporting
     the wrong voxel.
     """
+    from cellier.render._pick_layout import pick_bit_layout
     from cellier.render.visuals._image import NormSizedVolume
 
     norm_size = np.array([2.0, 4.0, 8.0])
@@ -55,16 +59,22 @@ def test_3d_pick_layout_round_trips(offscreen_renderer):
         gfx.Geometry(grid=gfx.Texture(np.zeros((2, 2, 2), np.float32), dim=3)),
         gfx.VolumeMipMaterial(),
         norm_size=norm_size,
+        dataset_size=np.asarray(dataset_size, dtype=np.float64),
     )
+    layout = pick_bit_layout(dataset_size)
+    assert node.pick_layout == layout
+    assert sum(layout.widths) <= 44
 
-    for nx, ny, nz in [(0.0, 0.0, 0.0), (0.5, 0.25, 0.75), (1.0, 1.0, 1.0)]:
-        codes = [int(v * _COORD_STEPS) for v in (nx, ny, nz)]
-        info = node._wgpu_get_pick_info(_pack_3d(12345, *codes))
-        expected = [
-            (code / _COORD_STEPS - 0.5) * float(norm_size[k])
-            for k, code in enumerate(codes)
-        ]
-        assert info["norm_pos"] == pytest.approx(expected, abs=1e-9)
+    size = np.asarray(dataset_size, dtype=np.float64)
+    for frac in [(0.0, 0.0, 0.0), (0.5, 0.25, 0.75), (0.999, 0.999, 0.999)]:
+        voxel = np.asarray(frac) * size
+        q = np.floor(voxel * 2.0 ** np.asarray(layout.frac_bits)).astype(int)
+        info = node._wgpu_get_pick_info(_pack_3d(12345, q, layout.widths))
+        decoded = layout.decode(q)
+        expected = (decoded / size - 0.5) * norm_size
+        assert info["norm_pos"] == pytest.approx(expected, abs=1e-12)
+        assert info["voxel_pos"] == pytest.approx(decoded, abs=0.0)
+        assert (np.abs(decoded - voxel) <= 0.5 * np.asarray(layout.step)).all()
         # "index" is deliberately absent so callers cannot take the wrong
         # decode path; that contract is part of the layout.
         assert "index" not in info
@@ -75,11 +85,17 @@ def test_3d_pick_layout_keeps_global_id_in_the_low_20_bits(offscreen_renderer):
 
     Every pygfx and cellier shader starts its payload with
     ``pick_pack(global_id, 20)``.  The outline composite pass depends on
-    that being uniform across visual types.
+    that being uniform across visual types, for any field widths.
     """
-    for global_id in (1, 0xFFFFF, 818773):
-        value = _pack_3d(global_id, 16383, 16383, 16383)
-        assert value & 0xFFFFF == global_id
+    from cellier.render._pick_layout import pick_bit_layout
+
+    for dataset_size in [(16, 32, 64), (100000, 100000, 2000)]:
+        widths = pick_bit_layout(dataset_size).widths
+        top = [(1 << w) - 1 for w in widths]
+        for global_id in (1, 0xFFFFF, 818773):
+            value = _pack_3d(global_id, top, widths)
+            assert value & 0xFFFFF == global_id
+            assert value < 2**64
 
 
 def test_outline_target_does_not_disturb_the_pick_payload(offscreen_renderer):

@@ -53,40 +53,34 @@ def test_memory_image_missing_frac_defaults_to_center() -> None:
     assert coord == (1.5, 1.5)
 
 
-# ── Multiscale volume (NormSizedVolume norm_pos) ───────────────────────────
+# ── Multiscale volume (NormSizedVolume voxel_pos) ──────────────────────────
 
 
-def test_multiscale_volume_center_floors_to_index() -> None:
-    # dataset 4x8x16 (x, y, z); norm_size cancels out. A norm_pos at the centre
-    # of voxel i corresponds to n = (i + 0.5)/size, i.e. norm_pos/norm_size +
-    # 0.5 = (i + 0.5)/size.
-    norm_size = (2.0, 4.0, 8.0)
-    dataset_size = (4.0, 8.0, 16.0)
-    # target voxel (1, 3, 10): n = (i+0.5)/size -> norm_pos = (n - 0.5)*norm_size
-    target = (1, 3, 10)
-    norm_pos = tuple(
-        ((t + 0.5) / s - 0.5) * ns for t, s, ns in zip(target, dataset_size, norm_size)
-    )
-    coord = multiscale_volume_data_coordinate(
-        {"norm_pos": norm_pos}, norm_size, dataset_size
-    )
-    assert tuple(math.floor(c) for c in coord) == target
+def test_multiscale_volume_reads_the_decoded_voxel_position() -> None:
+    # The node decodes the hit with its own layout; the helper reads it as is,
+    # in pygfx (x, y, z) order.
+    coord = multiscale_volume_data_coordinate({"voxel_pos": (1.25, 3.5, 10.875)})
+    assert coord == (1.25, 3.5, 10.875)
+    assert tuple(math.floor(c) for c in coord) == (1, 3, 10)
 
 
-def test_multiscale_volume_edge_clamps_in_range() -> None:
-    # n == 1 (upper face) would map to exactly dataset_size; must clamp so floor
-    # stays at size - 1 rather than going out of range.
-    norm_size = (2.0, 2.0, 2.0)
-    dataset_size = (4.0, 4.0, 4.0)
-    norm_pos = tuple(0.5 * ns for ns in norm_size)  # n = 1.0
-    coord = multiscale_volume_data_coordinate(
-        {"norm_pos": norm_pos}, norm_size, dataset_size
-    )
+def test_multiscale_volume_far_face_hit_floors_inside() -> None:
+    # A hit on the far face (v == n) decodes inside the last voxel: the
+    # layout's decode clamps it, so the helper needs no clamp of its own.
+    from cellier.render._pick_layout import pick_bit_layout
+
+    layout = pick_bit_layout((4, 4, 4))
+    q = [int(4 * 2.0**f) for f in layout.frac_bits]
+    voxel = tuple(layout.decode(q).tolist())
+    coord = multiscale_volume_data_coordinate({"voxel_pos": voxel})
     assert tuple(math.floor(c) for c in coord) == (3, 3, 3)
 
 
-def test_multiscale_volume_missing_norm_pos_returns_none() -> None:
-    assert multiscale_volume_data_coordinate({}, (1, 1, 1), (1, 1, 1)) is None
+def test_multiscale_volume_missing_voxel_pos_returns_none() -> None:
+    # A node with no dataset size gives no position, nor does a stale
+    # ``norm_pos``-only payload.
+    assert multiscale_volume_data_coordinate({}) is None
+    assert multiscale_volume_data_coordinate({"norm_pos": (0.0, 0.0, 0.0)}) is None
 
 
 # ── Multiscale 2-D image / labels (tile proxy) ─────────────────────────────

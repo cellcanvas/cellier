@@ -1,15 +1,17 @@
 """A 3D surface pick reads the right voxel on a long axis, not only a short one.
 
-The pick buffer holds each axis in 14 bits, so the quantum is ``dim / 16383``
-voxels of the longest axis (the in-memory shaders use the longest one for every
-axis).  The B12 face tests use a 40-voxel volume, where the quantum is 0.002 of
-a voxel.  Here the volume is 24 x 32 x ``L`` with ``L`` up to 16000, so the
-quantum grows to 0.6 of a voxel while the volume stays cheap to hold.  The block
-is placed off the middle, where its faces would sit on the quantisation grid.
+The in-memory shaders hold each axis of the pick in 14 bits, so their quantum
+is ``dim / 16383`` voxels of the longest axis; a 3D texture is at most 2048
+voxels on a side, so that stays under a voxel.  The multiscale brick shaders
+share 44 bits between the axes by their lengths
+(`cellier.render._pick_layout`): a 24 x 32 x ``L`` bar needs 5 + 5 +
+``bit_length(L - 1)`` bits to name its voxels, and the rest split a voxel into
+steps of ``2 ** -k``, so every length here, up to 30000, names its voxel
+exactly, where 14 bits stopped at 16383.  The block is placed off the middle,
+where its faces would sit on the old quantisation grid.
 
 Every pick on the 3-voxel block must read the block's value.  The shaders clamp
-the reported point one quantum inside its voxel and round to the nearest step,
-which holds for any axis shorter than 16383 voxels.
+the reported point one step inside its voxel and store the step it lies in.
 """
 
 from __future__ import annotations
@@ -34,22 +36,37 @@ DISPLAYED = ("z", "y", "x")
 FAMILIES = ("labels", "labels_multiscale", "image", "image_multiscale")
 
 
-#: Room for every brick of the volume (250 bricks of 64 ** 3 voxels at the
-#: longest).  The cache is a cube of slots, so the budget moves in big steps: 320
-#: MiB is 215 usable slots, 512 MiB is 342.
+#: Above this length the bricks are 32 voxels: a brick is a cube and the bar
+#: is 24 x 32 across, so a larger one is mostly padding (at 64, 30000 voxels
+#: would need about 650 MiB of cache; at 32, 938 bricks fit in 288 MiB).
+_SMALL_BRICKS_ABOVE = 16000
+
+
+def _block_size(length: int) -> int:
+    return 32 if length > _SMALL_BRICKS_ABOVE else 64
+
+
+#: Room for every brick of the volume.  The cache is a cube of slots, so the
+#: budget moves in big steps: 320 MiB is 215 usable slots of 64 ** 3 voxels,
+#: 512 MiB is 342, and 288 MiB is 1331 slots of 32 ** 3 (938 bricks at 30000
+#: voxels, 1407 with level 1; level 0 is forced).
 def _budgets(length: int) -> dict[str, int]:
-    mib = 320 if length <= 10000 else 512
+    if length > _SMALL_BRICKS_ABOVE:
+        mib = 288
+    else:
+        mib = 320 if length <= 10000 else 512
     return {"gpu_budget_bytes": mib * 1024**2, "gpu_budget_bytes_2d": 16 * 1024**2}
 
 
 #: A 3D texture is at most 2048 voxels on a side, which bounds the in-memory
-#: families; a multiscale one is bounded by its LUT (255 bricks per axis, so
-#: 16320 voxels at ``block_size=64``).  8192 is in on purpose, with 8000: the
-#: shader has to hold wherever the faces fall on the quantisation grid.  Above
-#: about 10500 voxels the fitted camera is more than 8000 from the far end, so
-#: the fit grows the far plane to keep the whole volume in view; these lengths
-#: also check that the first load plans the block's bricks.
-_MULTISCALE = [1024, 4096, 5000, 8000, 8192, 10000, 12000, 16000]
+#: families; a multiscale one by its LUT, one texel per brick (2048 bricks per
+#: axis, so 65536 voxels at ``block_size=32``).  8192 is in on purpose, with
+#: 8000: the shader has to hold wherever the faces fall on a power-of-two grid.
+#: Above about 10500 voxels the fitted camera is more than 8000 from the far
+#: end, so the fit grows the far plane to keep the whole volume in view; these
+#: lengths also check that the first load plans the block's bricks.  20000 and
+#: 30000 are past the 16383 voxels 14 bits could name.
+_MULTISCALE = [1024, 4096, 5000, 8000, 8192, 10000, 12000, 16000, 20000, 30000]
 LENGTHS = {
     "labels": [1024, 2048],
     "image": [1024, 2048],
@@ -103,7 +120,7 @@ def _add(viewer, family, data, tmp_path, render_mode=None):
                 force_level=0, ray_steps_per_voxel=4.0
             ),
             render_config=MultiscaleLabelRenderConfig(
-                **_budgets(data.shape[-1]), block_size=64
+                **_budgets(data.shape[-1]), block_size=_block_size(data.shape[-1])
             ),
             transform=bind(viewer, store, identity),
         )
@@ -111,7 +128,7 @@ def _add(viewer, family, data, tmp_path, render_mode=None):
         store,
         appearance=MultiscaleImageAppearance(force_level=0),
         render_config=MultiscaleImageRenderConfig(
-            **_budgets(data.shape[-1]), block_size=64
+            **_budgets(data.shape[-1]), block_size=_block_size(data.shape[-1])
         ),
         single=MultiscaleImageSingleAppearance(
             color_map="gray",
@@ -186,7 +203,7 @@ _MIP_CASES = [
             ("image_multiscale", "mip"),
             ("image_multiscale", "attenuated_mip"),
         )
-        for n in (1024, 4096, 8192, 10000, 16000)
+        for n in (1024, 4096, 8192, 10000, 16000, 20000, 30000)
     ],
 ]
 

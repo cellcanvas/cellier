@@ -603,7 +603,7 @@ def test_a_one_voxel_tick_rereads_few_bricks(tmp_path, monkeypatch):
 def _coverage(frame, camera, polygon) -> float:
     """Share of the footprint's pixels (one-pixel border excluded) drawn."""
     xy = _pixel_world(camera, frame.shape[0])
-    pixel = float(camera.width) / frame.shape[0] / float(camera.zoom)
+    pixel = float(camera.width) / frame.shape[0]
     inside = np.ones(xy.shape[:2], dtype=bool)
     for start, end in zip(polygon, np.roll(polygon, -1, axis=0), strict=True):
         edge = end - start

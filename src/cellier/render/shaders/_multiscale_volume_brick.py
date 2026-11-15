@@ -28,6 +28,7 @@ from pygfx.renderers.wgpu import (
 from pygfx.renderers.wgpu.shaders.volumeshader import BaseVolumeShader
 from pygfx.resources import Buffer
 
+from cellier.render._pick_layout import pick_bit_layout
 from cellier.render._render_planes import (
     RENDER_PLANES_STRUCT,
     make_render_planes_buffer,
@@ -81,6 +82,16 @@ VOL_PARAMS_DTYPE = np.dtype(
         ("_pad4a", "<u4"),
         ("_pad4b", "<u4"),
         ("_pad4c", "<u4"),
+        # The pick position's fields, from ``pick_bit_layout(dataset_size)``;
+        # read by cellier.pick_encoding.wgsl.
+        ("pick_frac_bits_x", "<i4"),
+        ("pick_frac_bits_y", "<i4"),
+        ("pick_frac_bits_z", "<i4"),
+        ("_pad5", "<i4"),
+        ("pick_widths_x", "<i4"),
+        ("pick_widths_y", "<i4"),
+        ("pick_widths_z", "<i4"),
+        ("_pad6", "<i4"),
     ]
 )
 
@@ -148,7 +159,9 @@ def build_vol_params_buffer(
     Returns
     -------
     Buffer
-        Uniform buffer bound as ``u_vol_params`` in the shader.
+        Uniform buffer bound as ``u_vol_params`` in the shader.  Its pick
+        rows hold ``pick_bit_layout(dataset_size)``, the layout the node's
+        decoder reads the pick with.
     """
     gd, gh, gw = base_layout.grid_dims
     bs = float(base_layout.block_size)
@@ -173,6 +186,10 @@ def build_vol_params_buffer(
     data["lut_size_z"] = float(gd)
     data["overlap"] = ov
     data["frame_index"] = 0
+    layout = pick_bit_layout(dataset_size)
+    for k, axis in enumerate("xyz"):
+        data[f"pick_frac_bits_{axis}"] = layout.frac_bits[k]
+        data[f"pick_widths_{axis}"] = layout.widths[k]
 
     return Buffer(data, force_contiguous=True)
 

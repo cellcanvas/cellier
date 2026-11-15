@@ -40,6 +40,11 @@ from cellier.render._level_of_detail_2d import (
     viewport_cull_2d,
 )
 from cellier.render._node_transform import set_node_matrix
+from cellier.render._pick_layout import (
+    PickBitLayout,
+    pick_bit_layout,
+    warn_if_pick_over_budget,
+)
 from cellier.render._plane_planning import (
     PlanePlanning,
     build_plane_planning,
@@ -188,6 +193,14 @@ class NormSizedVolume(gfx.Volume):
             if dataset_size is not None
             else None
         )
+        # The layout the brick shader writes the pick position with: the
+        # visual builds this node after writing its ``u_vol_params`` from the
+        # same dataset_size (``build_vol_params_buffer``).
+        self.pick_layout: PickBitLayout | None = (
+            pick_bit_layout(self._dataset_size)
+            if self._dataset_size is not None
+            else None
+        )
 
     def update_norm_size(self, norm_size: np.ndarray) -> None:
         """Update the bounding box extents after a transform change."""
@@ -199,42 +212,47 @@ class NormSizedVolume(gfx.Volume):
         return norm_full_extent_box(self._dataset_size, self._norm_size)
 
     def _wgpu_get_pick_info(self, pick_value: int) -> dict:
-        """Decode the custom 3x14-bit pick encoding written by the brick shader.
+        """Decode the pick position the brick shader wrote.
 
         The inherited ``gfx.Volume._wgpu_get_pick_info`` normalises by
         ``tex.size`` (the 2x2x2 proxy), which destroys all positional
-        information.  This override decodes the three 14-bit fields directly
-        as normalised [0, 1] floats and converts them to centred normalised
-        object space using ``self._norm_size``.
+        information.  The brick shader instead writes three fields after the
+        20-bit object id, laid out by ``pick_layout``
+        (`cellier.render._pick_layout`, cellier.pick_encoding.wgsl): each the
+        continuous level-0 voxel position in steps of ``2 ** -frac_bits``.
+        This reads them back as step centres and converts them to centred
+        normalised object space using ``self._norm_size``.
 
-        The shader writes::
+        The layout is this node's own, fixed when it was built: a change of
+        the dataset size builds a new node.  The pick buffer names the node
+        that drew each pixel, so a pick read after such a change, before the
+        next frame, still decodes with the layout its frame was drawn with.
 
-            pick_pack(global_id, 20)
-            +pick_pack((pos / norm_size + 0.5).x * 16383, 14)
-            +pick_pack((pos / norm_size + 0.5).y * 16383, 14)
-            +pick_pack((pos / norm_size + 0.5).z * 16383, 14)
-
-        where ``pos`` is the surface position in centred normalised space.
-
-        Returns a dict with keys ``"world_object"`` and ``"norm_pos"``.
-        ``"norm_pos"`` is a 3-tuple of floats in centred normalised object
-        space (same space that ``u_wobject.world_transform`` acts on).
-        ``"index"`` is intentionally absent so callers cannot accidentally
-        use the wrong decode path.
+        Returns a dict with keys ``"world_object"``, ``"voxel_pos"`` and
+        ``"norm_pos"``.  ``"voxel_pos"`` is the continuous level-0 voxel
+        position in pygfx ``(x, y, z)`` order (voxel ``i`` spans
+        ``[i, i + 1)``), inside this node's dataset size.  ``"norm_pos"`` is
+        the same point in centred normalised object space (the space
+        ``u_wobject.world_transform`` acts on).  Both are absent when the node
+        has no dataset size to decode with.  ``"index"`` is intentionally
+        absent so callers cannot accidentally use the wrong decode path.
         """
         from pygfx.utils import unpack_bitfield
 
-        values = unpack_bitfield(pick_value, wobject_id=20, x=14, y=14, z=14)
-        nx = values["x"] / 16383.0
-        ny = values["y"] / 16383.0
-        nz = values["z"] / 16383.0
-        if self._norm_size is not None:
-            px = (nx - 0.5) * float(self._norm_size[0])
-            py = (ny - 0.5) * float(self._norm_size[1])
-            pz = (nz - 0.5) * float(self._norm_size[2])
-        else:
-            px, py, pz = nx - 0.5, ny - 0.5, nz - 0.5
-        return {"world_object": self, "norm_pos": (px, py, pz)}
+        layout = self.pick_layout
+        if layout is None:
+            return {"world_object": self}
+        w = layout.widths
+        values = unpack_bitfield(pick_value, wobject_id=20, x=w[0], y=w[1], z=w[2])
+        voxel = layout.decode([values["x"], values["y"], values["z"]])
+        n = voxel / np.asarray(layout.dataset_size, dtype=np.float64)
+        norm_size = self._norm_size if self._norm_size is not None else np.ones(3)
+        px, py, pz = ((n - 0.5) * norm_size).tolist()
+        return {
+            "world_object": self,
+            "voxel_pos": tuple(voxel.tolist()),
+            "norm_pos": (px, py, pz),
+        }
 
 
 def _level_scale_and_translation(
@@ -1582,6 +1600,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         Maximum GPU memory for the 3D brick cache texture.
     gpu_budget_bytes_2d : int
         Maximum GPU memory for the 2D tile cache texture.
+    visual_name : str
+        The visual's name, for the warning given when the 3D volume is too
+        large for a pick to name every voxel.
     """
 
     #: Applies the image slicing rule itself, so the scene manager's
@@ -1593,6 +1614,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
     #: Whether the 3D atlas paints only the current slice's bricks.  An
     #: image keeps showing earlier views.
     _current_slice_only: bool = False
+    #: Whether this slot warns when its 3D picks cannot name every voxel.
+    #: A MaskedImage's value side is never drawn, so it does not.
+    _warns_pick_budget: bool = True
 
     def __init__(
         self,
@@ -1618,8 +1642,11 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         render_order: int = 0,
         pick_write: bool = True,
         render_planes_buffer: gfx.Buffer | None = None,
+        visual_name: str = "",
     ) -> None:
         self.visual_model_id = visual_model_id
+        # Named in the warning for a volume too large to pick exactly.
+        self._visual_name = visual_name
         # The owning visual's render planes, bound by the 3D material in
         # the "plane" render mode.  ``None`` leaves the material a buffer
         # of its own with no plane.
@@ -1823,6 +1850,7 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                 base_layout=volume_geometry.base_layout,
                 cache_info=self._block_cache_3d.info,
             )
+            self._check_pick_budget()
             self._brick_scales_buffer = build_brick_scales_buffer(
                 volume_geometry._scale_vecs_data,
                 level_shapes=volume_geometry.level_shapes,
@@ -2051,6 +2079,18 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
             base_layout=self._volume_geometry.base_layout,
             cache_info=self._block_cache_3d.info,
         )
+        self._check_pick_budget()
+
+    def _check_pick_budget(self) -> None:
+        """Warn once per visual and 3D shape if a pick cannot name a voxel.
+
+        Called wherever the uniform's pick layout is written, which follows
+        ``_dataset_size`` (`cellier.render._pick_layout.warn_if_pick_over_budget`).
+        """
+        if self._warns_pick_budget:
+            warn_if_pick_over_budget(
+                self._dataset_size, self.visual_model_id, self._visual_name
+            )
 
     # ── GFXVisual protocol ──────────────────────────────────────────────
 
@@ -2981,17 +3021,14 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
     ) -> tuple[float, ...] | None:
         """Level-0 data coordinate of a pick on this visual (displayed axes).
 
-        3-D bricks decode a centred-normalised surface hit (``norm_pos``) mapped
-        back to voxels via ``norm_size`` / ``dataset_size``; the 2-D node is a
+        3-D bricks read the level-0 voxel position the hit node decoded with
+        its own pick layout (``voxel_pos``), so a pick of a frame drawn before
+        the dataset size changed keeps its coordinate; the 2-D node is a
         tile-grid proxy whose ``index`` is rescaled to level-0 pixels.  See
         `cellier.render.visuals._pick`.
         """
         if isinstance(hit_object, NormSizedVolume):
-            if self._norm_size is None or self._dataset_size is None:
-                return None
-            return multiscale_volume_data_coordinate(
-                pick_info, self._norm_size, self._dataset_size
-            )
+            return multiscale_volume_data_coordinate(pick_info)
         if isinstance(hit_object, gfx.Image):
             if self._image_geometry_2d is None:
                 return None
@@ -3408,6 +3445,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
             )
             slot = self._slot_class(
                 visual_model_id=visual_model.id,
+                visual_name=visual_model.name,
                 volume_geometry=volume_geometry,
                 image_geometry_2d=image_geometry_2d,
                 render_modes=render_modes,

@@ -4642,7 +4642,7 @@ class CellierController:
         planes and controller ``enabled``.  A camera whose model has a pose
         (``position``/``rotation`` other than the defaults; see
         `has_pose`) starts at it,
-        with its zoom, extent and up, and is not fitted when its dim is
+        with its extent and up, and is not fitted when its dim is
         first shown; any other camera is fitted as usual.  From then on,
         assigning a camera model's fields moves its camera; see
         `BaseCamera`.
@@ -11870,8 +11870,9 @@ class CellierController:
         """Write a CameraState snapshot back into the model-layer camera.
 
         Branches on the actual model type: ``PerspectiveCamera`` writes
-        ``up_direction`` and ``fov``; ``OrthographicCamera`` writes ``width``
-        and ``height`` (``extent``).
+        ``up_direction`` and ``fov``; both write ``width`` and ``height``
+        (``extent``; on the perspective camera the size of the view at the
+        orbit point).
 
         Parameters
         ----------
@@ -11911,7 +11912,6 @@ class CellierController:
         # Common fields present on both camera model types.
         camera_model.position = np.array(camera_state.position, dtype=np.float32)
         camera_model.rotation = np.array(camera_state.rotation, dtype=np.float32)
-        camera_model.zoom = camera_state.zoom
         # An automatic range has no planes to write; the model keeps the
         # ones it was configured with.
         if camera_state.depth_range is not None:
@@ -11922,6 +11922,13 @@ class CellierController:
         if isinstance(camera_model, PerspectiveCamera):
             camera_model.up_direction = np.array(camera_state.up, dtype=np.float32)
             camera_model.fov = camera_state.fov
+            # The size of the view at the orbit point, which places the
+            # point.  A state without one (captured before 3D extents were
+            # recorded) leaves the model's.
+            width, height = camera_state.extent
+            if width > 0 and height > 0:
+                camera_model.width = float(width)
+                camera_model.height = float(height)
         elif isinstance(camera_model, OrthographicCamera):
             camera_model.width = camera_state.extent[0]
             camera_model.height = camera_state.extent[1]
@@ -11932,7 +11939,7 @@ class CellierController:
 
     #: Camera-model fields that are part of the pose, and so place a camera.
     _CAMERA_POSE_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"position", "rotation", "zoom", "width", "height", "up_direction"}
+        {"position", "rotation", "width", "height", "up_direction"}
     )
 
     def _restore_camera_models(self, canvas_id: UUID, canvas_model: Canvas) -> None:
@@ -11941,14 +11948,21 @@ class CellierController:
         Each camera's controller gets the model's ``enabled``.  A camera
         whose model has a pose (`BaseCamera.has_pose`) is placed at
         it and counts as fitted, so the first switch to its dim keeps it;
-        one without is left to be fitted.  The field of view and depth
-        ranges were applied when the canvas was built.
+        one without is left to be fitted.  A placed camera takes its
+        ``width`` and ``height`` too where the model has them (a 3D model
+        saved before they were recorded has ``None``, and the camera keeps
+        its own).  The 3D camera takes the model's ``fov`` whether or not it
+        is placed (the canvas was built with the shown camera's), before
+        its size.
+        The depth ranges were applied when the canvas was built.
         """
         canvas_view = self._render_manager._canvases[canvas_id]
         for dim, camera_model in canvas_model.cameras.items():
             canvas_view.set_controller_enabled_for_dim(
                 dim, camera_model.controller.enabled
             )
+            if self._camera_field_applies(dim, camera_model, "fov"):
+                canvas_view.set_camera_field(dim, "fov", camera_model.fov)
             if not camera_model.has_pose:
                 continue
             # ``up_direction`` before the rotation: turning the camera to its
@@ -11958,7 +11972,6 @@ class CellierController:
                     canvas_view.set_camera_field(dim, name, getattr(camera_model, name))
             canvas_view.set_camera_field(dim, "position", camera_model.position)
             canvas_view.set_camera_field(dim, "rotation", camera_model.rotation)
-            canvas_view.set_camera_field(dim, "zoom", camera_model.zoom)
             canvas_view.mark_placed(dim)
         # The placed camera is where the canvas starts, not a move.
         canvas_view.accept_camera_state()
@@ -11976,7 +11989,8 @@ class CellierController:
         if not hasattr(camera_model, name):
             return False
         if name in ("width", "height"):
-            return dim == "2d"
+            # A 3D model's is ``None`` until the live camera writes it.
+            return getattr(camera_model, name) is not None
         if name == "fov":
             return dim == "3d"
         if name == "up_direction":
@@ -12035,6 +12049,9 @@ class CellierController:
         as for `set_camera_state`, which also writes the model back.
         A move of the other camera only places it; its model is written
         back here, since nothing reports that camera.
+
+        Assigning ``None`` to a 3D camera's ``width`` or ``height`` moves
+        nothing; the model is given the live camera's value back.
         """
         canvas_view = self._render_manager._canvases.get(canvas_id)
         if canvas_view is None:
@@ -12051,6 +12068,12 @@ class CellierController:
             canvas_view.set_camera_field(
                 dim, "depth_range", None if near == far else (near, far)
             )
+        elif name in ("width", "height") and getattr(camera_model, name) is None:
+            # Says nothing: the model gets the live camera's size back.
+            state = canvas_view.capture_camera_state(dim)
+            with camera_model._mirror_writes():
+                setattr(camera_model, name, state.extent[0 if name == "width" else 1])
+            return
         elif name in ("fov", *self._CAMERA_POSE_FIELDS):
             if not self._camera_field_applies(dim, camera_model, name):
                 return

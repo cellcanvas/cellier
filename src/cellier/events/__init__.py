@@ -1,6 +1,12 @@
 """The event bus and event type catalogue."""
 
-from cellier._state import AxisAlignedSelectionState, CameraState, DimsState
+from cellier._state import (
+    AxisAlignedSelectionState,
+    CameraState,
+    DimsState,
+    OrbitControllerState,
+    PanZoomControllerState,
+)
 from cellier.events._bus import EventBus, SubscriberInfo, SubscriptionHandle
 from cellier.events._events import (
     PICK_EVENT_TYPES,
@@ -156,8 +162,10 @@ __all__ = [
     "MeshPickInfo",
     "MeshSectionChangedEvent",
     "MeshSectionUpdateEvent",
+    "OrbitControllerState",
     "OverlayChangedEvent",
     "OverlayUpdateEvent",
+    "PanZoomControllerState",
     "PickEvent",
     "PickWriteChangedEvent",
     "PlaneGizmoChangedEvent",

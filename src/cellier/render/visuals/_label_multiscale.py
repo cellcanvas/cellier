@@ -32,6 +32,7 @@ from cellier.render._level_of_detail_2d import (
     viewport_cull_2d,
 )
 from cellier.render._node_transform import set_node_matrix
+from cellier.render._pick_layout import warn_if_pick_over_budget
 from cellier.render._plane_planning import (
     PlanePlanning,
     build_plane_planning,
@@ -188,6 +189,9 @@ class GFXMultiscaleLabelVisual(
         Maximum GPU memory for the 3D brick cache.
     gpu_budget_bytes_2d : int
         Maximum GPU memory for the 2D tile cache.
+    visual_name : str
+        The visual's name, for the warning given when the 3D volume is too
+        large for a pick to name every voxel.
     """
 
     #: Clipped bricks and tiles are not fetched, so a change of planes
@@ -226,8 +230,11 @@ class GFXMultiscaleLabelVisual(
         render_order: int = 0,
         pick_write: bool = True,
         paint_max_tiles: int = 512,
+        visual_name: str = "",
     ) -> None:
         self.visual_model_id = visual_model_id
+        # Named in the warning for a volume too large to pick exactly.
+        self._visual_name = visual_name
 
         if full_level_shapes is not None:
             self._ndim = len(full_level_shapes[0])
@@ -421,6 +428,9 @@ class GFXMultiscaleLabelVisual(
                 base_layout=volume_geometry.base_layout,
                 cache_info=self._block_cache_3d.info,
             )
+            warn_if_pick_over_budget(
+                self._dataset_size, self.visual_model_id, self._visual_name
+            )
             self._brick_scales_buffer = build_brick_scales_buffer(
                 volume_geometry._scale_vecs_data,
                 level_shapes=volume_geometry.level_shapes,
@@ -528,6 +538,7 @@ class GFXMultiscaleLabelVisual(
         app = model.appearance
         instance = cls(
             visual_model_id=model.id,
+            visual_name=model.name,
             volume_geometry=volume_geometry,
             image_geometry_2d=image_geometry_2d,
             render_modes=render_modes,
@@ -877,6 +888,9 @@ class GFXMultiscaleLabelVisual(
             dataset_size=self._dataset_size,
             base_layout=geo.base_layout,
             cache_info=self._block_cache_3d.info,
+        )
+        warn_if_pick_over_budget(
+            self._dataset_size, self.visual_model_id, self._visual_name
         )
 
     def _rebuild_3d_resources(self) -> None:
@@ -1909,16 +1923,12 @@ class GFXMultiscaleLabelVisual(
     ) -> tuple[float, ...] | None:
         """Level-0 data coordinate of a pick on this visual (displayed axes).
 
-        Same decode as the multiscale image: 3-D bricks via ``norm_pos`` and the
+        Same decode as the multiscale image: 3-D bricks via ``voxel_pos`` and the
         2-D tile proxy via rescaled ``index``.  ``floor`` of the displayed-axis
         components indexes the label array.
         """
         if isinstance(hit_object, NormSizedVolume):
-            if self._norm_size is None or self._dataset_size is None:
-                return None
-            return multiscale_volume_data_coordinate(
-                pick_info, self._norm_size, self._dataset_size
-            )
+            return multiscale_volume_data_coordinate(pick_info)
         if isinstance(hit_object, gfx.Image):
             if self._image_geometry_2d is None:
                 return None

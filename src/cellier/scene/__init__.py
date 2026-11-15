@@ -8,6 +8,7 @@ from cellier.scene.cameras import (
     OrthographicCamera,
     PanZoomCameraController,
     PerspectiveCamera,
+    orbit_distance,
 )
 from cellier.scene.canvas import Canvas
 from cellier.scene.dims import (
@@ -30,6 +31,7 @@ __all__ = [
     "PanZoomCameraController",
     "PerspectiveCamera",
     "Scene",
+    "orbit_distance",
     "spatial_axes",
     "world_coordinate_system",
 ]

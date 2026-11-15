@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import numpy as np
 import pygfx as gfx
 
-from cellier._state import CameraState
+from cellier._state import CameraState, OrbitControllerState, PanZoomControllerState
 from cellier.events._events import (
     CameraChangedEvent,
     CanvasConnectedEvent,
@@ -31,6 +31,7 @@ from cellier.render._ssao import SSAOPass
 from cellier.render._temporal_accumulation import TemporalAccumulationPass
 from cellier.render.visuals._plane_gizmo import GFXPlaneGizmo, drop_stale_gizmo_capture
 from cellier.scene._camera_fit import fit_sphere, fitted_far, grow_far
+from cellier.scene.cameras import orbit_distance
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -251,6 +252,12 @@ class CanvasView:
         self._controller_2d = gfx.PanZoomController(
             camera=self._camera_2d, register_events=self._renderer, auto_update=False
         )
+        # pygfx binds the fourth mouse button to "quickzoom", the one action
+        # that sets the camera's ``zoom``.  Cellier keeps the pygfx zoom at 1
+        # (the size lives in width and height), and the camera state has no
+        # zoom, so a quickzoom would change the picture unseen.
+        for controller in (self._controller_3d, self._controller_2d):
+            controller.controls.pop("mouse4", None)
         self._renderer.add_event_handler(
             self._on_controller_input,
             "pointer_down",
@@ -670,14 +677,13 @@ class CanvasView:
         fov = float(cam.fov)
         if fov == 0 and screen_w > 0 and screen_h > 0:
             canvas_aspect = screen_w / screen_h
-            zoom = cam.zoom if cam.zoom > 0 else 1.0
             if not cam.maintain_aspect:
                 world_width, world_height = cam.width, cam.height
             elif canvas_aspect >= cam.width / cam.height:
                 world_width, world_height = cam.height * canvas_aspect, cam.height
             else:
                 world_width, world_height = cam.width, cam.width / canvas_aspect
-            world_extent = (float(world_width / zoom), float(world_height / zoom))
+            world_extent = (float(world_width), float(world_height))
         else:
             world_extent = (0.0, 0.0)
         return ReslicingRequest(
@@ -1075,6 +1081,19 @@ class CanvasView:
             )
         return float(target[0]), float(target[1]), float(target[2])
 
+    def orbit_distance(self) -> float | None:
+        """How far ahead of the 3D camera its orbit controller pivots.
+
+        Worked out from the 3D camera's field of view, width and height
+        (`cellier.scene.orbit_distance`), whether or not that camera is
+        shown.  ``None`` at a field of view of 0, where the controller
+        turns the camera about itself.
+        """
+        camera = self._camera_3d
+        return orbit_distance(
+            float(camera.fov), float(camera.width), float(camera.height)
+        )
+
     def plane_gizmo_object_ids(self) -> set[int]:
         """The pygfx ids of every element of this canvas's plane gizmos."""
         ids: set[int] = set()
@@ -1250,9 +1269,11 @@ class CanvasView:
         """Apply a ``CameraState`` to the active pygfx camera.
 
         Only the fields of the active camera's kind are applied: a
-        perspective camera takes ``fov``, an orthographic one ``extent``.
-        A perspective camera with a ``fov`` of 0 takes ``extent`` as well,
-        where the state has one: it is what an orthographic zoom changes.
+        perspective camera takes ``fov``.  Both take ``extent``: on a
+        perspective camera it is the size of the view at the point the
+        orbit controller turns about, so it brings that point back.  A 3D
+        ``extent`` with a component of 0 or less (a state captured before
+        3D extents were recorded) keeps the camera's width and height.
         ``up`` is not applied: it is the up direction the rotation already
         gives.  The caller reports the move; see `accept_camera_state`.
 
@@ -1264,7 +1285,9 @@ class CanvasView:
         Raises
         ------
         ValueError
-            If *state* is for the other kind of camera than the active one.
+            If *state* is for the other kind of camera than the active one,
+            or its ``controller_state`` is for the other kind of
+            controller.
         """
         expected = "orthographic" if self._dim == "2d" else "perspective"
         if state.camera_type != expected:
@@ -1272,17 +1295,26 @@ class CanvasView:
                 f"Cannot apply a {state.camera_type!r} camera state to a "
                 f"canvas showing {self._dim}: its camera is {expected}."
             )
+        controller_state = state.controller_state
+        if controller_state is not None:
+            expected_controller = "pan_zoom" if self._dim == "2d" else "orbit"
+            if controller_state.controller_type != expected_controller:
+                raise ValueError(
+                    "Cannot apply a "
+                    f"{controller_state.controller_type!r} controller state to "
+                    f"a canvas showing {self._dim}: its camera controller is "
+                    f"{expected_controller!r}."
+                )
         camera = self._camera
         if self._dim == "2d":
             camera.width, camera.height = state.extent
         else:
             camera.fov = state.fov
-            # A state saved before the 3D extent was recorded has none.
-            if state.fov == 0 and state.extent[0] > 0 and state.extent[1] > 0:
+            # A state captured before the 3D extent was recorded has none.
+            if state.extent[0] > 0 and state.extent[1] > 0:
                 camera.width, camera.height = state.extent
         camera.world.position = state.position
         camera.world.rotation = state.rotation
-        camera.zoom = state.zoom
         self.set_depth_range_for_dim(self._dim, state.depth_range)
 
     def set_camera_field(self, dim: str, name: str, value: object) -> None:
@@ -1297,9 +1329,11 @@ class CanvasView:
         dim : str
             ``"2d"`` or ``"3d"``.
         name : str
-            ``"position"``, ``"rotation"``, ``"zoom"``, ``"width"``,
+            ``"position"``, ``"rotation"``, ``"width"``,
             ``"height"``, ``"depth_range"`` (``(near, far)`` or ``None``),
             and for the 3D camera ``"fov"`` and ``"up_direction"``.
+            On the 3D camera ``"width"`` and ``"height"`` are the size of
+            the view at the point the orbit controller turns about.
             ``"up_direction"`` turns the camera about its view direction
             so its up is as close to the vector as it goes, and makes the
             vector the camera's reference up (the up the orbit controller
@@ -1317,9 +1351,7 @@ class CanvasView:
             camera.world.position = tuple(float(v) for v in value)
         elif name == "rotation":
             camera.world.rotation = tuple(float(v) for v in value)
-        elif name == "zoom":
-            camera.zoom = float(value)
-        elif name in ("width", "height") and dim == "2d":
+        elif name in ("width", "height"):
             setattr(camera, name, float(value))
         elif name == "depth_range":
             self.set_depth_range_for_dim(dim, value)
@@ -1582,9 +1614,11 @@ class CanvasView:
         ``depth_range`` is ``None`` where the camera's range is automatic,
         which the 2D camera's is until one is set.  For the 3D camera it is
         the configured range, not the one widened for a field of view of 0
-        (see `set_depth_range`), and ``extent`` is the camera's
-        width and height at a field of view of 0 and ``(0.0, 0.0)`` above
-        it.
+        (see `set_depth_range`).  ``extent`` is the camera's width and
+        height; for the 3D camera, the size of the view at the point the
+        orbit controller turns about (`orbit_distance`).
+        ``controller_state`` is a `PanZoomControllerState` for the 2D camera
+        and an `OrbitControllerState` for the 3D one.
         """
         dim = self._dim if dim is None else dim
         cam = self._camera_2d if dim == "2d" else self._camera_3d
@@ -1602,26 +1636,26 @@ class CanvasView:
                 rotation=(float(rot[0]), float(rot[1]), float(rot[2]), float(rot[3])),
                 up=(0.0, 1.0, 0.0),
                 fov=0.0,
-                zoom=float(cam.zoom),
                 extent=(float(cam.width), float(cam.height)),
                 depth_range=depth_range,
+                controller_state=PanZoomControllerState(),
             )
         else:
             up = cam.world.up
             fov = float(cam.fov)
             depth_range = self._depth_range_3d
-            # An orthographic zoom changes the width and height and nothing
-            # else, so they are part of the state there.
-            extent = (float(cam.width), float(cam.height)) if fov == 0 else (0.0, 0.0)
+            # The size of the view at the orbit point: a zoom changes it,
+            # and it places the point the controller turns the camera about.
+            extent = (float(cam.width), float(cam.height))
             return CameraState(
                 camera_type="perspective",
                 position=(float(pos[0]), float(pos[1]), float(pos[2])),
                 rotation=(float(rot[0]), float(rot[1]), float(rot[2]), float(rot[3])),
                 up=(float(up[0]), float(up[1]), float(up[2])),
                 fov=fov,
-                zoom=float(cam.zoom),
                 extent=extent,
                 depth_range=depth_range,
+                controller_state=OrbitControllerState(),
             )
 
     def hold_draws(self, seconds: float, waiting: Callable[[], bool]) -> None:

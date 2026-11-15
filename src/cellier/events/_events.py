@@ -1405,6 +1405,20 @@ class ImagePickInfo(NamedTuple):
         reports its drawn channel.  Composite mode reports every drawn
         (visible) channel on a 2D canvas and only the pick-buffer winner on a
         3D canvas.  Empty when the voxel lies outside the data.
+
+    Notes
+    -----
+    **Precision of 3D picks.**  A multiscale visual drawn as a volume (a 3D
+    canvas, or a tilted 2D view) stores the hit in 44 bits of the pick buffer,
+    shared between the three displayed axes by their lengths: an axis of ``n``
+    voxels first gets the ``bit_length(n - 1)`` bits that name each of its
+    voxels, and the bits left over split a voxel into finer steps.  When those
+    bits add up to at most 44 and no displayed axis is longer than ``2 ** 24``
+    voxels, ``floor(data_coordinate)`` is always the voxel hit: a lightsheet
+    volume of 2048 x 10000 x 40000 voxels needs 11 + 14 + 16 = 41 bits.  A
+    larger volume resolves to steps of 2, 4 or more voxels on its longest axes,
+    and a ``UserWarning`` names the step when the visual's volume is built with
+    that shape.
     """
 
     data_coordinate: tuple[float, ...]
@@ -1454,6 +1468,20 @@ class LabelsPickInfo(NamedTuple):
         the same point could return the background.  The value is level 0's
         where the level cannot be said (a brick or tile table rewritten since
         the frame was drawn) and for in-memory labels, which have one level.
+
+    Notes
+    -----
+    **Precision of 3D picks.**  A multiscale visual drawn as a volume (a 3D
+    canvas, or a tilted 2D view) stores the hit in 44 bits of the pick buffer,
+    shared between the three displayed axes by their lengths: an axis of ``n``
+    voxels first gets the ``bit_length(n - 1)`` bits that name each of its
+    voxels, and the bits left over split a voxel into finer steps.  When those
+    bits add up to at most 44 and no displayed axis is longer than ``2 ** 24``
+    voxels, ``floor(data_coordinate)`` is always the voxel hit: a lightsheet
+    volume of 2048 x 10000 x 40000 voxels needs 11 + 14 + 16 = 41 bits.  A
+    larger volume resolves to steps of 2, 4 or more voxels on its longest axes,
+    and a ``UserWarning`` names the step when the visual's volume is built with
+    that shape.
     """
 
     data_coordinate: tuple[float, ...]
@@ -1485,6 +1513,21 @@ class MaskedImagePickInfo(NamedTuple):
         clipping plane's cut face, along the plane's normal into the kept
         side).  2D, and 3D with thickness 0: ``surface_value``.  ``None``
         where no sample lies in the value's data.
+
+    Notes
+    -----
+    **Precision of 3D picks.**  A MaskedImage drawn as a volume (a 3D canvas,
+    or a tilted 2D view) stores the hit in 44 bits of the pick buffer,
+    shared between the three displayed axes by their lengths: an axis of ``n``
+    voxels first gets the ``bit_length(n - 1)`` bits that name each of its
+    voxels, and the bits left over split a voxel into finer steps.  When those
+    bits add up to at most 44 and no displayed axis is longer than ``2 ** 24``
+    voxels, ``floor(data_coordinate)`` is always the voxel hit: a lightsheet
+    volume of 2048 x 10000 x 40000 voxels needs 11 + 14 + 16 = 41 bits.  A
+    larger volume resolves to steps of 2, 4 or more voxels on its longest axes,
+    and a ``UserWarning`` names the step when the visual's volume is built with
+    that shape.  The axis lengths are the mask's; ``value_coordinate`` follows
+    ``data_coordinate``.
     """
 
     data_coordinate: tuple[float, ...]

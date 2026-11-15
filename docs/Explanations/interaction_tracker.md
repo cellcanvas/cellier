@@ -320,7 +320,8 @@ async def main() -> None:
     state = viewer.get_camera_state()
     with viewer.camera_interaction():
         for zoom in (1.5, 2.0, 2.5):
-            viewer.set_camera_state(state._replace(zoom=zoom))
+            width, height = state.extent
+            viewer.set_camera_state(state._replace(extent=(width / zoom, height / zoom)))
 
     # A camera jump: nothing is printed.
     viewer.fit_camera()

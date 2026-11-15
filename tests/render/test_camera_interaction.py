@@ -658,9 +658,7 @@ async def test_set_camera_state_round_trips(make_rig):
     controller = rig.controller
     await rig.settle_first_frames()
     state = controller.get_camera_state(rig.canvas_id)
-    target = state._replace(
-        position=(3.0, 4.0, state.position[2]), extent=(20.0, 10.0), zoom=2.0
-    )
+    target = state._replace(position=(3.0, 4.0, state.position[2]), extent=(20.0, 10.0))
     controller.set_camera_state(rig.canvas_id, target)
     assert controller.get_camera_state(rig.canvas_id) == target
     camera_model = rig.scene.canvases[rig.canvas_id].cameras["2d"]
@@ -862,7 +860,8 @@ async def test_a_camera_reslice_during_a_scrub_plans_coarse(make_rig, how):
         else:
             state = controller.get_camera_state(rig.canvas_id)
             controller.set_camera_state(
-                rig.canvas_id, state._replace(zoom=state.zoom * 2)
+                rig.canvas_id,
+                state._replace(extent=tuple(0.5 * e for e in state.extent)),
             )
         (reslice,) = rig.camera_reslices()
         assert reslice["modes"][visual_id] == "BACKSTOP_ONLY"

@@ -176,7 +176,7 @@ async def test_camera_state_restores_the_orthographic_extent(
     assert (float(camera.width), float(camera.height)) == state.extent
 
 
-async def test_perspective_camera_state_has_no_extent(
+async def test_perspective_camera_state_has_the_size_at_the_orbit_point(
     controller, multiscale_image_store
 ):
     _scene, _canvas_id, view = _setup(controller, multiscale_image_store)
@@ -184,6 +184,9 @@ async def test_perspective_camera_state_has_no_extent(
     state = view.capture_camera_state()
 
     assert state.fov > 0
-    assert state.extent == (0.0, 0.0)
+    # Above a field of view of 0 the extent is the size of the view at the
+    # point the orbit controller turns about (plans/orbit_controller_state.md).
+    camera = view.camera
+    assert state.extent == (float(camera.width), float(camera.height))
     assert state.depth_range == DEPTH_RANGE
     assert tuple(view.camera.depth_range) == DEPTH_RANGE
