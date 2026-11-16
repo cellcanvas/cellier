@@ -12,7 +12,7 @@ hiding its own outline, and both were measured:
   line the depth of its centre, while a tilted plane's depth changes across
   that width; the half of the line inside the polygon would be behind the
   plane.  The line's depth is therefore moved toward the camera, in view
-  space, by the world size of :data:`OUTLINE_DEPTH_OFFSET_PX` pixels at its
+  space, by the world size of `OUTLINE_DEPTH_OFFSET_PX` pixels at its
   own depth.  Only the depth changes: the line stays where it is on the
   screen.  A mesh closer than that in front of the line does not hide it.
 

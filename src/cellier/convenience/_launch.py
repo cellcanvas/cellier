@@ -10,6 +10,7 @@ import sys
 from typing import TYPE_CHECKING, Callable, Literal
 
 from cellier.convenience._startup import StartupState, StartupTracker
+from cellier.events._bus import fire_registered
 
 if TYPE_CHECKING:
     from sidecar import Sidecar
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from cellier.convenience._sidecar import SidecarOptions
     from cellier.convenience._viewer import Viewer
     from cellier.convenience.layout._spec import Layout
+    from cellier.events import SubscriptionHandle
 
     ViewerLike = Viewer | OrthoViewer
 
@@ -32,32 +34,40 @@ def launch(
     viewer: ViewerLike,
     layout_or_window: object,
     *,
-    fit: FitMode = "ready",
+    fit: FitMode | None = None,
     on_ready: Callable[[], None] | None = None,
     handle_sigint: bool = True,
 ) -> None:
-    """Show *window* and block until it is closed.
+    """Show *layout_or_window* and block until it is closed.
 
     Creates a ``QApplication`` if one does not already exist, then starts the
     Qt + asyncio event loop via ``PySide6.QtAsyncio``.  Intended for scripts
-    and the CLI.  For interactive / Jupyter use, call :func:`show` instead.
+    and the CLI.  For interactive / Jupyter use, call `show` instead.
 
     The initial camera fit and data load are deferred to the canvas's first
-    rendered frame (see :meth:`CellierController.on_canvas_first_frame`), so
+    rendered frame (see `CellierController.on_canvas_first_frame`), so
     they run only once the canvas has its final size and the event loop is
     live — no timer required.
 
     Parameters
     ----------
-    viewer : Viewer
+    viewer : Viewer or OrthoViewer
         The viewer whose controller is used for ``fit_camera`` /
-        ``reslice_scene``.
+        ``on_scene_ready``.
     layout_or_window : Layout or QMainWindow or QWidget
-        Either a :class:`~cellier.convenience.layout.Layout` spec (rendered to
+        Either a `Layout` spec (rendered to
         a ``QMainWindow`` by the Qt renderer) or a pre-built top-level Qt
         window.
-    fit : "ready", "immediate", or "none"
-        Camera-fit policy applied at startup.  See :func:`_init_view`.
+    fit : "ready", "immediate", "none" or None
+        Camera-fit policy applied at startup.  ``"ready"`` fits the camera
+        on the first frame and again once the startup data has loaded;
+        ``"immediate"`` fits on the first frame only; ``"none"`` never
+        fits.  Both fit to the box measured from the stores (see
+        ``CellierController.fit_camera``), so they differ only when that
+        box changes while the data loads.
+        ``None`` (the default) is ``"ready"``, except for a scene whose
+        cameras were all placed from their models (a viewer loaded with
+        ``from_file``), which keeps its view.
     on_ready : Callable[[], None] or None
         Optional zero-argument callback fired once, after every scene's startup
         data has committed to the GPU.  Fires in addition to any callbacks
@@ -85,7 +95,7 @@ def show(
     viewer: ViewerLike,
     layout_or_window: object,
     *,
-    fit: FitMode = "ready",
+    fit: FitMode | None = None,
     on_ready: Callable[[], None] | None = None,
 ) -> None:
     """Show a viewer window without blocking.
@@ -96,15 +106,23 @@ def show(
 
     Parameters
     ----------
-    viewer : Viewer
+    viewer : Viewer or OrthoViewer
         The viewer whose controller is used for ``fit_camera`` /
-        ``reslice_scene``.
+        ``on_scene_ready``.
     layout_or_window : Layout or QMainWindow or QWidget
-        Either a :class:`~cellier.convenience.layout.Layout` spec (rendered to
+        Either a `Layout` spec (rendered to
         a ``QMainWindow`` by the Qt renderer) or a pre-built top-level Qt
         window.
-    fit : "ready", "immediate", or "none"
-        Camera-fit policy applied at startup.  See :func:`_init_view`.
+    fit : "ready", "immediate", "none" or None
+        Camera-fit policy applied at startup.  ``"ready"`` fits the camera
+        on the first frame and again once the startup data has loaded;
+        ``"immediate"`` fits on the first frame only; ``"none"`` never
+        fits.  Both fit to the box measured from the stores (see
+        ``CellierController.fit_camera``), so they differ only when that
+        box changes while the data loads.
+        ``None`` (the default) is ``"ready"``, except for a scene whose
+        cameras were all placed from their models (a viewer loaded with
+        ``from_file``), which keeps its view.
     on_ready : Callable[[], None] or None
         Optional zero-argument callback fired once, after every scene's startup
         data has committed to the GPU.
@@ -127,13 +145,13 @@ def show(
 
 
 class DisplayHandle:
-    """Inert teardown handle returned by :func:`display`.
+    """Inert teardown handle returned by `display`.
 
     Rendering is performed imperatively by the host inside ``present()``; this
     handle is the cell's return value but has no representation of its own (its
     ``_repr_mimebundle_`` is empty), so the viewer is rendered exactly once.
 
-    Call :meth:`close` to unsubscribe the control panel(s) from the bus,
+    Call `close` to unsubscribe the control panel(s) from the bus,
     cancel any pending slices, and close the sidecar panel (if any) -- e.g.
     before re-running a cell so the prior panel and in-flight reads do not
     leak.
@@ -182,7 +200,7 @@ def display(
     viewer: ViewerLike,
     layout: Layout,
     *,
-    fit: FitMode = "ready",
+    fit: FitMode | None = None,
     on_ready: Callable[[], None] | None = None,
     host: str | None = None,
     sidecar: bool | SidecarOptions | None = None,
@@ -190,10 +208,9 @@ def display(
 ) -> object:
     """Compose and present an anywidget viewer non-blockingly.
 
-    The notebook counterpart of :func:`launch`.  Resolves the anywidget host
-    (Jupyter or marimo), renders the *layout* spec through the host's
-    :class:`~cellier.convenience._hosts.LayoutHost`, presents the result, and
-    arms first-frame startup.
+    The notebook counterpart of `launch`.  Resolves the anywidget host
+    (Jupyter or marimo), renders the *layout* spec for that host, presents
+    the result, and arms first-frame startup.
 
     Parameters
     ----------
@@ -201,10 +218,18 @@ def display(
         The viewer whose controller drives fit / reslice.
     layout : Layout
         Declarative layout spec -- center canvas(es) plus optional dock
-        controls.  Build with :class:`~cellier.convenience.layout.Layout` or
+        controls.  Build with `Layout` or
         its preset (``Layout.single``).
-    fit : "ready", "immediate", or "none"
-        Camera-fit policy applied at startup.  See :func:`_init_view`.
+    fit : "ready", "immediate", "none" or None
+        Camera-fit policy applied at startup.  ``"ready"`` fits the camera
+        on the first frame and again once the startup data has loaded;
+        ``"immediate"`` fits on the first frame only; ``"none"`` never
+        fits.  Both fit to the box measured from the stores (see
+        ``CellierController.fit_camera``), so they differ only when that
+        box changes while the data loads.
+        ``None`` (the default) is ``"ready"``, except for a scene whose
+        cameras were all placed from their models (a viewer loaded with
+        ``from_file``), which keeps its view.
     on_ready : Callable[[], None] or None
         Optional zero-argument callback fired once every scene's startup data
         has committed to the GPU.
@@ -215,7 +240,7 @@ def display(
         ``viewer.on_startup_stalled``.  ``None`` disables the check.
     sidecar : True, SidecarOptions, or None
         Present the viewer in a ``jupyterlab-sidecar`` tab instead of below
-        the cell.  ``True`` uses :class:`~cellier.convenience.SidecarOptions`
+        the cell.  ``True`` uses `SidecarOptions`
         defaults.
         Requires the optional ``sidecar`` package and the Jupyter host (not
         marimo, which already places cell output in its own tab).
@@ -223,8 +248,8 @@ def display(
     Returns
     -------
     object
-        For imperative hosts (Jupyter) an inert :class:`DisplayHandle` whose
-        :meth:`DisplayHandle.close` tears down the controls, cancels pending
+        For imperative hosts (Jupyter) an inert `DisplayHandle` whose
+        `DisplayHandle.close` tears down the controls, cancels pending
         slices, and closes the sidecar panel (if any).  For return-value hosts
         (marimo) the host-native renderable (so the cell renders it), with a
         best-effort ``close`` attached.
@@ -270,18 +295,18 @@ def run(
     viewer: ViewerLike,
     layout: Layout,
     *,
-    fit: FitMode = "ready",
+    fit: FitMode | None = None,
     on_ready: Callable[[], None] | None = None,
 ) -> object:
     """Show a viewer, dispatching to the right host based on ``viewer.gui``.
 
-    The portable entry point: replaces separate :func:`display` / :func:`launch`
+    The portable entry point: replaces separate `display` / `launch`
     calls so notebook and script code can be identical up to the ``gui=``
-    argument on :class:`~cellier.convenience.Viewer`.
+    argument on `Viewer`.
 
-    * ``gui="anywidget"`` -- calls :func:`display` (non-blocking; returns a
-      :class:`DisplayHandle` for Jupyter or the renderable for marimo).
-    * ``gui="qt"`` -- calls :func:`launch` (blocking; returns ``None`` after
+    * ``gui="anywidget"`` -- calls `display` (non-blocking; returns a
+      `DisplayHandle` for Jupyter or the renderable for marimo).
+    * ``gui="qt"`` -- calls `launch` (blocking; returns ``None`` after
       the window is closed).
 
     Parameters
@@ -290,8 +315,11 @@ def run(
         The viewer whose ``gui`` attribute selects the dispatch target.
     layout : Layout
         Declarative layout spec.
-    fit : "ready", "immediate", or "none"
-        Camera-fit policy applied at startup.
+    fit : "ready", "immediate", "none" or None
+        Camera-fit policy applied at startup.  ``None`` (the default) is
+        ``"ready"``, except for a scene whose cameras were all placed from
+        their models (a viewer loaded with ``from_file``), which keeps its
+        view.
     on_ready : Callable[[], None] or None
         Optional zero-argument callback fired once every scene's startup data
         has committed to the GPU.
@@ -299,8 +327,13 @@ def run(
     Returns
     -------
     object
-        :class:`DisplayHandle` (or marimo renderable) for anywidget; ``None``
+        `DisplayHandle` (or marimo renderable) for anywidget; ``None``
         for Qt (after the window closes).
+
+    Raises
+    ------
+    ValueError
+        If ``viewer.gui`` is ``"offscreen"``, which has no window to show.
     """
     from cellier.convenience._backend import backend_for
 
@@ -328,14 +361,14 @@ def _resolve_qt_window(layout_or_window: object, viewer: object) -> object:
 def _init_view(
     viewer: ViewerLike,
     *,
-    fit: FitMode = "ready",
+    fit: FitMode | None = None,
     on_ready: Callable[[], None] | None = None,
     stall_timeout: float | None = _DEFAULT_STALL_TIMEOUT,
 ) -> StartupTracker:
     """Arm startup (fit + reslice) for every scene, and track its progress.
 
-    Supports both the single-scene :class:`Viewer` (which exposes ``scene``)
-    and the multi-panel :class:`OrthoViewer` (which exposes ``scenes``).
+    Supports both the single-scene `Viewer` (which exposes ``scene``)
+    and the multi-panel `OrthoViewer` (which exposes ``scenes``).
 
     Startup runs in stages, each observable through the returned tracker and
     through ``viewer.startup_state``: the canvas must reach the front end,
@@ -345,16 +378,23 @@ def _init_view(
 
     The fit policy controls how the camera is framed:
 
-    * ``"ready"`` (default) — fit on the first frame, then **re-fit** once the
-      scene's data has committed to the GPU.  The re-fit is what makes geometry
-      visuals (mesh, points, lines) frame correctly, since their bounding box
-      is only known after their data loads.  For image visuals the re-fit is a
-      no-op (their bounds are pinned at construction).
+    * ``"ready"`` -- fit on the first frame, then **re-fit** once the
+      scene's data has committed to the GPU.  Both fits use the box measured
+      from the stores, so the re-fit moves the camera only when that box
+      changed while the data loaded.
     * ``"immediate"`` — fit on the first frame only; no re-fit after load.
     * ``"none"`` — never fit; just trigger the initial data load.
+    * ``None`` (default) — ``"none"`` for a scene whose canvases all show a
+      camera placed from its model (a viewer restored with ``from_file``,
+      or a camera model's pose assigned before startup), ``"ready"`` for
+      every other scene.
 
     Any callbacks registered on the viewer via ``viewer.on_ready`` plus the
-    *on_ready* argument fire once, after the *last* scene becomes ready.
+    *on_ready* argument fire once, after the *last* scene becomes ready.  A
+    ``viewer.on_ready`` callback fires on the first startup only; it is
+    dropped once it has run.  A scene removed (``remove_scene``) before it
+    is ready counts as done, so the remaining scenes can still finish
+    startup; removing the last one finishes it at once.
 
     Camera-driven reslicing is suppressed for the duration of the startup load
     and restored once every scene is ready.  Without this, the initial
@@ -366,8 +406,8 @@ def _init_view(
     ----------
     viewer : Viewer or OrthoViewer
         The viewer to start.
-    fit : "ready", "immediate", or "none"
-        Camera-fit policy.
+    fit : "ready", "immediate", "none" or None
+        Camera-fit policy; ``None`` picks it per scene, as above.
     on_ready : Callable[[], None] or None
         Fired once, after every scene is ready.
     stall_timeout : float or None
@@ -389,9 +429,9 @@ def _init_view(
     tracker = StartupTracker([key for key, _ in scene_items])
     viewer._startup = tracker
 
-    user_callbacks = list(getattr(viewer, "_ready_callbacks", []))
-    if on_ready is not None:
-        user_callbacks.append(on_ready)
+    # Read when startup finishes, not now: ``viewer.on_ready`` may add to it
+    # or cancel from it until then.
+    ready_callbacks = getattr(viewer, "_ready_callbacks", None)
 
     # Suppress camera reslices during startup (the initial ``fit_camera`` is a
     # jump, which reslices) so the initial load is a single generation;
@@ -401,11 +441,17 @@ def _init_view(
 
     aggregate = {"remaining": len(scene_items), "fired": False}
 
+    removal_handles: list[SubscriptionHandle] = []
+
     def _finish_startup() -> None:
         aggregate["fired"] = True
+        for handle in removal_handles:
+            handle.unsubscribe()
         controller.camera_reslice_enabled = prev_reslice_enabled
-        for cb in user_callbacks:
-            cb()
+        if ready_callbacks is not None:
+            fire_registered(ready_callbacks, once=True)
+        if on_ready is not None:
+            on_ready()
 
     def _scene_ready(key: str) -> None:
         tracker.advance(key, StartupState.READY)
@@ -413,16 +459,37 @@ def _init_view(
         if aggregate["remaining"] <= 0 and not aggregate["fired"]:
             _finish_startup()
 
+    def _scene_removed(key: str) -> None:
+        # Removing a scene cancels its readiness callback, so a scene removed
+        # before it was ready would hold startup open for good: no
+        # ``on_ready``, and camera reslicing left off for every other scene.
+        # Count it as done instead.  (Only armed until startup finishes.)
+        counted = tracker.scene_states.get(key) is StartupState.READY
+        tracker.forget(key)
+        if not counted:
+            aggregate["remaining"] -= 1
+            if aggregate["remaining"] <= 0 and not aggregate["fired"]:
+                _finish_startup()
+
     if not scene_items:
         _finish_startup()
         return tracker
+
+    for key, scene in scene_items:
+        removal_handles.append(
+            controller.on_scene_removed(
+                scene.id,
+                lambda _event, k=key: _scene_removed(k),
+                owner_id=controller._id,
+            )
+        )
 
     for key, scene in scene_items:
         canvas_ids = controller.get_canvas_ids(scene.id)
         if not canvas_ids:
             # No canvas attached yet; still load data so the model is populated.
             tracker.advance(key, StartupState.LOADING)
-            controller.reslice_scene(scene.id, on_ready=lambda k=key: _scene_ready(k))
+            controller.on_scene_ready(scene.id, lambda k=key: _scene_ready(k))
             continue
 
         tracker.set_canvas(key, canvas_ids[0])
@@ -430,11 +497,18 @@ def _init_view(
 
         def _start(s=scene, k=key) -> None:
             tracker.advance(k, StartupState.LOADING)
-            if fit != "none":
+            scene_fit = fit
+            if scene_fit is None:
+                placed = all(
+                    controller._canvas_camera_placed(cid)
+                    for cid in controller.get_canvas_ids(s.id)
+                )
+                scene_fit = "none" if placed else "ready"
+            if scene_fit != "none":
                 controller.fit_camera(s.id)
 
-            def _ready(s=s, k=k) -> None:
-                if fit == "ready":
+            def _ready(s=s, k=k, scene_fit=scene_fit) -> None:
+                if scene_fit == "ready":
                     # The re-fit is a camera jump, and a jump reslices at
                     # once or not at all: with camera reslicing still off
                     # the re-fitted view would never load.  So it is on for
@@ -446,7 +520,7 @@ def _init_view(
                         controller.camera_reslice_enabled = False
                 _scene_ready(k)
 
-            controller.reslice_scene(s.id, on_ready=_ready)
+            controller.on_scene_ready(s.id, _ready)
 
         # ``start=_start`` is bound now, not looked up later: ``_connected``
         # runs asynchronously, and without the default it would close over the

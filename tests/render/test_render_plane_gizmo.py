@@ -15,12 +15,8 @@ import numpy as np
 import pylinalg as la
 import pytest
 
-from cellier.clipping import (
-    ClippingPlaneGizmoController,
-    RenderPlaneGizmoController,
-    scale_handle_axes,
-    scaled_extent,
-)
+from cellier.clipping import ClippingPlaneGizmoController, RenderPlaneGizmoController
+from cellier.clipping._gizmo_controller import scale_handle_axes, scaled_extent
 from cellier.controller import CellierController
 from cellier.data import ImageMemoryStore
 from cellier.events import (

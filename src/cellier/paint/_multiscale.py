@@ -7,9 +7,9 @@ Each brush application:
 1. Reads pre-paint values from the open ``WriteBuffer`` (read-your-writes
    through a private tensorstore transaction).
 2. Stages the new values into the same buffer.
-3. Marks the dirty level-0 bricks in the :class:`WriteLayer`.
+3. Marks the dirty level-0 bricks in the `WriteLayer`.
 4. Writes the new values into the GPU paint cache + LUT via
-   :meth:`CellierController._patch_painted_tiles_2d`.
+   `CellierController._patch_painted_tiles_2d`.
 
 The shader composites the paint cache over the base sample, so painted
 voxels are visible on the next frame.  No reslice or eviction occurs
@@ -57,7 +57,8 @@ class MultiscalePaintController(AbstractPaintController):
     """Paint controller for OME-Zarr / multiscale-zarr data stores.
 
     Stages all writes in a tensorstore transaction (RAM-only) until the
-    user commits or aborts the session.  Visible feedback is provided by
+    user commits or aborts the session, or an autosave flushes them (see
+    *autosave_interval_s*).  Visible feedback is provided by
     writing directly into the GPU paint cache; the shader composites paint
     over the base sample so painted voxels are visible immediately without
     a slicer round-trip.
@@ -70,9 +71,9 @@ class MultiscalePaintController(AbstractPaintController):
     canvas_id :
     data_store :
         The store behind a ``MultiscaleLabelVisual``: an
-        ``OMEZarrLabelDataStore`` or a ``MultiscaleZarrDataStore``.
-        Must expose ``_ts_stores: list[ts.TensorStore]`` and
-        ``level_shapes`` / ``level_scales``.
+        ``OMEZarrLabelDataStore`` or a ``MultiscaleZarrDataStore``.  Paint
+        is written through the store's open tensorstore handles, which a
+        store opens when it is constructed; ``ValueError`` if it has none.
     visual_block_size :
         Tile / brick side length used by the visual's render config.
         Must match the ``MultiscaleLabelRenderConfig.block_size`` of the
@@ -87,7 +88,9 @@ class MultiscalePaintController(AbstractPaintController):
     autosave_interval_s :
         If set, a ``QTimer`` fires every this many seconds to flush staged
         paint to disk, rebuild the pyramid, and reset the GPU paint
-        textures.  ``None`` disables autosave.
+        textures.  A flushed write is permanent: `abort` then
+        discards only the paint staged after it.  ``None`` disables
+        autosave.
     """
 
     def __init__(
@@ -161,24 +164,6 @@ class MultiscalePaintController(AbstractPaintController):
     # AbstractPaintController hooks
     # ------------------------------------------------------------------
 
-    def _apply_brush(self, world_coord: np.ndarray) -> None:
-        """Re-order world_coord from pygfx (x, y) to data (row, col) order.
-
-        The labels visuals render ``data[r, c]`` at pygfx world ``(x=c, y=r)``.
-        ``CellierController._on_raw_pointer_event`` embeds the mouse position
-        verbatim: ``world_coord[ax_row] = pygfx_x`` (column index),
-        ``world_coord[ax_col] = pygfx_y`` (row index).  Swapping them here
-        produces the correct voxel address before the identity
-        ``imap_coordinates`` call in the base.
-        """
-        ax_row, ax_col = self._displayed_axes
-        swapped = world_coord.copy()
-        swapped[ax_row], swapped[ax_col] = (
-            float(world_coord[ax_col]),
-            float(world_coord[ax_row]),
-        )
-        super()._apply_brush(swapped)
-
     def _read_old_values(self, voxel_indices: np.ndarray) -> np.ndarray:
         """Read pre-paint values through the open transaction."""
         return self._write_buffer.read_staged(voxel_indices)
@@ -234,7 +219,13 @@ class MultiscalePaintController(AbstractPaintController):
         self._teardown()
 
     def abort(self) -> None:
-        """Discard staged paint and clear the GPU paint textures."""
+        """Discard staged paint and clear the GPU paint textures.
+
+        Only paint staged since the last flush is discarded.  With
+        ``autosave_interval_s`` set, each autosave writes the staged paint
+        to disk and starts a new transaction, so paint from before the most
+        recent autosave is already on disk and stays.
+        """
         # 1. Discard staged writes (disk untouched).
         self._write_buffer.abort()
 
@@ -249,7 +240,7 @@ class MultiscalePaintController(AbstractPaintController):
         self._teardown()
 
     def _teardown(self) -> None:
-        """Stop autosave timer, unsubscribe bus events, re-enable camera."""
+        """Stop autosave timer, unsubscribe bus events, release the camera."""
         if self._autosave_timer is not None:
             self._autosave_timer.stop()
             self._autosave_timer = None

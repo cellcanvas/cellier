@@ -22,7 +22,7 @@ from cellier.data import ImageMemoryStore, PointsMemoryStore
 from cellier.render import _render_planes
 from cellier.render.visuals._chunked import viewport_prism
 from cellier.scene.dims import spatial_axes
-from cellier.transform import slice_footprint
+from cellier.transform._slice_plane import slice_footprint
 from cellier.visuals import (
     InMemoryImageSingleAppearance,
     MultiscaleImageAppearance,
@@ -389,7 +389,8 @@ def test_the_lower_render_order_is_on_top_after_pan_and_zoom(tmp_path, brick_on_
                 x, y, z = camera.local.position
                 camera.local.position = (x + 3.3, y - 2.1, z)
             elif move == "zoom":
-                camera.zoom = camera.zoom * 1.4
+                camera.width = camera.width / 1.4
+                camera.height = camera.height / 1.4
             frame, _, camera = render(viewer)
             assert _overlap_share(frame, camera, polygon, brick_on_top) > 0.99, move
     finally:
@@ -576,7 +577,12 @@ def _target_levels(viewer: Viewer, visual) -> set[int]:
     config = controller._render_config_for(viewer.scene.id, visual)
     desired = _gfx(viewer, visual).plan(request, config, PlanMode.FULL)
     levels, _, _ = unpack_keys(desired[0].keys)
-    return {int(level) for level in levels[desired[0].cls == ChunkClass.TARGET]}
+    chosen = levels[desired[0].cls == ChunkClass.TARGET]
+    if chosen.size == 0:
+        # A target at the coarsest level is the backstop's own chunks, which
+        # the plan classes as backstop.
+        chosen = levels[desired[0].cls == ChunkClass.BACKSTOP]
+    return {int(level) for level in chosen}
 
 
 @pytest.mark.parametrize("pixels_per_voxel", [2.0, 1.0, 0.5, 0.25])
@@ -598,7 +604,9 @@ def test_the_level_is_the_planar_2d_level_at_the_same_zoom(tmp_path, pixels_per_
             )
             load(viewer, slice_z=10.0)
             camera = canvas_view(viewer).camera
-            camera.zoom = pixels_per_voxel * camera.width / SIZE
+            magnification = pixels_per_voxel * camera.width / SIZE
+            camera.width = camera.width / magnification
+            camera.height = camera.height / magnification
             levels[name] = _target_levels(viewer, visual)
         finally:
             viewer.controller.close()

@@ -3,7 +3,7 @@
 ``controls=`` on every ``Viewer`` / ``OrthoViewer`` ``add_*`` method is a
 list of the models in this module, or ``None`` for no controls.  An item in
 the list means its control is shown, its position is its place in the dock,
-and its options are its own fields::
+and its options are its own fields:
 
     viewer.add_image_multiscale(
         store,
@@ -62,7 +62,7 @@ def _check_fields(fields: object, owner: str) -> list[str]:
     """Check the shape of a ``fields`` list and return it as a list.
 
     Only the shape: which names are valid depends on the kind of visual,
-    which :func:`validate_controls` checks.
+    which `validate_controls` checks.
     """
     if isinstance(fields, str) or not isinstance(fields, (list, tuple)):
         raise TypeError(
@@ -207,7 +207,7 @@ class BoundingBoxControl(Control):
     """The bounding box control.
 
     A checkbox, a line-width slider and a colour picker for the visual's
-    ``aabb`` (:class:`~cellier.visuals.AABBParams`): the box drawn round the
+    ``aabb`` (`AABBParams`): the box drawn round the
     visual's data.  Every kind of visual has one.  It has no options.
     """
 
@@ -247,7 +247,7 @@ class OutlineControl(Control):
     The palette slot it is outlined in and the placement; for a labels
     visual, the per-label selection.  The outline reads the pick buffer:
     choosing a slot turns ``pick_write`` on with a warning.  List
-    :class:`PickingControl` to show that flag.
+    `PickingControl` to show that flag.
     """
 
 
@@ -255,7 +255,7 @@ class OutlineControl(Control):
 class AmbientOcclusionControl(Control):
     """The visual's ambient-occlusion checkbox.
 
-    Ambient occlusion reads the pick buffer.  List :class:`PickingControl`
+    Ambient occlusion reads the pick buffer.  List `PickingControl`
     to show that flag.
     """
 
@@ -266,8 +266,8 @@ class PickingControl(Control):
 
     A visual out of the pick buffer cannot be picked in the canvas, and
     cannot be outlined or ambient-occluded, since both passes read that
-    buffer.  List it beside :class:`OutlineControl` or
-    :class:`AmbientOcclusionControl` to show the flag those controls turn
+    buffer.  List it beside `OutlineControl` or
+    `AmbientOcclusionControl` to show the flag those controls turn
     on.  For every kind of visual.  It has no options.
     """
 
@@ -288,7 +288,7 @@ class LoadingConfigControl(Control):
 
     Advanced settings of how an image or labels visual loads its data
     progressively: the visual's ``render_config.loading``
-    (:class:`~cellier.visuals.ProgressiveLoadingConfig`).  For an in-memory
+    (`ProgressiveLoadingConfig`).  For an in-memory
     or multiscale image, a MaskedImage, and in-memory or multiscale labels.
     It has no options.
     """
@@ -300,7 +300,7 @@ class MeshSectionControl(Control):
 
     How the mesh is drawn in a 2D view: outline, fill, outline width, and
     whether the cut is the slice plane or the scene's slab (see
-    :class:`~cellier.visuals.MeshSectionConfig`).
+    `MeshSectionConfig`).
     """
 
 
@@ -309,7 +309,7 @@ class MeshLodControl(Control):
     """The "LOD" group of a multiscale mesh.
 
     What a dims scrub loads and draws, and what a moving camera draws (see
-    :class:`~cellier.visuals.GeometryLodConfig`).  A multiscale mesh with
+    `GeometryLodConfig`).  A multiscale mesh with
     one level has no such settings and gets no group.
     """
 
@@ -366,7 +366,7 @@ class DatasetInfoControl(Control):
         ``None`` (default) asks the visual's data store to describe itself
         via ``BaseDataStore.dataset_info()``: it stays correct as the store
         changes and costs no array reads.  A
-        :class:`~cellier.data.DatasetInfo` is displayed as given.  A
+        `DatasetInfo` is displayed as given.  A
         sequence of ``(label, value)`` pairs is for rows that no store
         knows about; both halves are coerced to ``str``.
 

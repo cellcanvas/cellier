@@ -34,7 +34,7 @@ class ClippingPlane(CellierModel):
     not ``(1, 1, 0)`` when the voxels are not cubes.
 
     A plane may be defined on some of the data axes only (see
-    :meth:`from_point_normal`).  A ``zyx`` plane on ``tzyx`` data holds at
+    `from_point_normal`).  A ``zyx`` plane on ``tzyx`` data holds at
     every timepoint.
 
     The model is frozen.  Moving a plane means assigning a new tuple to
@@ -114,5 +114,5 @@ _CLIPPING_PLANES = TypeAdapter(tuple[ClippingPlane, ...])
 
 
 def validate_clipping_planes(value: object) -> tuple[ClippingPlane, ...]:
-    """Coerce *value* to a tuple of :class:`ClippingPlane`, or raise."""
+    """Coerce *value* to a tuple of `ClippingPlane`, or raise."""
     return _CLIPPING_PLANES.validate_python(value)

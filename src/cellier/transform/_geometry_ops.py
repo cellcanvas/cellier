@@ -203,7 +203,7 @@ def imap_points(
         ``(N, D_out)`` or ``(D_out,)`` points in the output space.
     inverse_linear : np.ndarray
         The ``(D_in, D_out)`` inverse linear block, from
-        :func:`pseudo_inverse_affine`.
+        `pseudo_inverse_affine`.
     translation : np.ndarray
         The **forward** ``(D_out,)`` translation.
 
@@ -399,7 +399,7 @@ def imap_plane(
     """Pull a plane back: ``n = A^T m``, ``d = e - m . t``.
 
     Needs only the forward blocks, so it works on a transform whose
-    inverse does not exist.  Like :func:`imap_normals` it is not
+    inverse does not exist.  Like `imap_normals` it is not
     injective.
 
     Parameters
@@ -437,7 +437,7 @@ def map_half_spaces(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Push half-spaces forward, preserving the inequality direction.
 
-    The rule is the plane rule of :func:`map_plane` with ``<=`` carried
+    The rule is the plane rule of `map_plane` with ``<=`` carried
     through, which it survives.  Unlike the plane version this does
     **not** raise on a degenerate normal: a half-space whose normal maps
     to zero becomes either vacuous or infeasible, and both of those are
@@ -537,7 +537,7 @@ def imap_half_spaces(
     inverse is ``None``.
 
     Constraints touching a broadcast axis are removed first, by
-    :func:`drop_broadcast_constraints`.  Without that step a selection
+    `drop_broadcast_constraints`.  Without that step a selection
     on an axis the source is broadcast over pulls back through an
     all-zero row to an infeasible ``0 <= negative`` and the region comes
     back empty -- the wrong answer for a source that by definition
@@ -695,9 +695,9 @@ def axis_aligned_bounds(
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Read the bounds of an axis-aligned polytope off directly.
 
-    The fast path of :func:`polytope_bounds`, worth roughly 1000x and
+    The fast path of `polytope_bounds`, worth roughly 1000x and
     covering every axis-aligned selection, which is what the slicing
-    path sends.  Requires :func:`is_axis_aligned` to hold.
+    path sends.  Requires `is_axis_aligned` to hold.
 
     Parameters
     ----------
@@ -762,7 +762,7 @@ def polytope_bounds(
     Measured at roughly 3 ms for ``ndim == 5``, inside a 16 ms frame
     budget.  The cost is per-solver-call overhead and is linear in
     ``2 * ndim``, not in the constraint count.  Prefer
-    :func:`axis_aligned_bounds` when :func:`is_axis_aligned` holds.
+    `axis_aligned_bounds` when `is_axis_aligned` holds.
 
     Parameters
     ----------

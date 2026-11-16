@@ -45,7 +45,11 @@ class OrthoCanvasGrid:
         self._widget = None
 
     def compose(self, host: LayoutHost) -> object:
-        """Arrange the four panels as a labelled 2x2 grid via *host*."""
+        """Arrange the four panels as a labelled 2x2 grid via *host*.
+
+        Called by the viewer's layout, which supplies *host* (an internal
+        layout backend); not meant to be called from user code.
+        """
         rows: list[list[object]] = [[None, None], [None, None]]
         for row, column, key, header in PANEL_LAYOUT:
             rows[row][column] = host.stack(
@@ -58,7 +62,7 @@ class OrthoCanvasGrid:
         """The composed Qt grid, for embedding in a hand-built Qt layout.
 
         Qt only, and a convenience: the layout system reaches the grid through
-        :meth:`compose` like any other center leaf.
+        `compose` like any other center leaf.
         """
         if self._widget is None:
             from cellier.convenience._hosts import QtLayoutHost
@@ -70,12 +74,6 @@ class OrthoCanvasGrid:
         """Unsubscribe every panel's dims control from the bus."""
         for view in self.canvases.values():
             view.close()
-
-
-#: Kept as the toolkit-specific names the two builders used to return.  They
-#: are one class now, so an ``isinstance`` check against either still holds.
-OrthoCanvasWidgets = OrthoCanvasGrid
-OrthoAnywidgetCanvases = OrthoCanvasGrid
 
 
 def build_ortho_grid_widget(
@@ -90,7 +88,7 @@ def build_ortho_grid_widget(
     fit_view_direction_3d: Mapping[AxisRef, float] | None = None,
     fit_up_3d: Mapping[AxisRef, float] | None = None,
 ) -> OrthoCanvasGrid:
-    """Build the 2x2 canvas grid for an :class:`OrthoViewer`.
+    """Build the 2x2 canvas grid for an `OrthoViewer`.
 
     Creates (or reuses) a canvas per panel with wired dims sliders, and returns
     a leaf whose ``compose(host)`` lays them out as a labelled grid -- ``XY``
@@ -102,13 +100,14 @@ def build_ortho_grid_widget(
         The orthoviewer whose four scenes are attached.
     axis_values : Mapping[int, AxisValues]
         Axis index to the values that axis's slider can take, typically
-        from :func:`cellier.convenience.axis_values_from_ortho`.
+        from `cellier.convenience.axis_values_from_ortho`.
     gui : "qt", "anywidget", or None
         Defaults to ``ortho.gui``; raises if it conflicts with it.
     fov : float
         Vertical field of view in degrees for the 3D camera.
     depth_range_3d, depth_range_2d : tuple[float, float]
-        ``(near, far)`` clip distances for the 3D / 2D cameras.
+        ``(near, far)`` clip distances for the 3D / 2D cameras.  The 3D far
+        is raised when the scene's data needs more.
     canvas_size : tuple[int, int] or None
         Initial CSS pixel size per panel.  Meaningful to anywidget only.
     fit_view_direction_3d, fit_up_3d : Mapping[AxisRef, float] or None

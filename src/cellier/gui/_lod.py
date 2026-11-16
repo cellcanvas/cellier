@@ -1,7 +1,7 @@
 """The "LOD" controls of a multiscale mesh, for both toolkits.
 
 A multiscale mesh keeps two levels loaded, the finest and one coarse level,
-and its :class:`~cellier.visuals.GeometryLodConfig` says which one a dims
+and its `GeometryLodConfig` says which one a dims
 scrub loads and draws and which one a moving camera draws.  The Qt and
 anywidget controls (``QtLodConfigControls``, ``AnywidgetLodConfigControls``)
 draw one row per setting; this module says which rows, and carries edits to

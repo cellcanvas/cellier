@@ -1,6 +1,6 @@
 """The "Clipping planes" control of a visual, decided once for both toolkits.
 
-A visual carries a tuple of :class:`~cellier.visuals.ClippingPlane` in its
+A visual carries a tuple of `ClippingPlane` in its
 level-0 data coordinates.  The Qt and anywidget controls
 (``QtClippingPlanesControls``, ``AnywidgetClippingPlanesControls``) draw one
 row per plane: an enabled checkbox, a normal (one entry per data axis, under
@@ -17,7 +17,7 @@ controller says which plane has it (``PlaneGizmoChangedEvent``) and
 each control draws that.
 
 A row is plain data, so the anywidget control syncs the whole list in one
-trait and constructs nothing when a plane is added::
+trait and constructs nothing when a plane is added:
 
     {"id": "0f6c...", "enabled": True, "normal": [0.0, 0.0, 1.0], "position": 12.0}
 
@@ -29,7 +29,7 @@ sits along its unit normal: the plane is ``normal . p == position *
 **The slider does not show the position.**  The position is measured from
 the data's origin, so it is negative whenever the normal has a negative
 entry and changes sign when a plane is flipped.  A control shows the
-plane's depth into the data's bounding box instead (:func:`depth_of`): 0
+plane's depth into the data's bounding box instead (`depth_of`): 0
 on the face the normal points away from, the box's size along the normal
 on the opposite face.  ``ClippingPlanesEditor.describe`` adds it to each
 row and ``set_depth`` takes it.
@@ -108,7 +108,7 @@ OUTLINE_COLOR_TOOLTIP = "The outline's colour."
 def outline_hex(outline: Any) -> str:
     """An outline's colour as ``#rrggbb``, for a colour picker.
 
-    *outline* is whatever :func:`outline_row` takes.  The alpha is not in
+    *outline* is whatever `outline_row` takes.  The alpha is not in
     it: a picker edits the colour and the outline keeps its alpha.
     """
     red, green, blue = outline_row(outline)["color"][:3]
@@ -153,7 +153,7 @@ def outline_color(color: Any, alpha: float = 1.0) -> list[float]:
 def with_outline_field(outline: Any, **changes: Any) -> dict[str, Any]:
     """A row's ``"outline"`` entry with some of its fields replaced.
 
-    ``color=`` may be anything :func:`outline_color` takes; without an
+    ``color=`` may be anything `outline_color` takes; without an
     alpha it keeps the outline's.
 
     Raises
@@ -306,7 +306,7 @@ def depth_of(
 def position_at(
     depth: float, normal: Sequence[float], bounds: Sequence[Sequence[float]]
 ) -> float:
-    """The position of the plane *depth* into the box (see :func:`depth_of`)."""
+    """The position of the plane *depth* into the box (see `depth_of`)."""
     low, _high = position_range(normal, bounds)
     return low + float(depth)
 
@@ -406,7 +406,7 @@ def get_axis_bounds_from_store(
     controller : CellierController or None
         Looks the store up by id each time, so the reader holds no store.
     data : Mapping[str, Any]
-        From :func:`get_clipping_planes_data_from_visual`: its
+        From `get_clipping_planes_data_from_visual`: its
         ``data_store_id`` and ``axis_names`` are used.
 
     Returns
@@ -467,7 +467,7 @@ def get_clipping_plane_gizmo_data(
     Returns
     -------
     dict[str, Any]
-        ``gizmo_target`` (a :class:`ClippingPlaneGizmoTarget`),
+        ``gizmo_target`` (a `ClippingPlaneGizmoTarget`),
         ``gizmo_plane`` (the id of the plane that has the canvas's gizmo
         now, as a string, if it is one of this visual's; otherwise
         ``None``) and ``gizmo_blocked`` (a reader of why a plane cannot
@@ -543,7 +543,7 @@ class ClippingPlanesEditor:
     gizmo_target : ClippingPlaneGizmoTarget or None
         Where a plane's gizmo is drawn: the one of the visuals the gizmo
         edits, the canvas and the canvas's scene.  ``None`` gives the rows
-        no gizmo toggle.  See :func:`get_clipping_plane_gizmo_data`.
+        no gizmo toggle.  See `get_clipping_plane_gizmo_data`.
     gizmo_plane : str or None
         The id of the plane that has the canvas's gizmo now.
     gizmo_blocked : Callable[[str], str] or None
@@ -700,7 +700,7 @@ class ClippingPlanesEditor:
         self.set_rows(self._edited(index, position=float(position)))
 
     def set_depth(self, index: int, depth: float) -> None:
-        """Put plane *index* *depth* into the data's box (:func:`depth_of`)."""
+        """Put plane *index* *depth* into the data's box (`depth_of`)."""
         normal = self.rows[index]["normal"]
         self.set_position(index, position_at(depth, normal, self.bounds))
 
@@ -782,7 +782,7 @@ class ClippingPlanesEditor:
         """Put the canvas's gizmo on plane *index*, or take it off.
 
         Sends a ``PlaneGizmoUpdateEvent``.  The toggle is drawn from
-        what the controller answers (:meth:`on_gizmo_changed`), not from the
+        what the controller answers (`on_gizmo_changed`), not from the
         click: a refused request leaves it off, with the reason shown.
         """
         if self._gizmo is None:
@@ -847,9 +847,9 @@ class ClippingPlanesEditor:
     def describe(self) -> list[Row]:
         """The rows with what a front end needs to draw each one.
 
-        Adds ``facing`` (:func:`facing_of`), ``outline_hex`` (the outline's
+        Adds ``facing`` (`facing_of`), ``outline_hex`` (the outline's
         colour as a picker takes it) and what the position slider
-        shows (:func:`depth_of`): ``depth``, ``span`` (the slider runs from
+        shows (`depth_of`): ``depth``, ``span`` (the slider runs from
         0 to it) and ``outside`` (whether the plane misses the data's box,
         where ``depth`` is below 0 or above ``span``).  With a gizmo
         toggle, also ``gizmo`` (whether this plane has the canvas's gizmo)

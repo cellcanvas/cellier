@@ -28,10 +28,13 @@ class ReslicingRequest(NamedTuple):
     camera_type : str
         ``"perspective"`` or ``"orthographic"``.
     camera_pos : ndarray, shape (3,)
-        World-space camera position, copy.
+        Camera position, copy.  Read off the pygfx camera, so it is in the
+        renderer's ``(x, y, z)`` frame (``x`` is the last displayed world
+        axis), not in the order of the scene's world axes.
     frustum_corners : ndarray, shape (2, 4, 3)
-        World-space frustum corners, copy.  For orthographic cameras this
-        is set to ``np.zeros((2, 4, 3))``.
+        Frustum corners, copy, in the same ``(x, y, z)`` frame as
+        *camera_pos*.  For orthographic cameras this is set to
+        ``np.zeros((2, 4, 3))``.
     fov_y_rad : float
         Vertical field of view in radians.  ``0.0`` for orthographic.
     screen_size_px : tuple[float, float]
@@ -50,13 +53,14 @@ class ReslicingRequest(NamedTuple):
         scene with no rendered system yet -- in which case the planning
         phase falls back to ``dims_state``.
     request_id : UUID
-        Unique identifier per trigger; used for cancellation.
+        Unique identifier per trigger.  Nothing reads it: the chunk
+        scheduler never cancels a read.
     scene_id : UUID
         Which scene this camera belongs to.
     canvas_id : UUID
-        Which canvas produced this request.  Used by ``SliceCoordinator``
-        to key cancellation entries so that requests from different canvases
-        rendering the same scene can be tracked and cancelled independently.
+        Which canvas produced this request.  ``SliceCoordinator`` stamps it
+        on the ``ResliceStartedEvent`` and ``ResliceCompletedEvent`` it
+        announces, so canvases rendering the same scene report separately.
     target_visual_ids : frozenset[UUID] or None
         ``None`` means reslice all visuals in the scene (camera-moved case).
         A non-None set means reslice only those specific visuals

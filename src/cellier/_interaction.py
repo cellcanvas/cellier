@@ -31,7 +31,7 @@ InteractionEndReason = Literal["release", "settle", "jump", "cancel"]
 
 
 class Transition(NamedTuple):
-    """A change of state returned by an :class:`InteractionTracker`.
+    """A change of state returned by an `InteractionTracker`.
 
     Attributes
     ----------
@@ -72,7 +72,7 @@ class InteractionTracker:
     Parameters
     ----------
     settle_s : float
-        Stillness, in seconds, after which :meth:`expire` ends an
+        Stillness, in seconds, after which `expire` ends an
         interaction.  May be reassigned; it is read at each interactive tick.
     clock : Callable[[], float]
         Monotonic time in seconds.

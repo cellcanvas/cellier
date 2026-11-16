@@ -96,7 +96,7 @@ def rendered_positions(
     positions : np.ndarray
         ``(n, 3)`` float32, relative to *origin*.
     origin : np.ndarray
-        ``(3,)`` float64, for :func:`translation_matrix`.
+        ``(3,)`` float64, for `translation_matrix`.
     """
     if len(data_points) == 0:
         empty = np.zeros((0, 3), dtype=np.float32)
@@ -138,12 +138,12 @@ def world_frame_positions(
     retained, collapsed : np.ndarray
         ``(n, len(retained_axes))`` and ``(n, len(collapsed_axes))``.
     origin : np.ndarray or None
-        As :func:`rendered_positions`.
+        As `rendered_positions`.
 
     Returns
     -------
     positions, origin
-        As :func:`rendered_positions`.
+        As `rendered_positions`.
     """
     columns = {axis: retained[:, k] for k, axis in enumerate(spaces.retained_axes)}
     columns.update(

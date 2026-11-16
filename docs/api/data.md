@@ -5,7 +5,11 @@ slice-result types used to fetch data for the current view.
 
 ## Common
 
+::: cellier.data.BaseDataStore
 ::: cellier.data.DataStoreType
+::: cellier.data.DatasetInfo
+::: cellier.data.RowSection
+::: cellier.data.MatrixSection
 
 ## Images
 
@@ -38,3 +42,10 @@ slice-result types used to fetch data for the current view.
 ::: cellier.data.mesh.MeshLevel
 ::: cellier.data.mesh.MeshSliceRequest
 ::: cellier.data.mesh.MeshData
+::: cellier.data.mesh.MeshSectionData
+
+## Graphs
+
+::: cellier.data.graph.GraphMemoryStore
+::: cellier.data.graph.GraphSliceRequest
+::: cellier.data.graph.GraphData

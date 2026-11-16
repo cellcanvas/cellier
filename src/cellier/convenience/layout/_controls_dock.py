@@ -18,7 +18,7 @@ and ``backend.collapsible_section`` for the chrome around the controls.
 marimo a widget can only be constructed while a cell is running -- building
 one registers its ESM as a virtual file, which needs the running cell -- and a
 selection arrives as a front-end message outside any cell.  So widgets are
-built in :meth:`ControlsDock.refresh`, which runs from the initial render or
+built in `ControlsDock.refresh`, which runs from the initial render or
 from an ``add_*`` / removal (both cell code), and the selector callback never
 constructs anything.  Verified in a browser: building on selection raised
 ``AssertionError`` from marimo's ``virtual_file`` and left the dock showing the
@@ -88,9 +88,9 @@ class ControlsDock:
     placeholder :
         What the dock says while it has no targets.
     presentation :
-        :data:`SELECTOR` (default) or :data:`COLLAPSIBLE_SECTIONS`.
+        `SELECTOR` (default) or `COLLAPSIBLE_SECTIONS`.
     selector_title :
-        The selector row's label.  Defaults to :data:`SELECTOR_TITLE`.
+        The selector row's label.  Defaults to `SELECTOR_TITLE`.
     """
 
     def __init__(
@@ -150,7 +150,7 @@ class ControlsDock:
 
     @property
     def selected(self) -> ControlTarget | None:
-        """The target whose controls are shown, or last expanded by :meth:`select`."""
+        """The target whose controls are shown, or last expanded by `select`."""
         return self._selected
 
     @property

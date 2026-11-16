@@ -3,7 +3,7 @@
 The Qt and anywidget indicators (``QtLoadingIndicator``,
 ``AnywidgetLoadingIndicator``) draw a bar and a line of text.  Which bar and
 which text follows from the visual's
-:class:`~cellier.events.LoadingProgress`; this module turns one into the
+`LoadingProgress`; this module turns one into the
 other, and sums a group of visuals (an ``OrthoViewer``'s four panels share
 one control) into one progress.
 
@@ -169,7 +169,7 @@ class LoadingIndicatorModel:
         Called with the new state after every event.
     levels : bool
         The visuals are meshes: the text names levels, not chunk counts
-        (:func:`indicator_state`).
+        (`indicator_state`).
     """
 
     def __init__(

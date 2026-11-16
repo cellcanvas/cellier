@@ -73,6 +73,7 @@ MeshAppearance = Annotated[
     Union[MeshFlatAppearance, MeshPhongAppearance],
     Field(discriminator="appearance_type"),
 ]
+"""A mesh appearance (flat or Phong), told apart by ``appearance_type``."""
 
 
 class MeshSectionConfig(CellierEventedModel):

@@ -52,7 +52,7 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
     side only; a value a host writes into them is put back.  An update is sent only when the planes differ from
     the ones held, so a host that delivers one edit twice sends one.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         data = get_clipping_planes_data_from_visual(visual, store)
         controls = AnywidgetClippingPlanesControls(visual.id, **data)
@@ -72,7 +72,11 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
     bounds :
         ``(low, high)`` of the data on each axis.
     planes :
-        The current rows (``rows_from_planes(visual.clipping_planes)``).
+        One row per plane of ``visual.clipping_planes``, in order: a dict
+        with ``"id"`` (the plane's id as a string), ``"enabled"``,
+        ``"normal"`` (a list of floats), ``"position"`` (the plane's offset
+        divided by the normal's length) and ``"outline"`` (its outline
+        settings).
     data_store_id :
         The store the visuals read.
     bounds_source :

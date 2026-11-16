@@ -36,8 +36,26 @@ class DimsChangedEvent(NamedTuple):
 
     ``interactive`` is ``True`` when the change is a tick of a dims scrub:
     it was marked interactive, or it came inside an open scope (see
-    :class:`DimsInteractionEvent`).  A scrub's start and end have their own
+    ``DimsInteractionEvent``).  A scrub's start and end have their own
     event; this flag is the per-tick "in progress" state.
+
+    Attributes
+    ----------
+    source_id : UUID
+        Who made the change: a widget's id, or the controller's.
+    scene_id : UUID
+        The scene whose dims changed.  The routing key.
+    dims_state : DimsState
+        The dims after the change.
+    displayed_axes_changed : bool
+        Whether the set of displayed axes changed (a 2D/3D switch or a
+        different pair of axes).
+    slice_indices : Mapping[int, float]
+        World axis index to world position, for every axis.
+    region_changed : bool
+        Whether the sliced region changed (see above).
+    interactive : bool
+        Whether this is a tick of a dims scrub (see above).
     """
 
     source_id: UUID
@@ -88,6 +106,15 @@ class SliderAxesChangedEvent(NamedTuple):
     ``Scene.slider_axes`` is a derived property with no signal of its own;
     the controller recomputes it after every model change that can move it
     and emits this only when the value differs.
+
+    Attributes
+    ----------
+    source_id : UUID
+        Who made the change: a widget's id, or the controller's.
+    scene_id : UUID
+        The scene.  The routing key.
+    slider_axes : tuple[int, ...]
+        The world axes that now get a slider, in world order.
     """
 
     source_id: UUID
@@ -104,6 +131,17 @@ class CameraChangedEvent(NamedTuple):
     ``interactive=True`` or inside ``CellierController.camera_interaction``;
     it is ``False`` for a programmatic jump (``fit_camera``,
     ``look_at_visual``, ``set_camera_state``).
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas whose camera changed.
+    scene_id : UUID
+        The canvas's scene.  The routing key.
+    camera_state : CameraState
+        The camera after the change.
+    interactive : bool
+        Whether the change is part of a camera motion (see above).
     """
 
     source_id: UUID
@@ -115,7 +153,7 @@ class CameraChangedEvent(NamedTuple):
 class CameraInteractionEvent(NamedTuple):
     """A camera motion started or ended on a canvas.
 
-    The camera counterpart of :class:`DimsInteractionEvent`, with the same
+    The camera counterpart of ``DimsInteractionEvent``, with the same
     fields plus the canvas.  No event is emitted per frame;
     ``CameraChangedEvent.interactive`` carries that.
 
@@ -146,6 +184,32 @@ class CameraInteractionEvent(NamedTuple):
 
 
 class AppearanceChangedEvent(NamedTuple):
+    """A field on a visual's ``appearance`` changed.
+
+    Fired for every field except ``visible``, which fires
+    ``VisualVisibilityChangedEvent`` instead.  Image visuals' single and
+    per-channel appearances fire ``SingleAppearanceChangedEvent`` and
+    ``ChannelAppearanceChangedEvent``.  Subscribe with
+    ``CellierController.on_appearance_changed``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        Who made the change: the id a widget passed with its update event,
+        or the controller's id for a change made on the model directly.
+        Compare it with your own id to ignore echoes of your own edits.
+    visual_id : UUID
+        The visual whose appearance changed.  The routing key.
+    field_name : str
+        Name of the field that changed, e.g. ``"opacity"``.
+    new_value : Any
+        The field's new value.
+    requires_reslice : bool
+        ``True`` for the fields that change which data is loaded
+        (``settled_lod_bias``, ``force_level``, ``frustum_cull``); the
+        controller reslices the visual after emitting the event.
+    """
+
     source_id: UUID
     visual_id: UUID
     field_name: str
@@ -156,8 +220,9 @@ class AppearanceChangedEvent(NamedTuple):
 class ChannelAppearanceChangedEvent(NamedTuple):
     """Emitted when a field on one ``ChannelAppearance`` object changes.
 
-    Routed from the psygnal bridge in ``CellierController._wire_channels``
-    to subscribers that hold a ``GFXMultichannel*Visual``.
+    Emitted by the controller when a field of one of an image visual's
+    ``channels`` changes.  Subscribe with ``entity_id`` set to the visual's
+    id.
 
     Attributes
     ----------
@@ -185,6 +250,17 @@ class SingleAppearanceChangedEvent(NamedTuple):
 
     ``field_name`` is ``None`` when the whole ``single`` model was replaced;
     ``new_value`` is then the new model, and a consumer re-reads every field.
+
+    Attributes
+    ----------
+    source_id : UUID
+        Who made the change: a widget's id, or the controller's.
+    visual_id : UUID
+        The image visual.  The routing key.
+    field_name : str or None
+        The field that changed, or ``None`` for a replaced model.
+    new_value : Any
+        The field's new value, or the new ``single`` model.
     """
 
     source_id: UUID
@@ -194,7 +270,17 @@ class SingleAppearanceChangedEvent(NamedTuple):
 
 
 class ImageCompositeChangedEvent(NamedTuple):
-    """An image visual switched between single and composite mode."""
+    """An image visual switched between single and composite mode.
+
+    Attributes
+    ----------
+    source_id : UUID
+        Who made the change: a widget's id, or the controller's.
+    visual_id : UUID
+        The image visual.  The routing key.
+    composite : bool
+        ``True`` when it now draws its channels as a composite.
+    """
 
     source_id: UUID
     visual_id: UUID
@@ -220,6 +306,24 @@ class PickWriteChangedEvent(NamedTuple):
 
 
 class AABBChangedEvent(NamedTuple):
+    """A field on a visual's bounding-box settings (``visual.aabb``) changed.
+
+    Subscribe with ``CellierController.on_aabb_changed``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        Who made the change: the id a widget passed with its update event,
+        or the controller's id for a change made on the model directly.
+        Compare it with your own id to ignore echoes of your own edits.
+    visual_id : UUID
+        The visual whose bounding box changed.  The routing key.
+    field_name : str
+        Name of the ``AABBParams`` field that changed, e.g. ``"visible"``.
+    new_value : Any
+        The field's new value.
+    """
+
     source_id: UUID
     visual_id: UUID
     field_name: str
@@ -248,6 +352,22 @@ class MeshSectionChangedEvent(NamedTuple):
 
 
 class VisualVisibilityChangedEvent(NamedTuple):
+    """A visual was shown or hidden (``appearance.visible`` changed).
+
+    Subscribe with ``CellierController.on_visibility_changed``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        Who made the change: the id a widget passed with its update event,
+        or the controller's id for a change made on the model directly.
+        Compare it with your own id to ignore echoes of your own edits.
+    visual_id : UUID
+        The visual shown or hidden.  The routing key.
+    visible : bool
+        The new value of ``appearance.visible``.
+    """
+
     source_id: UUID
     visual_id: UUID
     visible: bool
@@ -302,6 +422,27 @@ class DataStoreContentsChangedEvent(NamedTuple):
 
 
 class ResliceStartedEvent(NamedTuple):
+    """A reslice began loading data for some of a scene's visuals.
+
+    Emitted once per reslice request (one per canvas showing the scene),
+    before any data for it is read.  Each visual it names later fires one
+    ``ResliceCompletedEvent`` for the same canvas.  Not emitted when the
+    request plans nothing.  Subscribe with
+    ``CellierController.on_reslice_started``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The render layer's slice coordinator.
+    scene_id : UUID
+        The scene being resliced.  The routing key.
+    canvas_id : UUID
+        The canvas whose view the request was planned for.
+    visual_ids : frozenset[UUID]
+        The visuals that have data to load in this reslice.  Visuals with
+        nothing to load (hidden, culled, outside the slice) are not listed.
+    """
+
     source_id: UUID
     scene_id: UUID
     canvas_id: UUID
@@ -309,6 +450,32 @@ class ResliceStartedEvent(NamedTuple):
 
 
 class ResliceCompletedEvent(NamedTuple):
+    """One visual's data for a reslice is on the GPU.
+
+    Fires when the visual's latest load pass is resident (a chunk the
+    scheduler gave up on counts as done), once for each
+    ``ResliceStartedEvent`` that named the visual since its last
+    completion.  A newer reslice that starts before an older one finishes
+    therefore answers both.  For loading progress in between, see
+    ``ResliceProgressEvent`` and ``BackstopCompleteEvent``.
+    Subscribe with ``CellierController.on_reslice_completed``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The render layer's slice coordinator.
+    scene_id : UUID
+        The scene that owns the visual.
+    canvas_id : UUID
+        The canvas whose reslice request this completes.  A scene shown on
+        several canvases completes once per canvas.
+    visual_id : UUID
+        The visual whose data is committed.  The routing key.
+    brick_count : int
+        Number of bricks or tiles the visual's latest pass needed, over
+        every level it loaded.
+    """
+
     source_id: UUID
     scene_id: UUID
     canvas_id: UUID
@@ -404,9 +571,9 @@ class LoadingProgress(NamedTuple):
 
     Notes
     -----
-    The first eight fields are counts and are summed by position
-    (``cellier.gui._loading.sum_progress``); a new field goes after
-    ``target_deferred``.
+    The first eight fields are counts, and are summed by position when
+    progress is combined over several visuals (an ``OrthoViewer`` panel
+    group); a new field goes after ``target_deferred``.
     """
 
     needed_backstop: int = 0
@@ -459,7 +626,7 @@ class ResliceProgressEvent(NamedTuple):
     after an invalidation.  Not emitted per read, so ``in_flight`` is the
     count at the last of those moments.
 
-    Parameters
+    Attributes
     ----------
     source_id : UUID
         ID of the emitter (the render layer).
@@ -485,7 +652,7 @@ class LoadingConfigChangedEvent(NamedTuple):
     ``LoadingConfigUpdateEvent``) or from assigning ``render_config``
     directly, so a control showing the settings stays in step.
 
-    Parameters
+    Attributes
     ----------
     source_id : UUID
         Who asked for the change: the widget's id for a GUI edit, otherwise
@@ -512,7 +679,7 @@ class PlaneGizmoMovedEvent(NamedTuple):
     The pose is in the scene's rendered space, in ``(x, y, z)`` order.  It
     holds no render-layer types.
 
-    Parameters
+    Attributes
     ----------
     source_id : UUID
         The canvas.
@@ -563,7 +730,7 @@ class ClippingPlanesChangedEvent(NamedTuple):
     ``ClippingPlanesUpdateEvent``) or from assigning
     ``visual.clipping_planes`` directly.
 
-    Parameters
+    Attributes
     ----------
     source_id : UUID
         Who asked for the change: the widget's id for a GUI edit, otherwise
@@ -587,7 +754,7 @@ class RenderPlanesChangedEvent(NamedTuple):
     ``RenderPlanesUpdateEvent``) or from assigning ``visual.render_planes``
     directly, and whether or not the visual is in ``"plane"`` render mode.
 
-    Parameters
+    Attributes
     ----------
     source_id : UUID
         Who asked for the change: the widget's id for a GUI edit, otherwise
@@ -683,7 +850,7 @@ class PlaneGizmoChangedEvent(NamedTuple):
     plane or visual was removed, the canvas left 3D, a render plane's
     visual left plane mode).
 
-    Parameters
+    Attributes
     ----------
     source_id : UUID
         Who asked: the widget's id for a GUI toggle, otherwise the
@@ -715,7 +882,7 @@ class LodConfigChangedEvent(NamedTuple):
     from assigning ``visual.lod`` directly, so a control showing the
     settings stays in step.
 
-    Parameters
+    Attributes
     ----------
     source_id : UUID
         Who asked for the change: the widget's id for a GUI edit, otherwise
@@ -738,7 +905,7 @@ class BackstopCompleteEvent(NamedTuple):
     the backstop's coarse level.  Emitted once per plan whose backstop
     completes, and only when the plan has a backstop.
 
-    Parameters
+    Attributes
     ----------
     source_id : UUID
         ID of the emitter (the render layer).
@@ -753,13 +920,23 @@ class BackstopCompleteEvent(NamedTuple):
     visual_id: UUID
 
 
-class ResliceCancelledEvent(NamedTuple):
-    source_id: UUID
-    scene_id: UUID
-    visual_id: UUID
-
-
 class FrameRenderedEvent(NamedTuple):
+    """A canvas finished rendering a frame.
+
+    Emitted at the end of every draw, so it is frequent.  To wait for a
+    canvas's first frame, use ``CellierController.on_canvas_first_frame``,
+    which subscribes to this event once.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas that rendered (equal to ``canvas_id``).
+    canvas_id : UUID
+        The canvas that rendered.  The routing key.
+    frame_time_ms : float
+        Wall-clock time the frame took to render, in milliseconds.
+    """
+
     source_id: UUID
     canvas_id: UUID
     frame_time_ms: float
@@ -768,7 +945,7 @@ class FrameRenderedEvent(NamedTuple):
 class CanvasConnectedEvent(NamedTuple):
     """Emitted once a canvas's front end is live and able to draw.
 
-    Distinct from :class:`FrameRenderedEvent`, which says a frame *has* been
+    Distinct from ``FrameRenderedEvent``, which says a frame *has* been
     drawn.  On Qt the two nearly coincide -- the widget is shown and the
     continuous scheduler draws immediately -- but on the anywidget backend
     they can be far apart, or the frame may never arrive at all: the canvas
@@ -794,7 +971,7 @@ class CanvasConnectedEvent(NamedTuple):
 
 
 class CanvasSizeChangedEvent(NamedTuple):
-    """Emitted when the physical pixel size of a canvas changes.
+    """Emitted when the size of a canvas changes, in logical pixels.
 
     Fired by ``CanvasView`` whenever the underlying render surface is
     resized -- via the Qt ``resizeEvent`` on the Qt backend or via the
@@ -820,18 +997,61 @@ class CanvasSizeChangedEvent(NamedTuple):
 
 
 class VisualAddedEvent(NamedTuple):
+    """A visual was added to a scene and is ready to draw.
+
+    Emitted after the visual's render objects and subscriptions exist.
+    Subscribe with ``CellierController.on_visual_added``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The controller.
+    scene_id : UUID
+        The scene the visual was added to.  The routing key.
+    visual_id : UUID
+        The visual added.
+    """
+
     source_id: UUID
     scene_id: UUID
     visual_id: UUID
 
 
 class VisualRemovedEvent(NamedTuple):
+    """A visual was removed from a scene.
+
+    Emitted last, after the visual's render objects and subscriptions are
+    gone, so ``visual_id`` no longer resolves on the controller.  Subscribe
+    with ``CellierController.on_visual_removed``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The controller.
+    scene_id : UUID
+        The scene the visual was removed from.  The routing key.
+    visual_id : UUID
+        The visual removed.
+    """
+
     source_id: UUID
     scene_id: UUID
     visual_id: UUID
 
 
 class SceneAddedEvent(NamedTuple):
+    """A scene was added to the controller.
+
+    Subscribe with ``CellierController.on_scene_added``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The controller.
+    scene_id : UUID
+        The scene added.  The routing key.
+    """
+
     source_id: UUID
     scene_id: UUID
 
@@ -890,9 +1110,8 @@ class OverlayChangedEvent(NamedTuple):
 class BackgroundChangedEvent(NamedTuple):
     """Emitted when a scene's ``BackgroundAppearance`` changes.
 
-    Routed from the psygnal bridge in
-    ``CellierController._wire_scene_background`` -- both from a field change
-    on the background model and from wholesale replacement
+    Emitted both for a field change on the background model and for
+    wholesale replacement
     (``scene.background = BackgroundAppearance(...)``).  The background is a
     property of the scene rather than of any visual, so it travels on its own
     event keyed by ``scene_id`` rather than riding on
@@ -962,10 +1181,10 @@ class RenderConfigChangedEvent(NamedTuple):
     """Emitted when one section of the render configuration changes.
 
     Render configuration belongs to the ``RenderManager`` rather than to a
-    scene, a visual or a canvas, so this event has no entity id and is
-    deliberately absent from ``EventBus._ENTITY_FIELD`` -- every subscriber
-    receives every render-config event and filters on ``section`` itself,
-    the way the appearance widgets filter on ``field_name``.
+    scene, a visual or a canvas, so this event has no entity id: it cannot
+    be subscribed to with an ``entity_id``.  Every subscriber receives every
+    render-config event and filters on ``section`` itself, the way the
+    appearance widgets filter on ``field_name``.
 
     Attributes
     ----------
@@ -1000,11 +1219,10 @@ class RenderConfigChangedEvent(NamedTuple):
 class TrailChangedEvent(NamedTuple):
     """Emitted when a graph visual's trail configuration changes.
 
-    Routed from the psygnal bridge in ``CellierController._wire_trail`` --
-    both from a field change on one ``TrailConfig`` and from whole-dict
-    replacement (``visual.trail = {...}``).  Both are needed because psygnal
-    does not propagate nested ``EventedModel`` field changes to the parent's
-    event group, which is the same fact that flattens ``GraphAppearance``.
+    Emitted both for a field change on one ``TrailConfig`` and for
+    whole-dict replacement (``visual.trail = {...}``).  In the first case
+    ``axis`` and ``field_name`` say which field changed; in the second they
+    are ``None``.
 
     Attributes
     ----------
@@ -1031,7 +1249,19 @@ class TrailChangedEvent(NamedTuple):
 
 
 class TransformChangedEvent(NamedTuple):
-    """Fired when a visual's data-to-world transform is replaced."""
+    """Fired when a visual's data-to-world transform is replaced.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The controller.
+    scene_id : UUID
+        The visual's scene.
+    visual_id : UUID
+        The visual.  The routing key.
+    transform : BaseTransform
+        The new data-to-world transform.
+    """
 
     source_id: UUID
     scene_id: UUID
@@ -1055,7 +1285,7 @@ class DrawStatus(NamedTuple):
     name : str
         The visual's name, for messages.
     alignment : str
-        The view's :class:`~cellier.transform.SliceAlignment` value for the
+        The view's ``cellier.transform.SliceAlignment`` value for the
         visual (``"axis_aligned"``, ``"in_plane"``, ``"slice_shift"`` or
         ``"oblique"``).
     drawable : bool
@@ -1073,7 +1303,19 @@ class DrawStatus(NamedTuple):
 
 
 class DrawStatusChangedEvent(NamedTuple):
-    """Fired when a visual's :class:`DrawStatus` in its scene's view changes."""
+    """Fired when a visual's ``DrawStatus`` in its scene's view changes.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The controller.
+    scene_id : UUID
+        The scene whose view changed.  The routing key.
+    visual_id : UUID
+        The visual whose status changed.
+    status : DrawStatus
+        The new status.
+    """
 
     source_id: UUID
     scene_id: UUID
@@ -1082,6 +1324,19 @@ class DrawStatusChangedEvent(NamedTuple):
 
 
 class SceneRemovedEvent(NamedTuple):
+    """A scene was removed, with its visuals and canvases.
+
+    Emitted after its visuals and canvases are torn down.  Subscribe with
+    ``CellierController.on_scene_removed``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The controller.
+    scene_id : UUID
+        The scene removed.  The routing key.
+    """
+
     source_id: UUID
     scene_id: UUID
 
@@ -1140,11 +1395,30 @@ class ImagePickInfo(NamedTuple):
         drawn plane in single mode, and the pick-buffer winner in composite
         mode.
     channel_values : dict[int, float]
-        Index along ``channel_axis`` -> the value at the picked voxel.  A
-        visual with ``channel_axis=None`` reports ``{0: value}``.  Single mode
+        Index along ``channel_axis`` -> the value at the picked voxel.  On a
+        multiscale visual that voxel is the one of the pyramid level drawn at
+        the hit (per channel), so the value agrees with what is on screen: a
+        coarse level's surface can sit a voxel from the level-0 one.  The value
+        is level 0's where the level cannot be said (an in-memory visual, or a
+        brick table rewritten since the frame was drawn).  A visual with
+        ``channel_axis=None`` reports ``{0: value}``.  Single mode
         reports its drawn channel.  Composite mode reports every drawn
         (visible) channel on a 2D canvas and only the pick-buffer winner on a
         3D canvas.  Empty when the voxel lies outside the data.
+
+    Notes
+    -----
+    **Precision of 3D picks.**  A multiscale visual drawn as a volume (a 3D
+    canvas, or a tilted 2D view) stores the hit in 44 bits of the pick buffer,
+    shared between the three displayed axes by their lengths: an axis of ``n``
+    voxels first gets the ``bit_length(n - 1)`` bits that name each of its
+    voxels, and the bits left over split a voxel into finer steps.  When those
+    bits add up to at most 44 and no displayed axis is longer than ``2 ** 24``
+    voxels, ``floor(data_coordinate)`` is always the voxel hit: a lightsheet
+    volume of 2048 x 10000 x 40000 voxels needs 11 + 14 + 16 = 41 bits.  A
+    larger volume resolves to steps of 2, 4 or more voxels on its longest axes,
+    and a ``UserWarning`` names the step when the visual's volume is built with
+    that shape.
     """
 
     data_coordinate: tuple[float, ...]
@@ -1186,6 +1460,28 @@ class LabelsPickInfo(NamedTuple):
     value : int
         The label id at ``floor(data_coordinate)``; in 3D, the label at the
         hit voxel.  ``0`` when the voxel lies outside the data.
+
+        On a multiscale visual, in 2D and 3D, the hit is on the pyramid level
+        that was drawn, and ``value`` is the label that level holds there: the
+        label you see.  A coarse voxel covers several level-0 voxels and can
+        stand a voxel or more beyond the level-0 surface, so reading level 0 at
+        the same point could return the background.  The value is level 0's
+        where the level cannot be said (a brick or tile table rewritten since
+        the frame was drawn) and for in-memory labels, which have one level.
+
+    Notes
+    -----
+    **Precision of 3D picks.**  A multiscale visual drawn as a volume (a 3D
+    canvas, or a tilted 2D view) stores the hit in 44 bits of the pick buffer,
+    shared between the three displayed axes by their lengths: an axis of ``n``
+    voxels first gets the ``bit_length(n - 1)`` bits that name each of its
+    voxels, and the bits left over split a voxel into finer steps.  When those
+    bits add up to at most 44 and no displayed axis is longer than ``2 ** 24``
+    voxels, ``floor(data_coordinate)`` is always the voxel hit: a lightsheet
+    volume of 2048 x 10000 x 40000 voxels needs 11 + 14 + 16 = 41 bits.  A
+    larger volume resolves to steps of 2, 4 or more voxels on its longest axes,
+    and a ``UserWarning`` names the step when the visual's volume is built with
+    that shape.
     """
 
     data_coordinate: tuple[float, ...]
@@ -1217,6 +1513,21 @@ class MaskedImagePickInfo(NamedTuple):
         clipping plane's cut face, along the plane's normal into the kept
         side).  2D, and 3D with thickness 0: ``surface_value``.  ``None``
         where no sample lies in the value's data.
+
+    Notes
+    -----
+    **Precision of 3D picks.**  A MaskedImage drawn as a volume (a 3D canvas,
+    or a tilted 2D view) stores the hit in 44 bits of the pick buffer,
+    shared between the three displayed axes by their lengths: an axis of ``n``
+    voxels first gets the ``bit_length(n - 1)`` bits that name each of its
+    voxels, and the bits left over split a voxel into finer steps.  When those
+    bits add up to at most 44 and no displayed axis is longer than ``2 ** 24``
+    voxels, ``floor(data_coordinate)`` is always the voxel hit: a lightsheet
+    volume of 2048 x 10000 x 40000 voxels needs 11 + 14 + 16 = 41 bits.  A
+    larger volume resolves to steps of 2, 4 or more voxels on its longest axes,
+    and a ``UserWarning`` names the step when the visual's volume is built with
+    that shape.  The axis lengths are the mask's; ``value_coordinate`` follows
+    ``data_coordinate``.
     """
 
     data_coordinate: tuple[float, ...]
@@ -1312,7 +1623,36 @@ class ViewRay(NamedTuple):
 
 
 class CanvasMousePress2DEvent(NamedTuple):
-    """Emitted when the primary pointer button is pressed on a 2D canvas."""
+    """Emitted when the primary pointer button is pressed on a 2D canvas.
+
+    Subscribe with ``CellierController.on_mouse_press_2d``.  For what
+    was hit beyond the visual's id, subscribe to the typed pick events with
+    ``CellierController.on_pick``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.  The routing key.
+    scene_id : UUID
+        The canvas's scene.
+    world_coordinate : np.ndarray
+        The pointer's position in world coordinates, one value per world
+        axis (float64): the displayed axes from the pointer, the sliced axes
+        at their current slice positions.
+    pick_info : CanvasPickInfo
+        The visual under the pointer, if any.
+    button : int
+        The button that changed: ``0`` none (a move), ``1`` left, ``2`` right,
+        ``3`` middle, ``4`` and ``5`` the extra buttons.
+    buttons : tuple
+        Every button held, as the same numbers.
+    modifiers : tuple
+        The modifier keys held, as strings: ``"Shift"``, ``"Control"``,
+        ``"Alt"``, ``"Meta"``.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    """
 
     source_id: UUID
     scene_id: UUID
@@ -1325,7 +1665,36 @@ class CanvasMousePress2DEvent(NamedTuple):
 
 
 class CanvasMouseMove2DEvent(NamedTuple):
-    """Emitted on every pointer-move event on a 2D canvas (button up or down)."""
+    """Emitted on every pointer-move event on a 2D canvas (button up or down).
+
+    Subscribe with ``CellierController.on_mouse_move_2d``.  For what
+    was hit beyond the visual's id, subscribe to the typed pick events with
+    ``CellierController.on_pick``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.  The routing key.
+    scene_id : UUID
+        The canvas's scene.
+    world_coordinate : np.ndarray
+        The pointer's position in world coordinates, one value per world
+        axis (float64): the displayed axes from the pointer, the sliced axes
+        at their current slice positions.
+    pick_info : CanvasPickInfo
+        The visual under the pointer, if any.
+    button : int
+        The button that changed: ``0`` none (a move), ``1`` left, ``2`` right,
+        ``3`` middle, ``4`` and ``5`` the extra buttons.
+    buttons : tuple
+        Every button held, as the same numbers.
+    modifiers : tuple
+        The modifier keys held, as strings: ``"Shift"``, ``"Control"``,
+        ``"Alt"``, ``"Meta"``.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    """
 
     source_id: UUID
     scene_id: UUID
@@ -1338,7 +1707,36 @@ class CanvasMouseMove2DEvent(NamedTuple):
 
 
 class CanvasMouseRelease2DEvent(NamedTuple):
-    """Emitted when the primary pointer button is released on a 2D canvas."""
+    """Emitted when the primary pointer button is released on a 2D canvas.
+
+    Subscribe with ``CellierController.on_mouse_release_2d``.  For what
+    was hit beyond the visual's id, subscribe to the typed pick events with
+    ``CellierController.on_pick``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.  The routing key.
+    scene_id : UUID
+        The canvas's scene.
+    world_coordinate : np.ndarray
+        The pointer's position in world coordinates, one value per world
+        axis (float64): the displayed axes from the pointer, the sliced axes
+        at their current slice positions.
+    pick_info : CanvasPickInfo
+        The visual under the pointer, if any.
+    button : int
+        The button that changed: ``0`` none (a move), ``1`` left, ``2`` right,
+        ``3`` middle, ``4`` and ``5`` the extra buttons.
+    buttons : tuple
+        Every button held, as the same numbers.
+    modifiers : tuple
+        The modifier keys held, as strings: ``"Shift"``, ``"Control"``,
+        ``"Alt"``, ``"Meta"``.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    """
 
     source_id: UUID
     scene_id: UUID
@@ -1351,7 +1749,35 @@ class CanvasMouseRelease2DEvent(NamedTuple):
 
 
 class CanvasMousePress3DEvent(NamedTuple):
-    """Emitted when the primary pointer button is pressed on a 3D canvas."""
+    """Emitted when the primary pointer button is pressed on a 3D canvas.
+
+    Subscribe with ``CellierController.on_mouse_press_3d``.  For what
+    was hit beyond the visual's id, subscribe to the typed pick events with
+    ``CellierController.on_pick``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.  The routing key.
+    scene_id : UUID
+        The canvas's scene.
+    ray : ViewRay
+        The view ray from the camera through the pointer, in world
+        coordinates.
+    pick_info : CanvasPickInfo
+        The visual under the pointer, if any.
+    button : int
+        The button that changed: ``0`` none (a move), ``1`` left, ``2`` right,
+        ``3`` middle, ``4`` and ``5`` the extra buttons.
+    buttons : tuple
+        Every button held, as the same numbers.
+    modifiers : tuple
+        The modifier keys held, as strings: ``"Shift"``, ``"Control"``,
+        ``"Alt"``, ``"Meta"``.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    """
 
     source_id: UUID
     scene_id: UUID
@@ -1364,7 +1790,35 @@ class CanvasMousePress3DEvent(NamedTuple):
 
 
 class CanvasMouseMove3DEvent(NamedTuple):
-    """Emitted on every pointer-move event on a 3D canvas (button up or down)."""
+    """Emitted on every pointer-move event on a 3D canvas (button up or down).
+
+    Subscribe with ``CellierController.on_mouse_move_3d``.  For what
+    was hit beyond the visual's id, subscribe to the typed pick events with
+    ``CellierController.on_pick``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.  The routing key.
+    scene_id : UUID
+        The canvas's scene.
+    ray : ViewRay
+        The view ray from the camera through the pointer, in world
+        coordinates.
+    pick_info : CanvasPickInfo
+        The visual under the pointer, if any.
+    button : int
+        The button that changed: ``0`` none (a move), ``1`` left, ``2`` right,
+        ``3`` middle, ``4`` and ``5`` the extra buttons.
+    buttons : tuple
+        Every button held, as the same numbers.
+    modifiers : tuple
+        The modifier keys held, as strings: ``"Shift"``, ``"Control"``,
+        ``"Alt"``, ``"Meta"``.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    """
 
     source_id: UUID
     scene_id: UUID
@@ -1377,7 +1831,35 @@ class CanvasMouseMove3DEvent(NamedTuple):
 
 
 class CanvasMouseRelease3DEvent(NamedTuple):
-    """Emitted when the primary pointer button is released on a 3D canvas."""
+    """Emitted when the primary pointer button is released on a 3D canvas.
+
+    Subscribe with ``CellierController.on_mouse_release_3d``.  For what
+    was hit beyond the visual's id, subscribe to the typed pick events with
+    ``CellierController.on_pick``.
+
+    Attributes
+    ----------
+    source_id : UUID
+        The canvas.  The routing key.
+    scene_id : UUID
+        The canvas's scene.
+    ray : ViewRay
+        The view ray from the camera through the pointer, in world
+        coordinates.
+    pick_info : CanvasPickInfo
+        The visual under the pointer, if any.
+    button : int
+        The button that changed: ``0`` none (a move), ``1`` left, ``2`` right,
+        ``3`` middle, ``4`` and ``5`` the extra buttons.
+    buttons : tuple
+        Every button held, as the same numbers.
+    modifiers : tuple
+        The modifier keys held, as strings: ``"Shift"``, ``"Control"``,
+        ``"Alt"``, ``"Meta"``.
+    gesture_id : UUID or None
+        Shared by one press, its drag moves and its release; ``None`` for a
+        hover move.
+    """
 
     source_id: UUID
     scene_id: UUID
@@ -1393,10 +1875,11 @@ class ImagePickEvent(NamedTuple):
     """An image visual was hit on a canvas.
 
     Emitted only for a hit, after the mouse event for the same pointer event:
-    at once for an in-memory image, and when the level-0 value read completes
-    for a multiscale image.  A newer pointer event on the canvas cancels an
-    in-flight ``move`` read; ``press`` and ``release`` reads always complete,
-    so match events by ``gesture_id`` and ``action``, not arrival order.
+    at once for an in-memory image, and when the value read completes for a
+    multiscale image (at the level drawn at the hit).  A newer pointer event on
+    the canvas cancels an in-flight ``move`` read; ``press`` and ``release``
+    reads always complete, so match events by ``gesture_id`` and ``action``, not
+    arrival order.
 
     Attributes
     ----------
@@ -1758,6 +2241,10 @@ PickEvent = (
     | MeshPickEvent
     | GraphPickEvent
 )
+"""Any pick event: the union of ``PICK_EVENT_TYPES``.
+
+For annotating a callback that handles several pick event types.
+"""
 
 
 class _CameraControllerEvent(NamedTuple):
@@ -1794,8 +2281,9 @@ class _CanvasRawPointerEvent(NamedTuple):
         ``"2d"`` or ``"3d"``.  Determines which of ``position_2d`` / ``ray``
         is populated.
     position_2d : np.ndarray or None
-        2D world position for the displayed axes, already unprojected through
-        the active orthographic camera.  Shape (2,), float64.
+        The pointer in the pygfx scene ``(x, y)``, already unprojected through
+        the active orthographic camera: ``x`` is the last displayed axis and
+        ``y`` the one before it.  Shape (2,), float64.
         Set iff ``camera_type == "2d"``.
     ray : ViewRay or None
         View ray unprojected through the active perspective camera.
@@ -1862,14 +2350,15 @@ CellierEventTypes = (
     | BackstopCompleteEvent
     | LoadingConfigChangedEvent
     | LodConfigChangedEvent
+    | MeshSectionChangedEvent
     | ClippingPlanesChangedEvent
     | RenderPlanesChangedEvent
     | PlaneInteractionEvent
     | TransformInteractionEvent
     | PlaneGizmoChangedEvent
     | PlaneGizmoMovedEvent
-    | ResliceCancelledEvent
     | FrameRenderedEvent
+    | CanvasConnectedEvent
     | VisualAddedEvent
     | VisualRemovedEvent
     | TrailChangedEvent

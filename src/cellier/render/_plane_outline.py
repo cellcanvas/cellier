@@ -8,9 +8,9 @@ nothing of pygfx objects or of the GPU.
 Everything is in the scene's rendered space, in pygfx ``(x, y, z)`` order
 and float64.  The box and the clipping planes are **half-space rows**
 ``(a, b, c, d)``, kept where ``a*x + b*y + c*z >= d``: the form
-:func:`~cellier.render._clipping.reduce_clipping_planes` returns.  The box
+`reduce_clipping_planes` returns.  The box
 is written as six data-space planes and reduced by that same function
-(:func:`box_frame`), so it follows whatever transform a clipping plane
+(`box_frame`), so it follows whatever transform a clipping plane
 follows.
 
 The box is closed: a plane lying in one of its faces has that face as its
@@ -64,7 +64,7 @@ def voxel_edge_box(
     -------
     low, high : np.ndarray
         One entry per retained axis, in ascending axis order: what
-        :func:`box_frame` takes.
+        `box_frame` takes.
     """
     sizes = np.array([float(shape[axis]) for axis in sorted(retained_axes)])
     return np.full(len(sizes), -0.5), sizes - 0.5
@@ -75,7 +75,7 @@ def polygons_equal(first: np.ndarray, second: np.ndarray) -> bool:
 
     Two visuals with the same box and the same planes go through the same
     steps and give the same order, so no rotation of the cycle is tried.
-    The tolerance is :data:`TOLERANCE` of the polygon's extent.
+    The tolerance is `TOLERANCE` of the polygon's extent.
     """
     if first.shape != second.shape:
         return False
@@ -95,7 +95,7 @@ def box_frame(
     """A data-space box as half-space rows and corners in rendered space.
 
     Takes the same ``constants`` as
-    :func:`~cellier.render._clipping.reduce_clipping_planes` and must be
+    `reduce_clipping_planes` and must be
     given the same values, so the box and the clipping planes are cut by
     the same slice.
 
@@ -180,7 +180,7 @@ def node_box_frame(
     Returns
     -------
     tuple[np.ndarray, np.ndarray] or None
-        ``(rows, corners)`` as :func:`box_frame` returns them; ``None``
+        ``(rows, corners)`` as `box_frame` returns them; ``None``
         when the matrix cannot be inverted (a node scaled to nothing).
     """
     matrix = np.asarray(matrix, dtype=np.float64)
@@ -229,7 +229,7 @@ def clip_polygon(vertices: np.ndarray, rows: np.ndarray, scale: float) -> np.nda
         otherwise (a clipping plane parallel to the slice; a disabled
         one).
     scale : float
-        The box's diagonal (:func:`box_diagonal`).
+        The box's diagonal (`box_diagonal`).
 
     Returns
     -------
@@ -340,10 +340,10 @@ def render_plane_polygon(
     bounded : Sequence[bool]
         Which of the four sides are finite.
     box_rows, corners : np.ndarray
-        The visual's data box, from :func:`box_frame`.
+        The visual's data box, from `box_frame`.
     clipping_rows : array-like
         ``(n, 4)``: the visual's clipping planes, as
-        :func:`~cellier.render._clipping.reduce_clipping_planes` returns
+        `reduce_clipping_planes` returns
         them (a disabled plane keeps everything).
 
     Returns
@@ -388,10 +388,10 @@ def clipping_plane_polygon(
         Which row of *clipping_rows* the plane is.
     clipping_rows : array-like
         ``(n, 4)``: all of the visual's clipping planes, as
-        :func:`~cellier.render._clipping.reduce_clipping_planes` returns
+        `reduce_clipping_planes` returns
         them.
     box_rows, corners : np.ndarray
-        The visual's data box, from :func:`box_frame`.
+        The visual's data box, from `box_frame`.
 
     Returns
     -------

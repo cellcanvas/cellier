@@ -210,3 +210,91 @@ async def test_add_paint_controller_unsupported_visual_raises(qtbot):
             visual_id=visual.id,
             canvas_id=canvas_id,
         )
+
+
+async def test_undo_restores_label_ids_above_float32_precision(paint_setup):
+    """A brushed stroke's history keeps int32 ids exact (not via float32)."""
+    from uuid import uuid4
+
+    from cellier.events._events import (
+        CanvasMousePress2DEvent,
+        CanvasMouseRelease2DEvent,
+    )
+
+    controller, paint_ctrl, store, canvas_id = paint_setup
+    big = 2**24 + 1
+    store.data[:] = big
+    paint_ctrl.brush_value = big + 2
+    scene_id = controller._canvas_to_scene[canvas_id]
+    coord = np.array([16.0, 16.0])
+    paint_ctrl._on_mouse_press(
+        CanvasMousePress2DEvent(
+            source_id=uuid4(), scene_id=scene_id, world_coordinate=coord, pick_info=None
+        )
+    )
+    paint_ctrl._on_mouse_release(
+        CanvasMouseRelease2DEvent(
+            source_id=uuid4(), scene_id=scene_id, world_coordinate=coord, pick_info=None
+        )
+    )
+    assert store.data[16, 16] == big + 2
+
+    paint_ctrl.undo()
+
+    assert store.data[16, 16] == big
+    assert np.all(store.data == big)
+
+
+async def test_pointer_press_paints_the_voxel_under_it_on_a_non_square_array(qtbot):
+    """A press at pygfx (x=col, y=row) paints data[row, col].
+
+    The array is 8 x 100, so a row/column mix-up lands outside the data
+    (and is refused by the bounds check) instead of painting a neighbour.
+    """
+    from uuid import uuid4
+
+    from cellier.events._events import _CanvasRawPointerEvent
+
+    controller = CellierController()
+    cs = world_coordinate_system(spatial_axes("y", "x"), name="world")
+    scene = controller.add_scene(
+        displayed_axes=("y", "x"),
+        coordinate_system=cs,
+        name="paint_scene",
+        render_modes={"2d"},
+    )
+    store = LabelMemoryStore(data=np.zeros((8, 100), dtype=np.int32), name="s")
+    visual = controller.add_labels(
+        data=store,
+        scene_id=scene.id,
+        appearance=InMemoryLabelsAppearance(),
+        name="labels",
+    )
+    controller.add_canvas(scene_id=scene.id)
+    canvas_id = controller.get_canvas_ids(scene.id)[0]
+    controller.add_paint_controller(
+        visual_id=visual.id,
+        canvas_id=canvas_id,
+        brush_value=7,
+        brush_radius_voxels=0.0,
+    )
+
+    gesture_id = uuid4()
+    for action in ("press", "release"):
+        controller._on_raw_pointer_event(
+            _CanvasRawPointerEvent(
+                canvas_id=canvas_id,
+                scene_id=scene.id,
+                action=action,
+                camera_type="2d",
+                position_2d=np.array([90.0, 5.0], dtype=np.float64),
+                ray=None,
+                hit_visual_id=None,
+                button=1,
+                modifiers=(),
+                buttons=(1,) if action == "press" else (),
+                gesture_id=gesture_id,
+            )
+        )
+
+    assert np.argwhere(store.data == 7).tolist() == [[5, 90]]

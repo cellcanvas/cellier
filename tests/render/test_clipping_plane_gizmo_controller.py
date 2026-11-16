@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 import numpy as np
 import pytest
 
-from cellier.clipping import handle_changes_plane, initial_anchor
+from cellier.clipping._gizmo_controller import handle_changes_plane, initial_anchor
 from cellier.data import ImageMemoryStore
 from cellier.data._axes import scale_and_translation_transform
 from cellier.events import (

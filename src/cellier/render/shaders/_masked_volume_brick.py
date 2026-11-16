@@ -3,11 +3,11 @@
 One shader: the multiscale brick shader with its ``masked`` template variable
 set.  The value image's lookup (``get_lod_scale``, the brick rule, the level
 mapping and ``sample_atlas``) is the mask's own text, copied with every name
-and binding renamed when this module is imported (:func:`instantiate_by_text`),
+and binding renamed when this module is imported (`instantiate_by_text`),
 so there is one definition of the brick rule.  The copy is registered as the
 ``cellier_masked.value_access.wgsl`` include.
 
-Importing this module registers :class:`MaskedVolumeBrickShader` for
+Importing this module registers `MaskedVolumeBrickShader` for
 ``(Volume, MaskedVolumeBrickMaterial)``.  It subclasses the material's
 registered shader, as the image volume shaders do.
 """
@@ -143,7 +143,7 @@ if "cellier_masked" not in root_loader.mapping:
 class MaskedVolumeBrickMaterial(MultiscaleVolumeBrickMaterial):
     """The mask's brick material, reading a value atlas beside its own.
 
-    It draws as the plain material until :meth:`set_value_source` binds a
+    It draws as the plain material until `set_value_source` binds a
     value atlas; from then on the shader is compiled with ``masked``.
 
     The extra uniforms: ``mask_to_value`` (the mask node's normalized space

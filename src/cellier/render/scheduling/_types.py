@@ -2,7 +2,7 @@
 
 The scheduler core knows keys, classes, ranks, tiers, states and slots, and
 nothing about textures, LUTs or zarr.  A visual describes what it wants with
-one :class:`DesiredSet` per cache, and each cache is a :class:`Residency`
+one `DesiredSet` per cache, and each cache is a `Residency`
 that writes arrived data into a slot and decides what to draw.
 """
 
@@ -151,7 +151,7 @@ class DesiredSet:
         1`` keys, so that while one wanted record is being committed a
         free or ``RECENT`` slot always exists.
     cls : np.ndarray
-        ``uint8`` priority per key (:class:`ChunkClass`): ``BACKSTOP``,
+        ``uint8`` priority per key (`ChunkClass`): ``BACKSTOP``,
         ``TARGET``, or a stage's offset.
     slice_ids : np.ndarray
         ``int32`` interned collapsed selection per key, used to order the
@@ -160,7 +160,7 @@ class DesiredSet:
         Keys to store requests, one per key, vectorised over a batch.
     store : Any
         Serves ``await store.get_data(request)``.  Its ``id`` names it to
-        :meth:`ChunkScheduler.invalidate`.
+        `ChunkScheduler.invalidate`.
     n_truncated_target : int
         Target keys the planner dropped to fit the cache (progress).
     n_truncated_backstop : int
@@ -208,7 +208,7 @@ class Residency(Protocol):
     own storage (an atlas may reserve a slot of its own for "empty").
 
     ``policy`` says how the scheduler treats the cache's reads
-    (:class:`CachePolicy`).  It is read once, at registration; an adapter
+    (`CachePolicy`).  It is read once, at registration; an adapter
     without the attribute gets the default.
     """
 
@@ -238,7 +238,7 @@ class ChunkedVisual(Protocol):
     """A visual whose data the scheduler loads.
 
     Implementations also set the class attribute ``chunked = True``
-    (:func:`is_chunked_visual`).
+    (`is_chunked_visual`).
     """
 
     def plan(self, request: Any, config: Any, mode: PlanMode) -> list[DesiredSet]:
@@ -384,7 +384,7 @@ class RegistryView:
         While the ``VISIBLE`` set is incomplete the order is
 
         1. the background that is not *current*, grouped as in
-           :meth:`paint_groups`;
+           `paint_groups`;
         2. the ``VISIBLE`` backstop;
         3. the ``VISIBLE`` intermediate stages and the *current* background,
            as one group, so a mosaic adapter's coarsest-to-finest order
@@ -392,7 +392,7 @@ class RegistryView:
            under the finer ones;
         4. the ``VISIBLE`` target.
 
-        Complete, it is the foreground alone, as :meth:`paint_groups` gives.
+        Complete, it is the foreground alone, as `paint_groups` gives.
 
         Parameters
         ----------

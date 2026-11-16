@@ -293,7 +293,7 @@ def build_plane_planning(
     level_scales : np.ndarray
         ``(n_levels, 3)``: each level's voxel in level-0 voxels, pygfx order.
     reach_voxels, reach_world : float
-        See :func:`plane_row_sets`.
+        See `plane_row_sets`.
 
     Returns
     -------
@@ -368,7 +368,7 @@ def plane_cull_masks(
     """Per level, the bricks a plane is drawn from that no clipping row drops.
 
     A brick is kept when a plane reaches the box of the cells it owns
-    (:func:`owned_cell_boxes`) and its own box reaches the kept side of
+    (`owned_cell_boxes`) and its own box reaches the kept side of
     every clipping row, as in a volume mode.
     """
     masks = []
@@ -405,7 +405,7 @@ def plan_plane_bricks(
     geo : MultiscaleBrickLayout3D
         The visual's brick layout: level grids, scales, block size.
     planning : PlanePlanning
-        From :func:`build_plane_planning`.
+        From `build_plane_planning`.
     clip_rows : np.ndarray or None
         The visual's clipping planes as culling rows.
     camera_pos_data : np.ndarray

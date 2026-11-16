@@ -36,12 +36,10 @@ class GraphSliceRequest(NamedTuple):
     slice_positions : dict[int, float]
         Collapsed axis -> the slab's centre, in **data** coordinates.
 
-        Design 3.12 calls the graph "a per-family policy on top of the
-        region", and the policy is real: the window is asymmetric -- a trail
-        extends backwards in time -- and the fade is a signed distance
-        measured from the slice, neither of which ``contains`` can express.
-        So this family keeps its slab and only the *space* the numbers are in
-        changed: the centre is the region pulled back through the visual's
+        Graphs keep a per-axis slab rather than filtering by the region
+        alone: a trail window is asymmetric and its fade is a signed
+        distance from the slice, neither of which region containment can
+        express.  The centre is the region pulled back through the visual's
         transform, and ``extents`` / ``fades`` are divided by their axis's
         world-units-per-data-unit, so the store compares data against data.
     retained_axes : tuple[int, ...]
@@ -54,11 +52,12 @@ class GraphSliceRequest(NamedTuple):
         world axes raises on the first and silently uploads the wrong columns
         on the second.
     extents : dict[int, tuple[float, float]]
-        Axis -> ``(before, after)`` half-extents of the slab on that axis.
-        Carries an entry for *every* sliced axis; axes with no
-        ``TrailConfig`` get ``(0.5, 0.5)``, which is exactly the symmetric
-        slab points and lines use, so a graph with no trail slices
-        identically to them.
+        Axis -> ``(before, after)`` half-extents of the slab on that axis,
+        in data units.  Carries an entry for every sliced axis a window can
+        be converted for.  An axis with no ``TrailConfig`` gets the scene's
+        own half-thickness on both sides, as points and lines do; a trail
+        axis gets the larger of that and the trail's ``before`` /
+        ``after``.
     fades : dict[int, tuple[float, float, float]]
         Axis -> ``(fade_before, fade_after, min_alpha)``.  Carries entries
         only for trail axes with ``fade=True``.  Empty means no fade is

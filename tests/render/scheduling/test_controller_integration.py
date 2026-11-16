@@ -105,8 +105,8 @@ async def test_coalesced_reslices_answer_every_announcement(
     scene, _visual, _gfx = _add(controller, multiscale_image_store)
     controller.fit_camera(scene.id)
     fired: list[str] = []
-    controller.reslice_scene(scene.id, on_ready=lambda: fired.append("first"))
-    controller.reslice_scene(scene.id, on_ready=lambda: fired.append("second"))
+    controller.on_scene_ready(scene.id, lambda: fired.append("first"))
+    controller.on_scene_ready(scene.id, lambda: fired.append("second"))
     await drain_loading(controller)
     await asyncio.sleep(0)
     assert sorted(fired) == ["first", "second"]

@@ -2,7 +2,7 @@
 
 A tilted 2D view of an in-memory visual is drawn by the multiscale brick
 route, whose chunk scheduler reads bricks from a multiscale source.
-:class:`InMemoryBrickSource` is that source for an in-memory store:
+`InMemoryBrickSource` is that source for an in-memory store:
 
 - **level 1** (index 0) is the array itself, read by the store's own
   ``get_data``;
@@ -186,7 +186,7 @@ class InMemoryBrickSource:
     labels : bool
         Labels take the phase-1 stride; images the block mean.
     downsample : Sequence[bool]
-        Which data axes the coarse level shrinks (:func:`downsampled_axes`).
+        Which data axes the coarse level shrinks (`downsampled_axes`).
 
     Attributes
     ----------
@@ -281,7 +281,7 @@ class InMemoryBrickSource:
 
         *on_built* is called on the event loop that was running when the
         build started, once it lands; with no loop running it is not called
-        (the next plan sees :attr:`built`).
+        (the next plan sees `built`).
         """
         if self._build is not None or self._closed:
             return

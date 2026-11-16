@@ -18,9 +18,9 @@ class QtOutlineControls(QtRenderConfigPanel):
     *boundaries* draws every outlined region, *selection* draws only the
     regions carrying a palette slot.
 
-    Every control here comes from the shared spec in
-    ``cellier.gui._render_controls``, which is also what the notebook panel
-    reads -- including the absence of a colour control on the selection
+    Every control here comes from one spec shared with the notebook panel
+    (``AnywidgetOutlineControls``) -- including the absence of a colour
+    control on the selection
     layer, whose colour comes from the palette slot rather than from its
     own field.
 

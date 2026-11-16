@@ -44,13 +44,13 @@ _STATIC = Path(__file__).parent / "static"
 class AnywidgetDimsPanel(anywidget.AnyWidget):
     """Renders per-axis slice sliders and an optional 2D/3D toggle button.
 
-    Satisfies the :class:`cellier.gui._protocol.WidgetView` contract so
-    ``CellierController.connect_widget`` wires it the same way as Qt widgets.
+    ``CellierController.connect_widget`` wires it the same way as the Qt
+    ``QtDimsControl``.
     The toggle button is included automatically when constructed with
-    *axes_2d*/*axes_3d* (see :meth:`from_scene`), e.g. omitted for a scene
+    *axes_2d*/*axes_3d* (see `from_scene`), e.g. omitted for a scene
     with fewer than 3 axes.
 
-    Construct via :meth:`from_scene`, then wire with::
+    Construct via `from_scene`, then wire with:
 
         dims = AnywidgetDimsPanel.from_scene(scene, axis_values)
         controller.connect_widget(dims, subscription_specs=dims.subscription_specs())
@@ -72,7 +72,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
 
     Derived here from ``slice_indices`` whenever it changes, so the rule for
     which listed value a between-values position shows lives in Python
-    (:func:`~cellier.gui._axis_values.nearest_value_index`) rather than being
+    (`nearest_value_index`) rather than being
     copied into ``dims_panel.js``.
     """
 
@@ -97,9 +97,8 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
     throttle_ms = traitlets.Int(DIMS_SLIDER_THROTTLE_MS).tag(sync=True)
     """How often a slider drag reaches the bus, in ms.
 
-    Synced rather than hard-coded in ``dims_panel.js`` so this and the Qt
-    front end coalesce drags at the same rate -- see
-    :data:`cellier.gui._constants.DIMS_SLIDER_THROTTLE_MS`.
+    Synced rather than hard-coded in the front end, so this panel and the
+    Qt ``QtDimsControl`` coalesce drags at the same rate by default.
     """
 
     has_toggle = traitlets.Bool(False).tag(sync=True)
@@ -181,8 +180,11 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
 
         Includes the 2D/3D toggle when the scene declares both render modes
         *and* has an axis to add to a 2D view.  It starts from the scene's
-        displayed axes; the mode not shown yet gets a default
-        (:func:`cellier.gui._dims.default_toggle_axes`).  A scene that
+        displayed axes; the mode not shown yet gets a default.  From 2D, the
+        3D set adds the last remaining ``"space"`` axis in world order (any
+        remaining axis when no space axis is left); from 3D, the 2D set is
+        the last two displayed axes in world order.  The default is replaced
+        once the scene has shown that mode.  A scene that
         renders only one way -- each panel of an ``OrthoViewer`` -- gets no
         toggle, because there is nothing to switch to.
         """
@@ -228,8 +230,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
         """Unsubscribe from the bus and release the widget.
 
         ``closed`` tells the controller to drop this widget's subscriptions;
-        the rest actually releases the widget.  See
-        ``cellier.gui.anywidget._teardown`` for why both steps are needed --
+        the rest actually releases the widget.  Both are needed:
         ``ipywidgets`` holds every widget, and every widget's ``layout``, in a
         process-global table that only ``close()`` clears.
         """

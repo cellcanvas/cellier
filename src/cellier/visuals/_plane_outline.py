@@ -5,7 +5,7 @@ the plane: through the controller, the events, the linkers and a saved
 scene.
 
 Not to be confused with the screen-space outline pass
-(:class:`~cellier.visuals.VisualOutline`), which draws the contour of what
+(`VisualOutline`), which draws the contour of what
 a visual drew.
 """
 

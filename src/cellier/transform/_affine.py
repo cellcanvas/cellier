@@ -34,7 +34,7 @@ class AffineTransform(BaseTransform):
     renderer's job at upload, and chained affines across several
     coordinate systems are exactly where float32 error accumulates.
 
-    Composition is :meth:`then`.  There is no ``__matmul__`` and no
+    Composition is `then`.  There is no ``__matmul__`` and no
     ``compose``: ``transformnd.Affine.__matmul__`` applies its *right*
     operand first, the wrapped affine is reachable through
     ``.transform``, and having ``a.transform @ b.transform`` and a
@@ -227,7 +227,7 @@ class AffineTransform(BaseTransform):
         """Map displacement vectors forward by ``A``.
 
         Needs no inverse, so it works on a transform whose
-        :meth:`inverse` is ``None``.  Nothing is normalized.
+        `inverse` is ``None``.  Nothing is normalized.
 
         Parameters
         ----------
@@ -293,7 +293,7 @@ class AffineTransform(BaseTransform):
         """Map plane normals back by ``A^T`` (covariant).
 
         Needs no inverse, so it works on a transform whose
-        :meth:`inverse` is ``None``.  Not injective: a normal tilted
+        `inverse` is ``None``.  Not injective: a normal tilted
         along an axis this transform has no extent in comes back with
         that tilt discarded.
 
@@ -352,7 +352,7 @@ class AffineTransform(BaseTransform):
     def imap_plane(self, plane: Plane) -> Plane:
         """Map a plane from the output system back to the input system.
 
-        Needs no inverse.  Not injective (see :meth:`imap_normal`), so
+        Needs no inverse.  Not injective (see `imap_normal`), so
         ``map_plane(imap_plane(p)) == p`` does not hold in general.
 
         Parameters
@@ -525,7 +525,7 @@ class AffineTransform(BaseTransform):
 
         This is the operation the slicer runs, and it needs nothing but
         ``A^T`` -- exact, cheap, and available on a transform whose
-        :meth:`inverse` is ``None``.
+        `inverse` is ``None``.
 
         The result is a region, **never** a collapsed bounding box.
         Reducing to a box at the world level costs about 6x the voxels
@@ -552,7 +552,7 @@ class AffineTransform(BaseTransform):
         A constraint on an axis this transform has no extent along and
         which is *not* broadcast still comes back with a zero normal,
         which is vacuous or infeasible rather than an error.  Call
-        :meth:`ConvexRegion.simplify` to drop the vacuous ones.
+        `ConvexRegion.simplify` to drop the vacuous ones.
 
         ``map_region`` is deliberately **not** given the symmetric
         treatment: ``broadcast_axes`` affects the forward direction as
@@ -565,7 +565,7 @@ class AffineTransform(BaseTransform):
         output_coordinate_system : CoordinateSystem
             This transform's output system, used to resolve
             ``broadcast_axes`` to axis indices.  Required for the same
-            reason it is on :meth:`map_bounding_box` and :meth:`then`:
+            reason it is on `map_bounding_box` and `then`:
             the field holds axis **ids** and the arithmetic needs
             **indices**, and a transform stores only ids.
 
@@ -599,9 +599,9 @@ class AffineTransform(BaseTransform):
     ) -> ConvexRegion:
         """Pull a region back with the broadcast axes already resolved.
 
-        Split out of :meth:`imap_region` for the one caller that knows
+        Split out of `imap_region` for the one caller that knows
         the indices without holding the coordinate system object:
-        :class:`~cellier.transform.RegionSelection`, whose validator
+        `RegionSelection`, whose validator
         runs on a ``rendered -> world`` embedding, which states the slice
         position as constant output axes and so carries no broadcast axes at
         all.
@@ -965,7 +965,7 @@ class AffineTransform(BaseTransform):
         return {}
 
     def broadcast_output_axes(self) -> frozenset[UUID4]:
-        """Return :attr:`broadcast_axes`, the recorded broadcast output axes.
+        """Return `broadcast_axes`, the recorded broadcast output axes.
 
         Returns
         -------
@@ -1001,8 +1001,8 @@ class AffineTransform(BaseTransform):
             If any input axis feeds more than one output axis, or any output
             axis is fed by more than one input axis -- a shear or a rotation,
             which no bijection can express.  To ask how such a transform
-            lines up with a view use :func:`cellier.transform.classify_view`,
-            and for its uncoupled pairs :meth:`exclusive_axis_correspondence`;
+            lines up with a view use `cellier.transform.classify_view`,
+            and for its uncoupled pairs `exclusive_axis_correspondence`;
             neither raises.
         """
         linear = np.asarray(self.linear)
@@ -1050,9 +1050,9 @@ class AffineTransform(BaseTransform):
         **The result is an intermediate, not a registrable transform.** Its
         ``input_coordinate_system`` is kept as provenance, but the
         restricted domain is a strict subset of that system's axes, so the
-        rank no longer matches and :meth:`validate_against` will reject it.
+        rank no longer matches and `validate_against` will reject it.
         That rejection is deliberate and loud; the intended use is to call
-        :meth:`to_affine` on the result and upload the matrix.
+        `to_affine` on the result and upload the matrix.
 
         Parameters
         ----------

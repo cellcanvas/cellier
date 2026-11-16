@@ -43,7 +43,7 @@ class LinesMemoryStore(BaseDataStore):
     applies the ``[:, [2, 1, 0]]`` reversal before uploading to pygfx.
 
     ``get_data`` runs the filter in the event loop's default executor, so
-    a large set of segments does not stall the loop; :meth:`read` is the
+    a large set of segments does not stall the loop; `read` is the
     same filter, synchronous.
 
     Parameters
@@ -138,7 +138,7 @@ class LinesMemoryStore(BaseDataStore):
         The bounding box of the vertices, with no padding -- a vertex is a point,
         not a cell, so there is no half-voxel to add.  ``None`` when the
         store is empty.  See
-        :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
+        `axis_extents`.
         """
         return self._cached_axis_extents(lambda: geometry_axis_extents(self.positions))
 
@@ -187,14 +187,14 @@ class LinesMemoryStore(BaseDataStore):
     async def get_data(self, request: LinesSliceRequest) -> LinesData:
         """Return slab-filtered segment data for *request*.
 
-        The filter (:meth:`read`) runs in the loop's default executor.  A
+        The filter (`read`) runs in the loop's default executor.  A
         filter that raises because the store changed under it fails this
         read; the change's invalidation reads again.
 
         Parameters
         ----------
         request : LinesSliceRequest
-            Planned by ``GFXLinesMemoryVisual.plan``.
+            Planned by the render layer from the current view.
 
         Returns
         -------
@@ -205,18 +205,18 @@ class LinesMemoryStore(BaseDataStore):
         return await loop.run_in_executor(None, self.read, request)
 
     def read(self, request: LinesSliceRequest) -> LinesData:
-        """The filter of :meth:`get_data`, run on the calling thread.
+        """The filter of `get_data`, run on the calling thread.
 
-        Inclusion rule
-        --------------
-        A segment survives when **both** of its endpoints pass the
-        proximity test on every non-displayed axis:
-            ``slice_index - thickness <= coord <= slice_index + thickness``
+        A segment survives when **both** of its endpoints lie inside the
+        request's region: the slab around the current slice, which is tilted
+        in a rotated view.  When the request carries clipping planes, each
+        surviving segment is then cut at the planes; a segment entirely on the
+        clipped side is dropped.
 
         Parameters
         ----------
         request : LinesSliceRequest
-            Planned by ``GFXLinesMemoryVisual.plan``.
+            Planned by the render layer from the current view.
 
         Returns
         -------

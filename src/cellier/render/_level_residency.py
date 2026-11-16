@@ -1,6 +1,6 @@
 """Whole-level geometry on the chunk scheduler, and what of it is drawn.
 
-:class:`LevelResidency` is the scheduler ``Residency`` of a visual whose data
+`LevelResidency` is the scheduler ``Residency`` of a visual whose data
 is a few whole levels (a mesh: the fine level, and for a multiscale mesh a
 coarse one), not many bricks.  One per visual, so one scheduler cache per
 visual.
@@ -72,7 +72,7 @@ MEMORY_RASTER_POLICY = CachePolicy(
 )
 
 #: An in-memory geometry cache (points, lines, graph): as
-#: :data:`MEMORY_RASTER_POLICY` with two reads in flight.
+#: `MEMORY_RASTER_POLICY` with two reads in flight.
 MEMORY_GEOMETRY_POLICY = CachePolicy(
     max_target_fetching=2,
     resource="compute",
@@ -114,9 +114,9 @@ class LevelResidency:
         updates.
     policy : CachePolicy or None
         How the scheduler treats the cache's reads; ``None`` (the default)
-        is the class's :attr:`policy`, :data:`LEVEL_CACHE_POLICY` (a
+        is the class's `policy`, `LEVEL_CACHE_POLICY` (a
         mesh).  A policy with ``commit_stale`` has its stale results handed
-        to :meth:`write_kept`.
+        to `write_kept`.
     keeps_through_invalidation : bool
         Whether a held level whose planned key is invalidated stays drawn,
         as kept, until the re-read lands, instead of being released at
@@ -320,7 +320,7 @@ class LevelResidency:
         Called by the scheduler's commit round for a cache whose policy has
         ``commit_stale``.  Only a result of a key the plan still names is
         kept; a stale result of a superseded key is never drawn.  A newer
-        one replaces an older one; the next :meth:`rebuild_draw` uploads
+        one replaces an older one; the next `rebuild_draw` uploads
         it.
         """
         item = self._items.get(int(key))

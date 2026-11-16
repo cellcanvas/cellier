@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import weakref
 from collections import defaultdict
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from cellier.events._events import (
     CanvasMousePress3DEvent,
     CanvasMouseRelease2DEvent,
     CanvasMouseRelease3DEvent,
+    CanvasSizeChangedEvent,
     ChannelAppearanceChangedEvent,
     ClippingPlanesChangedEvent,
     DataStoreContentsChangedEvent,
@@ -48,7 +50,6 @@ from cellier.events._events import (
     PlaneInteractionEvent,
     PointsPickEvent,
     RenderPlanesChangedEvent,
-    ResliceCancelledEvent,
     ResliceCompletedEvent,
     ResliceProgressEvent,
     ResliceStartedEvent,
@@ -95,8 +96,8 @@ _ENTITY_FIELD: dict[type, str] = {
     TransformInteractionEvent: "visual_id",
     PlaneGizmoChangedEvent: "canvas_id",
     PlaneGizmoMovedEvent: "gizmo_id",
-    ResliceCancelledEvent: "visual_id",
     FrameRenderedEvent: "canvas_id",
+    CanvasSizeChangedEvent: "canvas_id",
     CanvasConnectedEvent: "canvas_id",
     VisualAddedEvent: "scene_id",
     VisualRemovedEvent: "scene_id",
@@ -128,7 +129,7 @@ _ENTITY_FIELD: dict[type, str] = {
 class SubscriberInfo:
     """Human-readable summary of one EventBus subscription.
 
-    Returned by :meth:`EventBus.get_subscribers`.  Intended for
+    Returned by `EventBus.get_subscribers`.  Intended for
     interactive debugging and test assertions — not for production
     control flow.
 
@@ -136,7 +137,7 @@ class SubscriberInfo:
     ----------
     callback_qualname : str
         Dotted qualified name of the registered callback, e.g.
-        ``"QtDimsControl._on_dims_changed"``.  Reads ``"(dead)"``
+        ``"MyPanel.on_dims_changed"``.  Reads ``"(dead)"``
         when the callback was held by a weak reference that has since
         been garbage-collected.
     callback_instance : object
@@ -145,12 +146,12 @@ class SubscriberInfo:
         inspect this to examine the live subscriber.
     owner_id : UUID or None
         UUID used to group this subscription for bulk removal via
-        :meth:`EventBus.unsubscribe_all`.  Typically the owning
-        widget's ``self._id`` or the controller's ``self._id``.
+        `EventBus.unsubscribe_all`.  Typically the id of the owning
+        widget, or of the controller for its own subscriptions.
     entity_id : UUID or None
         The entity this subscription is scoped to, or ``None`` when
         the subscription receives events for all entities of that
-        type.  See :meth:`EventBus.get_subscribers` for a full
+        type.  See `EventBus.get_subscribers` for a full
         explanation of what constitutes an entity.
     is_weak : bool
         ``True`` when the bus holds only a weak reference to the
@@ -171,18 +172,184 @@ class SubscriberInfo:
 
 
 class SubscriptionHandle:
-    """Opaque handle returned by ``EventBus.subscribe()``.
+    """One subscription, returned by every ``on_*`` method.
 
-    Pass to ``EventBus.unsubscribe()`` to remove a single subscription.
+    Call ``unsubscribe()`` to stop the callback.  The handle needs nothing
+    else: it finds its own event bus, so code that keeps a handle does not
+    also have to keep the controller or viewer that made it.
+
+    Examples
+    --------
+    >>> handle = viewer.on_pick(canvas_id, ImagePickEvent, show_value)
+    >>> handle.active
+    True
+    >>> handle.unsubscribe()  # no more calls to show_value
+    >>> handle.active
+    False
+
+    A callback that should run once can cancel itself:
+
+    >>> def first_change(event):
+    ...     print(event.dims_state)
+    ...     handle.unsubscribe()
+    >>> handle = controller.on_dims_changed(scene_id, first_change, owner_id=me)
+
+    Notes
+    -----
+    The handle holds only a weak reference to its bus, so a handle kept after
+    the controller is gone does not keep the controller alive; it then reads
+    as inactive and ``unsubscribe()`` does nothing.
+
+    The viewers' startup hooks (``on_ready``, ``on_scene_ready``,
+    ``on_startup_progress``, ``on_startup_stalled``) do not go through the
+    bus, and an ``OrthoViewer`` subscription can span all four panels.  Their
+    handles behave the same way: ``unsubscribe()`` removes the whole
+    subscription, and ``active`` says whether any of it is left.
     """
 
-    __slots__ = ("_id",)
+    __slots__ = ("_bus_ref", "_id")
 
-    def __init__(self) -> None:
+    def __init__(self, bus: EventBus) -> None:
         self._id: UUID = uuid4()
+        self._bus_ref: weakref.ref[EventBus] = weakref.ref(bus)
+
+    @property
+    def active(self) -> bool:
+        """Whether the subscription is still registered.
+
+        ``False`` once it was removed by any route: ``unsubscribe()``, its
+        owner's removal, a one-shot callback firing, a weak callback being
+        garbage-collected (seen at the next emission of its event), or the
+        controller closing.
+        """
+        bus = self._bus_ref()
+        return bus is not None and self._id in bus._handle_index
+
+    def unsubscribe(self) -> None:
+        """Remove the subscription.
+
+        Safe to call more than once, from inside the callback itself, and
+        after the subscription was removed some other way.
+        """
+        bus = self._bus_ref()
+        if bus is not None:
+            bus.unsubscribe(self)
 
     def __repr__(self) -> str:
-        return f"SubscriptionHandle({self._id})"
+        state = "active" if self.active else "inactive"
+        return f"SubscriptionHandle({self._id}, {state})"
+
+
+class _CallbackHandle(SubscriptionHandle):
+    """A handle for a callback kept in a plain list instead of on a bus.
+
+    *entry* is the object stored in *registry*; the subscription is active
+    while that exact object is in the list.  Whoever fires the list removes a
+    one-shot entry before calling it (see ``fire_registered``).  A
+    *registry* of ``None`` gives a handle that was never registered: the
+    callback already ran.
+
+    Not constructed directly; use ``register_callback``.
+    """
+
+    __slots__ = ("_entry", "_registry")
+
+    def __init__(self, registry: list | None, entry: Callable | None) -> None:
+        # The base slots: ``_id`` keeps ``EventBus.unsubscribe`` a no-op for
+        # this handle, as for any handle from another bus.
+        self._id = uuid4()
+        self._registry = registry
+        self._entry = entry
+
+    @property
+    def active(self) -> bool:
+        """Whether the callback is still registered."""
+        if self._registry is None:
+            return False
+        return any(item is self._entry for item in self._registry)
+
+    def unsubscribe(self) -> None:
+        """Remove the callback.  Safe to call more than once."""
+        if self._registry is not None:
+            _remove_identical(self._registry, self._entry)
+
+
+class _HandleGroup(SubscriptionHandle):
+    """One handle over several subscriptions, such as one per panel.
+
+    ``unsubscribe()`` removes every member; ``active`` is ``True`` while any
+    member is.
+    """
+
+    __slots__ = ("_members",)
+
+    def __init__(self, members: list[SubscriptionHandle]) -> None:
+        self._id = uuid4()
+        self._members = members
+
+    @property
+    def active(self) -> bool:
+        """Whether any member subscription is still registered."""
+        return any(member.active for member in self._members)
+
+    def unsubscribe(self) -> None:
+        """Remove every member subscription.  Safe to call more than once."""
+        for member in self._members:
+            member.unsubscribe()
+
+
+def _remove_identical(registry: list, entry: object) -> bool:
+    """Remove *entry* from *registry* by identity; report whether it was there.
+
+    ``list.remove`` compares with ``==``, and two bound methods of one
+    object compare equal, so it could remove another registration.
+    """
+    for index, item in enumerate(registry):
+        if item is entry:
+            del registry[index]
+            return True
+    return False
+
+
+def register_callback(registry: list, callback: Callable) -> SubscriptionHandle:
+    """Append *callback* to *registry* and return a handle that removes it.
+
+    The callback is stored behind a fresh wrapper, so registering the same
+    callable twice gives two independent subscriptions.
+    """
+    entry = functools.partial(callback)
+    registry.append(entry)
+    return _CallbackHandle(registry, entry)
+
+
+def group_handles(members: list[SubscriptionHandle]) -> SubscriptionHandle:
+    """One handle over *members*, such as one subscription per panel.
+
+    The list is kept, not copied, so members appended later still count.
+    """
+    return _HandleGroup(members)
+
+
+def inactive_handle() -> SubscriptionHandle:
+    """A handle for a callback that already ran and was never registered."""
+    return _CallbackHandle(None, None)
+
+
+def fire_registered(registry: list, *args: Any, once: bool = False) -> None:
+    """Call every callback in *registry* with *args*.
+
+    Iterates a snapshot, so a callback may register or unsubscribe others.
+    A callback unsubscribed by an earlier one in the same pass is skipped,
+    as on the bus.  With *once*, each callback is removed before it runs,
+    so its handle already reads inactive inside the callback.
+    """
+    for entry in list(registry):
+        if once:
+            if not _remove_identical(registry, entry):
+                continue
+        elif not any(item is entry for item in registry):
+            continue
+        entry(*args)
 
 
 class _Subscription:
@@ -201,7 +368,9 @@ class _Subscription:
         "entity_id",
         "handle",
         "is_weak",
+        "on_remove",
         "owner_id",
+        "removed",
     )
 
     def __init__(
@@ -212,12 +381,17 @@ class _Subscription:
         owner_id: UUID | None,
         weak: bool,
         entity_field: str | None = None,
+        on_remove: Callable[[], None] | None = None,
     ) -> None:
         self.handle = handle
         self.entity_id = entity_id
         self.entity_field = entity_field
         self.owner_id = owner_id
         self.is_weak = weak
+        self.on_remove = on_remove
+        # Set once the bus has dropped this record, so an emission already
+        # iterating a snapshot of the list skips it.
+        self.removed = False
         self._strong_cb: Callable | None = None
         self._weak_obj: weakref.ref | None = None
         self._weak_func: weakref.ref | None = None
@@ -355,6 +529,7 @@ class EventBus:
         owner_id: UUID | None = None,
         weak: bool = False,
         entity_field: str | None = None,
+        on_remove: Callable[[], None] | None = None,
     ) -> SubscriptionHandle:
         """Register *callback* to be called when *event_type* is emitted.
 
@@ -378,11 +553,19 @@ class EventBus:
             canonical field.  Use it to filter on another id the event
             carries, e.g. ``"visual_id"`` for ``VisualRemovedEvent``, which
             is routed by ``scene_id``.
+        on_remove:
+            Zero-argument cleanup run once when the subscription is removed,
+            whichever route removes it: `unsubscribe` (also through
+            `SubscriptionHandle.unsubscribe`), `unsubscribe_all`,
+            or the clean-up of a dead weak callback during `emit`.
+            `clear` does not run it.  Use it for bookkeeping that must
+            stay in step with the subscription, such as a subscriber count.
 
         Returns
         -------
         SubscriptionHandle
-            Pass to ``unsubscribe()`` to remove this subscription individually.
+            Call its `unsubscribe` (or pass it to
+            `unsubscribe`) to remove this subscription on its own.
 
         Raises
         ------
@@ -395,7 +578,7 @@ class EventBus:
                 "Use a named method or function instead."
             )
 
-        handle = SubscriptionHandle()
+        handle = SubscriptionHandle(self)
         sub = _Subscription(
             handle=handle,
             callback=callback,
@@ -403,43 +586,71 @@ class EventBus:
             owner_id=owner_id,
             weak=weak,
             entity_field=entity_field,
+            on_remove=on_remove,
         )
         self._subs[event_type].append(sub)
         self._handle_index[handle._id] = (event_type, sub)
         return handle
 
-    def unsubscribe(self, handle: SubscriptionHandle) -> None:
-        """Remove the subscription identified by *handle*."""
-        entry = self._handle_index.pop(handle._id, None)
-        if entry is None:
+    def _remove(self, event_type: type, sub: _Subscription) -> None:
+        """Drop *sub* and run its ``on_remove`` cleanup.
+
+        The one place a subscription leaves the bus (except `clear`), so
+        the cleanup runs exactly once whichever route removed it.  An
+        exception from the cleanup propagates after the record is gone.
+        """
+        if sub.removed:
             return
-        event_type, sub = entry
-        subs = self._subs.get(event_type, [])
-        try:
+        sub.removed = True
+        subs = self._subs.get(event_type)
+        if subs is not None and sub in subs:
             subs.remove(sub)
-        except ValueError:
-            pass
+        self._handle_index.pop(sub.handle._id, None)
+        if sub.on_remove is not None:
+            sub.on_remove()
+
+    def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        """Remove the subscription identified by *handle*.
+
+        Does nothing when it was already removed.
+        """
+        entry = self._handle_index.get(handle._id)
+        if entry is not None:
+            self._remove(*entry)
 
     def clear(self) -> None:
-        """Drop every subscription.
+        """Drop every subscription without running ``on_remove`` cleanups.
 
         For teardown only.  Subscriptions hold **strong** references to their
         callbacks by default, and those callbacks are typically bound methods
         of the controller, its render visuals and its widgets -- so a bus that
         outlives its owner keeps that whole graph reachable.  Unsubscribing by
         owner requires knowing every owner id; this is the catch-all for
-        ``CellierController.close``.
+        ``CellierController.close``.  The cleanups are skipped because the
+        state they keep in step is being torn down with the bus.
         """
+        for subs in self._subs.values():
+            for sub in subs:
+                sub.removed = True
         self._subs.clear()
         self._handle_index.clear()
 
     def unsubscribe_all(self, owner_id: UUID) -> None:
-        """Remove all subscriptions whose ``owner_id`` matches *owner_id*."""
-        for subs in self._subs.values():
-            to_remove = [s for s in subs if s.owner_id == owner_id]
-            for sub in to_remove:
-                subs.remove(sub)
-                self._handle_index.pop(sub.handle._id, None)
+        """Remove all subscriptions whose ``owner_id`` matches *owner_id*.
+
+        Every matching subscription is removed even when a cleanup raises; the
+        first such exception is re-raised afterwards.
+        """
+        first_exc: BaseException | None = None
+        for event_type, subs in list(self._subs.items()):
+            for sub in [s for s in subs if s.owner_id == owner_id]:
+                try:
+                    self._remove(event_type, sub)
+                except Exception as exc:
+                    if first_exc is None:
+                        first_exc = exc
+        if first_exc is not None:
+            raise first_exc
 
     def emit(self, event) -> None:
         """Dispatch *event* to all matching subscribers.
@@ -448,7 +659,9 @@ class EventBus:
         raises an exception, remaining subscribers still run; the first
         exception is re-raised after all handlers have been called.
 
-        Dead weak references are cleaned up lazily during emission.
+        A subscription removed by an earlier subscriber during the same
+        emission is not called.  Dead weak references are cleaned up lazily
+        during emission, which runs their ``on_remove`` cleanups.
         """
         event_type = type(event)
         subs = self._subs.get(event_type)
@@ -464,6 +677,8 @@ class EventBus:
         dead: list[_Subscription] = []
 
         for sub in list(subs):
+            if sub.removed:
+                continue
             # Collect dead weak subscriptions for cleanup
             if sub.is_weak and not sub.is_alive():
                 dead.append(sub)
@@ -486,8 +701,11 @@ class EventBus:
 
         # Clean up confirmed-dead weak subscriptions
         for sub in dead:
-            subs.remove(sub)
-            self._handle_index.pop(sub.handle._id, None)
+            try:
+                self._remove(event_type, sub)
+            except Exception as exc:
+                if first_exc is None:
+                    first_exc = exc
 
         if first_exc is not None:
             raise first_exc
@@ -533,10 +751,9 @@ class EventBus:
               ``ClippingPlanesChangedEvent``,
               ``RenderPlanesChangedEvent``,
               ``PlaneInteractionEvent``,
-              ``TransformInteractionEvent``,
-              ``ResliceCancelledEvent``
+              ``TransformInteractionEvent``
             - Canvas (keyed by ``canvas_id``) — ``FrameRenderedEvent``,
-              ``CanvasConnectedEvent``,
+              ``CanvasConnectedEvent``, ``CanvasSizeChangedEvent``,
               ``PlaneGizmoChangedEvent``
             - Data store (keyed by ``data_store_id``) —
               ``DataStoreMetadataChangedEvent``,

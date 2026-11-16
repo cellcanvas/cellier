@@ -49,7 +49,7 @@ def _at_most(value: float, dtype: np.dtype) -> np.generic:
 class AxisBoundsIndex:
     """Items sorted by their minimum along one axis.
 
-    Build one with :meth:`build`.  The comparisons of every query are exact:
+    Build one with `build`.  The comparisons of every query are exact:
     a bound that is not representable in the coordinates' dtype is moved to
     the nearest representable value on the side that keeps the answer the
     same.
@@ -173,7 +173,7 @@ class AxisBoundsIndex:
         return start, max(start, stop)
 
     def count_min_between(self, lo: float, hi: float) -> int:
-        """How many items :meth:`min_between` would return, at most.
+        """How many items `min_between` would return, at most.
 
         The short items in the window plus every long item: cheap, and
         enough to choose the most selective of several axes.

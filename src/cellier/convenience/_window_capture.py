@@ -10,7 +10,7 @@ exactly one.
 
 So the picture is assembled rather than taken.  Qt supplies the chrome, and
 each canvas rectangle is filled in by an offscreen capture at that widget's
-physical size (see :mod:`cellier.render._capture`), which is also what makes
+physical size (see `cellier.render._capture`), which is also what makes
 the canvas half reproducible.  The chrome half is only ever as reproducible as
 the platform's font rendering.
 """
@@ -45,14 +45,14 @@ def screenshot_window(
     Parameters
     ----------
     window : QWidget
-        The top-level window to capture, e.g. the ``QMainWindow`` returned by
-        :func:`~cellier.convenience.launch`.
+        The top-level window to capture, e.g. a ``QMainWindow`` you built
+        and passed to `show` (`launch` and `show` return ``None``).
     controller : CellierController
         The controller owning the canvases inside *window*.  Every canvas
         whose widget belongs to this window and is visible is composited in.
     frames : int or "converged"
         Passed to each canvas capture; see
-        :meth:`~cellier.controller.CellierController.screenshot`.
+        `screenshot`.
     save : str, Path, or None
         When given, also write the composite to this path as a PNG.
     **capture_kwargs

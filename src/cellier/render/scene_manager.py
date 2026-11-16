@@ -158,7 +158,7 @@ class SceneManager:
         """Register a visual and add its initial node to the scene graph.
 
         Calls ``visual.get_node_for_dims(displayed_axes)`` to select the
-        correct node, then stores it in ``_active_nodes`` and adds it to
+        correct node, records it as the visual's active node and adds it to
         the pygfx scene.
 
         Parameters
@@ -260,7 +260,7 @@ class SceneManager:
         For a visual the scene's current view cannot draw: out of the graph it
         neither draws nor picks, whatever it last loaded, and its own
         visibility is left alone.  The active node is still tracked, so
-        :meth:`swap_node` keeps working while suppressed, and lifting the
+        `swap_node` keeps working while suppressed, and lifting the
         suppression adds back whichever node is active then.
 
         Parameters
@@ -285,7 +285,7 @@ class SceneManager:
                 self._scene.add(node)
 
     def is_visual_suppressed(self, visual_id: UUID) -> bool:
-        """Whether :meth:`set_visual_suppressed` has a visual out of the graph."""
+        """Whether `set_visual_suppressed` has a visual out of the graph."""
         return visual_id in self._suppressed
 
     def add_overlay(self, overlay_id: UUID, overlay: GFXSceneOverlay) -> None:
@@ -368,11 +368,10 @@ class SceneManager:
     def remove_visual(self, visual_id: UUID) -> None:
         """Unregister a visual and remove its node from the scene graph.
 
-        Uses ``_active_nodes`` to identify which node is currently in the
-        scene and removes only that one.  Dropping the visual from
-        ``_visuals`` releases references to both ``node_3d`` and ``node_2d``
-        so GC can collect both nodes' GPU resources (pygfx has no explicit
-        destroy API).
+        Removes the visual's active node (the 2D or 3D one currently in the
+        scene), then calls the visual's ``close()`` so it releases its GPU
+        slots, caches and model connections at once rather than waiting for
+        garbage collection.
 
         Parameters
         ----------
@@ -415,7 +414,7 @@ class SceneManager:
         """Return the visual_id whose active scene-graph node is *node*.
 
         The pick buffer returns leaf nodes (e.g. ``gfx.Image`` inside a
-        ``gfx.Group``), while ``_active_nodes`` stores the top-level group.
+        ``gfx.Group``), while a visual is registered by its top-level node.
         This method walks up the parent chain of *node* until it finds a
         registered active node, then returns its visual_id.  Returns None
         if no ancestor belongs to any registered visual.

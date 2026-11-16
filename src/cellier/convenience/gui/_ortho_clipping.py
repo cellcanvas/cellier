@@ -12,7 +12,7 @@ for Qt, Jupyter and marimo, with no toolkit widget of its own.
 swaps what is shown.**  A clipping planes control's visuals are fixed when
 it is built, and on marimo a widget can only be constructed while a cell is
 running, which a mode picked in the selector is not.  So per dataset the six
-controls of :data:`CONTROL_PANELS` are built when the dataset is added (cell
+controls of `CONTROL_PANELS` are built when the dataset is added (cell
 code), stay wired to the bus while hidden, and are correct the moment they
 are shown.
 """
@@ -61,7 +61,7 @@ CONTROL_TITLES: dict[str, str] = {
 """What each control is called, after its dataset's name.
 
 A control of several panels that has lost some of them is called by the
-panels it has left (:func:`control_title`).
+panels it has left (`control_title`).
 """
 
 SHOWN: dict = {
@@ -305,14 +305,14 @@ def control_title(name: str, group: dict[str, UUID]) -> str:
     Parameters
     ----------
     name : str
-        A key of :data:`CONTROL_PANELS`.
+        A key of `CONTROL_PANELS`.
     group : dict[str, UUID]
         Panel key -> visual id: the panels the dataset has left.
 
     Returns
     -------
     str
-        The entry of :data:`CONTROL_TITLES` while the control has every one
+        The entry of `CONTROL_TITLES` while the control has every one
         of its panels.  For a control of several panels that has lost some,
         the titles of the panels left ("XY, XZ, 3D view"): "All views"
         would name a panel it does not edit.

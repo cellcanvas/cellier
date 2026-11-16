@@ -26,11 +26,9 @@ _STATIC = Path(__file__).parent / "static"
 class AnywidgetLodConfigControls(VisualIdGroup, anywidget.AnyWidget):
     """The level-of-detail settings of a multiscale mesh.
 
-    Mirrors ``QtLodConfigControls``.  The front end is the settings-rows
-    module the loading settings use (``loading_config.js``): it draws one
-    row per entry of ``fields`` from the values in ``config``, and reports
-    an edit by setting ``edit``; a refused edit comes back as ``error``,
-    with ``config`` unchanged.
+    The notebook counterpart of `cellier.gui.qt.visuals.QtLodConfigControls`: one
+    row per ``GeometryLodConfig`` field.  An edit the model refuses is shown
+    as an error and the row keeps its previous value.
 
     Parameters
     ----------

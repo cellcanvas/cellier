@@ -8,6 +8,8 @@ from cellier.gui.anywidget._container import AnywidgetBox, AnywidgetSlot
 from cellier.gui.anywidget._dataset_info import (
     AnywidgetDatasetInfo,
     DatasetInfo,
+    MatrixSection,
+    RowSection,
     dataset_info_from_path,
 )
 from cellier.gui.anywidget._dims_panel import AnywidgetDimsPanel
@@ -28,5 +30,7 @@ __all__ = [
     "AnywidgetSlot",
     "AnywidgetTemporalControls",
     "DatasetInfo",
+    "MatrixSection",
+    "RowSection",
     "dataset_info_from_path",
 ]

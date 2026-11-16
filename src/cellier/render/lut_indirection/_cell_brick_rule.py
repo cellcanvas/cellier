@@ -5,7 +5,7 @@ tile, in 2D).  Coarser levels are written into it, and a shader reads it back.
 Both sides must agree on which level-k brick owns each base cell.  On a
 pyramid whose level ratio is not an integer -- 389 voxels halved to 194 is a
 ratio of 2.005 -- no whole number of base cells matches a level-k brick
-exactly, so the answer has to be *chosen*, once, and used everywhere::
+exactly, so the answer has to be *chosen*, once, and used everywhere:
 
     span = max(1, round_half_up(scale))  # base cells per level-k brick
     bricks = ceil(level_shape / block_size)  # level-k brick count
@@ -16,7 +16,7 @@ shaders compute the same integer answer (``cellier.brick_rule.wgsl`` and
 ``cellier.tile_rule.wgsl``).  Positions *inside* a brick still use the float
 scale, so geometry stays exact; the price is that a sample can land slightly
 outside the brick that owns its cell and read that brick's padding.
-:func:`max_out_of_brick` measures how far, and :func:`brick_rule_issues`
+`max_out_of_brick` measures how far, and `brick_rule_issues`
 reports levels where that exceeds the padding.
 
 See ``docs/Explanations/multiscale_brick_lookup.md``.
@@ -85,7 +85,7 @@ def level_brick_counts(
     Parameters
     ----------
     spans : sequence of tuple of int
-        Output of :func:`level_cell_spans`.
+        Output of `level_cell_spans`.
     grid_dims : sequence of int
         The base LUT grid's dimensions.  Used only for levels without a shape.
     block_size : int
@@ -98,7 +98,7 @@ def level_brick_counts(
     list[tuple[int, ...]]
         ``ceil(level_shape / block_size)`` when the shape is known, otherwise
         ``ceil(grid_dim / span)`` -- the count at which the clamp in
-        :func:`brick_for_cell` never binds inside the grid.
+        `brick_for_cell` never binds inside the grid.
     """
     counts: list[tuple[int, ...]] = []
     for index, span in enumerate(spans):
@@ -131,11 +131,11 @@ def brick_for_cell(cell: int, span: int, count: int) -> int:
 def cell_range(brick: int, span: int, count: int, grid_dim: int) -> tuple[int, int]:
     """The half-open base-cell range brick *brick* owns along one axis.
 
-    The inverse of :func:`brick_for_cell`: every cell in the range maps back
+    The inverse of `brick_for_cell`: every cell in the range maps back
     to *brick*, and the ranges of ``0 .. count - 1`` partition the grid.  The
     last brick extends to the end of the grid so no cell is left unwritten.
     A brick whose range starts past the grid owns nothing (see
-    :func:`max_out_of_brick`).
+    `max_out_of_brick`).
     """
     start = min(brick * span, grid_dim)
     stop = grid_dim if brick >= count - 1 else min((brick + 1) * span, grid_dim)
@@ -282,7 +282,7 @@ def brick_rule_issues(
         or bisection probes).
     translation_vecs_data : sequence of sequences of float or None
         Per-level translations in level-0 voxels, same order as the scales.
-        ``None`` assumes block averaging (see :func:`max_out_of_brick`).
+        ``None`` assumes block averaging (see `max_out_of_brick`).
 
     Returns
     -------

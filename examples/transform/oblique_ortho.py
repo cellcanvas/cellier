@@ -32,7 +32,7 @@ from cellier.data import LinesMemoryStore
 from cellier.data.image._zarr_multiscale_store import MultiscaleZarrDataStore
 from cellier.scene import BackgroundAppearance
 from cellier.scene.dims import spatial_axes
-from cellier.transform import AffineTransform
+from cellier.transform import AffineTransform, DataCoordinateSystem
 from cellier.visuals import (
     CenteredAxes2D,
     CenteredAxes2DAppearance,
@@ -94,11 +94,16 @@ def _write_pyramid(root: Path, volume: np.ndarray) -> MultiscaleZarrDataStore:
                 "delete_existing": True,
             }
         ).result()[...].write(np.ascontiguousarray(level)).result()
-    return MultiscaleZarrDataStore(
+    # The store's own axes, which the data -> world transform maps from.
+    data_system = DataCoordinateSystem(
+        name="tubes", axes=spatial_axes("z", "y", "x"), datastore_id=uuid4()
+    )
+    return MultiscaleZarrDataStore.from_scale_and_translation(
         zarr_path=str(root),
         scale_names=["s0", "s1", "s2"],
         level_scales=[(1.0,) * 3, (2.0,) * 3, (4.0,) * 3],
         level_translations=[(0.0,) * 3, (0.0,) * 3, (0.0,) * 3],
+        data_coordinate_system=data_system,
         name="tubes",
     )
 
@@ -174,7 +179,6 @@ def build(gui: str = "offscreen") -> OrthoViewer:
     store = _write_pyramid(Path(tempfile.mkdtemp()), _tubes(SHAPE))
     viewer.controller.add_data_store(store)
     scene = viewer.scenes["xy"]
-    viewer.controller._ensure_data_coordinate_systems(scene.id, store)
     world = scene.dims.world_coordinate_system
     visuals = viewer.add_image_multiscale(
         store,

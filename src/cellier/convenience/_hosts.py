@@ -7,7 +7,7 @@ object.
 
 ``gui="anywidget"`` selects the toolkit; the *host* (Jupyter vs marimo) is
 detected by default with an explicit ``host=`` override via
-:func:`resolve_host`.
+`resolve_host`.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ class LayoutHost(Protocol):
     """Composition + presentation seam for one front end.
 
     A *host* answers "how are widgets composed and presented"; the
-    :class:`~cellier.convenience._backend.GuiBackend` it carries answers "which
+    `GuiBackend` it carries answers "which
     widget class serves this control".  Splitting the two is what lets one
     anywidget backend serve both the Jupyter and marimo hosts, and lets the
     layout walk be written once.
@@ -90,7 +90,7 @@ class LayoutHost(Protocol):
         host default (tuned for macro layout blocks like canvas/dims/docks).
         Pass a small explicit value to tightly group sibling controls that
         used to live inside one widget (see
-        :meth:`dock_panel`).
+        `dock_panel`).
 
         *title* draws a heading above the items, naming what the stack holds;
         ``None`` draws none.  The anywidget answer to the Qt renderer's
@@ -104,7 +104,7 @@ class LayoutHost(Protocol):
     ) -> object:
         """Compose *widgets* into a column shaped for a dock area.
 
-        Separate from :meth:`stack` because a dock column carries per-toolkit
+        Separate from `stack` because a dock column carries per-toolkit
         sizing a plain stack must not: Qt wants a minimum width and a trailing
         stretch so the controls sit at the top of a resizable dock, and
         anywidget wants neither.  *title* names the whole column when the dock
@@ -146,7 +146,7 @@ class LayoutHost(Protocol):
         over so a host whose root owns teardown -- Qt's window does -- can take
         the list with it.  *dock_min_widths* maps ``"left"`` / ``"right"`` to
         the narrowest that dock may be, in logical pixels; a missing or
-        ``None`` entry uses :data:`~cellier.convenience.layout._spec.DOCK_MIN_WIDTH`
+        ``None`` entry uses `DOCK_MIN_WIDTH`
         (260 px) on every host.  It is a floor: a dock whose controls need more
         is as wide as they need.  Sizing is placement, so it happens here
         rather than in ``dock_panel``.
@@ -176,10 +176,10 @@ class LayoutHost(Protocol):
 class QtLayoutHost:
     """Qt host -- composition with ``QBoxLayout`` / ``QGridLayout``.
 
-    The Qt implementation of :class:`LayoutHost`, which is what lets the layout
-    walk in :mod:`cellier.convenience.layout._walk` be written once rather than
+    The Qt implementation of `LayoutHost`, which is what lets the layout
+    walk in `cellier.convenience.layout._walk` be written once rather than
     once per toolkit.  ``present`` shows the window; the blocking event loop is
-    :func:`cellier.convenience.launch`'s job, not the host's.
+    `cellier.convenience.launch`'s job, not the host's.
     """
 
     #: Spacing between stacked items, matching what the Qt renderer used.
@@ -289,7 +289,7 @@ class QtLayoutHost:
         return _QtLiveSlot(self)
 
     #: The narrowest a dock may be when the layout does not say; the shared
-    #: :data:`~cellier.convenience.layout._spec.DOCK_MIN_WIDTH`, kept here
+    #: `DOCK_MIN_WIDTH`, kept here
     #: under its old name.
     DEFAULT_DOCK_MIN_WIDTH = DOCK_MIN_WIDTH
 
@@ -304,7 +304,7 @@ class QtLayoutHost:
         """Build the ``QMainWindow``: center plus a ``QDockWidget`` per area.
 
         Each dock's content is floored at its ``dock_min_widths`` entry, or
-        :attr:`DEFAULT_DOCK_MIN_WIDTH`.  A minimum rather than a fixed width:
+        `DEFAULT_DOCK_MIN_WIDTH`.  A minimum rather than a fixed width:
         the dock separator can still drag it wider, never narrower, and a
         left or right dock whose controls need more than the floor starts
         as wide as they need (see ``_scroll_dock_widget``).
@@ -459,7 +459,7 @@ class _AnywidgetDockPanel:
         stacks.  *closeables* is unused here: on this toolkit the caller's
         ``_RenderView`` owns teardown, not the root.  A side dock is floored
         at its ``dock_min_widths`` entry, or at
-        :data:`~cellier.convenience.layout._spec.DOCK_MIN_WIDTH` when it has
+        `DOCK_MIN_WIDTH` when it has
         none; there is no splitter to drag it wider, so above the floor it is
         as wide as its content.
 
@@ -549,10 +549,10 @@ class MarimoHost(_AnywidgetDockPanel):
     ) -> object:
         """Stack with ``marimo.vstack`` / ``marimo.hstack``.
 
-        *min_width* is accepted for interface parity with :class:`JupyterHost`
+        *min_width* is accepted for interface parity with `JupyterHost`
         but ignored -- marimo has its own layout/width primitives.
 
-        *gap* (pixels, matching :class:`JupyterHost`) is converted to
+        *gap* (pixels, matching `JupyterHost`) is converted to
         marimo's own rem-based ``gap=`` only when given; omitted, marimo's
         own default is used unchanged.  ``mo.vstack``/``mo.hstack`` default to
         a non-trivial gap meant for spacing distinct layout blocks apart,
@@ -748,7 +748,7 @@ def _ipython_running() -> bool:
 
 
 def resolve_host(host: str | None = None) -> LayoutHost:
-    """Resolve the anywidget :class:`LayoutHost`.
+    """Resolve the anywidget `LayoutHost`.
 
     The explicit *host* override wins; otherwise the host is detected (marimo
     first, then IPython / Jupyter).

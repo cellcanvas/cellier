@@ -13,8 +13,10 @@ class PointsMarkerAppearance(BaseAppearance):
     Parameters
     ----------
     color : tuple[float, float, float, float]
-        RGBA uniform fallback colour.  Used when ``color_mode`` is
-        ``"uniform"`` or when no per-point colors are present.
+        RGBA colour of every point when ``color_mode`` is ``"uniform"``.
+        Not a fallback: with ``color_mode="vertex"`` it is unused, and a
+        store with no per-point colours raises ``ValueError`` when the
+        points are drawn.
     size : float
         Uniform point size, interpreted in ``size_space`` units.
     size_space : str

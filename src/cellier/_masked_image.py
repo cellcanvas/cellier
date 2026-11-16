@@ -321,8 +321,8 @@ class MaskedPick:
     0.  Positions are **centred** level-0 voxels (voxel ``i`` at ``i``) and
     full rank; the non-spatial components stay at the hit's.
 
-    Use :meth:`for_visual`, then :meth:`mask_reads`, :meth:`value_reads`
-    and :meth:`info` in that order.
+    Use `for_visual`, then `mask_reads`, `value_reads`
+    and `info` in that order.
 
     Parameters
     ----------
@@ -348,7 +348,7 @@ class MaskedPick:
         Samples a value voxel along the normal
         (``appearance.projection_steps_per_voxel``).
     planes : tuple
-        The enabled clipping planes' :class:`Plane`, in the mask's level-0
+        The enabled clipping planes' `Plane`, in the mask's level-0
         data coordinates.
     """
 

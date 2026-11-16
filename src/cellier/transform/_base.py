@@ -39,7 +39,7 @@ __all__ = [
 class BaseTransform(CellierModel, ABC):
     """A transform between two coordinate systems.
 
-    Wraps a :class:`transformnd.base.Transform` rather than
+    Wraps a `transformnd.base.Transform` rather than
     reimplementing one.  ``transformnd.Spaced`` is deliberately not used:
     it carries no axis metadata, does not serialize, and its ``invert()``
     returns the original space order while performing the inverted
@@ -50,7 +50,7 @@ class BaseTransform(CellierModel, ABC):
     the wrapped transform and is read through, so the model cannot
     disagree with itself.  The cross-check against the coordinate
     systems' axis counts cannot happen here, because the model holds ids
-    rather than systems; it is factored into :meth:`validate_against`.
+    rather than systems; it is factored into `validate_against`.
 
     Parameters
     ----------
@@ -99,9 +99,9 @@ class BaseTransform(CellierModel, ABC):
 
         Four checks: both ids match, and both axis counts match the wrapped
         transform's dimensionality, which is the one place the number of axes
-        is stored.  :meth:`compose` runs it on its second operand; anything
-        that files transforms under a pair of systems should run it too, rather
-        than invent its own rule.
+        is stored.  `AffineTransform.then` runs it on its second operand;
+        anything that files transforms under a pair of systems should run it
+        too, rather than invent its own rule.
 
         Parameters
         ----------
@@ -196,19 +196,35 @@ class BaseTransform(CellierModel, ABC):
 
     @abstractmethod
     def map_direction(self, direction: np.ndarray) -> np.ndarray:
-        """Map displacement vectors forward (contravariant)."""
+        """Map displacement vectors forward (contravariant).
+
+        A transform without a constant Jacobian raises
+        ``NonAffineTransformError``.
+        """
 
     @abstractmethod
     def imap_direction(self, direction: np.ndarray) -> np.ndarray:
-        """Map displacement vectors back (contravariant)."""
+        """Map displacement vectors back (contravariant).
+
+        A transform without a constant Jacobian raises
+        ``NonAffineTransformError``.
+        """
 
     @abstractmethod
     def map_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Map plane normals forward (covariant)."""
+        """Map plane normals forward (covariant).
+
+        A transform without a constant Jacobian raises
+        ``NonAffineTransformError``.
+        """
 
     @abstractmethod
     def imap_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Map plane normals back (covariant)."""
+        """Map plane normals back (covariant).
+
+        A transform without a constant Jacobian raises
+        ``NonAffineTransformError``.
+        """
 
     # -- regions -------------------------------------------------------
 
@@ -226,15 +242,27 @@ class BaseTransform(CellierModel, ABC):
 
     @abstractmethod
     def map_plane(self, plane: Plane) -> Plane:
-        """Map a plane forward."""
+        """Map a plane forward.
+
+        A transform without a constant Jacobian raises
+        ``NonAffineTransformError``.
+        """
 
     @abstractmethod
     def imap_plane(self, plane: Plane) -> Plane:
-        """Map a plane back."""
+        """Map a plane back.
+
+        A transform without a constant Jacobian raises
+        ``NonAffineTransformError``.
+        """
 
     @abstractmethod
     def map_region(self, region: ConvexRegion) -> ConvexRegion:
-        """Map a convex region forward."""
+        """Map a convex region forward.
+
+        A transform without a constant Jacobian raises
+        ``NonAffineTransformError``.
+        """
 
     @abstractmethod
     def imap_region(
@@ -242,7 +270,11 @@ class BaseTransform(CellierModel, ABC):
         region: ConvexRegion,
         output_coordinate_system: CoordinateSystem,
     ) -> ConvexRegion:
-        """Map a convex region back, dropping broadcast constraints."""
+        """Map a convex region back, dropping broadcast constraints.
+
+        A transform without a constant Jacobian raises
+        ``NonAffineTransformError``.
+        """
 
     # -- structure ------------------------------------------------------
 
@@ -258,7 +290,7 @@ class BaseTransform(CellierModel, ABC):
         sample needs to know which samples exist, or rounding can leave the
         domain: the last sample's cell ends half a unit past its centre, and
         round-half-up sends that boundary *upward* to a sample that is not
-        there.  Structural, like :meth:`axis_correspondence`, and available
+        there.  Structural, like `axis_correspondence`, and available
         without a matrix -- a non-affine block answers from its own table.
 
         Returns
@@ -306,10 +338,11 @@ class BaseTransform(CellierModel, ABC):
     def axis_coupling(self) -> np.ndarray:
         """Return which output axes each input axis reaches, as booleans.
 
-        The non-zero pattern of the linear block under the relative coupling
-        tolerance (``cellier.transform._alignment.coupling_pattern``):
+        The non-zero pattern of the linear block under a relative tolerance:
+        an entry counts when its magnitude exceeds `COUPLING_TOLERANCE`
+        times the smaller of its row's and its column's largest magnitude.
         ``coupling[o, i]`` is whether input axis ``i`` contributes to output
-        axis ``o``.  Unlike :meth:`axis_correspondence` it never raises -- a
+        axis ``o``.  Unlike `axis_correspondence` it never raises -- a
         shear or a rotation is just a denser pattern -- and it is structural
         in the same way: an affine reads it off its matrix, a block container
         off its block declarations, and a non-affine leaf answers for itself.
@@ -341,9 +374,9 @@ class BaseTransform(CellierModel, ABC):
         """Return ``{input axis: output axis}`` for the **uncoupled** pairs only.
 
         An input axis is in the result when, under the coupling pattern
-        (:meth:`axis_coupling`), it reaches exactly one output axis and that
+        (`axis_coupling`), it reaches exactly one output axis and that
         output axis is reached by nothing else.  Where
-        :meth:`axis_correspondence` holds it is that mapping; under a
+        `axis_correspondence` holds it is that mapping; under a
         rotation or shear it keeps the pairs the coupling leaves alone (a
         time axis beside a rotated volume, a channel axis) and drops the rest
         instead of raising.  Callers that need a per-axis pairing use it on
@@ -369,7 +402,7 @@ class BaseTransform(CellierModel, ABC):
         its zero matrix row maps to, so a caller measuring where the data is
         -- a world bounding box, say -- must skip these axes rather than read
         a mapped coordinate off them.  Structural, like
-        :meth:`axis_correspondence`: a block container answers from its
+        `axis_correspondence`: a block container answers from its
         blocks, with no matrix involved.
 
         Returns
@@ -438,7 +471,7 @@ class BaseTransform(CellierModel, ABC):
         """Return this transform as an affine, or ``None`` if it is not one.
 
         ``None`` is an answer, not a failure: callers that need a matrix
-        pair this with :meth:`restrict` and raise
+        pair this with `restrict` and raise
         ``NonAffineTransformError`` themselves, with a message naming the
         axis they cannot express.
 

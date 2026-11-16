@@ -122,13 +122,13 @@ class OrthoPlaneController:
     mode : {"slices"} or None
         The starting mode.
     outlines : PlaneOutline, three of them, or None
-        The outlines of the slice planes (:attr:`outlines`).  ``None`` is
+        The outlines of the slice planes (`outlines`).  ``None`` is
         no outline.
 
     Attributes
     ----------
     mode_changed : psygnal.Signal
-        Emitted with the new mode after :attr:`mode` changed.
+        Emitted with the new mode after `mode` changed.
     """
 
     mode_changed = Signal(object)
@@ -274,7 +274,7 @@ class OrthoPlaneController:
             Slice planes to keep everything of but the position along the
             normal (their extents, ``enabled``, spin and outline).  ``None``
             builds new ones: through the point the three slices meet at,
-            unbounded, with :attr:`outlines`.
+            unbounded, with `outlines`.
 
         Returns
         -------

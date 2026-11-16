@@ -9,7 +9,11 @@ from uuid import UUID
 from cellier.controller import CellierController
 from cellier.convenience._controls_registry import ControlsRegistryMixin
 from cellier.convenience._render_settings import RenderSettingsMixin
-from cellier.convenience._startup import StartupState
+from cellier.convenience._startup import (
+    StartupState,
+    on_viewer_ready,
+    started_tracker,
+)
 from cellier.convenience.gui._controls_config import validate_controls
 from cellier.events import CanvasAddedEvent
 from cellier.render._capture import write_png
@@ -114,7 +118,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
     Creates a controller and a single scene pre-wired and ready to receive
     data and visuals. No Qt objects are constructed here; call
-    :meth:`add_canvas` when you are ready to attach a render surface.
+    `add_canvas` when you are ready to attach a render surface.
 
     Parameters
     ----------
@@ -124,7 +128,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         determines the dimensionality of the scene.  Axis types are stated,
         never inferred from the name -- ``spatial_axes("z", "y", "x")`` is the
         shorthand for an all-spatial world, and a mixed one spells the rest
-        out::
+        out:
 
             Viewer(
                 [("t", "time"), *spatial_axes("z", "y", "x")],
@@ -132,7 +136,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             )
     displayed_axes : tuple of str or UUID
         The axes the scene displays first, in display order.  Required.  Two
-        entries start the viewer in 2D and three start it in 3D::
+        entries start the viewer in 2D and three start it in 3D:
 
             Viewer(spatial_axes("x", "y", "z"), displayed_axes=("x", "y"))
 
@@ -150,7 +154,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Which GUI toolkit the canvas should target. ``"qt"`` (default) renders
         into a Qt widget; ``"anywidget"`` renders into a notebook canvas for
         Jupyter / marimo; ``"offscreen"`` renders with no window at all, for
-        headless capture via :meth:`screenshot`. Fixed at construction.
+        headless capture via `screenshot`. Fixed at construction.
         ``"offscreen"`` viewers have no embeddable widget, so the layout
         builders (``build_canvas_widget``, ``launch``, ``show``, ``display``)
         reject them.
@@ -162,7 +166,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Whether every canvas names, in its top-left corner, the visuals its
         view does not draw and why in one word -- a 2D view whose slice cuts
         a rotated image at an angle, say.  Default ``True``.  See
-        :attr:`draw_status_overlay`.
+        `draw_status_overlay`.
     """
 
     def __init__(
@@ -209,7 +213,11 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
     @property
     def gui(self) -> str:
-        """The GUI toolkit this viewer renders into (``"qt"`` or ``"anywidget"``)."""
+        """The GUI toolkit this viewer renders into.
+
+        ``"qt"``, ``"anywidget"`` or ``"offscreen"`` (no window: for
+        scripted screenshots and tests).
+        """
         return self._controller._gui
 
     @property
@@ -221,9 +229,9 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def background(self) -> BackgroundAppearance:
         """Appearance of the background drawn behind the scene's visuals.
 
-        Uniform black by default
-        (:func:`~cellier.scene._background.viewer_background`).  Mutate its
-        fields to update the canvas at runtime::
+        Uniform black by default (a scene built directly with ``add_scene``
+        keeps the gray gradient of ``BackgroundAppearance``).  Mutate its
+        fields to update the canvas at runtime:
 
             viewer.background.color = (1.0, 1.0, 1.0, 1.0)
             viewer.background.mode = "vertical_gradient"
@@ -264,9 +272,9 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         On by default (``Viewer(..., draw_status_overlay=True)``); every
         canvas of this viewer shows it.  Its fields are live: set ``visible``
         to hide it, or change its colour and size.  It lists the visuals
-        whose :meth:`CellierController.draw_status` is not drawable -- a 2D
+        whose `CellierController.draw_status` is not drawable -- a 2D
         view that cuts a rotated image at an angle, say.  ``None`` when the
-        viewer was built without it.  It is not one of :attr:`overlays`.
+        viewer was built without it.  It is not one of `overlays`.
         """
         return self._draw_status_overlay
 
@@ -293,8 +301,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         A scene overlay is drawn in the scene's world by the scene camera and
         follows the scene's contents -- see
-        :meth:`~cellier.controller.CellierController.add_scene_overlay`.
-        Its fields are live afterwards::
+        `add_scene_overlay`.
+        Its fields are live afterwards:
 
             box = viewer.add_scene_overlay(SceneBoundingBox(name="box"))
             box.appearance.color = (1.0, 0.0, 0.0, 1.0)
@@ -303,7 +311,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Parameters
         ----------
         overlay : SceneOverlay
-            The overlay model, e.g. a :class:`~cellier.visuals.SceneBoundingBox`.
+            The overlay model, e.g. a `SceneBoundingBox`.
 
         Returns
         -------
@@ -336,7 +344,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Parameters
         ----------
         overlay : CanvasOverlay
-            The overlay model, e.g. a :class:`~cellier.visuals.CenteredAxes2D`.
+            The overlay model, e.g. a `CenteredAxes2D`.
 
         Returns
         -------
@@ -409,25 +417,33 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     # Readiness
     # ------------------------------------------------------------------
 
-    def on_ready(self, callback: Callable[[], None]) -> None:
+    def on_ready(self, callback: Callable[[], None]) -> SubscriptionHandle:
         """Register a callback fired once the scene's startup data is on the GPU.
 
         The callback runs after the initial reslice triggered by
-        :func:`~cellier.convenience.launch` / :func:`~cellier.convenience.show`
+        `launch` / `show`
         has committed all visuals (in-memory, multiscale, multichannel, and
         geometry) to the GPU.  Use it to hide a loading indicator, capture a
         screenshot, or enable controls once the first view is fully loaded.
 
-        Must be called before ``launch``/``show``.  For ad-hoc readiness
-        signals outside the convenience launchers, use
-        :meth:`~cellier.controller.CellierController.on_scene_ready` directly.
+        Fires once, on the first startup.  Register it before or after
+        ``display``/``launch``/``show``: before startup has finished it
+        waits, and after that it runs at once.  For one scene, use
+        `on_scene_ready`.
 
         Parameters
         ----------
         callback : Callable[[], None]
             Zero-argument callback.
+
+        Returns
+        -------
+        SubscriptionHandle
+            Active until *callback* fires; its ``unsubscribe()`` cancels the
+            callback.  Already inactive when startup had finished and
+            *callback* ran before this returned.
         """
-        self._ready_callbacks.append(callback)
+        return on_viewer_ready(self, callback)
 
     @property
     def startup_state(self) -> StartupState:
@@ -459,11 +475,13 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             return "idle (not started)"
         return tracker.describe()
 
-    def on_scene_ready(self, key: str, callback: Callable[[], None]) -> None:
+    def on_scene_ready(
+        self, key: str, callback: Callable[[], None]
+    ) -> SubscriptionHandle:
         """Fire *callback* when one scene's data is on the GPU.
 
-        The per-scene counterpart of :meth:`on_ready`, which waits for *all*
-        of them.  Fires immediately if that scene is already ready.
+        The per-scene counterpart of `on_ready`, which waits for *all*
+        of them.  Fires once; immediately if that scene is already ready.
 
         Must be called after ``display``/``launch``, which is when the
         startup tracker exists.
@@ -476,30 +494,53 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             ``OrthoViewer``.
         callback : Callable[[], None]
             Zero-argument callback.
-        """
-        tracker = getattr(self, "_startup", None)
-        if tracker is None:
-            raise RuntimeError(
-                "on_scene_ready requires a started viewer; call it after "
-                "display()/launch()/show()."
-            )
-        tracker.on_scene_ready(key, callback)
 
-    def on_startup_progress(self, callback: Callable[[int, int], None]) -> None:
+        Returns
+        -------
+        SubscriptionHandle
+            Active until *callback* fires; its ``unsubscribe()`` cancels the
+            callback.  Already inactive when the scene was ready and
+            *callback* ran before this returned.
+
+        Raises
+        ------
+        RuntimeError
+            If the viewer has not been started yet.
+        """
+        return started_tracker(self, "on_scene_ready").on_scene_ready(key, callback)
+
+    def on_startup_progress(
+        self, callback: Callable[[int, int], None]
+    ) -> SubscriptionHandle:
         """Fire ``callback(scenes_ready, scenes_total)`` as scenes load.
 
         For a progress bar over a slow or remote dataset, where the gap
         between "shown" and "loaded" is long enough to need reporting.
-        """
-        tracker = getattr(self, "_startup", None)
-        if tracker is None:
-            raise RuntimeError(
-                "on_startup_progress requires a started viewer; call it after "
-                "display()/launch()/show()."
-            )
-        tracker.on_progress(callback)
 
-    def on_startup_stalled(self, callback: Callable[[dict], None]) -> None:
+        Must be called after ``display``/``show``/``launch``, which is when
+        the startup tracker exists.  ``launch`` blocks until the window
+        closes, so with it register from code that runs in the event loop.
+
+        Parameters
+        ----------
+        callback : Callable[[int, int], None]
+            Called with the number of scenes ready and the total.
+
+        Returns
+        -------
+        SubscriptionHandle
+            Active until its ``unsubscribe()`` is called.
+
+        Raises
+        ------
+        RuntimeError
+            If the viewer has not been started yet.
+        """
+        return started_tracker(self, "on_startup_progress").on_progress(callback)
+
+    def on_startup_stalled(
+        self, callback: Callable[[dict], None]
+    ) -> SubscriptionHandle:
         """Fire ``callback({scene key: state})`` if startup does not finish.
 
         The signal that was missing entirely: startup could only ever report
@@ -508,16 +549,31 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         stopped in, so the report can say *what* it was waiting for.
 
         Stalling is not an error -- slow remote data legitimately takes a
-        while -- it is the cue that something is worth looking at.  Tune the
-        window with ``display(..., stall_timeout=)``.
+        while -- it is the cue that something is worth looking at.  The
+        window is 30 s by default.  ``display(..., stall_timeout=)`` tunes it
+        (``None`` turns the check off); ``run``, ``launch`` and ``show`` take
+        no ``stall_timeout`` and always use the default.
+
+        Must be called after ``display``/``show``/``launch``, which is when
+        the startup tracker exists.
+
+        Parameters
+        ----------
+        callback : Callable[[dict], None]
+            Called with ``{scene key: StartupState}`` for every scene that
+            has not finished.
+
+        Returns
+        -------
+        SubscriptionHandle
+            Active until its ``unsubscribe()`` is called.
+
+        Raises
+        ------
+        RuntimeError
+            If the viewer has not been started yet.
         """
-        tracker = getattr(self, "_startup", None)
-        if tracker is None:
-            raise RuntimeError(
-                "on_startup_stalled requires a started viewer; call it after "
-                "display()/launch()/show()."
-            )
-        tracker.on_stalled(callback)
+        return started_tracker(self, "on_startup_stalled").on_stalled(callback)
 
     # ------------------------------------------------------------------
     # Picking
@@ -531,10 +587,10 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         *,
         owner_id: UUID | None = None,
         weak: bool = False,
-    ) -> Any:
+    ) -> SubscriptionHandle:
         """Register a callback fired when a visual of one kind is picked.
 
-        Mirrors :meth:`CellierController.on_pick`; see it for the events,
+        Mirrors `CellierController.on_pick`; see it for the events,
         their timing and gating.
 
         Parameters
@@ -542,7 +598,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         canvas_id : UUID
             The canvas to watch, e.g. one of ``viewer.canvases``.
         event_type : type
-            One of :data:`cellier.events.PICK_EVENT_TYPES`.
+            One of `cellier.events.PICK_EVENT_TYPES`.
         callback : Callable
             Called with each pick event.
         owner_id : UUID or None
@@ -554,7 +610,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Returns
         -------
         SubscriptionHandle
-            Pass it to :meth:`unsubscribe_pick`.
+            Call its ``unsubscribe()`` to remove this subscription.
         """
         return self._controller.on_pick(
             canvas_id,
@@ -564,9 +620,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             weak=weak,
         )
 
-    def unsubscribe_pick(self, handle: Any) -> None:
-        """Remove a subscription created by :meth:`on_pick`."""
-        self._controller.unsubscribe_pick(handle)
+    def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        """Remove one subscription made by an ``on_*`` method.
+
+        The same as ``handle.unsubscribe()``.  Does nothing when the
+        subscription was already removed.
+
+        Parameters
+        ----------
+        handle : SubscriptionHandle
+            The handle an ``on_*`` method returned.
+        """
+        handle.unsubscribe()
 
     # ------------------------------------------------------------------
     # Progressive loading (multiscale visuals)
@@ -575,7 +640,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def loading_progress(self, visual: object) -> LoadingProgress | None:
         """How far a multiscale visual's data has loaded.
 
-        Mirrors :meth:`CellierController.loading_progress`.
+        Mirrors `CellierController.loading_progress`.
 
         Parameters
         ----------
@@ -599,7 +664,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     ) -> SubscriptionHandle:
         """Register a callback fired as a multiscale visual's data loads.
 
-        Mirrors :meth:`CellierController.on_reslice_progress`.
+        Mirrors `CellierController.on_reslice_progress`.
 
         Parameters
         ----------
@@ -616,6 +681,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Returns
         -------
         SubscriptionHandle
+            Call its ``unsubscribe()`` to remove this subscription.
         """
         visual_id = _visual_id(visual)
         return self._controller.on_reslice_progress(
@@ -635,7 +701,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     ) -> SubscriptionHandle:
         """Register a callback fired when a multiscale visual's backstop is in.
 
-        Mirrors :meth:`CellierController.on_backstop_complete`.
+        Mirrors `CellierController.on_backstop_complete`.
 
         Parameters
         ----------
@@ -652,6 +718,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Returns
         -------
         SubscriptionHandle
+            Call its ``unsubscribe()`` to remove this subscription.
         """
         visual_id = _visual_id(visual)
         return self._controller.on_backstop_complete(
@@ -664,7 +731,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def set_loading(self, visual: object, **fields: Any) -> ProgressiveLoadingConfig:
         """Change how a multiscale visual loads, while it is shown.
 
-        Mirrors :meth:`CellierController.set_loading_config`: *fields* are
+        Mirrors `CellierController.set_loading_config`: *fields* are
         merged into the visual's ``render_config.loading`` and applied at
         once.  An invalid combination raises and changes nothing.
 
@@ -685,7 +752,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def set_lod_config(self, visual: object, **fields: Any) -> GeometryLodConfig:
         """Change the level-of-detail settings of a multiscale mesh.
 
-        Mirrors :meth:`CellierController.set_lod_config`.  ``dims_drag_draw``
+        Mirrors `CellierController.set_lod_config`.  ``dims_drag_draw``
         and ``camera_motion`` choose among the levels already loaded and
         apply in the next frame; ``dims_drag`` decides what the next dims
         scrub loads.
@@ -715,7 +782,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Put a gizmo on one clipping plane of a visual, in the 3D view.
 
         Dragging the gizmo moves and tilts the plane.  Mirrors
-        :meth:`CellierController.add_clipping_plane_gizmo`: a canvas has
+        `CellierController.add_clipping_plane_gizmo`: a canvas has
         one gizmo at a time, and the gizmo closes itself when its plane or
         its visual is removed or the view leaves 3D.
 
@@ -726,7 +793,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         plane : ClippingPlane or UUID
             One of ``visual.clipping_planes``, or its ``id``.
         canvas : UUID or None
-            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            One of `canvases`.  ``None`` (default) is the viewer's
             single canvas.
 
         Returns
@@ -758,7 +825,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Dragging the gizmo moves and turns the plane, and its two in-plane
         scale handles resize it (an axis with an unbounded side has none).
-        Mirrors :meth:`CellierController.add_render_plane_gizmo`: a canvas
+        Mirrors `CellierController.add_render_plane_gizmo`: a canvas
         has one gizmo at a time, clipping planes included, and the gizmo
         closes itself when its plane or its visual is removed, the visual
         leaves the ``"plane"`` render mode or the view leaves 3D.
@@ -770,7 +837,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         plane : RenderPlane or UUID
             One of ``visual.render_planes``, or its ``id``.
         canvas : UUID or None
-            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            One of `canvases`.  ``None`` (default) is the viewer's
             single canvas.
 
         Returns
@@ -797,7 +864,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Parameters
         ----------
         canvas : UUID or None
-            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            One of `canvases`.  ``None`` (default) is the viewer's
             single canvas.
         """
         self._controller.remove_plane_gizmo(self._camera_canvas(canvas))
@@ -821,7 +888,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             ``(visual_id, canvas_id)`` when the viewer has exactly one
             canvas.  ``None``, for a control with no gizmo toggle, when it
             has several (the viewer does not choose between them: call
-            :meth:`add_clipping_plane_gizmo` with ``canvas=``) or when the
+            `add_clipping_plane_gizmo` with ``canvas=``) or when the
             scene is never shown in 3D.
 
         Raises
@@ -847,7 +914,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Asked by the layout walk when it builds the control.  The control
         edits the visuals it is given.  Its rows have a gizmo toggle when
         the viewer has exactly one canvas, as for the clipping planes
-        control (:meth:`_clipping_gizmo_target`).
+        control (`_clipping_gizmo_target`).
         """
         from cellier.convenience.layout._shared import RenderPlanesTarget
 
@@ -864,8 +931,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def canvases(self) -> tuple[UUID, ...]:
         """IDs of the canvases attached to this viewer's scene, in creation order.
 
-        Empty until :meth:`add_canvas` (or a layout builder) has run.  A viewer
-        with no canvas is still capturable -- see :meth:`screenshot`.
+        Empty until `add_canvas` (or a layout builder) has run.  A viewer
+        with no canvas is still capturable -- see `screenshot`.
         """
         return tuple(self._controller.get_canvas_ids(self._scene.id))
 
@@ -887,19 +954,19 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         toolkit the viewer targets.
 
         The capture shows the data **currently resident on the GPU** -- it does
-        not reslice.  Capture from :meth:`on_ready` (or after ``launch`` /
+        not reslice.  Capture from `on_ready` (or after ``launch`` /
         ``show`` / ``display`` have fired it) when a load may still be running.
 
         A viewer with **no canvas** still renders, fitting the camera to the
         scene, but it will have no data to show: slice requests are planned
-        per canvas, so a viewer that never called :meth:`add_canvas` has never
+        per canvas, so a viewer that never called `add_canvas` has never
         loaded anything.  Add a canvas and let the reslice finish first --
         ``cellier.convenience.capture`` does this for you.
 
         Parameters
         ----------
         canvas : UUID or None
-            Which canvas's viewpoint to reproduce, from :attr:`canvases`.
+            Which canvas's viewpoint to reproduce, from `canvases`.
             This selects a **viewpoint, not a surface**: the pixels always
             come from a fresh offscreen canvas.  With ``None`` (default) the
             viewer's single canvas is used, the scene is fitted if there is no
@@ -987,9 +1054,13 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def to_file(self, path: str | Path) -> None:
         """Serialize the viewer model state to a JSON file.
 
-        The file captures scenes, visuals, data stores, canvas camera state,
-        and the render pipeline configuration. Pass the path to
-        :meth:`from_file` to restore an equivalent ``Viewer``.
+        The file captures scenes, visuals, data stores, canvases with their
+        camera models, and the render pipeline configuration.  Pass the
+        path to `from_file` to restore an equivalent ``Viewer``.
+
+        The cameras are saved with their pose, which `from_file`
+        restores.  The ``gui`` toolkit is not saved; pass it to
+        `from_file`.
 
         Parameters
         ----------
@@ -999,17 +1070,30 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         self._controller.to_file(path)
 
     @classmethod
-    def from_file(cls, path: str | Path) -> Viewer:
+    def from_file(
+        cls,
+        path: str | Path,
+        *,
+        gui: Literal["qt", "anywidget", "offscreen"] = "qt",
+    ) -> Viewer:
         """Restore a ``Viewer`` from a previously serialized file.
 
-        The render pipeline configuration, scenes, visuals, data stores, and
-        canvas camera state are all restored from the file. No extra arguments
-        are required.
+        The render pipeline configuration, scenes, visuals, data stores and
+        canvases are restored from the file, and each camera starts at its
+        saved pose.  ``launch`` / ``show`` / ``display`` keep that view
+        (their default ``fit=None`` does not fit placed cameras); pass
+        ``fit="ready"`` to fit to the data instead.  A camera that was never
+        shown before saving (the 3D camera of a viewer saved in 2D) has no
+        pose and is fitted the first time it is shown.
 
         Parameters
         ----------
         path : str or Path
-            Path to a JSON file written by :meth:`to_file`.
+            Path to a JSON file written by `to_file`.
+        gui : {"qt", "anywidget", "offscreen"}
+            Toolkit to build the canvases with; the file does not record
+            one.  The canvases are built during this call, so ``"qt"`` (the
+            default) needs a ``QApplication`` first.
 
         Returns
         -------
@@ -1020,7 +1104,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         ValueError
             If the file contains zero or more than one scene.
         """
-        controller = CellierController.from_file(path)
+        controller = CellierController.from_file(path, gui=gui)
         scenes = list(controller._model.scenes.values())
         if len(scenes) != 1:
             raise ValueError(
@@ -1033,7 +1117,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def _from_existing(cls, controller: CellierController, scene: Scene) -> Viewer:
         """Construct a Viewer from a pre-built controller and scene.
 
-        Bypasses ``__init__``; used by :meth:`from_file`.
+        Bypasses ``__init__``; used by `from_file`.
         """
         obj = object.__new__(cls)
         obj._controller = controller
@@ -1072,7 +1156,9 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         fov : float
             Vertical field of view in degrees for the 3D camera. Default 70.
         depth_range_3d : tuple[float, float]
-            ``(near, far)`` clip distances for the 3D camera.
+            ``(near, far)`` clip distances for the 3D camera.  Far is raised
+            when the scene's data needs more (see `fit_camera`); near is
+            kept.
         depth_range_2d : tuple[float, float]
             ``(near, far)`` clip distances for the 2D camera.
         canvas_size : tuple[int, int] or None
@@ -1086,8 +1172,9 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Returns
         -------
-        QWidget
-            Embed with ``layout.addWidget(widget)``.
+        QWidget or AnywidgetRenderCanvas or OffscreenRenderCanvas
+            The canvas for this viewer's ``gui``.  On Qt, embed it with
+            ``layout.addWidget(widget)``.
         """
         resolved_render_modes = (
             render_modes if render_modes is not None else set(self._scene.render_modes)
@@ -1154,7 +1241,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Move the slice position of one or more world axes.
 
         By default a **jump**: every visual loads in full at once.  With
-        ``interactive=True``, or inside :meth:`dims_interaction`, it is a
+        ``interactive=True``, or inside `dims_interaction`, it is a
         tick of a **scrub**: visuals with ``coarsest_while_moving`` on for the
         view load their coarse backstop only, and load in full when the scrub ends.
         See ``CellierController.update_slice_indices``.
@@ -1176,7 +1263,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Every slice-position move inside the block is a scrub tick, so a
         player or a scripted sweep loads coarse while it runs and in full
-        when the block exits::
+        when the block exits:
 
             with viewer.dims_interaction():
                 for t in range(n_frames):
@@ -1195,7 +1282,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Drag a visual's transform for the length of a ``with`` block.
 
         Every assignment of the visual's ``transform`` inside the block is a
-        tick of one drag (``CellierController.transform_interaction``)::
+        tick of one drag (``CellierController.transform_interaction``):
 
             with viewer.transform_interaction(visual):
                 for angle in angles:
@@ -1237,7 +1324,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Parameters
         ----------
         canvas : UUID or None
-            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            One of `canvases`.  ``None`` (default) is the viewer's
             single canvas.
 
         Returns
@@ -1263,16 +1350,16 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         By default a **jump**: multiscale image and labels reslice at once
         for the new view.  With ``interactive=True``, or inside
-        :meth:`camera_interaction`, it is a tick of a **motion**: nothing is
+        `camera_interaction`, it is a tick of a **motion**: nothing is
         resliced until the motion ends.  See
         ``CellierController.set_camera_state``.
 
         Parameters
         ----------
         state : CameraState
-            The state to apply; :meth:`get_camera_state` returns one.
+            The state to apply; `get_camera_state` returns one.
         canvas : UUID or None
-            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            One of `canvases`.  ``None`` (default) is the viewer's
             single canvas.
         interactive : bool
             Whether the move is a tick of a motion.
@@ -1280,27 +1367,37 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Raises
         ------
         ValueError
-            If the canvas cannot be resolved (see :meth:`get_camera_state`),
-            or *state* is for the other kind of camera.
+            If the canvas cannot be resolved (see `get_camera_state`),
+            *state* is for the other kind of camera, or its
+            ``controller_state`` is for the other kind of controller.
         """
         self._controller.set_camera_state(
             self._camera_canvas(canvas), state, interactive=interactive
         )
 
     def fit_camera(
-        self, *, canvas: UUID | None = None, interactive: bool = False
+        self,
+        *,
+        canvas: UUID | None = None,
+        interactive: bool = False,
+        only_visible_visuals: bool = False,
     ) -> None:
-        """Fit the camera to the scene.
+        """Fit the camera to the box the scene's data occupies.
 
-        A jump, like :meth:`set_camera_state`.
+        A jump, like `set_camera_state`.  See
+        `CellierController.fit_camera` for how the box and the far plane are
+        worked out.
 
         Parameters
         ----------
         canvas : UUID or None
-            One of :attr:`canvases`.  ``None`` (default) fits every canvas of
+            One of `canvases`.  ``None`` (default) fits every canvas of
             the viewer.
         interactive : bool
             Whether the move is a tick of a camera motion instead of a jump.
+        only_visible_visuals : bool
+            Fit to the visuals that are shown only.  The far plane still keeps
+            every visual in view.  Default ``False``: hidden visuals count.
 
         Raises
         ------
@@ -1309,7 +1406,12 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         """
         if canvas is not None:
             canvas = self._camera_canvas(canvas)
-        self._controller.fit_camera(self._scene.id, canvas, interactive=interactive)
+        self._controller.fit_camera(
+            self._scene.id,
+            canvas,
+            interactive=interactive,
+            only_visible_visuals=only_visible_visuals,
+        )
 
     @contextmanager
     def camera_interaction(
@@ -1319,7 +1421,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Every camera move inside the block is a tick of a motion, so a
         fly-through reslices once, when the block exits, instead of at every
-        pose::
+        pose:
 
             with viewer.camera_interaction():
                 for pose in path:
@@ -1328,13 +1430,13 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         Parameters
         ----------
         canvas : UUID or None
-            One of :attr:`canvases`.  ``None`` (default) is the viewer's
+            One of `canvases`.  ``None`` (default) is the viewer's
             single canvas.
 
         Raises
         ------
         ValueError
-            If the canvas cannot be resolved; see :meth:`get_camera_state`.
+            If the canvas cannot be resolved; see `get_camera_state`.
         """
         with self._controller.camera_interaction(self._camera_canvas(canvas)):
             yield
@@ -1366,7 +1468,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Add an in-memory image visual.
 
         One visual draws the image single-channel or composited; see
-        :meth:`cellier.controller.CellierController.add_image`.
+        `cellier.controller.CellierController.add_image`.
 
         Parameters
         ----------
@@ -1380,8 +1482,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The controls to show for this visual in the layout's docks: a
             list of control models, drawn in the order of the list.  The
             image's fields are chosen with ``ImageControl(fields=[...])``.
-            ``None`` (default) or an empty list shows none.  See
-            :mod:`cellier.convenience.gui._controls_config`.
+            ``None`` (default) or an empty list shows none.  The
+            models are `Control` and the ``*Control`` classes beside it.
         single : single appearance or None
             Single mode's appearance.  ``None`` uses the defaults.
         channel_axis : int or None
@@ -1480,8 +1582,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The controls to show for this visual in the layout's docks: a
             list of control models, drawn in the order of the list.  The
             visual's fields are chosen with ``FieldControls([...])``.
-            ``None`` (default) or an empty list shows none.  See
-            :mod:`cellier.convenience.gui._controls_config`.
+            ``None`` (default) or an empty list shows none.  The
+            models are `Control` and the ``*Control`` classes beside it.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1581,7 +1683,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         ----------
         data : MeshMemoryStore or UUID
             Backing data store or the UUID of an already-registered store.
-        appearance : MeshFlatAppearance, MeshPhongAppearance,
+        appearance : MeshFlatAppearance or MeshPhongAppearance
             Appearance parameters.
         name : str
             Human-readable label. Default ``"mesh"``.
@@ -1591,8 +1693,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The controls to show for this visual in the layout's docks: a
             list of control models, drawn in the order of the list.  The
             visual's fields are chosen with ``FieldControls([...])``.
-            ``None`` (default) or an empty list shows none.  See
-            :mod:`cellier.convenience.gui._controls_config`.
+            ``None`` (default) or an empty list shows none.  The
+            models are `Control` and the ``*Control`` classes beside it.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1668,7 +1770,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         data : MultiscaleMeshStore or UUID
             The mesh's levels, finest first, or the UUID of an
             already-registered store.
-        appearance : MeshFlatAppearance, MeshPhongAppearance,
+        appearance : MeshFlatAppearance or MeshPhongAppearance
             Appearance parameters, shared by both levels.
         name : str
             Human-readable label. Default ``"mesh"``.
@@ -1678,18 +1780,18 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The controls to show for this visual in the layout's docks: a
             list of control models, drawn in the order of the list.  The
             visual's fields are chosen with ``FieldControls([...])``.
-            ``None`` (default) or an empty list shows none.  See
-            :mod:`cellier.convenience.gui._controls_config`.
+            ``None`` (default) or an empty list shows none.  The
+            models are `Control` and the ``*Control`` classes beside it.
         outline : VisualOutline or None
-            Screen-space outline assignment; see :meth:`add_mesh`.
+            Screen-space outline assignment; see `add_mesh`.
         ambient_occlusion : bool or None
             Whether this visual receives ambient occlusion; see
-            :meth:`add_mesh`.
+            `add_mesh`.
         pick_write : bool
             Whether the visual writes to the pick buffer; see
-            :meth:`add_mesh`.
+            `add_mesh`.
         section : MeshSectionConfig or None
-            How the mesh is drawn in a 2D view; see :meth:`add_mesh`.
+            How the mesh is drawn in a 2D view; see `add_mesh`.
         lod : GeometryLodConfig or None
             Which coarse level is kept (the coarsest by default), and what a
             dims scrub loads and draws.
@@ -1752,8 +1854,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The controls to show for this visual in the layout's docks: a
             list of control models, drawn in the order of the list.  The
             visual's fields are chosen with ``FieldControls([...])``.
-            ``None`` (default) or an empty list shows none.  See
-            :mod:`cellier.convenience.gui._controls_config`.
+            ``None`` (default) or an empty list shows none.  The
+            models are `Control` and the ``*Control`` classes beside it.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1834,8 +1936,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The controls to show for this visual in the layout's docks: a
             list of control models, drawn in the order of the list.  The
             visual's fields are chosen with ``FieldControls([...])``.
-            ``None`` (default) or an empty list shows none.  See
-            :mod:`cellier.convenience.gui._controls_config`.
+            ``None`` (default) or an empty list shows none.  The
+            models are `Control` and the ``*Control`` classes beside it.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1910,8 +2012,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The controls to show for this visual in the layout's docks: a
             list of control models, drawn in the order of the list.  The
             visual's fields are chosen with ``FieldControls([...])``.
-            ``None`` (default) or an empty list shows none.  See
-            :mod:`cellier.convenience.gui._controls_config`.
+            ``None`` (default) or an empty list shows none.  The
+            models are `Control` and the ``*Control`` classes beside it.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see
@@ -1994,8 +2096,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The controls to show for this visual in the layout's docks: a
             list of control models, drawn in the order of the list.  The
             image's fields are chosen with ``ImageControl(fields=[...])``.
-            ``None`` (default) or an empty list shows none.  See
-            :mod:`cellier.convenience.gui._controls_config`.
+            ``None`` (default) or an empty list shows none.  The
+            models are `Control` and the ``*Control`` classes beside it.
         single : single appearance or None
             Single mode's appearance.  ``None`` uses the defaults.
         channel_axis : int or None
@@ -2079,7 +2181,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         of the value along the surface normal over ``single.surface_thickness``;
         in 2D the thickness is the width of a contour band, each pixel
         showing its own value.  See
-        :meth:`cellier.controller.CellierController.add_masked_image`.
+        `cellier.controller.CellierController.add_masked_image`.
 
         Parameters
         ----------
@@ -2116,7 +2218,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             ``clim``, ``opacity`` and ``iso_threshold``.  ``None``
             (default) or an empty list shows none.
         outline, ambient_occlusion, pick_write, clipping_planes
-            As :meth:`add_image_multiscale`; clipping planes are in the
+            As `add_image_multiscale`; clipping planes are in the
             mask store's level-0 data coordinates.
 
         Returns
@@ -2146,7 +2248,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
     def add_labels_multiscale(
         self,
         data: BaseDataStore | UUID,
-        appearance: MultiscaleLabelsAppearance,
+        appearance: MultiscaleLabelsAppearance | None = None,
         name: str = "labels",
         render_config: MultiscaleLabelRenderConfig | None = None,
         transform: BaseTransform | None = None,
@@ -2166,8 +2268,9 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         ----------
         data : BaseDataStore or UUID
             Backing multiscale label store or UUID of an already-registered store.
-        appearance : MultiscaleLabelsAppearance
-            Visual appearance parameters.
+        appearance : MultiscaleLabelsAppearance or None
+            Visual appearance parameters.  Defaults to
+            ``MultiscaleLabelsAppearance()`` when ``None``.
         name : str
             Human-readable label. Default ``"labels"``.
         render_config : MultiscaleLabelRenderConfig or None
@@ -2179,8 +2282,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             The controls to show for this visual in the layout's docks: a
             list of control models, drawn in the order of the list.  The
             visual's fields are chosen with ``FieldControls([...])``.
-            ``None`` (default) or an empty list shows none.  See
-            :mod:`cellier.convenience.gui._controls_config`.
+            ``None`` (default) or an empty list shows none.  The
+            models are `Control` and the ``*Control`` classes beside it.
         outline : VisualOutline or None
             Screen-space outline assignment.  ``None`` (default) leaves the
             visual unoutlined.  Requires the outline pass to be enabled; see

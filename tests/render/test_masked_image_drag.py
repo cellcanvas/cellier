@@ -100,7 +100,14 @@ def _drag(
         material.extent_clamp = True
         load(viewer, size=(DRAG_SIZE, DRAG_SIZE))
         canvas_id = controller.get_canvas_ids(viewer.scene.id)[0]
-        base = controller.get_camera_state(canvas_id)._replace(zoom=2.0)
+        fitted = controller.get_camera_state(canvas_id)
+        # Magnified 2x: half the field of view's tangent, half the size at
+        # the orbit point (what the removed ``zoom=2.0`` gave).
+        half = np.arctan(np.tan(np.radians(fitted.fov) / 2.0) / 2.0)
+        base = fitted._replace(
+            fov=float(np.degrees(2.0 * half)),
+            extent=(fitted.extent[0] / 2.0, fitted.extent[1] / 2.0),
+        )
         centre = np.array([(n - 1) / 2.0 for n in DRAG_SHAPE[::-1]])
 
         def yawed(degrees: float):

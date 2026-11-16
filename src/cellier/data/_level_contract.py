@@ -43,7 +43,7 @@ _CONTRACT = (
 )
 
 
-#: How :meth:`LevelContractIssue.describe` names each check's value.
+#: How `LevelContractIssue.describe` names each check's value.
 _CHECK_LABELS = {
     "diagonal": "off-diagonal term",
     "scale": "scale",
@@ -203,7 +203,7 @@ def validate_store_levels(store: object) -> None:
     Raises
     ------
     ValueError
-        See :func:`validate_level_transforms`.
+        See `validate_level_transforms`.
     """
     transforms = list(getattr(store, "level_transforms", None) or [])
     if len(transforms) < 2:

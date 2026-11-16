@@ -98,7 +98,7 @@ def build_outline_selection_texture() -> gfx.Texture:
     -------
     gfx.Texture
         An ``rg32sint`` texture of shape ``(1, OUTLINE_SELECTION_CAPACITY, 2)``.
-        Contents are meaningless until :func:`update_outline_selection` fills
+        Contents are meaningless until `update_outline_selection` fills
         them; ``u_label_params.n_outline_entries`` is what bounds the search.
     """
     data = np.zeros((1, OUTLINE_SELECTION_CAPACITY, 2), dtype=np.int32)
@@ -111,7 +111,7 @@ def update_outline_selection(texture: gfx.Texture, selection: dict[int, int]) ->
     Parameters
     ----------
     texture : gfx.Texture
-        A texture from :func:`build_outline_selection_texture`.
+        A texture from `build_outline_selection_texture`.
     selection : dict[int, int]
         ``{label value: palette slot}``.  Slots are clamped into ``1..15``:
         that is the range the outline key's partition reserves for selected

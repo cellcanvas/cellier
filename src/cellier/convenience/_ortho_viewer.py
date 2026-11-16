@@ -1,9 +1,9 @@
 """Four-panel orthoviewer convenience class wrapping CellierController.
 
-An :class:`OrthoViewer` manages a single controller with four pre-wired scenes
+An `OrthoViewer` manages a single controller with four pre-wired scenes
 -- three orthogonal 2D slice panels (``xy``, ``xz``, ``yz``) and one 3D volume
 panel (``vol``) -- all sharing the same world coordinate system.  Like
-:class:`~cellier.convenience.Viewer` it launches empty; the ``add_*`` methods
+`Viewer` it launches empty; the ``add_*`` methods
 register one data store and fan a visual out to every panel.
 """
 
@@ -22,9 +22,14 @@ from cellier.convenience._ortho_clipping import (
 from cellier.convenience._ortho_dims import OrthoDimsController
 from cellier.convenience._ortho_planes import OrthoPlaneController
 from cellier.convenience._render_settings import RenderSettingsMixin
-from cellier.convenience._startup import StartupState
+from cellier.convenience._startup import (
+    StartupState,
+    on_viewer_ready,
+    started_tracker,
+)
 from cellier.convenience.gui._controls_config import validate_controls
 from cellier.events import CanvasAddedEvent
+from cellier.events._bus import group_handles
 from cellier.render._capture import write_png
 from cellier.scene._background import viewer_background
 from cellier.scene.dims import (
@@ -220,18 +225,16 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     coordinate system: three orthogonal 2D slice panels (``xy``, ``xz``,
     ``yz``) and one 3D volume panel (``vol``).  No Qt objects are constructed
     here; build canvases with
-    :func:`cellier.convenience.gui.build_ortho_grid_widget` when ready.
+    `cellier.convenience.gui.build_ortho_grid_widget` when ready.
 
     The three spatial axes (default: the last three axis labels, treated as
     ``z, y, x``) define the slice planes.  Any remaining axes are "extra" axes
     (e.g. channel or time).  By default every axis's slice position, thickness
-    and slider override is mirrored across the four panels by an
-    :class:`~cellier.convenience._ortho_dims.OrthoDimsController`, so the
+    and slider override is mirrored across the four panels, so the
     panels share one world point.
 
-    Every panel starts with a uniform black background
-    (:func:`~cellier.scene._background.viewer_background`); see
-    :meth:`set_background`.
+    Every panel starts with a uniform black background; see
+    `set_background`.
 
     Appearance controls come in two groups per added visual: one drives the
     three 2D panels together, the other the 3D panel.  An
@@ -262,7 +265,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Which panels of one ``add_*`` call carry one tuple of clipping
         planes: all four (default), the three 2D panels (the 3D panel is
         independent), or none.  It applies to every dataset added, and is
-        the starting :attr:`clipping_controller` ``mode``, which can be set
+        the starting `clipping_controller` ``mode``, which can be set
         later.
     render_config : RenderManagerConfig or None
         Render pipeline configuration passed through to the controller.
@@ -270,13 +273,13 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Which GUI toolkit the canvases should target. ``"qt"`` (default)
         renders into Qt widgets; ``"anywidget"`` renders into notebook canvases
         for Jupyter / marimo; ``"offscreen"`` renders with no window at all,
-        for headless capture via :meth:`screenshot`. Fixed at construction.
+        for headless capture via `screenshot`. Fixed at construction.
         ``"offscreen"`` orthoviewers have no embeddable widgets, so the grid
         builders reject them.
     draw_status_overlay : bool
         Whether every panel names, in its top-left corner, the visuals its
         view does not draw.  Default ``True``.  See
-        :attr:`draw_status_overlay`.
+        `draw_status_overlay`.
     """
 
     # Clipping planes controls live in the ortho clipping widget, one per
@@ -410,7 +413,11 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
     @property
     def gui(self) -> str:
-        """The GUI toolkit this viewer renders into (``"qt"`` or ``"anywidget"``)."""
+        """The GUI toolkit this viewer renders into.
+
+        ``"qt"``, ``"anywidget"`` or ``"offscreen"`` (no window: for
+        scripted screenshots and tests).
+        """
         return self._controller._gui
 
     @property
@@ -476,10 +483,10 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         *,
         owner_id: UUID | None = None,
         weak: bool = False,
-    ) -> Any:
+    ) -> SubscriptionHandle:
         """Register a callback fired when a visual of one kind is picked.
 
-        Mirrors :meth:`CellierController.on_pick`; see it for the events,
+        Mirrors `CellierController.on_pick`; see it for the events,
         their timing and gating.
 
         Parameters
@@ -487,7 +494,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         canvas_id : UUID
             The canvas to watch, e.g. one of a panel scene's canvases.
         event_type : type
-            One of :data:`cellier.events.PICK_EVENT_TYPES`.
+            One of `cellier.events.PICK_EVENT_TYPES`.
         callback : Callable
             Called with each pick event.
         owner_id : UUID or None
@@ -499,7 +506,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Returns
         -------
         SubscriptionHandle
-            Pass it to :meth:`unsubscribe_pick`.
+            Call its ``unsubscribe()`` to remove this subscription.
         """
         return self._controller.on_pick(
             canvas_id,
@@ -509,15 +516,26 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             weak=weak,
         )
 
-    def unsubscribe_pick(self, handle: Any) -> None:
-        """Remove a subscription created by :meth:`on_pick`."""
-        self._controller.unsubscribe_pick(handle)
+    def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        """Remove one subscription made by an ``on_*`` method.
 
-    def on_scene_ready(self, key: str, callback: Callable[[], None]) -> None:
+        The same as ``handle.unsubscribe()``.  Does nothing when the
+        subscription was already removed.
+
+        Parameters
+        ----------
+        handle : SubscriptionHandle
+            The handle an ``on_*`` method returned.
+        """
+        handle.unsubscribe()
+
+    def on_scene_ready(
+        self, key: str, callback: Callable[[], None]
+    ) -> SubscriptionHandle:
         """Fire *callback* when one scene's data is on the GPU.
 
-        The per-scene counterpart of :meth:`on_ready`, which waits for *all*
-        of them.  Fires immediately if that scene is already ready.
+        The per-scene counterpart of `on_ready`, which waits for *all*
+        of them.  Fires once; immediately if that scene is already ready.
 
         Must be called after ``display``/``launch``, which is when the
         startup tracker exists.
@@ -530,30 +548,53 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             ``OrthoViewer``.
         callback : Callable[[], None]
             Zero-argument callback.
-        """
-        tracker = getattr(self, "_startup", None)
-        if tracker is None:
-            raise RuntimeError(
-                "on_scene_ready requires a started viewer; call it after "
-                "display()/launch()/show()."
-            )
-        tracker.on_scene_ready(key, callback)
 
-    def on_startup_progress(self, callback: Callable[[int, int], None]) -> None:
+        Returns
+        -------
+        SubscriptionHandle
+            Active until *callback* fires; its ``unsubscribe()`` cancels the
+            callback.  Already inactive when the scene was ready and
+            *callback* ran before this returned.
+
+        Raises
+        ------
+        RuntimeError
+            If the viewer has not been started yet.
+        """
+        return started_tracker(self, "on_scene_ready").on_scene_ready(key, callback)
+
+    def on_startup_progress(
+        self, callback: Callable[[int, int], None]
+    ) -> SubscriptionHandle:
         """Fire ``callback(scenes_ready, scenes_total)`` as scenes load.
 
         For a progress bar over a slow or remote dataset, where the gap
         between "shown" and "loaded" is long enough to need reporting.
-        """
-        tracker = getattr(self, "_startup", None)
-        if tracker is None:
-            raise RuntimeError(
-                "on_startup_progress requires a started viewer; call it after "
-                "display()/launch()/show()."
-            )
-        tracker.on_progress(callback)
 
-    def on_startup_stalled(self, callback: Callable[[dict], None]) -> None:
+        Must be called after ``display``/``show``/``launch``, which is when
+        the startup tracker exists.  ``launch`` blocks until the window
+        closes, so with it register from code that runs in the event loop.
+
+        Parameters
+        ----------
+        callback : Callable[[int, int], None]
+            Called with the number of scenes ready and the total.
+
+        Returns
+        -------
+        SubscriptionHandle
+            Active until its ``unsubscribe()`` is called.
+
+        Raises
+        ------
+        RuntimeError
+            If the viewer has not been started yet.
+        """
+        return started_tracker(self, "on_startup_progress").on_progress(callback)
+
+    def on_startup_stalled(
+        self, callback: Callable[[dict], None]
+    ) -> SubscriptionHandle:
         """Fire ``callback({scene key: state})`` if startup does not finish.
 
         The signal that was missing entirely: startup could only ever report
@@ -562,16 +603,31 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         stopped in, so the report can say *what* it was waiting for.
 
         Stalling is not an error -- slow remote data legitimately takes a
-        while -- it is the cue that something is worth looking at.  Tune the
-        window with ``display(..., stall_timeout=)``.
+        while -- it is the cue that something is worth looking at.  The
+        window is 30 s by default.  ``display(..., stall_timeout=)`` tunes it
+        (``None`` turns the check off); ``run``, ``launch`` and ``show`` take
+        no ``stall_timeout`` and always use the default.
+
+        Must be called after ``display``/``show``/``launch``, which is when
+        the startup tracker exists.
+
+        Parameters
+        ----------
+        callback : Callable[[dict], None]
+            Called with ``{scene key: StartupState}`` for every scene that
+            has not finished.
+
+        Returns
+        -------
+        SubscriptionHandle
+            Active until its ``unsubscribe()`` is called.
+
+        Raises
+        ------
+        RuntimeError
+            If the viewer has not been started yet.
         """
-        tracker = getattr(self, "_startup", None)
-        if tracker is None:
-            raise RuntimeError(
-                "on_startup_stalled requires a started viewer; call it after "
-                "display()/launch()/show()."
-            )
-        tracker.on_stalled(callback)
+        return started_tracker(self, "on_startup_stalled").on_stalled(callback)
 
     # ------------------------------------------------------------------
     # Capture
@@ -593,7 +649,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         does not need a window.
 
         The capture shows the data **currently resident on the GPU** -- it does
-        not reslice.  Capture from :meth:`on_ready` when a load may still be
+        not reslice.  Capture from `on_ready` when a load may still be
         running.  A panel with **no canvas** renders empty, because slice
         requests are planned per canvas: give every panel a canvas (the grid
         builder does, and so does ``cellier.convenience.capture``) and let the reslice
@@ -642,7 +698,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         The grid composite is **canvases only**.  The Qt grid carries ``XY`` /
         ``XZ`` / ``YZ`` / ``3D`` labels above the panels; those are chrome and
         do not appear here.  Use
-        :func:`~cellier.convenience.screenshot_window` for a picture with the
+        `screenshot_window` for a picture with the
         labels and docks in it.
         """
         if panel is not None:
@@ -733,25 +789,33 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     # Readiness
     # ------------------------------------------------------------------
 
-    def on_ready(self, callback: Callable[[], None]) -> None:
+    def on_ready(self, callback: Callable[[], None]) -> SubscriptionHandle:
         """Register a callback fired once *all* panels' startup data is on the GPU.
 
         The callback runs after the initial reslice triggered by
-        :func:`~cellier.convenience.launch` / :func:`~cellier.convenience.show`
+        `launch` / `show`
         has committed every visual across all four panel scenes.  Use it to
         hide a loading indicator, capture a screenshot, or enable controls once
         the first view is fully loaded.
 
-        Must be called before ``launch``/``show``.  For per-scene readiness,
-        use :meth:`~cellier.controller.CellierController.on_scene_ready`
-        directly.
+        Fires once, on the first startup.  Register it before or after
+        ``display``/``launch``/``show``: before startup has finished it
+        waits, and after that it runs at once.  For one panel, use
+        `on_scene_ready`.
 
         Parameters
         ----------
         callback : Callable[[], None]
             Zero-argument callback.
+
+        Returns
+        -------
+        SubscriptionHandle
+            Active until *callback* fires; its ``unsubscribe()`` cancels the
+            callback.  Already inactive when startup had finished and
+            *callback* ran before this returned.
         """
-        self._ready_callbacks.append(callback)
+        return on_viewer_ready(self, callback)
 
     @property
     def spatial_axes(self) -> tuple[int, int, int]:
@@ -774,7 +838,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Its ``mode`` (``"all"``, ``"2d"`` or ``None``) says which panels of
         one ``add_*`` call carry one tuple of planes, and can be set at any
-        time::
+        time:
 
             ortho.clipping_controller.mode = "2d"
         """
@@ -787,7 +851,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Its ``mode`` is ``None`` (the default: no link) or ``"slices"``:
         every image and labels visual of the 3D panel then carries three
         render planes, one per 2D panel, at that panel's slice position, and
-        a 2D slider moves its plane::
+        a 2D slider moves its plane:
 
             ortho.add_image_multiscale(
                 store, single=MultiscaleImageSingleAppearance(render_mode="plane")
@@ -820,9 +884,11 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Serialize the orthoviewer model state to a JSON file.
 
         Captures the four scenes (dims, slice positions), visuals, data stores,
-        canvas camera state, and the render pipeline configuration.  The live
-        dims mirroring is *not* serialized -- the panels are saved in agreement
-        -- and :meth:`from_file` re-establishes it.
+        canvases with their camera models, and the render pipeline
+        configuration.  The live dims mirroring is *not* serialized -- the
+        panels are saved in agreement -- and `from_file` re-establishes
+        it.  The cameras are saved with their poses, which `from_file`
+        restores; the ``gui`` toolkit is not saved.
 
         Parameters
         ----------
@@ -839,6 +905,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         link_axes: bool = True,
         link_clipping_planes: ClippingLinkMode = "all",
         render_config: RenderManagerConfig | None = None,
+        gui: Literal["qt", "anywidget", "offscreen"] = "qt",
     ) -> OrthoViewer:
         """Restore an ``OrthoViewer`` from a previously serialized file.
 
@@ -849,24 +916,31 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         The clipping plane links are rebuilt too.  The panel visuals of
         each dataset are found by name and type (``f"{name}_{key}"``, as
-        :meth:`image_group` does; datasets of one name and type are paired
+        `image_group` does; datasets of one name and type are paired
         in the order they were added) and linked as *link_clipping_planes*
         says.  The mode is not in the file.  A load does not rewrite what
         was saved: a file whose panels differ where the mode would link
         them (saved in ``"2d"`` with the 3D panel's planes moved, loaded
         with ``"all"``) is refused.
 
+        Each panel camera starts at its saved pose, which ``launch`` /
+        ``show`` / ``display`` keep with their default ``fit=None``.
+
         Parameters
         ----------
         path : str or Path
-            Path to a JSON file written by :meth:`to_file`.
+            Path to a JSON file written by `to_file`.
         link_axes : bool
             Re-establish the cross-panel dims mirroring.  Default ``True``.
         link_clipping_planes : {"all", "2d"} or None
-            The clipping link mode; see :class:`OrthoViewer`.  Pass the
+            The clipping link mode; see `OrthoViewer`.  Pass the
             mode the viewer was saved in.
         render_config : RenderManagerConfig or None
             Override the serialized render pipeline configuration.
+        gui : {"qt", "anywidget", "offscreen"}
+            Toolkit to build the canvases with; the file does not record
+            one.  The canvases are built during this call, so ``"qt"`` (the
+            default) needs a ``QApplication`` first.
 
         Returns
         -------
@@ -879,7 +953,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             or the panels of a dataset carry different clipping planes
             where *link_clipping_planes* links them.
         """
-        controller = CellierController.from_file(path, render_config=render_config)
+        controller = CellierController.from_file(
+            path, render_config=render_config, gui=gui
+        )
         scenes_by_name = {
             scene.name: scene for scene in controller._model.scenes.values()
         }
@@ -927,7 +1003,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     def _panel_groups(self) -> list[tuple[str, dict[str, object]]]:
         """The panel visuals of each dataset, found by name and type.
 
-        The rule of :meth:`image_group`: the panel visuals of one ``add_*``
+        The rule of `image_group`: the panel visuals of one ``add_*``
         call are of one type and named ``f"{name}_{key}"``.  Datasets of one
         name and type are paired in scene order, which is the order they
         were added in.
@@ -990,7 +1066,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Once, through the dims controller, when the panels are linked.  By
         default a **jump**: every visual loads in full at once.  With
-        ``interactive=True``, or inside :meth:`dims_interaction`, it is a
+        ``interactive=True``, or inside `dims_interaction`, it is a
         tick of a **scrub**; see ``CellierController.update_slice_indices``.
 
         Parameters
@@ -1016,7 +1092,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Every slice-position move inside the block is a scrub tick on every
         panel it changes, so a player loads coarse while it runs and in full
-        when the block exits::
+        when the block exits:
 
             with viewer.dims_interaction():
                 for t in range(n_frames):
@@ -1037,7 +1113,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         copy of the visual, so each panel plans coarse while the transform
         changes (when its view's moving setting is on) and in full when the
         block exits, and a tilted 2D panel switches onto the brick route with
-        about a one-frame gap::
+        about a one-frame gap:
 
             with viewer.transform_interaction(visuals):
                 for angle in angles:
@@ -1096,7 +1172,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Move one panel's camera to *state*.
 
         The four cameras are independent.  By default a **jump**; with
-        ``interactive=True``, or inside :meth:`camera_interaction`, a tick of
+        ``interactive=True``, or inside `camera_interaction`, a tick of
         a **motion**.  See ``CellierController.set_camera_state``.
 
         Parameters
@@ -1104,22 +1180,27 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         panel : {"xy", "xz", "yz", "vol"}
             The panel.
         state : CameraState
-            The state to apply; :meth:`get_camera_state` returns one.
+            The state to apply; `get_camera_state` returns one.
         interactive : bool
             Whether the move is a tick of a motion.
 
         Raises
         ------
         ValueError
-            If *panel* is not a panel key, the panel has no canvas yet, or
-            *state* is for the other kind of camera.
+            If *panel* is not a panel key, the panel has no canvas yet,
+            *state* is for the other kind of camera, or its
+            ``controller_state`` is for the other kind of controller.
         """
         self._controller.set_camera_state(
             self._panel_canvas(panel), state, interactive=interactive
         )
 
     def fit_camera(
-        self, panel: str | None = None, *, interactive: bool = False
+        self,
+        panel: str | None = None,
+        *,
+        interactive: bool = False,
+        only_visible_visuals: bool = False,
     ) -> None:
         """Fit a panel's camera, or every panel's, to its scene.
 
@@ -1129,6 +1210,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             The panel to fit.  ``None`` (default) fits all four.
         interactive : bool
             Whether the move is a tick of a camera motion instead of a jump.
+        only_visible_visuals : bool
+            Fit to the visuals that are shown only.  The far plane still keeps
+            every visual in view.  Default ``False``: hidden visuals count.
 
         Raises
         ------
@@ -1140,7 +1224,11 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
                 f"Unknown panel {panel!r}. Expected one of {list(_PANEL_KEYS)}."
             )
         for key in _PANEL_KEYS if panel is None else (panel,):
-            self._controller.fit_camera(self._scenes[key].id, interactive=interactive)
+            self._controller.fit_camera(
+                self._scenes[key].id,
+                interactive=interactive,
+                only_visible_visuals=only_visible_visuals,
+            )
 
     @contextmanager
     def camera_interaction(self, panel: str) -> Generator[None, None, None]:
@@ -1174,7 +1262,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         The panels' visuals read one store and share its data coordinate
         system, so one tuple of clipping planes means the same cut in each
         of them, and each panel reduces it with its own displayed axes.
-        They are registered with :attr:`clipping_controller`, which links
+        They are registered with `clipping_controller`, which links
         them as its mode says.
         """
         visuals = {key: add_one(key, scene) for key, scene in self._scenes.items()}
@@ -1211,9 +1299,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Add an in-memory image to every panel from a single data store.
 
         Each panel gets its own visual model with its own copy of the
-        appearances.  :meth:`set_image_composite`,
-        :meth:`update_image_single_field` and
-        :meth:`update_image_channel_field` set all four panels at once.  The
+        appearances.  `set_image_composite`,
+        `update_image_single_field` and
+        `update_image_channel_field` set all four panels at once.  The
         image controls instead drive the 2D panels and the 3D panel
         separately, so the two can differ.  A composited axis cannot be one
         of the spatial axes, since some panel always displays it.
@@ -1417,7 +1505,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         ----------
         data : MeshMemoryStore or UUID
             Backing data store or the UUID of an already-registered store.
-        appearance : MeshFlatAppearance, MeshPhongAppearance,
+        appearance : MeshFlatAppearance or MeshPhongAppearance
             Appearance parameters.  When passing a dict, include the
             ``appearance_type`` key (``"flat"`` or ``"phong"``).
         name : str
@@ -1504,7 +1592,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         data : MultiscaleMeshStore or UUID
             The mesh's levels, finest first, or the UUID of an
             already-registered store.
-        appearance : MeshFlatAppearance, MeshPhongAppearance,
+        appearance : MeshFlatAppearance or MeshPhongAppearance
             Appearance parameters, shared by both levels.
         name : str
             Base label; each panel's visual is named ``f"{name}_{key}"``.
@@ -1520,18 +1608,18 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
             ``ClippingPlanesControl()`` in the ``OrthoClippingControls()``
             dock.  ``None`` (default) or an empty list shows none.
         outline : VisualOutline or None
-            Screen-space outline assignment; see :meth:`add_mesh`.
+            Screen-space outline assignment; see `add_mesh`.
         ambient_occlusion : bool or None
             Whether this visual receives ambient occlusion; see
-            :meth:`add_mesh`.
+            `add_mesh`.
         section : MeshSectionConfig or None
-            How the mesh is drawn in a 2D view; see :meth:`add_mesh`.  Each
+            How the mesh is drawn in a 2D view; see `add_mesh`.  Each
             panel's visual gets its own copy.
         lod : GeometryLodConfig or None
             Which coarse level is kept (the coarsest by default), what a
             dims scrub loads and draws, and what a moving camera draws.  The
             same for every panel; change it later with
-            :meth:`set_lod_config`.
+            `set_lod_config`.
 
         clipping_planes : Sequence[ClippingPlane]
             Clipping planes, in the store's level-0 data coordinates: the
@@ -1803,7 +1891,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     ) -> dict[str, MultiscaleImageVisual]:
         """Add a multiscale image to every panel from a single data store.
 
-        See :meth:`add_image` for the modes and the group methods.
+        See `add_image` for the modes and the group methods.
 
         Parameters
         ----------
@@ -1891,7 +1979,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     def add_labels_multiscale(
         self,
         data: BaseDataStore | UUID,
-        appearance: MultiscaleLabelsAppearance,
+        appearance: MultiscaleLabelsAppearance | None = None,
         name: str = "labels",
         render_config: MultiscaleLabelRenderConfig | None = None,
         transform: BaseTransform | None = None,
@@ -1908,8 +1996,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         ----------
         data : BaseDataStore or UUID
             Backing multiscale label store or UUID of an already-registered store.
-        appearance : MultiscaleLabelsAppearance
-            Appearance parameters.
+        appearance : MultiscaleLabelsAppearance or None
+            Appearance parameters.  Defaults to ``MultiscaleLabelsAppearance()``
+            when ``None``, one per panel.
         name : str
             Base label; each panel's visual is named ``f"{name}_{key}"``.
         render_config : MultiscaleLabelRenderConfig or None
@@ -2028,14 +2117,14 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     def loading_progress(self, visual: object) -> LoadingProgress | None:
         """How far a multiscale visual's four panels have loaded, summed.
 
-        Mirrors :meth:`CellierController.loading_progress` over the panel
+        Mirrors `CellierController.loading_progress` over the panel
         group: counts are added and the completion flags hold only when they
         hold for every panel.
 
         Parameters
         ----------
         visual : UUID, visual model, or dict
-            Any panel's multiscale visual; see :meth:`image_group`.
+            Any panel's multiscale visual; see `image_group`.
 
         Returns
         -------
@@ -2056,18 +2145,18 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         *,
         owner_id: UUID | None = None,
         weak: bool = False,
-    ) -> list[SubscriptionHandle]:
+    ) -> SubscriptionHandle:
         """Register a callback fired as a multiscale visual's panels load.
 
-        Mirrors :meth:`CellierController.on_reslice_progress` over the panel
+        Mirrors `CellierController.on_reslice_progress` over the panel
         group.  The callback gets each panel's event with ``progress``
-        replaced by the group sum (:meth:`loading_progress`); ``visual_id``
+        replaced by the group sum (`loading_progress`); ``visual_id``
         and ``scene_id`` name the panel whose change triggered it.
 
         Parameters
         ----------
         visual : UUID, visual model, or dict
-            Any panel's multiscale visual; see :meth:`image_group`.
+            Any panel's multiscale visual; see `image_group`.
         callback : Callable
             Called with a ``ResliceProgressEvent``.
         owner_id : UUID or None
@@ -2079,25 +2168,33 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Returns
         -------
-        list[SubscriptionHandle]
-            One per panel.
+        SubscriptionHandle
+            One handle for the subscriptions on every panel: its
+            ``unsubscribe()`` removes them all, and it reads as active while
+            any panel's is left.  With ``weak=True`` it goes inactive at the
+            first event after *callback* is garbage-collected.
         """
         group = self.image_group(visual)
         callback_ref = _callback_ref(callback, weak)
+        handles: list[SubscriptionHandle] = []
 
         def _on_progress(event: ResliceProgressEvent) -> None:
             target = callback_ref()
             if target is None:
+                # A collected weak callback: drop every panel's subscription,
+                # as the bus does for a weak subscription of its own.
+                group_handles(handles).unsubscribe()
                 return
             total = self.loading_progress(group[0])
             target(event._replace(progress=total) if total is not None else event)
 
-        return [
+        handles.extend(
             self._controller.on_reslice_progress(
                 vid, _on_progress, owner_id=vid if owner_id is None else owner_id
             )
             for vid in group
-        ]
+        )
+        return group_handles(handles)
 
     def on_backstop_complete(
         self,
@@ -2106,17 +2203,17 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         *,
         owner_id: UUID | None = None,
         weak: bool = False,
-    ) -> list[SubscriptionHandle]:
+    ) -> SubscriptionHandle:
         """Register a callback fired when every panel's backstop is in.
 
-        Mirrors :meth:`CellierController.on_backstop_complete` over the
+        Mirrors `CellierController.on_backstop_complete` over the
         panel group: fires on the panel event that completes the group, with
         that panel's event.
 
         Parameters
         ----------
         visual : UUID, visual model, or dict
-            Any panel's multiscale visual; see :meth:`image_group`.
+            Any panel's multiscale visual; see `image_group`.
         callback : Callable
             Called with a ``BackstopCompleteEvent``.
         owner_id : UUID or None
@@ -2127,38 +2224,44 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Returns
         -------
-        list[SubscriptionHandle]
-            One per panel.
+        SubscriptionHandle
+            One handle for the subscriptions on every panel: its
+            ``unsubscribe()`` removes them all, and it reads as active while
+            any panel's is left.  With ``weak=True`` it goes inactive at the
+            first event after *callback* is garbage-collected.
         """
         group = self.image_group(visual)
         callback_ref = _callback_ref(callback, weak)
+        handles: list[SubscriptionHandle] = []
 
         def _on_backstop(event: BackstopCompleteEvent) -> None:
             target = callback_ref()
             if target is None:
+                group_handles(handles).unsubscribe()
                 return
             progress = [self._controller.loading_progress(vid) for vid in group]
             if all(p is not None and p.backstop_complete for p in progress):
                 target(event)
 
-        return [
+        handles.extend(
             self._controller.on_backstop_complete(
                 vid, _on_backstop, owner_id=vid if owner_id is None else owner_id
             )
             for vid in group
-        ]
+        )
+        return group_handles(handles)
 
     def set_loading(self, visual: object, **fields: Any) -> ProgressiveLoadingConfig:
         """Change how every panel of a multiscale visual loads.
 
-        Mirrors :meth:`CellierController.set_loading_config`, applied to each
+        Mirrors `CellierController.set_loading_config`, applied to each
         panel.  The merged config is validated before any panel changes, so
         an invalid combination raises and changes nothing.
 
         Parameters
         ----------
         visual : UUID, visual model, or dict
-            Any panel's multiscale visual; see :meth:`image_group`.
+            Any panel's multiscale visual; see `image_group`.
         **fields :
             ``ProgressiveLoadingConfig`` fields, e.g. ``backstop_extent="view"``.
 
@@ -2178,7 +2281,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
     def set_lod_config(self, visual: object, **fields: Any) -> GeometryLodConfig:
         """Change the level-of-detail settings of every panel of a mesh.
 
-        Mirrors :meth:`CellierController.set_lod_config`, applied to each
+        Mirrors `CellierController.set_lod_config`, applied to each
         panel.  The merged config is validated before any panel changes, so
         an invalid value raises and changes nothing.
 
@@ -2186,7 +2289,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         ----------
         visual : UUID, visual model, or dict
             Any panel's multiscale mesh, or the dict
-            :meth:`add_multiscale_mesh` returned.
+            `add_multiscale_mesh` returned.
         **fields :
             ``GeometryLodConfig`` fields, e.g. ``camera_motion="full"``.
             ``coarse_level`` cannot be changed.
@@ -2212,7 +2315,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Dragging the gizmo moves and tilts the plane.  The 2D panels follow
         when the panels' planes are linked (``clipping_controller.mode``
         ``"all"``, the default).  Mirrors
-        :meth:`CellierController.add_clipping_plane_gizmo`: the 3D panel
+        `CellierController.add_clipping_plane_gizmo`: the 3D panel
         has one gizmo at a time.
 
         Parameters
@@ -2250,7 +2353,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Put a gizmo on one render plane of a visual, in the 3D panel.
 
         Dragging the gizmo moves, turns and resizes the plane.  Mirrors
-        :meth:`CellierController.add_render_plane_gizmo`: the 3D panel has
+        `CellierController.add_render_plane_gizmo`: the 3D panel has
         one gizmo at a time, clipping planes included.
 
         Parameters
@@ -2364,7 +2467,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Parameters
         ----------
         visual : UUID, visual model, or dict
-            Any panel's visual; see :meth:`image_group`.
+            Any panel's visual; see `image_group`.
         composite : bool
             ``True`` for composite mode.
         """
@@ -2376,7 +2479,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Parameters
         ----------
         visual : UUID, visual model, or dict
-            Any panel's visual; see :meth:`image_group`.
+            Any panel's visual; see `image_group`.
         field : str
             Field name on ``single``.
         value :
@@ -2394,7 +2497,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Parameters
         ----------
         visual : UUID, visual model, or dict
-            Any panel's visual; see :meth:`image_group`.
+            Any panel's visual; see `image_group`.
         channel_index : int
             The channel.
         field : str
@@ -2415,7 +2518,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Record a controls list for a fanned-out add, as two groups.
 
         One group holds the three 2D panels' visuals and one the 3D panel's
-        (:data:`_CONTROLS_GROUPS`), both with the same list, so one widget
+        (`_CONTROLS_GROUPS`), both with the same list, so one widget
         drives the 2D views together and another the 3D view.  Each is
         labelled for the dock's selector, e.g. ``"image (2D views)"``.
 

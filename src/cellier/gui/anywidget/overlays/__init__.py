@@ -6,7 +6,7 @@ mixin swaps the bus contract -- ``OverlayChangedEvent`` in,
 ``OverlayUpdateEvent`` out, keyed by overlay id -- and everything else is the
 appearance controls' own behaviour (``cellier.gui._overlay_fields``).
 
-Wire to the controller after construction::
+Wire to the controller after construction:
 
     toggle = AnywidgetOverlayVisibleToggle(overlay.id, initial_value=overlay.visible)
     controller.connect_widget(toggle, subscription_specs=toggle.subscription_specs())
@@ -42,7 +42,7 @@ class AnywidgetOverlayVisibleToggle(OverlayFieldMixin, AnywidgetToggle):
 
 
 class AnywidgetOverlayColorPicker(OverlayFieldMixin, AnywidgetColorPicker):
-    """Line colour of a :class:`~cellier.visuals.SceneBoundingBox`.
+    """Line colour of a `SceneBoundingBox`.
 
     Parameters
     ----------
@@ -58,7 +58,7 @@ class AnywidgetOverlayColorPicker(OverlayFieldMixin, AnywidgetColorPicker):
 
 
 class AnywidgetOverlayThicknessSpin(OverlayFieldMixin, AnywidgetFloatSpin):
-    """Line thickness of a :class:`~cellier.visuals.SceneBoundingBox`, in screen pixels.
+    """Line thickness of a `SceneBoundingBox`, in screen pixels.
 
     Parameters
     ----------
@@ -76,7 +76,7 @@ class AnywidgetOverlayThicknessSpin(OverlayFieldMixin, AnywidgetFloatSpin):
 
 
 class AnywidgetOverlayCornerCombo(OverlayFieldMixin, AnywidgetChoice):
-    """Canvas corner a :class:`~cellier.visuals.CenteredAxes2D` is anchored to.
+    """Canvas corner a `CenteredAxes2D` is anchored to.
 
     Parameters
     ----------
@@ -99,7 +99,7 @@ class AnywidgetOverlayCornerCombo(OverlayFieldMixin, AnywidgetChoice):
 
 
 class AnywidgetOverlayLengthSpin(OverlayFieldMixin, AnywidgetFloatSpin):
-    """Axis segment length of a :class:`~cellier.visuals.CenteredAxes2D`, in screen pixels.
+    """Axis segment length of a `CenteredAxes2D`, in screen pixels.
 
     Parameters
     ----------
@@ -117,7 +117,7 @@ class AnywidgetOverlayLengthSpin(OverlayFieldMixin, AnywidgetFloatSpin):
 
 
 class AnywidgetOverlayLineThicknessSpin(OverlayFieldMixin, AnywidgetFloatSpin):
-    """Axis line thickness of a :class:`~cellier.visuals.CenteredAxes2D`, in screen pixels.
+    """Axis line thickness of a `CenteredAxes2D`, in screen pixels.
 
     Parameters
     ----------
@@ -135,7 +135,7 @@ class AnywidgetOverlayLineThicknessSpin(OverlayFieldMixin, AnywidgetFloatSpin):
 
 
 class AnywidgetOverlayAxisAColorPicker(OverlayFieldMixin, AnywidgetColorPicker):
-    """Colour of a :class:`~cellier.visuals.CenteredAxes2D`'s first axis.
+    """Colour of a `CenteredAxes2D`'s first axis.
 
     Parameters
     ----------
@@ -156,7 +156,7 @@ class AnywidgetOverlayAxisAColorPicker(OverlayFieldMixin, AnywidgetColorPicker):
 
 
 class AnywidgetOverlayAxisBColorPicker(OverlayFieldMixin, AnywidgetColorPicker):
-    """Colour of a :class:`~cellier.visuals.CenteredAxes2D`'s second axis.
+    """Colour of a `CenteredAxes2D`'s second axis.
 
     Parameters
     ----------
@@ -177,7 +177,7 @@ class AnywidgetOverlayAxisBColorPicker(OverlayFieldMixin, AnywidgetColorPicker):
 
 
 class AnywidgetOverlayShowLabelsToggle(OverlayFieldMixin, AnywidgetToggle):
-    """Whether a :class:`~cellier.visuals.CenteredAxes2D` draws its axis labels.
+    """Whether a `CenteredAxes2D` draws its axis labels.
 
     Parameters
     ----------
@@ -193,7 +193,7 @@ class AnywidgetOverlayShowLabelsToggle(OverlayFieldMixin, AnywidgetToggle):
 
 
 class AnywidgetOverlayLabelColorPicker(OverlayFieldMixin, AnywidgetColorPicker):
-    """Text colour of a :class:`~cellier.visuals.CenteredAxes2D`'s labels.
+    """Text colour of a `CenteredAxes2D`'s labels.
 
     Parameters
     ----------
@@ -209,7 +209,7 @@ class AnywidgetOverlayLabelColorPicker(OverlayFieldMixin, AnywidgetColorPicker):
 
 
 class AnywidgetOverlayFontSizeSpin(OverlayFieldMixin, AnywidgetFloatSpin):
-    """Label font size of a :class:`~cellier.visuals.CenteredAxes2D`, in screen pixels.
+    """Label font size of a `CenteredAxes2D`, in screen pixels.
 
     Parameters
     ----------

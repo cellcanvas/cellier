@@ -59,7 +59,8 @@ class MultiscaleLabelsAppearance(BaseLabelsAppearance):
         slow store, and is what keeps a tilted view at 30 fps at native
         zoom.  Default ``False``.
     force_level : int | None
-        Overrides automatic LOD selection when set. Default None.
+        1-based pyramid level to draw (1 is the finest), overriding the
+        automatic choice; clamped to the pyramid.  Default None.
     frustum_cull : bool
         Skip bricks outside the camera frustum. Default True.
     ray_steps_per_voxel : float
@@ -91,7 +92,6 @@ class MultiscaleLabelsAppearance(BaseLabelsAppearance):
 
 
 class MultiscaleLabelRenderConfig(CellierModel):
-    model_config = ConfigDict(frozen=True)
     """Render-layer configuration for a multiscale label visual.
 
     Parameters
@@ -111,6 +111,8 @@ class MultiscaleLabelRenderConfig(CellierModel):
         The coarse backstop loaded ahead of the target level.  Changing
         only this reslices; the other fields reallocate GPU resources.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     block_size: int = 32
     gpu_budget_bytes: int = 1 * 1024**3

@@ -60,8 +60,7 @@ class AnywidgetTrailControls(VisualIdGroup, anywidget.AnyWidget):
     DEFAULT_TITLE = TRAIL_TITLE
     """Name shown when no ``title=`` is given.
 
-    ``test_composite_default_titles_match_the_shared_vocabulary`` pins it to
-    the title the renderers pass in.
+    The same title the built-in viewers pass when they build this widget.
     """
 
     title = traitlets.Unicode(DEFAULT_TITLE).tag(sync=True)

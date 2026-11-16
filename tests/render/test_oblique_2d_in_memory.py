@@ -824,3 +824,29 @@ def test_an_extent_change_rebuilds_the_brick_pyramid(tmp_path):
         assert _wrong_pixels(frame, data, voxel, valid) == 0
     finally:
         viewer.controller.close()
+
+
+def test_scene_ready_survives_an_extent_change_mid_load(tmp_path):
+    """A brick pyramid rebuilt mid-load does not stall ``on_scene_ready`` (B10)."""
+    matrix = world_matrix(LINEARS["rot_zx"])
+    viewer = new_viewer("2d")
+    try:
+        visual = _add(viewer, "image", matrix)
+        load(viewer, slice_z=_slice_at(matrix, 0.5))
+        gfx_visual = _gfx(viewer, visual)
+        store = _store_of(viewer, visual)
+        data = _random_volume(14)
+        data = np.concatenate([data, data[:, :, :8]], axis=2)  # wider in x
+        calls: list[int] = []
+
+        async def _grow() -> None:
+            viewer.controller.on_scene_ready(viewer.scene.id, lambda: calls.append(1))
+            store.data = data
+            await _load_data(viewer)
+            await gfx_visual.brick_source.wait_built()
+            await _load_data(viewer)
+
+        asyncio.run(_grow())
+        assert calls == [1]
+    finally:
+        viewer.controller.close()

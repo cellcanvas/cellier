@@ -118,7 +118,7 @@ class PlaneGizmoController:
     The part of a session that does not depend on the kind of plane: the
     drag's interaction scope, the subscriptions and closing.  Build one
     with ``CellierController.add_clipping_plane_gizmo`` or
-    ``add_render_plane_gizmo``; end it with :meth:`close`.  A canvas holds
+    ``add_render_plane_gizmo``; end it with `close`.  A canvas holds
     one at a time.
 
     A drag is one plane interaction on the visual
@@ -295,7 +295,7 @@ class ClippingPlaneGizmoController(PlaneGizmoController):
     """One gizmo on one clipping plane of one visual, in one 3D canvas.
 
     Build one with ``CellierController.add_clipping_plane_gizmo``; end it
-    with :meth:`close`.  A canvas holds one gizmo at a time.
+    with `close`.  A canvas holds one gizmo at a time.
 
     - Dragging the arrow along the normal, or a rotation ring that tilts
       the normal, assigns the plane, once per frame.  Sliding the gizmo
@@ -503,7 +503,7 @@ class RenderPlaneGizmoController(PlaneGizmoController):
     """One gizmo on one render plane of one visual, in one 3D canvas.
 
     Build one with ``CellierController.add_render_plane_gizmo``; end it
-    with :meth:`close`.  A canvas holds one gizmo at a time.
+    with `close`.  A canvas holds one gizmo at a time.
 
     The gizmo carries the plane's whole pose: it sits at the plane's
     ``origin``, its axis 0 is the normal and its axes 1 and 2 are

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class SyncPaintController(AbstractPaintController):
-    """Paint controller for :class:`LabelMemoryStore`.
+    """Paint controller for `LabelMemoryStore`.
 
     Directly and synchronously mutates the backing numpy array on every
     brush application, then announces the write with
@@ -69,24 +69,6 @@ class SyncPaintController(AbstractPaintController):
             history_depth=history_depth,
         )
 
-    def _apply_brush(self, world_coord: np.ndarray) -> None:
-        """Swap displayed axes before delegating to the base brush logic.
-
-        ``CellierController._on_raw_pointer_event`` embeds the mouse position
-        as ``world_coord[0] = pygfx_x``, ``world_coord[1] = pygfx_y``.
-        ``GFXImageMemoryVisual`` renders ``data[r, c]`` at pygfx ``(x=c, y=r)``,
-        so the row index arrives in ``world_coord[ax_col]`` and the column index
-        in ``world_coord[ax_row]``.  Swapping them here produces the correct
-        voxel address before the identity ``imap_coordinates`` call in the base.
-        """
-        ax_row, ax_col = self._displayed_axes
-        swapped = world_coord.copy()
-        swapped[ax_row], swapped[ax_col] = (
-            float(world_coord[ax_col]),
-            float(world_coord[ax_row]),
-        )
-        super()._apply_brush(swapped)
-
     def _read_old_values(self, voxel_indices: np.ndarray) -> np.ndarray:
         """Read directly from the backing numpy array."""
         idx = tuple(voxel_indices[:, i] for i in range(voxel_indices.shape[1]))
@@ -122,7 +104,13 @@ class SyncPaintController(AbstractPaintController):
         self._teardown()
 
     def abort(self) -> None:
-        """Revert all strokes by replaying the undo stack in reverse."""
+        """Revert the undoable strokes by replaying the undo stack in reverse.
+
+        Only what the undo stack holds is reverted: it keeps the last
+        ``history_depth`` strokes, so older strokes stay painted.  A stroke
+        that has not been released yet is not on the stack either, and also
+        stays painted.
+        """
         while self._history.can_undo:
             command = self._history.undo()
             if command is not None:

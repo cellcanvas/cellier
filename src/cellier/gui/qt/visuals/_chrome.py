@@ -6,9 +6,9 @@ name takes are here so that both the single-field base
 them the same way, and so the anywidget front end has one thing to mirror
 rather than five:
 
-* :func:`labelled_row` -- a single control, named by a label beside it.  The
+* `labelled_row` -- a single control, named by a label beside it.  The
   Qt twin of the anywidget ``.cellier-app-row``.
-* :func:`titled_group` -- several rows that only mean something together (the
+* `titled_group` -- several rows that only mean something together (the
   bounding box, the volume-render block), named by a frame around them.  Qt
   has a first-class widget for this and the anywidget side draws a heading;
   that is the one place the two front ends deliberately differ, because a
@@ -20,7 +20,7 @@ Nothing here talks to the bus or knows what a visual is.
 from __future__ import annotations
 
 LABELLED_ROW_OBJECT_NAME = "cellier-app-row"
-"""``objectName`` stamped on every row :func:`labelled_row` builds.
+"""``objectName`` stamped on every row `labelled_row` builds.
 
 The Qt twin of the anywidget ``.cellier-app-row`` class.  It is what lets a
 caller -- notably the visual-acceptance helper
@@ -62,7 +62,7 @@ def labelled_row(label_text: str, control, parent=None):
     Returns
     -------
     QWidget
-        The row, with :data:`LABELLED_ROW_OBJECT_NAME` as its ``objectName``.
+        The row, with ``objectName`` ``"cellier-app-row"`` (for styling).
     """
     from qtpy.QtCore import Qt
     from qtpy.QtGui import QFontInfo
@@ -96,7 +96,7 @@ def titled_group(title: str, content, parent=None):
 
     For a widget whose rows only mean something together -- ``Show`` / ``Width``
     / ``Color`` is three anonymous rows until a frame says "Bounding box".  A
-    single control should use :func:`labelled_row` instead.
+    single control should use `labelled_row` instead.
 
     Parameters
     ----------

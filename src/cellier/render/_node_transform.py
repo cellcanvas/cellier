@@ -7,7 +7,7 @@ rotation-and-scale (pygfx issue #920).  A ``state_basis="matrix"`` local
 transform stores the matrix as given.
 
 pygfx offers no way to choose the basis when a node is built, so
-:func:`ensure_matrix_basis` swaps it **in place**: a node's ``world`` is a
+`ensure_matrix_basis` swaps it **in place**: a node's ``world`` is a
 ``RecursiveTransform`` holding the local transform in its ``own`` slot and
 linked to its parent's and children's ``world`` objects, so replacing
 ``own`` keeps every link, the node's identity and the uniform-buffer update
@@ -15,9 +15,9 @@ linked to its parent's and children's ``world`` objects, so replacing
 a node at any time, attached or not, and needs no change to pygfx.  This is
 the one place cellier reaches into that pygfx internal;
 ``tests/render/test_node_transform.py`` is its canary.  If pygfx ever keeps
-shear itself, :func:`set_node_matrix` becomes ``node.local.matrix = m``.
+shear itself, `set_node_matrix` becomes ``node.local.matrix = m``.
 
-**The one rule:** :func:`set_node_matrix` is the only writer of a data
+**The one rule:** `set_node_matrix` is the only writer of a data
 node's transform.  On a matrix-basis node the component setters
 (``local.position``, ``rotation``, ``scale``) still recompose from the
 decomposed parts and would drop the shear again.
@@ -76,7 +76,7 @@ def set_node_matrix(node: gfx.WorldObject, matrix: np.ndarray) -> None:
     node : gfx.WorldObject
         The node to place.
     matrix : np.ndarray
-        A ``(4, 4)`` matrix, as :func:`cellier.render._spaces.node_matrix`
+        A ``(4, 4)`` matrix, as `cellier.render._spaces.node_matrix`
         returns.
     """
     if isinstance(node, gfx.WorldObject):

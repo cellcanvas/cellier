@@ -8,6 +8,7 @@ and the progress hooks.  An invalid combination raises and changes nothing.
 from __future__ import annotations
 
 import asyncio
+import gc
 from uuid import uuid4
 
 import pytest
@@ -275,3 +276,49 @@ def test_ortho_backstop_fires_once_every_panel_has_it(ortho_with_image, monkeypa
         bus.emit(BackstopCompleteEvent(uuid4(), uuid4(), vid))
     # Only the event that completed the group got through.
     assert [e.visual_id for e in received] == [ids[-1]]
+
+
+def test_ortho_progress_handle_removes_every_panel(ortho_with_image, monkeypatch):
+    ortho, visuals = ortho_with_image
+    ids = [v.id for v in visuals.values()]
+    table = {vid: LoadingProgress(backstop_complete=True) for vid in ids}
+    _fake_progress(ortho, monkeypatch, table)
+    received: list = []
+    progress = ortho.on_reslice_progress(visuals, received.append)
+    backstop = ortho.on_backstop_complete(visuals, received.append)
+    assert progress.active and backstop.active
+
+    ortho.unsubscribe(progress)
+    backstop.unsubscribe()
+    bus = ortho.controller._outgoing_events
+    for vid in ids:
+        bus.emit(ResliceProgressEvent(uuid4(), uuid4(), vid, table[vid]))
+        bus.emit(BackstopCompleteEvent(uuid4(), uuid4(), vid))
+
+    assert received == []
+    assert not progress.active
+    assert not backstop.active
+
+
+def test_ortho_progress_handle_goes_inactive_with_a_collected_weak_callback(
+    ortho_with_image, monkeypatch
+):
+    ortho, visuals = ortho_with_image
+    ids = [v.id for v in visuals.values()]
+    _fake_progress(ortho, monkeypatch, {})
+
+    class _Listener:
+        def on_progress(self, event) -> None:
+            pass
+
+    listener = _Listener()
+    handle = ortho.on_reslice_progress(visuals, listener.on_progress, weak=True)
+    del listener
+    gc.collect()
+    assert handle.active  # noticed at the next event, as on the bus
+
+    ortho.controller._outgoing_events.emit(
+        ResliceProgressEvent(uuid4(), uuid4(), ids[0], LoadingProgress())
+    )
+
+    assert not handle.active

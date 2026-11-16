@@ -1,7 +1,7 @@
 """The chunk scheduler: progressive loading for multiscale visuals.
 
-The core is visual-kind agnostic: a visual plans a :class:`DesiredSet` per
-cache, and each cache is a :class:`Residency` that stores arrived data and
+The core is visual-kind agnostic: a visual plans a `DesiredSet` per
+cache, and each cache is a `Residency` that stores arrived data and
 decides what to draw.
 """
 

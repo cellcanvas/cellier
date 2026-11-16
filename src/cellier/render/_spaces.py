@@ -10,7 +10,7 @@ and then reverses ``(z, y, x) -> (x, y, z)`` into pygfx order.  Reading a
 square sub-block off the visual's transform instead is only correct when the
 linear block is block-diagonal with respect to the displayed set, and on an
 unequal-rank transform it does not even raise -- it reads the homogeneous row
-and returns a plausible wrong matrix.  :class:`RenderSpaces` is the bundle of
+and returns a plausible wrong matrix.  `RenderSpaces` is the bundle of
 systems the composition needs, built by the controller (which owns all of them)
 and handed to each render visual.
 """
@@ -200,7 +200,7 @@ class RenderSpaces:
 def axis_correspondence(transform: BaseTransform) -> dict[int, int]:
     """Read ``{input axis: output axis}`` off a transform.
 
-    A thin delegation to :meth:`BaseTransform.axis_correspondence`, kept as a
+    A thin delegation to `BaseTransform.axis_correspondence`, kept as a
     function so this module's callers are unchanged.  The body moved onto the
     transform because the question is structural: a ``ByDimensionTransform``
     answers it from its block declarations, with no matrix, which is what
@@ -239,7 +239,7 @@ def build_render_spaces(
     level_transforms: Sequence[AffineTransform] = (),
     classification: ViewClassification | None = None,
 ) -> RenderSpaces:
-    """Assemble a :class:`RenderSpaces` and invert the canvas embedding once.
+    """Assemble a `RenderSpaces` and invert the canvas embedding once.
 
     Parameters
     ----------
@@ -401,7 +401,7 @@ def node_transform(
     data_to_world : AffineTransform
         The visual's own transform.
     visual_to_data : AffineTransform
-        From :func:`visual_to_data_transform`.
+        From `visual_to_data_transform`.
 
     Returns
     -------
@@ -446,7 +446,7 @@ def pygfx_to_cellier_order(coordinates: np.ndarray) -> np.ndarray:
 def cellier_to_pygfx_order(coordinates: np.ndarray) -> np.ndarray:
     """Reverse the last axis: cellier ``(z, y, x)`` -> pygfx ``(x, y, z)``.
 
-    The inverse of :func:`pygfx_to_cellier_order`, and the same operation --
+    The inverse of `pygfx_to_cellier_order`, and the same operation --
     reversing is its own inverse.  Both names exist so a call site says which
     direction it means.
 
@@ -694,7 +694,7 @@ class ElementFold:
         retained : np.ndarray
             ``(n, len(R))`` positions on the retained axes, ascending.
         collapsed : np.ndarray
-            ``(n, len(axes))`` positions on :attr:`axes`.
+            ``(n, len(axes))`` positions on `axes`.
         origin : Mapping[int, float]
             ``c0``: the collapsed constants the node matrix holds.
 
@@ -788,7 +788,7 @@ def snap_discrete_positions(
     the last sample's cell ends half a unit past its centre, and round-half-up
     sends that boundary *upward*, to a sample one past the end.  Mapping that
     index forward again then has no answer.  So the snapped value is confined
-    to the whole samples inside :meth:`BaseTransform.input_domain`.
+    to the whole samples inside `BaseTransform.input_domain`.
 
     This is emphatically **not** "pin an out-of-range position to the edge" --
     that decision was made one layer up and is not revisited here.  It is
@@ -798,7 +798,7 @@ def snap_discrete_positions(
     ----------
     positions : Mapping[int, float]
         ``{collapsed data axis: position}``, from
-        :func:`data_slice_positions`.
+        `data_slice_positions`.
     data_coordinate_system : DataCoordinateSystem
         The visual's own data system, which carries the per-axis
         ``sampling``.
@@ -848,7 +848,7 @@ def visual_covers_position(
 
     Both arguments are in the visual's own **data** coordinates, which is
     what keeps this honest: the positions come from
-    :func:`data_slice_positions`, which has already pulled the world
+    `data_slice_positions`, which has already pulled the world
     selection back through this visual's own transform, and the extents come
     from its store.  Nothing here maps anything, so there is no opportunity
     to compare a world number against a data one -- the defect slicing in
@@ -866,7 +866,7 @@ def visual_covers_position(
         ``None`` -- an empty store -- covers nothing.
     data_positions : Mapping[int, float]
         ``{collapsed data axis: position}``, from
-        :func:`data_slice_positions`.
+        `data_slice_positions`.
 
     Returns
     -------
@@ -918,7 +918,7 @@ def window_half_extents(
     """Pull a world-unit window's endpoints back into data-unit half-extents.
 
     With ``w`` the slice position in world units and ``p`` the same position
-    already pulled back (which ``data_slice_positions`` supplies)::
+    already pulled back (which ``data_slice_positions`` supplies):
 
         before_data = p - imap(w - before)
         after_data = imap(w + after) - p
@@ -1059,12 +1059,12 @@ def _anchor_discrete_axes(
     world axis the selection itself bounds on both sides:
 
     1. the slice position is snapped to the sample the slider selects
-       (:func:`snap_discrete_positions`, the rule images use);
+       (`snap_discrete_positions`, the rule images use);
     2. the scene's thickness on the matching world axis is applied around
        that sample's world position and its two endpoints are pulled back
-       (:func:`window_half_extents`);
+       (`window_half_extents`);
     3. each edge is widened by a relative epsilon
-       (:func:`widen_discrete_edges`).
+       (`widen_discrete_edges`).
 
     The comparison is then between whole samples in data units, which is
     exact at thickness 0: a world-space plane pulled back misses samples
@@ -1167,7 +1167,7 @@ def geometry_data_region(
     **A discrete axis is anchored at the sample the slider selects**, so
     thickness 0 selects exactly the current sample and the geometry changes
     frame at the same instant an image does (see
-    :func:`_anchor_discrete_axes`).
+    `_anchor_discrete_axes`).
 
     Parameters
     ----------
@@ -1229,7 +1229,7 @@ def geometry_section_region(
     that the visual's data has as spatial, continuous axes: there the
     geometry is a surface in space, and the slice plane crosses it.  Every
     other constraint **filters** (a time axis, a channel, a discrete axis):
-    a face is in or out as a whole (:func:`geometry_data_region`, with its
+    a face is in or out as a whole (`geometry_data_region`, with its
     discrete-axis rule).
 
     Parameters

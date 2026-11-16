@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from cellier._model import CellierEventedModel
 from cellier.visuals._base_visual import BaseAppearance, BaseVisual
@@ -19,13 +19,9 @@ class TrailConfig(CellierEventedModel):
     The axis is the **dict key** on the visual, not a field here, so a
     config can never disagree with where it is filed.
 
-    **Every extent here is in world units.**  The docstring said "data
-    units" until the render layer was read carefully: it has always divided
-    these by the axis scale before putting them in a request, which is to
-    say it has always treated them as world units and converted.  The code
-    was right and the description was wrong.
-
-    World units are also the only choice that stays meaningful on an
+    **Every extent here is in world units.**  The render layer divides them
+    by the axis's scale before the store sees them.  World units are the
+    only choice that stays meaningful on an
     irregularly sampled axis: a two-second trail is two seconds wherever the
     slider sits, spanning three densely sampled frames in one place and two
     sparse ones in another.  Stated in data units it would be "two frames",
@@ -35,11 +31,12 @@ class TrailConfig(CellierEventedModel):
     ----------
     before : float
         Extent of the window below the current slice position, in **world**
-        units.  Default 0.5, which is the symmetric slab points and lines
-        use.
+        units.  Default 0.5.  A trail only widens the scene's own slab: the
+        window on the axis is the larger of this and the scene's
+        half-thickness there.
     after : float
-        Extent above the current slice position, in **world** units.
-        Default 0.5.
+        Extent above the current slice position, in **world** units, on
+        the same terms.  Default 0.5.
     fade : bool
         If True, elements fade with distance from the current index.  The
         fade rides its own per-element alpha buffer, so it composes with
@@ -65,6 +62,8 @@ class TrailConfig(CellierEventedModel):
         the boundary rather than being cut square.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     before: float = 0.5
     after: float = 0.5
     fade: bool = False
@@ -88,7 +87,7 @@ class GraphAppearance(BaseAppearance):
 
     **Flat, with ``node_`` / ``edge_`` prefixes, on purpose.**  psygnal does
     not propagate nested ``EventedModel`` field changes to the parent's
-    event group, and ``Controller._wire_appearance`` subscribes only to
+    event group, and the controller listens only to
     ``visual.appearance.events`` -- so composing this from
     ``PointsMarkerAppearance`` and ``LinesMemoryAppearance`` would silently
     drop every node and edge appearance change.  The cost is a dozen
@@ -177,10 +176,11 @@ class GraphVisual(BaseVisual):
     rejected to keep the visual decoupled from the store's metadata and
     consistent with the rest of the dims API.
 
-    An out-of-range trail axis raises ``ValueError``; a valid-but-currently-
-    displayed one warns once per (visual, axis).  Both live in the
-    controller, because the visual holds only ``data_store_id`` while
-    ``ndim`` is on the store.
+    An out-of-range trail axis raises ``ValueError`` when the visual is
+    added or the trail assigned (the check needs the store's ``ndim``, which
+    the visual does not hold).  A valid axis that is currently displayed has
+    no effect, and warns once per (visual, axis) the first time it is
+    sliced that way.
 
     Parameters
     ----------

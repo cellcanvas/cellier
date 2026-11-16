@@ -43,7 +43,7 @@ class HalfSpace(CellierModel):
     necessarily in the same system, so storing it per-constraint would
     only create something that can disagree with itself.
 
-    Unlike :class:`~cellier.transform.Plane`, a **zero normal is
+    Unlike `Plane`, a **zero normal is
     allowed**.  That is not an oversight: pulling a world constraint back
     through a transform with no extent along that axis produces exactly
     that, and the honest answers are "vacuous" (offset >= 0) and
@@ -118,8 +118,8 @@ class HalfSpace(CellierModel):
 class ConvexRegion(CellierModel):
     """An intersection of half-spaces.  An empty tuple is all of space.
 
-    This is the *query* type; :class:`AxisAlignedBoundingBox` is the
-    *answer* type, and :meth:`from_bounding_box` / :meth:`bounding_box`
+    This is the *query* type; `AxisAlignedBoundingBox` is the
+    *answer* type, and `from_bounding_box` / `bounding_box`
     bridge them.  There is deliberately only one region type: an
     axis-aligned selection, an oblique slab and a camera frustum are the
     same object, and the axis-aligned fast path is an implementation
@@ -210,7 +210,7 @@ class ConvexRegion(CellierModel):
         ------
         ValueError
             If the region is empty, and so has no bounds.  Check
-            :meth:`is_empty` first when that is possible.
+            `is_empty` first when that is possible.
         """
         bounds = self._bounds()
         if bounds is None:
@@ -232,7 +232,7 @@ class ConvexRegion(CellierModel):
         the voxel selection API.  A zero-thickness region is a
         measure-zero set, so this is float-exact and effectively always
         ``False`` on one.  Voxel selection goes through
-        :meth:`bounding_box` plus the datastore's rounding rule.
+        `bounding_box` plus the datastore's rounding rule.
 
         Parameters
         ----------
@@ -273,7 +273,7 @@ class ConvexRegion(CellierModel):
 
         Constraints that are **infeasible** are kept, not dropped:
         dropping one would change an empty region into a non-empty one.
-        Ask :meth:`is_empty` for that.
+        Ask `is_empty` for that.
 
         Returns
         -------
@@ -320,7 +320,7 @@ class ConvexRegion(CellierModel):
         """Build the region equivalent to an axis-aligned box.
 
         Infinite bounds contribute no constraint, since ``p_i <= inf``
-        excludes nothing (and :class:`Plane` rejects an infinite
+        excludes nothing (and `Plane` rejects an infinite
         offset).
 
         Parameters

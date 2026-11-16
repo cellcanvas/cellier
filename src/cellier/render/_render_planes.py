@@ -228,7 +228,7 @@ def rendered_plane_frame(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """One plane's frame in a 3D view's rendered space, in pygfx order.
 
-    Unlike :func:`reduce_render_planes` the plane's ``enabled`` flag is not
+    Unlike `reduce_render_planes` the plane's ``enabled`` flag is not
     looked at: a gizmo can sit on a disabled plane.
 
     Returns
@@ -257,7 +257,7 @@ def expand_rendered_frame(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """A rendered-space frame on three named world axes.
 
-    The inverse of :func:`rendered_plane_frame`.
+    The inverse of `rendered_plane_frame`.
 
     Parameters
     ----------
@@ -303,7 +303,7 @@ def write_render_planes(buffer: gfx.Buffer, reduced: ReducedPlanes) -> bool:
     Parameters
     ----------
     buffer : gfx.Buffer
-        From :func:`make_render_planes_buffer`.
+        From `make_render_planes_buffer`.
     reduced : ReducedPlanes
         At most ``MAX_RENDER_PLANES`` planes.
 
@@ -338,7 +338,7 @@ class RenderPlanesMixin:
 
     - gives ``self.render_planes_buffer`` to every material it builds that
       can draw the ``"plane"`` render mode;
-    - calls :meth:`_apply_render_planes` wherever it is given its render
+    - calls `_apply_render_planes` wherever it is given its render
       spaces (the displayed axes may have changed).
 
     It reads ``self._spaces``.  A host on the brick route of a 2D view sets
@@ -401,7 +401,7 @@ class RenderPlanesMixin:
         Returns
         -------
         tuple[np.ndarray, np.ndarray] or None
-            ``(low, high)`` as :func:`~cellier.render._plane_outline.box_frame`
+            ``(low, high)`` as `box_frame`
             takes them; ``None`` when the visual is not placed in a 3D view
             (a 2D slice node included) or its store's shape is not known.
         """

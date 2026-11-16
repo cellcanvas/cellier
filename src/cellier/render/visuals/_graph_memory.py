@@ -130,10 +130,9 @@ class GFXGraphMemoryVisual(WholeItemGeometryMixin, GeometryClippingMixin):
     Single node for both 2D and 3D, exactly like points and lines:
     ``get_node_for_dims`` always returns the group, ``SceneManager.swap_node``
     no-ops on ``old_node is new_node``, and the reslice that follows does
-    the real work.  The group is what gets registered in ``_active_nodes``,
-    and ``SceneManager.get_visual_id_for_node`` already walks the parent
-    chain from a picked leaf, so the compound needs no scene-manager
-    changes.
+    the real work.  The group is the node registered with the scene
+    manager, and ``SceneManager.get_visual_id_for_node`` walks the parent
+    chain from a picked leaf, so a pick on either child finds the visual.
 
     Draw order
     ----------

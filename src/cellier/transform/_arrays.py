@@ -34,7 +34,7 @@ def coerce_float_array(value: Any) -> np.ndarray:
 
     Accepts an array, a sequence of numbers, or a sequence mixing numbers
     with the ``"Infinity"`` / ``"-Infinity"`` sentinels that
-    :func:`serialize_bounds` emits.
+    `serialize_bounds` emits.
 
     Parameters
     ----------

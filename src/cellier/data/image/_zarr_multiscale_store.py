@@ -7,7 +7,7 @@ ready before ``QtAsyncio.run()`` starts the event loop.
 Placement note
 --------------
 Place this file adjacent to (or in the same package as) ``chunk_request.py``
-and adjust the import below to match::
+and adjust the import below to match:
 
     from <your_package>.chunk_request import ChunkRequest
 
@@ -90,11 +90,11 @@ def _open_ts_stores(
         ``["s0", "s1", "s2"]``.
     context :
         Context every level is opened on, so they share one chunk cache
-        (:func:`~cellier.data._tensorstore_cache.build_context`).
+        (`build_context`).
     recheck :
         Whether cached chunks are revalidated on read: always, never, or
         once (``"open"``); see
-        :func:`~cellier.data._tensorstore_cache.recheck_spec_options`.
+        `recheck_spec_options`.
 
     Returns
     -------
@@ -153,7 +153,7 @@ class MultiscaleZarrDataStore(TensorStoreCacheMixin, BaseDataStore):
     data_coordinate_systems :
         One system per resolution level, finest first.  The store reads no
         axis metadata, so these come from the caller --
-        :meth:`from_scale_and_translation` builds them from a level-0
+        `from_scale_and_translation` builds them from a level-0
         system -- or, when left empty, from the scene's world axes once the
         store is added to a scene.  Each system's ``datastore_id`` must equal
         ``id``.
@@ -165,8 +165,8 @@ class MultiscaleZarrDataStore(TensorStoreCacheMixin, BaseDataStore):
         Human-readable name for the store (inherited from
         ``BaseDataStore``; defaults to ``"multiscale zarr data store"``).
 
-    Attributes (read-only properties)
-    ------------------------------------
+    Attributes
+    ----------
     n_levels :
         Number of scale levels (length of ``scale_names``).
     level_shapes :
@@ -207,8 +207,10 @@ class MultiscaleZarrDataStore(TensorStoreCacheMixin, BaseDataStore):
     def model_post_init(self, __context: Any) -> None:
         """Open all tensorstore handles.
 
-        Called automatically by pydantic after ``__init__``.
-        Must run before ``QtAsyncio.run()`` starts the event loop.
+        Called automatically by pydantic after ``__init__``.  The handles
+        open synchronously, on the constructing thread, so construction
+        blocks until every level is open; build the store before the event
+        loop has work to keep responsive.
         """
         self._reopen_ts_stores()
         # After the handles: the base checks the systems against the level
@@ -308,7 +310,7 @@ class MultiscaleZarrDataStore(TensorStoreCacheMixin, BaseDataStore):
 
         The edge convention: an axis of ``size`` voxels spans
         ``[-0.5, size - 0.5]``.  See
-        :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
+        `axis_extents`.
         """
         return gridded_axis_extents(self.level_shapes[0])
 

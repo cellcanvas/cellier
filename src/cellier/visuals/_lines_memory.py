@@ -13,8 +13,10 @@ class LinesMemoryAppearance(BaseAppearance):
     Parameters
     ----------
     color : tuple[float, float, float, float]
-        RGBA uniform fallback colour.  Used when ``color_mode`` is
-        ``"uniform"`` or when no per-vertex colors are present.
+        RGBA colour of every vertex when ``color_mode`` is ``"uniform"``.
+        Not a fallback: with ``color_mode="vertex"`` it is unused, and a
+        store with no per-vertex colours raises ``ValueError`` when the
+        lines are drawn.
     thickness : float
         Line thickness, interpreted in ``thickness_space`` units.
     thickness_space : str
@@ -22,7 +24,8 @@ class LinesMemoryAppearance(BaseAppearance):
         or ``"world"`` (world-space units).  Default ``"screen"``.
     color_mode : str
         ``"uniform"`` — use ``color`` for every vertex.
-        ``"vertex"`` — use per-vertex colors from the geometry buffer.
+        ``"vertex"`` — use per-vertex colors from the store; the store
+        must carry them.
     opacity : float
         Master opacity multiplier in [0, 1].
     """

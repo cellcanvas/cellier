@@ -12,9 +12,13 @@ slicing requests and per-canvas state.
 
 ## Config
 
-::: cellier.render.CameraConfig
 ::: cellier.render.RenderManagerConfig
+::: cellier.render.SchedulerConfig
+::: cellier.render.CameraConfig
 ::: cellier.render.TemporalAccumulationConfig
+::: cellier.render.OutlineConfig
+::: cellier.render.OutlineLayerConfig
+::: cellier.render.AmbientOcclusionConfig
 
 ## Requests
 

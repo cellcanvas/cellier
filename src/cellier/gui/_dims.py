@@ -92,7 +92,7 @@ def default_toggle_axes(
 
     The set of the scene's own rank is *displayed*.  The other is a default
     and nothing more: it is replaced as soon as the scene shows that mode
-    (:class:`DisplayedAxesMemory`), so a user who wants something else states
+    (`DisplayedAxesMemory`), so a user who wants something else states
     it by starting in that mode or by setting the displayed axes while in it.
 
     - 2D displayed: the 3D set is those axes plus one more, in world order.

@@ -20,6 +20,7 @@ from cellier.data._dataset_info import (
 )
 from cellier.data.mesh._mesh_requests import (  # noqa: TC001
     MeshData,
+    MeshSectionData,
     MeshSliceRequest,
 )
 from cellier.data.mesh._mesh_slicing import (
@@ -44,7 +45,7 @@ class MeshMemoryStore(BaseDataStore):
     positions : np.ndarray
         (n_vertices, N) float32 vertex positions for any world
         dimensionality N ≥ 2.  For a 3-D scene use shape (n_vertices, 3);
-        for a 5-D scene (t, z, y, x, c) use shape (n_vertices, 5).
+        for a 4-D scene (t, z, y, x) use shape (n_vertices, 4).
     indices : np.ndarray
         (n_faces, 3) int32 triangle face indices.
         **Must be int32** — pygfx rejects int64 at upload time.
@@ -204,7 +205,7 @@ class MeshMemoryStore(BaseDataStore):
         The bounding box of the vertices, with no padding -- a vertex is a point,
         not a cell, so there is no half-voxel to add.  ``None`` when the
         store is empty.  See
-        :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
+        `axis_extents`.
         """
         return self._cached_axis_extents(lambda: geometry_axis_extents(self.positions))
 
@@ -276,31 +277,34 @@ class MeshMemoryStore(BaseDataStore):
         """What the reads of *level* share (normals, bounds indexes)."""
         return self._level_cache
 
-    async def get_data(self, request: MeshSliceRequest) -> MeshData:
-        """Return slab-filtered, reindexed, upload-ready mesh data.
+    async def get_data(self, request: MeshSliceRequest) -> MeshData | MeshSectionData:
+        """Return the mesh sliced for *request*, upload-ready.
 
-        The work runs in an executor thread
-        (:func:`~cellier.data.mesh._mesh_slicing.slice_mesh`), so the event
-        loop stays free.  There are no cancellation checkpoints: the chunk
-        scheduler, which issues these reads, never cancels one.
+        The work runs in an executor thread, so the event loop stays free.
+        There are no cancellation checkpoints: the chunk scheduler, which
+        issues these reads, never cancels one.
 
-        Inclusion rule
-        -------------
-        A face survives only when **all** of its vertices are inside the
-        request's region.  This is the mesh analogue of the lines store's
-        "both endpoints must pass" rule and avoids projecting off-slice
-        vertices onto the slice plane with the wrong colors.
+        What comes back depends on ``request.section``:
+
+        * ``None`` (a 3D view, or a 2D view of a mesh with no extent across
+          the slice): whole faces.  A face survives only when **all** of its
+          vertices are inside the request's region, the mesh analogue of the
+          lines store's "both endpoints must pass" rule.  The result is a
+          ``MeshData``.
+        * set (a 2D view that cuts the mesh): the mesh cut by the slice
+          plane or slab, as a ``MeshSectionData`` -- the outline and fill of
+          the cross-section -- not a face-by-face filter.
 
         Parameters
         ----------
         request : MeshSliceRequest
-            Built by ``GFXMeshVisual``.
+            Built by the render layer from the current view.
 
         Returns
         -------
-        MeshData
-            Filtered, reindexed, projected mesh ready for GPU upload.
-            ``is_empty=True`` when the slab contained no faces.
+        MeshData or MeshSectionData
+            Reindexed, projected geometry ready for GPU upload.
+            ``is_empty=True`` when nothing is inside the region.
         """
         level = int(request.scale_index)
         return await run_slice(

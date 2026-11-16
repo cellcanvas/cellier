@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pydantic import ConfigDict
+
 from cellier._model import CellierEventedModel
 
 RGBA = tuple[float, float, float, float]
@@ -49,6 +51,8 @@ class BackgroundAppearance(CellierEventedModel):
         ``"vertical_gradient"``.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     visible: bool = True
     mode: Literal["uniform", "vertical_gradient"] = "vertical_gradient"
     color: RGBA = DEFAULT_BOTTOM_COLOR
@@ -69,7 +73,7 @@ class BackgroundAppearance(CellierEventedModel):
 def viewer_background() -> BackgroundAppearance:
     """The background ``Viewer`` and ``OrthoViewer`` start with.
 
-    A uniform :data:`VIEWER_BACKGROUND_COLOR` (black).  The gradient colors
+    A uniform `VIEWER_BACKGROUND_COLOR` (black).  The gradient colors
     keep their defaults, so switching ``mode`` to ``"vertical_gradient"``
     shows the usual gray gradient.  A scene built directly (``add_scene``,
     ``Scene``) keeps ``BackgroundAppearance``'s own default, the gradient.

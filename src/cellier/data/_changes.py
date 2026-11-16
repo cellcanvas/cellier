@@ -1,7 +1,7 @@
 """What a data store says when its data changes.
 
 A store announces a change on its ``data_changed`` signal with a
-:class:`StoreChange`.  There are two kinds, kept separate because their
+`StoreChange`.  There are two kinds, kept separate because their
 consumers differ:
 
 * ``"extent"`` -- the data may now occupy a different region of data space

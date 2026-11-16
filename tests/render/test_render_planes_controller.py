@@ -817,7 +817,7 @@ def test_an_in_memory_plane_drag_is_announced_and_reads_nothing(
 
 def test_the_gui_combos_offer_plane(controller, image_volume, labels_volume):
     """Every render-mode combo offers "plane"."""
-    from cellier.gui._appearance_fields import literal_choices
+    from cellier.gui._appearance_fields import selectable_field_values
     from cellier.gui._image_controls import image_control_values
 
     scene = controller.add_scene(displayed_axes=("z", "y", "x"), name="scene")
@@ -826,7 +826,7 @@ def test_the_gui_combos_offer_plane(controller, image_volume, labels_volume):
     assert (
         "plane" in image_control_values(image, fields=["render_mode"])["render_modes"]
     )
-    assert "plane" in literal_choices(labels.appearance, "render_mode")
+    assert "plane" in selectable_field_values(labels.appearance, "render_mode")
 
 
 @pytest.mark.parametrize("kind", ["image", "labels"])

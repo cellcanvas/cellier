@@ -14,6 +14,7 @@ import pytest
 
 from cellier.convenience import _launch
 from cellier.convenience._launch import DisplayHandle, _init_view, run
+from cellier.convenience._startup import on_viewer_ready
 
 
 class StubController:
@@ -28,6 +29,11 @@ class StubController:
         self.reslice_calls: list = []
         self._first_frame_cbs: list = []
         self._connected_cbs: list = []
+        # Canvases whose shown camera was placed from its model.
+        self.placed: set = set()
+
+    def _canvas_camera_placed(self, canvas_id):
+        return canvas_id in self.placed
 
     def get_canvas_ids(self, scene_id):
         return self._canvas_ids.get(scene_id, [])
@@ -36,10 +42,12 @@ class StubController:
         self.fit_calls.append(scene_id)
         self.reslice_enabled_at_fit.append(self.camera_reslice_enabled)
 
-    def reslice_scene(self, scene_id, on_ready=None):
+    def on_scene_ready(self, scene_id, callback, owner_id=None):
         self.reslice_calls.append(scene_id)
-        if on_ready is not None:
-            on_ready()
+        callback()
+
+    def on_scene_removed(self, scene_id, callback, owner_id=None):
+        return SimpleNamespace(unsubscribe=lambda: None)
 
     def on_canvas_first_frame(self, canvas_id, cb, owner_id=None):
         self._first_frame_cbs.append(cb)
@@ -98,6 +106,72 @@ def test_viewer_ready_callbacks_and_on_ready_both_fire():
     _init_view(viewer, on_ready=lambda: order.append("arg"))
 
     assert order == ["viewer", "arg"]
+
+
+def _canvas_viewer():
+    """A one-scene viewer whose startup waits for a first frame."""
+    canvas_id = uuid4()
+    scene_id = uuid4()
+    controller = StubController({scene_id: [canvas_id]})
+    viewer = SimpleNamespace(
+        controller=controller,
+        scene=SimpleNamespace(id=scene_id),
+        gui="qt",
+        _ready_callbacks=[],
+    )
+    return viewer, controller
+
+
+def test_on_ready_cancelled_after_startup_began_does_not_fire():
+    """The launcher reads the viewer's callbacks when startup finishes."""
+    viewer, controller = _canvas_viewer()
+    fired: list[int] = []
+    handle = on_viewer_ready(viewer, lambda: fired.append(1))
+
+    _init_view(viewer, fit="none")
+    handle.unsubscribe()
+    controller.fire_first_frames()
+
+    assert fired == []
+    assert not handle.active
+
+
+def test_on_ready_registered_during_startup_fires_at_the_end():
+    viewer, controller = _canvas_viewer()
+    fired: list[int] = []
+
+    _init_view(viewer, fit="none")
+    handle = on_viewer_ready(viewer, lambda: fired.append(1))
+    assert fired == []
+    assert handle.active
+
+    controller.fire_first_frames()
+
+    assert fired == [1]
+    assert not handle.active
+
+
+def test_on_ready_after_startup_runs_at_once():
+    viewer, controller = _canvas_viewer()
+    _init_view(viewer, fit="none")
+    controller.fire_first_frames()
+    fired: list[int] = []
+
+    handle = on_viewer_ready(viewer, lambda: fired.append(1))
+
+    assert fired == [1]
+    assert not handle.active
+
+
+def test_on_ready_fires_on_the_first_startup_only():
+    viewer, _controller = _single_scene_viewer(StubController())
+    fired: list[int] = []
+    on_viewer_ready(viewer, lambda: fired.append(1))
+
+    _init_view(viewer)
+    _init_view(viewer)
+
+    assert fired == [1]
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +233,57 @@ def test_fit_none_never_fits():
     controller.fire_first_frames()
 
     assert controller.fit_calls == []
+
+
+def test_default_fit_is_ready_for_unplaced_cameras():
+    canvas_id = uuid4()
+    scene_id = uuid4()
+    controller = StubController({scene_id: [canvas_id]})
+    viewer, _ = _single_scene_viewer(controller)
+    viewer.scene.id = scene_id
+
+    _init_view(viewer)
+    controller.fire_first_frames()
+
+    assert controller.fit_calls == [scene_id, scene_id]
+
+
+def test_default_fit_keeps_cameras_placed_from_their_models():
+    """A restored viewer keeps its saved view; an unplaced scene still fits."""
+    placed_canvas, other_canvas = uuid4(), uuid4()
+    placed_scene, other_scene = uuid4(), uuid4()
+    controller = StubController(
+        {placed_scene: [placed_canvas], other_scene: [other_canvas]}
+    )
+    controller.placed.add(placed_canvas)
+    viewer = SimpleNamespace(
+        controller=controller,
+        scenes={
+            "a": SimpleNamespace(id=placed_scene),
+            "b": SimpleNamespace(id=other_scene),
+        },
+        gui="qt",
+        _ready_callbacks=[],
+    )
+
+    _init_view(viewer)
+    controller.fire_first_frames()
+
+    assert controller.fit_calls == [other_scene, other_scene]
+
+
+def test_an_explicit_fit_overrides_placed_cameras():
+    canvas_id = uuid4()
+    scene_id = uuid4()
+    controller = StubController({scene_id: [canvas_id]})
+    controller.placed.add(canvas_id)
+    viewer, _ = _single_scene_viewer(controller)
+    viewer.scene.id = scene_id
+
+    _init_view(viewer, fit="immediate")
+    controller.fire_first_frames()
+
+    assert controller.fit_calls == [scene_id]
 
 
 def test_empty_scene_list_fires_startup_immediately():

@@ -413,7 +413,7 @@ def loop_sides(
         ``Cut.apex_above``.
     node_2d : np.ndarray
         ``(n_nodes, 2)`` node positions in a right-handed basis of the plane
-        (:func:`plane_basis`).
+        (`plane_basis`).
 
     Returns
     -------
@@ -470,7 +470,7 @@ def fill_loops(
     loops : list[np.ndarray]
         ``(L_i, 2)`` loops, in order, the start not repeated.
     sides : np.ndarray or None
-        ``(n_loops,)`` from :func:`loop_sides`.  Loops that nest are filled
+        ``(n_loops,)`` from `loop_sides`.  Loops that nest are filled
         by winding number: a region is filled where the sum of the sides of
         the loops around it is not zero.  A nest holding a loop of side 0,
         and every nest when *sides* is ``None``, is filled even-odd.
@@ -753,7 +753,7 @@ def section_cut(
     indices : np.ndarray
         ``(F, 3)`` faces.
     normal, offset, tol
-        The plane and its tolerance; see :func:`cut_plane`.
+        The plane and its tolerance; see `cut_plane`.
     candidates : np.ndarray or None
         Face ids to look at; ``None`` is every face.
     vertex_colors, face_colors : np.ndarray or None
@@ -848,7 +848,7 @@ def section_slab(
     the two cuts.  A slab thinner than the tolerance is the cut at its
     middle.
 
-    Parameters are those of :func:`section_cut`, with the slab's two
+    Parameters are those of `section_cut`, with the slab's two
     offsets.  *candidates* must hold every face that touches the slab.
     """
     if high - low <= 2.0 * tol:

@@ -1,16 +1,16 @@
 """Screen-space ambient occlusion effect pass.
 
 One ``EffectPass`` driving three inner full-quad passes over two private
-single-channel textures::
+single-channel textures:
 
     _AOComputePass    depthTex (+ normalTex, pickTex, lutTex)  -> _ao_tex
     _AOBlurPass       _ao_tex                                  -> _ao_blur_tex
     _AOCompositePass  colorTex + _ao_blur_tex                  -> targetTex
 
 Structurally this follows
-:class:`~cellier.render._temporal_accumulation.TemporalAccumulationPass`
+`TemporalAccumulationPass`
 -- private textures, lazily reallocated on size change -- rather than
-:class:`~cellier.render._outline.OutlinePass`, which owns none.  The
+`OutlinePass`, which owns none.  The
 private textures exist because the occlusion field has to be blurred
 before it is applied, and a blur cannot read the target it writes.
 
@@ -18,7 +18,7 @@ Unlike the pick buffer, the depth target ships with ``TEXTURE_BINDING``
 already granted, and ``flush()`` hands it to any pass declaring
 ``USES_DEPTH = True``.  So this pass needs no usage grant and no blender
 subclass; the ``normal`` target it *prefers* for volumes does, and that is
-:mod:`cellier.render._cellier_blender`'s job.
+`cellier.render._cellier_blender`'s job.
 
 ``r8unorm`` for the intermediates gives 256 levels of occlusion -- ample
 for a quantity that is blurred and then multiplied -- at one byte per
@@ -421,7 +421,8 @@ class SSAOPass(EffectPass):
 
         The rotation is a counter (mod 4096), not a random draw, so N frames
         from zero always produce the same sequence.  Rewinding is what makes
-        a capture of N frames reproducible -- see ``cellier.render._capture``.
+        a capture of N frames reproducible (``CellierController.screenshot``
+        rewinds it before drawing).
         """
         self._frame_index = 0
 
@@ -501,18 +502,17 @@ class SSAOPass(EffectPass):
     def set_scene_extent(self, diagonal: float) -> None:
         """Record the scene bounding box diagonal for the auto radius.
 
-        Called when the answer can change -- a camera fit, or an
-        ``AABBChangedEvent`` -- rather than per frame, because
-        ``scene.get_world_bounding_box()`` walks the whole scene graph and
-        a multiscale visual is a ``gfx.Group`` with many brick children.
+        The controller measures the scene's data box from the stores and
+        calls this after a camera fit and whenever that box changes, not per
+        frame.
 
         Parameters
         ----------
         diagonal : float
             Length of the scene bounding box diagonal, in scene units.
             Non-finite or non-positive values are ignored, so a degenerate
-            box (an empty scene, or one fitted before the first reslice
-            completed) leaves the previous radius in place.
+            box (a scene whose data is a single point) leaves the previous
+            radius in place.
         """
         diagonal = float(diagonal)
         if not np.isfinite(diagonal) or diagonal <= 0.0:

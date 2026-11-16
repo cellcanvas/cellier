@@ -28,6 +28,7 @@ from pygfx.renderers.wgpu import (
 from pygfx.renderers.wgpu.shaders.volumeshader import BaseVolumeShader
 from pygfx.resources import Buffer
 
+from cellier.render._pick_layout import pick_bit_layout
 from cellier.render._render_planes import (
     RENDER_PLANES_STRUCT,
     make_render_planes_buffer,
@@ -81,6 +82,16 @@ VOL_PARAMS_DTYPE = np.dtype(
         ("_pad4a", "<u4"),
         ("_pad4b", "<u4"),
         ("_pad4c", "<u4"),
+        # The pick position's fields, from ``pick_bit_layout(dataset_size)``;
+        # read by cellier.pick_encoding.wgsl.
+        ("pick_frac_bits_x", "<i4"),
+        ("pick_frac_bits_y", "<i4"),
+        ("pick_frac_bits_z", "<i4"),
+        ("_pad5", "<i4"),
+        ("pick_widths_x", "<i4"),
+        ("pick_widths_y", "<i4"),
+        ("pick_widths_z", "<i4"),
+        ("_pad6", "<i4"),
     ]
 )
 
@@ -148,7 +159,9 @@ def build_vol_params_buffer(
     Returns
     -------
     Buffer
-        Uniform buffer bound as ``u_vol_params`` in the shader.
+        Uniform buffer bound as ``u_vol_params`` in the shader.  Its pick
+        rows hold ``pick_bit_layout(dataset_size)``, the layout the node's
+        decoder reads the pick with.
     """
     gd, gh, gw = base_layout.grid_dims
     bs = float(base_layout.block_size)
@@ -173,6 +186,10 @@ def build_vol_params_buffer(
     data["lut_size_z"] = float(gd)
     data["overlap"] = ov
     data["frame_index"] = 0
+    layout = pick_bit_layout(dataset_size)
+    for k, axis in enumerate("xyz"):
+        data[f"pick_frac_bits_{axis}"] = layout.frac_bits[k]
+        data[f"pick_widths_{axis}"] = layout.widths[k]
 
     return Buffer(data, force_contiguous=True)
 
@@ -298,7 +315,7 @@ def data_full_extent_box(dataset_size: np.ndarray) -> np.ndarray:
     *outer edges* of the boundary voxels spans ``[-0.5, N-0.5]`` on each
     axis.  This is the single source of truth for the multiscale bounding
     box; both the ``NormSizedVolume`` bounds and the AABB wireframe derive
-    from it (via :func:`norm_full_extent_box`).
+    from it (via `norm_full_extent_box`).
 
     Parameters
     ----------
@@ -318,9 +335,9 @@ def norm_full_extent_box(
     dataset_size: np.ndarray,
     norm_size: np.ndarray,
 ) -> np.ndarray:
-    """Map :func:`data_full_extent_box` into normalized (proxy-box) space.
+    """Map `data_full_extent_box` into normalized (proxy-box) space.
 
-    Inverts the normalized -> data map (see :func:`_norm_to_data_params`)
+    Inverts the normalized -> data map (see `_norm_to_data_params`)
     so the returned box, once pushed through ``compose_world_transform``,
     lands exactly on the data-space full voxel extent ``[-0.5, N-0.5]``.
     Used for the ``NormSizedVolume`` local bounds and the 3D AABB wireframe,
@@ -351,7 +368,7 @@ def compose_world_transform(
     """Return the 4x4 matrix mapping normalized space -> world space.
 
     The vertex shader emits proxy-box positions in normalized space.
-    ``u_wobject.world_transform`` must go normalized -> world, i.e.::
+    ``u_wobject.world_transform`` must go normalized -> world, i.e.:
 
         world_transform = data_to_world @ norm_to_data
 
@@ -424,7 +441,7 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         Slab projection of a 2D view's slice node: ``"max"``, ``"min"``,
         ``"mean"``, or ``"none"`` (default) to draw the plane.  A
         template variable: ``"none"`` compiles the slab out.  The window
-        and the step are uniforms (:meth:`set_slab`).
+        and the step are uniforms (`set_slab`).
     """
 
     uniform_type: ClassVar[dict] = dict(
@@ -581,8 +598,8 @@ class MultiscaleVolumeBrickMaterial(gfx.VolumeIsoMaterial):
         The seed is a counter rather than a random draw, so N ticks from
         zero always produce the same sequence of ray-start offsets.  Rewinding
         it is therefore what turns "draw N frames" into a reproducible
-        picture, and it is the only reason this method exists -- see
-        ``cellier.render._capture``.
+        picture, and it is the only reason this method exists: screenshots
+        (``CellierController.screenshot``) rewind it before drawing.
         """
         self._frame_index = 0
         buf_data = self.vol_params_buffer.data

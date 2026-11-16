@@ -142,7 +142,7 @@ class QtMeshSectionControls(VisualIdGroup):
     The settings act only in a 2D view, so the group is hidden while none of
     the scenes in ``displayed_dimensions`` displays two dimensions.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         controls = QtMeshSectionControls(visual.id, section=visual.section.model_dump())
         controller.connect_widget(
@@ -157,10 +157,11 @@ class QtMeshSectionControls(VisualIdGroup):
     section :
         The current config, as ``MeshSectionConfig.model_dump()``.
     title :
-        The group's name.  Defaults to :data:`DEFAULT_TITLE`.
+        The group's name.  Defaults to `DEFAULT_TITLE`.
     displayed_dimensions :
-        Scene id to how many dimensions it displays now
-        (``section_display_seed``).  The control follows these scenes'
+        Scene id to how many dimensions it displays now (2 or 3, from
+        ``len(scene.dims.selection.displayed_axes)`` of each scene the
+        visuals are in).  The control follows these scenes'
         ``DimsChangedEvent``.  Empty (the default) keeps it always shown.
     parent :
         Optional Qt parent widget.

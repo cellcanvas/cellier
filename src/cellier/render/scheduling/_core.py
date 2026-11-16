@@ -1,15 +1,15 @@
 """The chunk scheduler's state machine, without an event loop.
 
-:class:`SchedulerCore` owns one registry per cache and makes every decision:
+`SchedulerCore` owns one registry per cache and makes every decision:
 what a pass keeps and drops, which read to issue next, what an arrival
 becomes, which slot a commit takes and what it evicts, and when a cache's
 view is complete.  It never awaits anything and never reads a clock on its
 own: the caller passes ``now``, starts the reads it returns, and reports each
-result back.  :class:`~cellier.render.scheduling.ChunkScheduler` is that
+result back.  `ChunkScheduler` is that
 caller on asyncio; the property test drives the core directly with a
 simulated clock.
 
-The order of ``RECENT`` records, most important first::
+The order of ``RECENT`` records, most important first:
 
     (cls == BACKSTOP desc, wanted_gen desc, cls desc, rank asc)
 
@@ -19,7 +19,7 @@ intermediate stages of the views visited do not outlive the fine bricks of
 the view just left.  With two classes this is ``(cls, wanted_gen, rank)``.
 
 A cache declares how its reads are treated with a
-:class:`~cellier.render.scheduling.CachePolicy`: a cap on target reads in
+`CachePolicy`: a cap on target reads in
 flight, the resource a read occupies (I/O or compute), and what a failure
 costs.  With the default policy on every cache the core decides exactly as it
 did before policies existed; the trace guard in
@@ -78,7 +78,7 @@ ALL_SCENES: object = object()
 
 
 class ReadOutcome:
-    """What :meth:`SchedulerCore.complete_read` did with a result."""
+    """What `SchedulerCore.complete_read` did with a result."""
 
     #: The data is waiting for a commit round.
     ARRIVED = "arrived"
@@ -95,7 +95,7 @@ class ReadOutcome:
 
 
 def store_key(store: Any) -> Any:
-    """The id :meth:`SchedulerCore.invalidate` knows *store* by.
+    """The id `SchedulerCore.invalidate` knows *store* by.
 
     The store's ``id`` (every Cellier data store has one), or ``id(store)``
     for an object without it.
@@ -277,7 +277,7 @@ class SchedulerCore:
     # -- passes ----------------------------------------------------------------
 
     def set_desired(self, desired: DesiredSet) -> None:
-        """Record the latest desired set for its cache; applied by :meth:`process`.
+        """Record the latest desired set for its cache; applied by `process`.
 
         Raises
         ------
@@ -315,7 +315,7 @@ class SchedulerCore:
 
     @property
     def has_pending(self) -> bool:
-        """Whether passes are waiting for :meth:`process`."""
+        """Whether passes are waiting for `process`."""
         return bool(self._pending)
 
     def process(self) -> list[int]:
@@ -448,7 +448,7 @@ class SchedulerCore:
         own has not been committed: started now, the target read would
         compete with that commit and the coarse picture would reach the
         screen late.  The commit round that takes the arrival is followed by
-        a pump (:meth:`ChunkScheduler.commit_round`).
+        a pump (`ChunkScheduler.commit_round`).
         """
         cap = cache.policy.max_target_fetching
         if cap is None:
@@ -493,7 +493,7 @@ class SchedulerCore:
         -------
         list[ReadTicket]
             Reads now ``FETCHING``.  Report each through
-            :meth:`complete_read`.
+            `complete_read`.
         """
         picks: dict[int, list[tuple[int, int]]] = defaultdict(list)
         blocked: set[str] = set()
@@ -575,7 +575,7 @@ class SchedulerCore:
         Parameters
         ----------
         ticket : ReadTicket
-            From :meth:`next_reads`.
+            From `next_reads`.
         data : Any
             The result, when the read succeeded.
         error : BaseException | None
@@ -584,7 +584,7 @@ class SchedulerCore:
         Returns
         -------
         str
-            A :class:`ReadOutcome` value.
+            A `ReadOutcome` value.
         """
         self.in_flight[ticket.lane] -= 1
         cache = self._caches.get(ticket.cache_id)
@@ -712,7 +712,7 @@ class SchedulerCore:
         ----------
         scene : Hashable | None | object
             Commit only the caches registered with this scene (a canvas's
-            frame round), or every cache for :data:`ALL_SCENES` (the
+            frame round), or every cache for `ALL_SCENES` (the
             fallback round, and the default).
 
         Returns
@@ -898,7 +898,7 @@ class SchedulerCore:
         Parameters
         ----------
         store_id : Any
-            The store's id, as :func:`store_key` gives it.
+            The store's id, as `store_key` gives it.
         region : Any
             Handed to each cache's ``Residency.keys_in_region``.
 

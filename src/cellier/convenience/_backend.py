@@ -1,18 +1,18 @@
 """Which widget classes a toolkit provides (the ``GuiBackend`` seam).
 
 A *backend* answers "which widget class serves this control"; a *host*
-(:mod:`cellier.convenience._hosts`) answers "how are widgets composed and
+(`cellier.convenience._hosts`) answers "how are widgets composed and
 presented".  The split is what lets one anywidget backend serve two hosts,
 Jupyter and marimo, and it is what lets the layout walk in
-:mod:`cellier.convenience.layout._walk` be written once.
+`cellier.convenience.layout._walk` be written once.
 
 Deliberately **not** a registry.  There are exactly two backends, named here
-and looked up through :func:`backend_for`; a third would be three more lines,
+and looked up through `backend_for`; a third would be three more lines,
 and designing a plugin interface from two similar cases would bake in
 assumptions neither has tested.
 
 Not every ``gui`` value has a backend: ``gui="offscreen"`` is headless capture
-with no widgets at all, and :func:`backend_for` refuses it by name rather than
+with no widgets at all, and `backend_for` refuses it by name rather than
 failing on a missing key.
 """
 
@@ -41,7 +41,7 @@ class GuiBackend(Protocol):
 
     #: ``ControlSpec.kind`` -> constructor, for the controls that need a
     #: bespoke builder.  Single-field controls fall through to
-    #: :meth:`field_widget`.
+    #: `field_widget`.
     builders: dict[str, ControlBuilder]
 
     def field_widget(self, spec: ControlSpec, visual_ids: list) -> WidgetView:

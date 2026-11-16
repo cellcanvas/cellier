@@ -1,16 +1,16 @@
 """The chunk scheduler's adapters for brick atlases.
 
-:class:`ImageResidency3D` and :class:`ImageResidency2D` are the
-:class:`~cellier.render.scheduling.Residency` of one atlas and its LUT --
-a :class:`~cellier.render.block_cache.BlockCache3D` or a
-:class:`~cellier.render.block_cache.BlockCache2D` -- for image and labels,
+`ImageResidency3D` and `ImageResidency2D` are the
+`Residency` of one atlas and its LUT --
+a `BlockCache3D` or a
+`BlockCache2D` -- for image and labels,
 one per drawn channel.  The scheduler decides which brick lives in which
 slot; these write the brick, paint the LUT, and turn keys back into store
 requests.
 
 Keys
 -----------------
-A key is a packed ``int64``::
+A key is a packed ``int64``:
 
     level:4 | slice id:16 | g0:12 | g1:12 | g2:12
 
@@ -264,7 +264,7 @@ class _AtlasResidency:
         Raises
         ------
         RuntimeError
-            If the atlas has seen :data:`MAX_SLICE_IDS` distinct selections.
+            If the atlas has seen `MAX_SLICE_IDS` distinct selections.
         """
         sid = self._selection_ids.get(selection)
         if sid is None:
@@ -514,7 +514,7 @@ class ImageResidency3D(_AtlasResidency):
         """Paint the LUT: background oldest first, then the foreground.
 
         With ``current_slice_only`` the background is only the current
-        slice's earlier bricks (:meth:`RegistryView.paint_groups_current_slice`).
+        slice's earlier bricks (`RegistryView.paint_groups_current_slice`).
         """
         groups = None
         if self.current_slice_only:

@@ -66,7 +66,7 @@ def render_qt(layout: Layout, viewer: object) -> object:
 
     A wrapper: the walk is shared with every other backend
     (``convenience.layout._walk.render_layout``) and everything Qt-specific
-    about it lives in :class:`~cellier.convenience._hosts.QtLayoutHost`.
+    about it lives in `QtLayoutHost`.
 
     Parameters
     ----------
@@ -121,7 +121,7 @@ def _scroll_dock_widget(content: object) -> object:
     ``QMainWindow`` is never shorter than its docks: a long controls column
     made the window taller than the screen, taking the canvas (and the dims
     sliders under it) past the bottom edge.  In the scroll area the dock
-    asks for :data:`DOCK_SCROLL_MIN_HEIGHT` and scrolls the rest.
+    asks for `DOCK_SCROLL_MIN_HEIGHT` and scrolls the rest.
 
     The width does not scroll: the area is as wide as *content* needs plus
     the scroll bar, so the bar never covers the controls.  What it needs is

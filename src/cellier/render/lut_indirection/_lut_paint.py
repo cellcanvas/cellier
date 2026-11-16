@@ -10,7 +10,7 @@ the LUT, ``lut.reshape(n0, s0, n1, s1, ...)[g0, :, g1, :, ...]``.  Tail bricks
 (the last brick along an axis owns the rest of the grid), clipped bricks and
 small groups take the per-brick loop.  The output is identical to the loop's.
 
-The cell -> brick rule is :mod:`._cell_brick_rule`'s, so the LUT agrees with
+The cell -> brick rule is `_cell_brick_rule`'s, so the LUT agrees with
 the shaders.
 """
 

@@ -50,15 +50,12 @@ class AnywidgetRenderPlanesControls(VisualIdGroup, anywidget.AnyWidget):
     gizmo on its plane; one plane of a canvas has it at a time, clipping
     planes included.
 
-    The front end reports an action by setting ``edit`` to
-    ``{"action", "index", "value", "serial"}``; the Python side applies it
-    and syncs ``rows`` back.  A refused edit comes back as ``error`` with
-    ``rows`` unchanged.  ``rows``, ``error``, ``blocked`` and ``can_add``
-    are written by the Python side only; a value a host writes into them is
-    put back.  An update is sent only when the planes differ from the ones
-    held, so a host that delivers one edit twice sends one.
+    An edit is sent as ``RenderPlanesUpdateEvent`` with the whole new
+    tuple, and only when the planes differ from the ones held.  An edit the
+    model refuses is shown as an error and the rows keep their previous
+    values.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         data = get_render_planes_data_from_visual(controller, visual.id)
         controls = AnywidgetRenderPlanesControls(visual.id, **data)

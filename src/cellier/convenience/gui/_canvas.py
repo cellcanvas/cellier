@@ -35,15 +35,11 @@ def _resolve_gui(viewer: Viewer, gui: str | None) -> str:
 class AnywidgetCanvasView:
     """An anywidget canvas leaf plus its dims panel leaf.
 
-    Returned by :func:`build_canvas_widget` for ``gui="anywidget"``.  Composes
+    Returned by `build_canvas_widget` for ``gui="anywidget"``.  Composes
     to a single column: canvas above the dims sliders.
 
-    Appearance controls are **not** part of this view.  An earlier design put
-    them in a left column here as well as in a dock; nothing ever reached that
-    path -- ``build_canvas_widget`` never forwarded the parameters it needed --
-    and ``Layout(left_dock=AppearanceControls())`` already produces the same
-    ``[controls | canvas]`` arrangement through the supported path, on both
-    toolkits.
+    Appearance controls are not part of this view; put them beside the
+    canvas with ``Layout(left_dock=AppearanceControls())``.
 
     Attributes
     ----------
@@ -53,7 +49,7 @@ class AnywidgetCanvasView:
         Axis slice sliders plus the 2D/3D toggle button, below the canvas.
     canvas_size : tuple[int, int]
         The CSS pixel size the canvas was constructed with.  Reused by
-        :meth:`compose` as the column's responsive min-width floor.
+        `compose` as the column's responsive min-width floor.
     """
 
     canvas: object
@@ -71,7 +67,11 @@ class AnywidgetCanvasView:
         return self.dims
 
     def compose(self, host: LayoutHost) -> object:
-        """Arrange canvas above dims, floored at ``canvas_size[0]``."""
+        """Arrange canvas above dims, floored at ``canvas_size[0]``.
+
+        Called by the viewer's layout, which supplies *host* (an internal
+        layout backend); not meant to be called from user code.
+        """
         return host.stack(
             [host.leaf(self.canvas), host.leaf(self.dims)],
             min_width=self.canvas_size[0],
@@ -123,7 +123,8 @@ def build_canvas_view(
     fov : float
         Vertical field of view in degrees for a new 3D camera.
     depth_range_3d, depth_range_2d : tuple[float, float]
-        ``(near, far)`` clip distances for a new 3D / 2D camera.
+        ``(near, far)`` clip distances for a new 3D / 2D camera.  The 3D far
+        is raised when the scene's data needs more.
     canvas_size : tuple[int, int] or None
         Initial CSS pixel size.  Meaningful to the anywidget backend only.
     fit_view_direction_3d, fit_up_3d : Mapping[AxisRef, float] or None
@@ -220,10 +221,12 @@ def build_canvas_widget(
 ) -> QtCanvasWidget | AnywidgetCanvasView:
     """Build a canvas widget with wired dims sliders for the viewer.
 
-    Creates a canvas attached to the viewer's scene and connects its dims
-    sliders to the controller event bus.  For ``gui="qt"`` this returns a
+    Reuses the viewer's scene's canvas if it has one -- one restored by
+    ``from_file``, or added with ``add_canvas`` -- with its camera state, and
+    otherwise creates one.  Either way the dims sliders are connected to the
+    controller event bus.  For ``gui="qt"`` this returns a
     ``QtCanvasWidget`` (canvas above a dims slider panel); for
-    ``gui="anywidget"`` it returns an :class:`AnywidgetCanvasView` holding the
+    ``gui="anywidget"`` it returns an `AnywidgetCanvasView` holding the
     canvas and control-panel leaves plus a ``compose(host)`` method.
 
     Parameters
@@ -235,23 +238,26 @@ def build_canvas_widget(
         ``ContinuousAxisValues`` for a free slider or a
         ``DiscreteAxisValues`` for one that steps through listed values.
         Typically obtained from
-        :func:`cellier.convenience.axis_values_from_viewer`, with any
+        `cellier.convenience.axis_values_from_viewer`, with any
         discrete axes replaced by the caller.
     gui : "qt", "anywidget", or None
         GUI toolkit.  Defaults to ``viewer.gui`` when ``None``; raises if it
         conflicts with ``viewer.gui``.
     render_modes : set[str] or None
-        Which camera modes to prepare on the canvas.  Defaults to the scene's
-        own ``render_modes``.
+        Which camera modes to prepare on a new canvas.  Defaults to the
+        scene's own ``render_modes``.  This and the arguments below up to
+        *fit_up_3d* are ignored when an existing canvas is reused, except
+        *canvas_size*, which still sizes the anywidget view.
     initial_dim : str or None
-        Which mode is active first.  Inferred from the scene's current
-        ``displayed_axes`` when ``None``.
+        Which mode is active first on a new canvas.  Inferred from the
+        scene's current ``displayed_axes`` when ``None``.
     fov : float
         Vertical field-of-view in degrees for the 3D perspective camera.
         Default ``70.0``.
     depth_range_3d : tuple[float, float]
         ``(near, far)`` clip distances for the 3D camera.
-        Default ``(1.0, 8000.0)``.
+        Default ``(1.0, 8000.0)``.  Far is raised when the scene's data
+        needs more; near is kept.
     depth_range_2d : tuple[float, float]
         ``(near, far)`` clip distances for the 2D camera.
         Default ``(-500.0, 500.0)``.
@@ -269,7 +275,7 @@ def build_canvas_widget(
     QtCanvasWidget or AnywidgetCanvasView
         For ``gui="qt"``, a widget composing the render surface and dims
         slider panel (embed ``canvas_widget.widget``).  For
-        ``gui="anywidget"``, an :class:`AnywidgetCanvasView`.
+        ``gui="anywidget"``, an `AnywidgetCanvasView`.
 
     Raises
     ------

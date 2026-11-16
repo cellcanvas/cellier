@@ -147,7 +147,7 @@ class _ThicknessSpinBox(QDoubleSpinBox):
     """A half-thickness box whose stepped changes are ticks of a drag.
 
     ``stepBy`` serves the arrows, the arrow keys, the wheel and Page
-    Up/Down; while it runs, :attr:`stepping` is true, and the change it
+    Up/Down; while it runs, `stepping` is true, and the change it
     makes is sent ``interactive=True``.  A typed value goes through
     ``valueChanged`` alone and is a jump.  A spin box has no press or
     release to close a scope on, so the drag ends on stillness
@@ -227,7 +227,7 @@ class QtDimsControl:
 
     Follows the bus-widget pattern:
 
-    - One ``UUID`` (``self._id``) shared by the sliders and the toggle.
+    - One widget id shared by the sliders and the toggle.
     - Subscribed to ``DimsChangedEvent`` via ``controller.connect_widget``.
     - Echo-filters its own changes using ``source_id``.
     - Suppresses re-entrant slider signals with ``blockSignals`` when applying
@@ -236,7 +236,7 @@ class QtDimsControl:
       for the echoed ``DimsChangedEvent``, same as the sliders, so there is a
       single source of truth for "what is currently displayed."
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         control = QtDimsControl(scene_id, axis_values=..., axis_labels=...)
         controller.connect_widget(
@@ -272,6 +272,11 @@ class QtDimsControl:
     initial_thickness :
         Starting half-thicknesses; typically
         ``scene.dims.selection.thickness``.  An axis absent from it is 0.
+    throttle_ms :
+        The slider rate limit in milliseconds.  While a slider is dragged, the
+        new position is sent at most once per interval, and the last position
+        is always sent when the drag stops.  ``None`` (the default) is
+        50 ms, the same as ``AnywidgetDimsPanel.throttle_ms``.
     axes_2d :
         Axis indices the toggle displays in 2D until the scene has shown a
         2D set; after that it returns to the last 2D set shown.  ``None``
@@ -299,7 +304,7 @@ class QtDimsControl:
         slider_axes: tuple[int, ...] | None = None,
         thickness_axes: Collection[int] | None = None,
         initial_thickness: Mapping[int, float] | None = None,
-        debounce_ms: int | None = None,
+        throttle_ms: int | None = None,
         axes_2d: tuple[int, ...] | None = None,
         axes_3d: tuple[int, ...] | None = None,
         parent: QWidget | None = None,
@@ -329,7 +334,7 @@ class QtDimsControl:
         self._rate_limit_timer = QTimer()
         self._rate_limit_timer.setSingleShot(True)
         self._rate_limit_timer.setInterval(
-            DIMS_SLIDER_THROTTLE_MS if debounce_ms is None else debounce_ms
+            DIMS_SLIDER_THROTTLE_MS if throttle_ms is None else throttle_ms
         )
         self._rate_limit_timer.timeout.connect(self._on_rate_limit_tick)
         self._slider_dirty = False
@@ -465,7 +470,10 @@ class QtDimsControl:
         self.closed.emit()
 
     def subscription_specs(self) -> list[SubscriptionSpec]:
-        """Return the inbound subscription this widget requires.
+        """Return the inbound subscriptions this widget requires.
+
+        One for ``DimsChangedEvent`` and one for ``SliderAxesChangedEvent``,
+        both routed by the scene id.
 
         Pass the result to ``CellierController.connect_widget``.
         """
@@ -758,10 +766,11 @@ class QtCanvasWidget:
 
     Composes the two elements in a ``QVBoxLayout`` so that the canvas expands
     to fill available space while the dims control sits below it at a fixed
-    height.  The dims control includes the 2D/3D toggle button (when the
-    scene has 3+ axes), so no separate toggle widget is needed.
+    height.  The dims control includes the 2D/3D toggle button when the
+    scene can be shown both ways (see `from_scene_and_canvas`), so no
+    separate toggle widget is needed.
 
-    Prefer constructing via :meth:`from_scene_and_canvas` rather than calling
+    Prefer constructing via `from_scene_and_canvas` rather than calling
     ``__init__`` directly.
 
     Parameters
@@ -816,8 +825,11 @@ class QtCanvasWidget:
         knowledge not available on the dims model itself).  The 2D/3D toggle
         is included automatically when the scene renders both ways and has
         an axis to add to a 2D view.  It starts from the scene's displayed
-        axes; the mode not shown yet gets a default
-        (:func:`cellier.gui._dims.default_toggle_axes`).
+        axes; the mode not shown yet gets a default.  From 2D, the
+        3D set adds the last remaining ``"space"`` axis in world order (any
+        remaining axis when no space axis is left); from 3D, the 2D set is
+        the last two displayed axes in world order.  The default is replaced
+        once the scene has shown that mode.
 
         Call ``controller.connect_widget`` on the returned widget's
         ``dims_control`` after construction to wire subscriptions.

@@ -368,7 +368,7 @@ def _field_specs(
     """One single-field control per name, in the order of *item*'s list."""
     from cellier.gui._appearance_fields import (
         APPEARANCE_FIELD_WIDGETS,
-        literal_choices,
+        selectable_field_values,
     )
 
     carried = set(_carried_fields(visual, item.fields))
@@ -383,7 +383,7 @@ def _field_specs(
         # A Literal field's options come from the model's own annotation,
         # so the in-memory and multiscale variants of a field each offer
         # their own set without a list restated here.
-        choices = literal_choices(app, field)
+        choices = selectable_field_values(app, field)
         if choices:
             values["choices"] = choices
         stem_title = APPEARANCE_FIELD_WIDGETS.get(kind)
@@ -851,7 +851,7 @@ def appearance_targets(viewer: object) -> list[ControlTarget]:
 
     A group is offered only when at least one item of its controls list
     draws in the appearance dock for that group
-    (:func:`draws_in_appearance_dock`): offering one with nothing to draw
+    (`draws_in_appearance_dock`): offering one with nothing to draw
     would only lead to an empty panel.  Multi-scene aware: an ``OrthoViewer``
     records two groups per fanned-out add, the 2D panels and the 3D panel,
     each keyed by its first visual and labelled by the viewer; the
@@ -942,7 +942,7 @@ OVERLAY_PLACEHOLDER = "No overlays"
 def overlay_targets(viewer: object) -> list[ControlTarget]:
     """Every overlay an ``OverlayControls()`` dock can drive.
 
-    In :attr:`Viewer.overlays` order.  Overlays of a type with no controls
+    In `Viewer.overlays` order.  Overlays of a type with no controls
     table entry are skipped rather than offered with an empty panel.  The
     target's ``visual`` slot holds the overlay model and ``config`` is
     ``None``: an overlay has no ``controls=`` list, and its controls are
@@ -970,7 +970,7 @@ def overlay_control_specs(overlay: object) -> list[ControlSpec]:
     initial value read off the model and, for a ``Literal`` field, the
     choices it admits.
     """
-    from cellier.gui._appearance_fields import literal_choices
+    from cellier.gui._appearance_fields import selectable_field_values
     from cellier.gui._overlay_fields import (
         OVERLAY_CONTROLS,
         OVERLAY_FIELD_WIDGETS,
@@ -984,7 +984,7 @@ def overlay_control_specs(overlay: object) -> list[ControlSpec]:
         }
         parent_path, _, attribute = field.rpartition(".")
         if parent_path:
-            choices = literal_choices(
+            choices = selectable_field_values(
                 overlay_field_value(overlay, parent_path), attribute
             )
             if choices:
@@ -1149,7 +1149,7 @@ def missing_dock_node(
     controls : list[Control] or None
         The ``controls=`` of one visual.
     nodes : frozenset[str]
-        From :func:`dock_node_names`.
+        From `dock_node_names`.
     clipping_node : str
         The node that shows clipping planes controls on this viewer:
         ``"AppearanceControls"`` on a ``Viewer``, where the control is part

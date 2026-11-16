@@ -100,7 +100,7 @@ def _act(widget, action, index=None, value=None) -> None:
     if action == "add":
         widget._add.click()
         return
-    row = widget.row(index)
+    row = widget._row(index)
     if action == "remove":
         row.remove.click()
     elif action == "flip":
@@ -142,7 +142,7 @@ def _outline_shown(widget, index) -> tuple[bool, str]:
     if hasattr(widget, "comm"):
         row = widget.rows[index]
         return bool(row["outline"]["enabled"]), row["outline_hex"]
-    row = widget.row(index)
+    row = widget._row(index)
     return row.outline.enabled.isChecked(), row.outline.hex
 
 
@@ -402,7 +402,7 @@ def _qt(controller):
     widget = _make("qt", [visual.id], visual, store)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
     _act(widget, "add")  # across x, through the middle
-    return visual, store, widget, widget.row(0)
+    return visual, store, widget, widget._row(0)
 
 
 def test_the_qt_slider_runs_from_one_face_of_the_box_to_the_other(controller):
@@ -472,7 +472,7 @@ def test_the_qt_row_labels_the_normal_with_the_stores_axis_names(controller):
     widget = _make("qt", [visual.id], visual, store)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
     _act(widget, "add")
-    row = widget.row(0)
+    row = widget._row(0)
     assert [button.text() for button in row.facing.values()] == [
         "+t",
         "-t",
@@ -492,7 +492,7 @@ def test_the_qt_facing_buttons_set_the_axis_and_the_kept_side(controller):
     widget = _make("qt", [visual.id], visual, store)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
     _act(widget, "add")
-    row = widget.row(0)
+    row = widget._row(0)
 
     def checked():
         return [key for key, button in row.facing.items() if button.isChecked()]
@@ -525,7 +525,7 @@ def test_a_zeroed_normal_is_refused_with_a_reason(controller, toolkit):
     assert visual.clipping_planes == before
     assert "zero" in widget.error
     if toolkit == "qt":  # the entry is put back
-        assert widget.row(0).components[2].value() == 1.0
+        assert widget._row(0).components[2].value() == 1.0
     else:
         assert widget.rows[0]["normal"] == [0.0, 0.0, 1.0]
     _act(widget, "component", 0, [1, 2.0])
@@ -620,10 +620,10 @@ def test_a_moved_plane_keeps_its_row_widgets(controller):
     widget = _make("qt", [visual.id], visual, store)
     controller.connect_widget(widget, subscription_specs=widget.subscription_specs())
     _act(widget, "add")
-    slider = widget.row(0).slider
+    slider = widget._row(0).slider
     for step in (100, 400, 900):
         slider.setValue(step)
-        assert widget.row(0).slider is slider
+        assert widget._row(0).slider is slider
         assert visual.clipping_planes[0].plane.offset == pytest.approx(40 * step / 1000)
 
 
@@ -879,7 +879,7 @@ def test_a_control_given_no_gizmo_target_draws_no_toggle(controller, toolkit):
     _act(widget, "add")
     assert not widget.editor.has_gizmo
     if toolkit == "qt":
-        assert widget.row(0).gizmo.isHidden()
+        assert widget._row(0).gizmo.isHidden()
     else:
         assert "gizmo" not in widget.rows[0]
         _act(widget, "gizmo", 0, True)  # ignored

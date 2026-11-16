@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from pydantic import UUID4, AfterValidator, Field
@@ -21,17 +21,25 @@ class Canvas(CellierEventedModel):
     id : UUID4
         Unique identifier. Auto-generated.
     cameras : dict[str, CameraType]
-        Mapping of ``"2d"`` and/or ``"3d"`` to camera models.
-        At least one entry is required.
+        Mapping of ``"2d"`` and/or ``"3d"`` to camera models.  At least
+        one entry is required, and no other keys are accepted.
     overlays : list[CanvasOverlayType]
         Screen-space overlays attached to this canvas.  Rendered as
         post-passes on top of the main scene.  Default empty list.
+    size : tuple[int, int] or None
+        The canvas size as ``(width, height)`` in logical pixels.  Written by
+        the controller whenever the canvas widget is resized; assigning it
+        does not resize the widget.  ``None`` (default) until the first
+        resize is reported.
     fit_view_direction_3d : dict[UUID4, float] or None
         The direction the 3D camera looks along when it is fitted to the
         scene, as the component along each world axis, by axis id.  An axis
         left out has component 0.  ``None`` (default) looks along minus all
         three displayed axes.  Used only while every axis it has a component
-        on is displayed; see ``cellier.scene._fit_orientation``.
+        on is displayed; otherwise the default is used (the direction is
+        never projected onto the displayed axes).  When the view direction
+        and the up direction come out parallel, both fall back to the
+        defaults.
     fit_up_3d : dict[UUID4, float] or None
         The up direction of a fitted 3D camera, given like
         *fit_view_direction_3d*.  ``None`` (default) is the first displayed
@@ -41,7 +49,7 @@ class Canvas(CellierEventedModel):
     id: UUID4 | Annotated[str, AfterValidator(lambda x: uuid.UUID(x, version=4))] = (
         Field(frozen=True, default_factory=lambda: uuid4())
     )
-    cameras: dict[str, CameraType]
+    cameras: dict[Literal["2d", "3d"], CameraType] = Field(min_length=1)
     overlays: list[CanvasOverlayType] = Field(default_factory=list)
     size: tuple[int, int] | None = None
     fit_view_direction_3d: dict[UUID4, float] | None = None

@@ -17,8 +17,9 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DatasetInfo",
+    "MatrixSection",
     "QtDatasetInfo",
-    "QtOmeZarrMetadataWidget",
+    "RowSection",
     "dataset_info_from_path",
 ]
 
@@ -119,15 +120,14 @@ class QtDatasetInfo:
 
     Shows ``(label, value)`` rows inside a ``superqt.QCollapsible``, the Qt
     idiom for the anywidget front end's ``<details>`` block.  Built from rows
-    for the general case, or from a :class:`DatasetInfo` via :meth:`from_info`
+    for the general case, or from a `DatasetInfo` via `from_info`
     for the sectioned description a data store returns from its
     ``dataset_info()``, which adds nested blocks and matrix tables.
 
     Uses ``qtpy`` for PyQt6/PySide6 compatibility.  Follows the widget
     pattern: a non-``QWidget`` class exposing a ``.widget`` property.
     It is a pure-output control with nothing on the bus, so it carries no
-    ``changed``/``closed`` signals and is never passed to ``connect_widget``
-    (``layout._shared.STATIC_CONTROL_KINDS``).
+    ``changed``/``closed`` signals and is never passed to ``connect_widget``.
 
     Parameters
     ----------
@@ -136,7 +136,7 @@ class QtDatasetInfo:
         coerced to ``str``.
     title :
         The name shown on the collapsible header.  Defaults to
-        :data:`DEFAULT_TITLE`.
+        `DEFAULT_TITLE`.
     parent :
         Optional Qt parent widget.
     """
@@ -144,10 +144,7 @@ class QtDatasetInfo:
     DEFAULT_TITLE = "Dataset info"
     """Name shown when no ``title=`` is given.
 
-    The renderer passes the title from the shared control vocabulary; this is
-    what a directly-constructed widget calls itself, and
-    ``test_composite_default_titles_match_the_shared_vocabulary`` pins the two
-    together.
+    The same title the built-in viewers pass when they build this widget.
     """
 
     def __init__(
@@ -251,13 +248,13 @@ class QtDatasetInfo:
         self._nested_by_label[label] = nested
 
     def _add_row_section(self, section: RowSection) -> None:
-        """Draw a :class:`RowSection`, nesting it when it carries a label."""
+        """Draw a `RowSection`, nesting it when it carries a label."""
         self._add_rows(section.rows, label=section.label)
         if section.label is not None and not section.collapsed:
             self._nested_by_label[section.label].expand(animate=False)
 
     def _add_matrix_section(self, section: MatrixSection) -> None:
-        """Draw a :class:`MatrixSection` as a non-editable table."""
+        """Draw a `MatrixSection` as a non-editable table."""
         from qtpy.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem
 
         n_rows = len(section.row_labels)
@@ -299,7 +296,7 @@ class QtDatasetInfo:
         title: str | None = None,
         parent=None,
     ) -> QtDatasetInfo:
-        """Build from a sectioned :class:`DatasetInfo`.
+        """Build from a sectioned `DatasetInfo`.
 
         Draws each section in the shape it declares: inline rows, a nested
         collapsible, or a matrix table.  Anything a store can say about
@@ -366,11 +363,3 @@ class QtDatasetInfo:
         for an OME-Zarr pyramid.
         """
         return cls.from_info(store.dataset_info(), title=title, parent=parent)
-
-
-QtOmeZarrMetadataWidget = QtDatasetInfo
-"""Deprecated alias.
-
-The widget renders any ``(label, value)`` rows, not only OME-Zarr metadata,
-so the name moved with the capability.
-"""

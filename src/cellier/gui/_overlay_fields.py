@@ -4,7 +4,7 @@ The overlay widgets reuse the appearance widgets' layer-2 controls -- toggle,
 spin box, combo, colour picker -- unchanged, and differ only in how a change
 travels: an overlay field is heard from on ``OverlayChangedEvent`` and written
 with ``OverlayUpdateEvent``, keyed by the overlay's id rather than a visual's.
-:class:`OverlayFieldSpec` says exactly that, and :class:`OverlayFieldMixin`
+`OverlayFieldSpec` says exactly that, and `OverlayFieldMixin`
 swaps it in, so a layer-3 overlay class is a mixin, a layer-2 base, a field
 path and a label.
 
@@ -71,7 +71,7 @@ class OverlayFieldSpec:
 class OverlayFieldMixin:
     """Mixin: make a layer-2 appearance control drive an overlay field.
 
-    Mix in **before** the layer-2 base so its ``_make_spec`` wins::
+    Mix in **before** the layer-2 base so its ``_make_spec`` wins:
 
         class QtOverlayVisibleToggle(OverlayFieldMixin, QtToggle):
             _field = "visible"

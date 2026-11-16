@@ -1,7 +1,7 @@
 """geff -> ``GraphMemoryStore`` adapter.
 
 ``geff`` is an optional dependency and is imported inside
-:func:`read_geff` only, so importing this module costs nothing and the
+`read_geff` only, so importing this module costs nothing and the
 whole ``mask`` slice path stays dependency-free.
 
 Reading goes through ``geff.GeffReader`` rather than
@@ -229,7 +229,7 @@ def data_axes_from_geff(axes: Sequence[Any]) -> tuple[Axis, ...]:
 
     ``name`` and ``unit`` carry over.  ``type`` carries over where the file
     states it; geff makes it optional, so an unset one takes the name rule of
-    :func:`~cellier.data._axes.axis_types_from_names`.  Every axis is
+    `axis_types_from_names`.  Every axis is
     ``sampling="continuous"``: the file does not say whether a column holds
     sample indices, so a caller whose ``t`` column is frame numbers builds
     the system themselves.

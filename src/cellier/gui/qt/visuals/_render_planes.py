@@ -1,7 +1,7 @@
 """The Qt "Render planes" control of a visual.
 
 One row per plane, described and edited by
-:class:`cellier.gui._render_planes.RenderPlanesEditor`.  The rows are those
+`cellier.gui._render_planes.RenderPlanesEditor`.  The rows are those
 of the "Clipping planes" control with the extents added.
 """
 
@@ -355,7 +355,7 @@ class QtRenderPlanesControls(VisualIdGroup):
     is disabled at four.  While the planes are not drawn (the visual is not
     in plane mode, or the view is 2D) the control is disabled and says why.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         data = get_render_planes_data_from_visual(controller, visual.id)
         controls = QtRenderPlanesControls(visual.id, **data)
@@ -382,7 +382,7 @@ class QtRenderPlanesControls(VisualIdGroup):
         ``get_render_plane_gizmo_data(controller, visual_id, canvas_id)``.
         Without *gizmo_target* the rows have no gizmo toggle.
     title :
-        The group's name.  Defaults to :data:`DEFAULT_TITLE`.
+        The group's name.  Defaults to `DEFAULT_TITLE`.
     parent :
         Optional Qt parent widget.
     """
@@ -499,8 +499,8 @@ class QtRenderPlanesControls(VisualIdGroup):
         """Why the control is disabled now, or ""."""
         return self._editor.blocked
 
-    def row(self, index: int) -> _PlaneRow:
-        """The widgets of plane *index* (for tests and scripting)."""
+    def _row(self, index: int) -> _PlaneRow:
+        """The widgets of plane *index* (for tests)."""
         return self._rows[index]
 
     def refresh(self) -> None:

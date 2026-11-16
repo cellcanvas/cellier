@@ -40,7 +40,7 @@ class PlaneTransformGizmo(gfx.TransformGizmo):
     - The frame stays ``"object"``: axis 0 is the normal.
     - The handles point along the object's own axes, whatever the camera
       angle: the arrow of axis 0 is the plane's normal (see
-      :meth:`_update_gizmo_transform`).  So a scale drag along a handle's
+      `_update_gizmo_transform`).  So a scale drag along a handle's
       arrow always grows the object.
     - It tells its owner when a handle is grabbed, moved and released.
 

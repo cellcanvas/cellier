@@ -7,8 +7,8 @@ pass.  Its vertices are written directly in the **rendered** coordinate system
 matrix is the identity and it never goes through slicing.
 
 The controller owns the world-space computation (it has the data stores) and
-pushes the result in through :meth:`GFXSceneOverlay.update_scene_extent`;
-appearance changes arrive through :meth:`GFXSceneOverlay.apply`.
+pushes the result in through `GFXSceneOverlay.update_scene_extent`;
+appearance changes arrive through `GFXSceneOverlay.apply`.
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ def box_edge_positions(low: np.ndarray, high: np.ndarray) -> np.ndarray:
 class GFXSceneOverlay(ABC):
     """Base class for render-layer scene overlays.
 
-    Subclasses build :attr:`node` at construction; the scene manager adds it
+    Subclasses build `node` at construction; the scene manager adds it
     to the scene's ``gfx.Scene``.  Every material must set
     ``pick_write=False``: an overlay is not pickable, and a pick id would also
     cut into the outlines the screen-space outline pass derives from the pick
@@ -149,7 +149,7 @@ class GFXSceneBoundingBox(GFXSceneOverlay):
     model : SceneBoundingBox
         The model-layer overlay.  Read at construction and on
         ``"appearance"`` replacement; later field changes arrive through
-        :meth:`apply`.
+        `apply`.
     """
 
     def __init__(self, model: SceneBoundingBox) -> None:

@@ -75,7 +75,7 @@ def _derived_system_id(*parts: object) -> uuid.UUID:
 
 
 class TransformBlock(CellierModel):
-    """One block of a :class:`ByDimensionTransform`.
+    """One block of a `ByDimensionTransform`.
 
     Parameters
     ----------
@@ -212,7 +212,7 @@ class ByDimensionTransform(BaseTransform):
         """Build a transform by stating which axis corresponds to which.
 
         Every argument but ``axis_transforms`` keeps the meaning it has in
-        :meth:`AffineTransform.from_axis_map`, so a caller who needs no
+        `AffineTransform.from_axis_map`, so a caller who needs no
         per-axis block writes exactly the ``from_axis_map`` call and the
         non-uniform case is a one-key diff rather than a different
         idiom.
@@ -452,14 +452,19 @@ class ByDimensionTransform(BaseTransform):
             result[:, list(put)] = mapped
         return result[0] if was_1d else result
 
-    # -- bounding boxes: per block, exact -------------------------------
+    # -- bounding boxes: per block -------------------------------------
 
     def map_bounding_box(
         self,
         box: AxisAlignedBoundingBox,
         output_coordinate_system: CoordinateSystem,
     ) -> AxisAlignedBoundingBox:
-        """Map a box forward, exactly, block by block.
+        """Map a box forward, block by block.
+
+        Exact when every affine block is diagonal or a signed permutation.
+        A block that rotates or shears goes through
+        `AffineTransform.map_bounding_box`, which returns the enclosing box
+        (conservative, not exact).
 
         Parameters
         ----------
@@ -477,11 +482,13 @@ class ByDimensionTransform(BaseTransform):
         return self._route_box(box, output_coordinate_system.id, forward=True)
 
     def imap_bounding_box(self, box: AxisAlignedBoundingBox) -> AxisAlignedBoundingBox:
-        """Map a box back, exactly, block by block.
+        """Map a box back, block by block.
 
         A monotonic 1-D block maps an interval's endpoints through its own
         monotonic function, which is order-preserving and therefore exact
-        rather than merely conservative.
+        rather than merely conservative.  An affine block that rotates or
+        shears goes through `AffineTransform.imap_bounding_box`, which
+        returns the enclosing box (conservative, not exact).
 
         Parameters
         ----------
@@ -811,31 +818,73 @@ class ByDimensionTransform(BaseTransform):
     # -- operations that need a constant Jacobian -----------------------
 
     def map_direction(self, direction: np.ndarray) -> np.ndarray:
-        """Map a displacement vector, if every block is affine."""
+        """Map a displacement vector, if every block is affine.
+
+        Raises
+        ------
+        NonAffineTransformError
+            If any block is not affine.
+        """
         return self._affine_only("map_direction").map_direction(direction)
 
     def imap_direction(self, direction: np.ndarray) -> np.ndarray:
-        """Map a displacement vector back, if every block is affine."""
+        """Map a displacement vector back, if every block is affine.
+
+        Raises
+        ------
+        NonAffineTransformError
+            If any block is not affine.
+        """
         return self._affine_only("imap_direction").imap_direction(direction)
 
     def map_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Map a normal, if every block is affine."""
+        """Map a normal, if every block is affine.
+
+        Raises
+        ------
+        NonAffineTransformError
+            If any block is not affine.
+        """
         return self._affine_only("map_normal").map_normal(normal)
 
     def imap_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Map a normal back, if every block is affine."""
+        """Map a normal back, if every block is affine.
+
+        Raises
+        ------
+        NonAffineTransformError
+            If any block is not affine.
+        """
         return self._affine_only("imap_normal").imap_normal(normal)
 
     def map_plane(self, plane):
-        """Map a plane, if every block is affine."""
+        """Map a plane, if every block is affine.
+
+        Raises
+        ------
+        NonAffineTransformError
+            If any block is not affine.
+        """
         return self._affine_only("map_plane").map_plane(plane)
 
     def imap_plane(self, plane):
-        """Map a plane back, if every block is affine."""
+        """Map a plane back, if every block is affine.
+
+        Raises
+        ------
+        NonAffineTransformError
+            If any block is not affine.
+        """
         return self._affine_only("imap_plane").imap_plane(plane)
 
     def map_region(self, region: ConvexRegion) -> ConvexRegion:
-        """Map a convex region, if every block is affine."""
+        """Map a convex region, if every block is affine.
+
+        Raises
+        ------
+        NonAffineTransformError
+            If any block is not affine.
+        """
         return self._affine_only("map_region").map_region(region)
 
     def imap_region(
@@ -866,14 +915,25 @@ class ByDimensionTransform(BaseTransform):
         region : ConvexRegion
             A region in the output coordinate system.
         output_coordinate_system : CoordinateSystem
-            This transform's **input** system, which the result is
-            expressed in.  Named for the abstract signature, which reads
-            from the caller's side.
+            This transform's **output** system, the one *region* is in, as
+            for `AffineTransform.imap_region`.  A region that is not
+            axis-aligned is pulled back through the equivalent affine,
+            which checks it and raises ``ValueError`` for any other
+            system.  The result is always in this transform's input
+            system.
 
         Returns
         -------
         ConvexRegion
             The region in the input coordinate system.
+
+        Raises
+        ------
+        NonAffineTransformError
+            If *region* is not axis-aligned and a block is not affine.
+        ValueError
+            If *region* is not axis-aligned and *output_coordinate_system* is
+            not this transform's output system.
         """
         self._check_output_coordinate_system(region.coordinate_system)
         if not is_axis_aligned(region.normals):

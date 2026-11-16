@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import numpy as np
+import pytest
 
 from cellier.controller import CellierController
 from cellier.data.image._image_memory_store import ImageMemoryStore
@@ -101,6 +102,36 @@ def test_context_fields_propagate_to_public_event():
     assert event.modifiers == ("Control", "Shift")
     assert event.gesture_id == gid
     assert isinstance(event.pick_info, CanvasPickInfo)
+
+
+@pytest.mark.parametrize(
+    ("displayed", "expected_y", "expected_x"),
+    [
+        # pygfx x is the last displayed axis, pygfx y the one before it.
+        (("y", "x"), 20.0, 10.0),
+        # A transposed display puts world y on pygfx x.
+        (("x", "y"), 10.0, 20.0),
+    ],
+)
+def test_2d_world_coordinate_is_in_world_axis_order(displayed, expected_y, expected_x):
+    controller = CellierController()
+    cs = world_coordinate_system(spatial_axes("z", "y", "x"), name="world")
+    scene = controller.add_scene(
+        displayed_axes=displayed, coordinate_system=cs, name="main"
+    )
+    canvas_id = uuid4()
+    received: list = []
+    controller.on_mouse_press_2d(canvas_id, received.append, owner_id=uuid4())
+
+    raw = _raw_2d(canvas_id, scene.id, "press")._replace(
+        position_2d=np.array([10.0, 20.0], dtype=np.float64)
+    )
+    controller._on_raw_pointer_event(raw)
+
+    z = scene.dims.selection.slice_indices[0]
+    np.testing.assert_array_equal(
+        received[0].world_coordinate, [z, expected_y, expected_x]
+    )
 
 
 def test_gesture_id_threads_through_phases():
@@ -433,7 +464,7 @@ def test_on_pick_subscription_enables_gate_and_unsubscribe_disables():
     )
     assert rm._pick_details_enabled.get(canvas_id) is True
 
-    controller.unsubscribe_pick(handle)
+    controller.unsubscribe(handle)
     assert rm._pick_details_enabled.get(canvas_id) is False
 
 
@@ -445,7 +476,7 @@ def test_mouse_subscriptions_do_not_enable_the_gate():
 
     handle = controller.on_mouse_press_2d(canvas_id, lambda e: None, owner_id=uuid4())
     assert rm._pick_details_enabled.get(canvas_id, False) is False
-    controller.unsubscribe_mouse(handle)
+    handle.unsubscribe()
 
 
 def test_on_pick_refuses_a_mouse_event_type():
@@ -468,10 +499,10 @@ def test_gate_stays_enabled_until_last_subscriber_removed():
     h2 = controller.on_pick(canvas_id, ImagePickEvent, lambda e: None, owner_id=owner)
     assert rm._pick_details_enabled.get(canvas_id) is True
 
-    controller.unsubscribe_pick(h1)
+    h1.unsubscribe()
     assert rm._pick_details_enabled.get(canvas_id) is True
 
-    controller.unsubscribe_pick(h2)
+    controller.unsubscribe(h2)
     assert rm._pick_details_enabled.get(canvas_id) is False
 
 

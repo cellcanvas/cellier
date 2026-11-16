@@ -53,8 +53,11 @@ class AnywidgetLevelOfDetailControls(VisualIdGroup, anywidget.AnyWidget):
     visual_id :
         The visual the control drives, or a sequence driven in lock-step.
     values :
-        ``cellier.gui._level_of_detail.level_of_detail_values`` of the
-        visual's appearance.  Missing keys take the model's defaults.
+        The appearance's current values, keyed by field name:
+        ``settled_lod_bias`` (float), ``coarsest_while_moving_3d`` and
+        ``coarsest_while_moving_2d`` (bool), and ``has_moving_3d: False``
+        for an appearance without the 3D setting, which hides that
+        checkbox in 3D.  Missing keys take the model's defaults.
     n_displayed_dimensions :
         What the view displays now, 2 or 3.
     scene_ids :

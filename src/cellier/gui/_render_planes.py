@@ -1,7 +1,7 @@
 """The "Render planes" control of a visual, decided once for both toolkits.
 
 A visual in the ``"plane"`` render mode draws its data on a tuple of
-:class:`~cellier.visuals.RenderPlane`, in the scene's world coordinates.
+`RenderPlane`, in the scene's world coordinates.
 The Qt and anywidget controls (``QtRenderPlanesControls``,
 ``AnywidgetRenderPlanesControls``) draw one row per plane, as close to the
 "Clipping planes" control as they can be: an enabled checkbox, the normal
@@ -12,7 +12,7 @@ the extents, four fields with an "unbounded" box each.  An add button
 appends a plane.
 
 A row is plain data, so the anywidget control syncs the whole list in one
-trait and constructs nothing when a plane is added::
+trait and constructs nothing when a plane is added:
 
     {
         "id": "0f6c...",
@@ -28,7 +28,7 @@ trait and constructs nothing when a plane is added::
 by ``axes``; ``position`` is where the plane sits along its unit normal.
 The slider does not show it: as in the "Clipping planes" control, it shows
 the plane's depth into the visual's bounding box
-(:func:`cellier.gui._clipping_planes.depth_of`), which ``describe`` adds to
+(`cellier.gui._clipping_planes.depth_of`), which ``describe`` adds to
 each row and ``set_depth`` takes.
 ``extent_0`` and ``extent_1`` are ``[min, max]`` distances from the plane's
 origin along its two in-plane axes, in world units; ``None`` is unbounded.
@@ -453,7 +453,7 @@ def get_render_plane_gizmo_data(
     Returns
     -------
     dict[str, Any]
-        ``gizmo_target`` (a :class:`RenderPlaneGizmoTarget`), ``gizmo_plane``
+        ``gizmo_target`` (a `RenderPlaneGizmoTarget`), ``gizmo_plane``
         (the id of the render plane that has the canvas's gizmo now, as a
         string, if it is one of this visual's; otherwise ``None``) and
         ``gizmo_blocked`` (a reader of why a plane cannot have one, over
@@ -532,14 +532,14 @@ class RenderPlanesEditor:
         means ``(0, 1)`` on each.  Read from *state_source* when given.
     state_source : Callable[[], Mapping[str, Any]] or None
         Reads ``{"blocked", "displayed_axes", "bounds"}`` as they are now
-        (:func:`get_render_planes_data_from_visual`).  The control is
+        (`get_render_planes_data_from_visual`).  The control is
         disabled, with the reason shown, while ``blocked`` is not ``""``.
     scene_id, data_store_id : UUID, str or None
         The visuals' scene and store, whose changes move what
         *state_source* reads.
     gizmo_target : RenderPlaneGizmoTarget or None
         Where a plane's gizmo is drawn.  ``None`` gives the rows no gizmo
-        toggle.  See :func:`get_render_plane_gizmo_data`.
+        toggle.  See `get_render_plane_gizmo_data`.
     gizmo_plane : str or None
         The id of the plane that has the canvas's gizmo now.
     gizmo_blocked : Callable[[str], str] or None
@@ -844,7 +844,7 @@ class RenderPlanesEditor:
         """Put the canvas's gizmo on plane *index*, or take it off.
 
         Sends a ``PlaneGizmoUpdateEvent`` of kind ``"render"``.  The toggle
-        is drawn from what the controller answers (:meth:`on_gizmo_changed`),
+        is drawn from what the controller answers (`on_gizmo_changed`),
         not from the click: a refused request leaves it off, with the
         reason shown.
         """

@@ -4,15 +4,15 @@ A tilted 2D view of an in-memory image or labels visual is drawn by the
 multiscale brick route.  The in-memory render visual owns, from its first
 such view on, an *inner* multiscale render visual
 (``GFXMultiscaleImageVisual`` or ``GFXMultiscaleLabelVisual``) built over an
-:class:`~cellier.data._in_memory_bricks.InMemoryBrickSource`, in the 3D mode
+`InMemoryBrickSource`, in the 3D mode
 only.  While the route is taken the in-memory visual hands the scene the
 inner visual's slice node, plans through it, and forwards its events to it;
 aligned 2D views and 3D views keep the whole-slice caches, so each piece has
 one implementation.  Both paths load through the chunk scheduler.
 
-:class:`BrickRouteHost` is that delegation, mixed in ahead of the in-memory
+`BrickRouteHost` is that delegation, mixed in ahead of the in-memory
 visual's own class.  The inner visual reads the in-memory model through
-:class:`_RoutedModel`, which adds the two-level pyramid's ``level_transforms``
+`_RoutedModel`, which adds the two-level pyramid's ``level_transforms``
 and a render config, and gives the multiscale-only appearance fields their
 multiscale defaults.
 """
@@ -109,9 +109,9 @@ class BrickRouteHost:
 
     Mixed in ahead of ``GFXImageMemoryVisual`` and ``GFXLabelMemoryVisual``.
     The host class names the inner multiscale visual's class
-    (:meth:`_build_inner`).  The controller hands it its brick source
-    (:meth:`set_brick_source`) when the visual is added, and its route
-    before its render spaces (:meth:`set_slice_route`).
+    (`_build_inner`).  The controller hands it its brick source
+    (`set_brick_source`) when the visual is added, and its route
+    before its render spaces (`set_slice_route`).
     """
 
     _brick_source: InMemoryBrickSource | None = None

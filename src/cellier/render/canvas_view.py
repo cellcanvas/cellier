@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import numpy as np
 import pygfx as gfx
 
-from cellier._state import CameraState
+from cellier._state import CameraState, OrbitControllerState, PanZoomControllerState
 from cellier.events._events import (
     CameraChangedEvent,
     CanvasConnectedEvent,
@@ -30,9 +30,11 @@ from cellier.render._requests import DimsState, ReslicingRequest
 from cellier.render._ssao import SSAOPass
 from cellier.render._temporal_accumulation import TemporalAccumulationPass
 from cellier.render.visuals._plane_gizmo import GFXPlaneGizmo, drop_stale_gizmo_capture
+from cellier.scene._camera_fit import fit_sphere, fitted_far, grow_far
+from cellier.scene.cameras import orbit_distance
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from PySide6.QtWidgets import QWidget
 
@@ -74,10 +76,10 @@ class CanvasView:
     instead it receives a ``get_scene_fn`` callable that is invoked each
     frame so ownership of the scene stays with ``SceneManager``.
 
-    Camera change detection is implemented by comparing a cached
-    ``CameraState`` snapshot each frame in ``_draw_frame``.  The
-    ``_applying_model_state`` flag suppresses detection during
-    programmatic camera updates to prevent feedback loops.
+    Camera changes are detected each frame by comparing the camera's
+    ``CameraState`` with the one from the previous frame, and reported as a
+    ``CameraChangedEvent`` on the event bus.  A camera update applied from
+    the model is not reported, so it does not feed back.
 
     The view drives its pygfx camera controllers itself
     (``auto_update=False``): each frame it ticks the active controller and
@@ -85,7 +87,7 @@ class CanvasView:
     is therefore detected in the frame that draws it, and whether the
     controller is still driving the camera (a drag held, its damped tail, a
     wheel or key animation) is known through public pygfx API.  Changes of
-    that answer are reported as ``_CameraControllerEvent``.
+    that answer are reported to the controller on the event bus.
 
     Attributes
     ----------
@@ -107,16 +109,32 @@ class CanvasView:
         Scene dimensionality: ``"2d"`` or ``"3d"``.  Controls which
         camera type and interaction controller are used.
     parent : QWidget or None
-        Parent widget for the underlying ``QRenderWidget``.
+        Parent widget for the underlying ``QRenderWidget``.  Ignored by the
+        anywidget and offscreen backends.
     fov : float
         Vertical field of view in degrees (3D perspective only).
     depth_range : tuple[float, float]
-        Near and far clip distances ``(near, far)``.
+        Near and far clip distances ``(near, far)``.  The 3D camera's far is
+        raised by `fit_to_box` and `grow_far_3d` when the data needs more.
+    event_bus : EventBus or None
+        The bus the canvas reports camera changes, resizes and pointer
+        events on.  ``None`` (the default) reports nothing; a controller
+        passes its own.
+    gui : {"qt", "anywidget", "offscreen"}
+        Which backend draws the canvas: a ``QRenderWidget``, an
+        ``AnywidgetRenderCanvas`` for notebooks, or an
+        ``OffscreenRenderCanvas`` with no window.  Default ``"qt"``.
+        ``ValueError`` for anything else.
+    size : tuple[int, int] or None
+        Initial CSS pixel size of an anywidget canvas, or the exact
+        framebuffer size of an offscreen one.  ``None`` (the default) is
+        ``(600, 600)``.  Ignored by the Qt backend, which its parent layout
+        sizes.
     outline_enabled : bool
         When ``True``, install a blender carrying the ``outline_id`` render
         target so label outlines have a per-pixel label key.  Costs 4 bytes
         per pixel.  Deciding here is the cheap path, not the only one:
-        :meth:`ensure_render_targets` adds it later for the price of one
+        `ensure_render_targets` adds it later for the price of one
         recompile frame.
     ambient_occlusion_enabled : bool
         When ``True``, install a blender carrying the ``normal`` render
@@ -234,6 +252,12 @@ class CanvasView:
         self._controller_2d = gfx.PanZoomController(
             camera=self._camera_2d, register_events=self._renderer, auto_update=False
         )
+        # pygfx binds the fourth mouse button to "quickzoom", the one action
+        # that sets the camera's ``zoom``.  Cellier keeps the pygfx zoom at 1
+        # (the size lives in width and height), and the camera state has no
+        # zoom, so a quickzoom would change the picture unseen.
+        for controller in (self._controller_3d, self._controller_2d):
+            controller.controls.pop("mouse4", None)
         self._renderer.add_event_handler(
             self._on_controller_input,
             "pointer_down",
@@ -243,6 +267,15 @@ class CanvasView:
             "key_down",
             "key_up",
         )
+
+        # Whether each dim's controller takes input while that dim is shown
+        # (the camera models' ``controller.enabled``).  The controller of
+        # the dim not shown is always off.
+        self._controller_enabled: dict[str, bool] = {"2d": True, "3d": True}
+        # Owners (paint sessions) holding camera input off, whatever the
+        # models say.  Runtime only: never written to the camera models, so
+        # a saved file does not record it.
+        self._input_locks: set = set()
 
         # Activate the initial dim; disable the other controller.
         if dim == "2d":
@@ -256,6 +289,9 @@ class CanvasView:
 
         # Track which dims have been fitted to the scene.
         self._fitted: set[str] = set()
+        # The dims whose camera was placed from its camera model (restored
+        # or assigned) rather than fitted.
+        self._placed: set[str] = set()
         # The orientation of a 3D fit, in rendered (x, y, z) order.  The
         # controller resolves it from the canvas model's axis-keyed vectors.
         self._fit_view_dir_3d: tuple[float, float, float] = (-1.0, -1.0, -1.0)
@@ -641,14 +677,13 @@ class CanvasView:
         fov = float(cam.fov)
         if fov == 0 and screen_w > 0 and screen_h > 0:
             canvas_aspect = screen_w / screen_h
-            zoom = cam.zoom if cam.zoom > 0 else 1.0
             if not cam.maintain_aspect:
                 world_width, world_height = cam.width, cam.height
             elif canvas_aspect >= cam.width / cam.height:
                 world_width, world_height = cam.height * canvas_aspect, cam.height
             else:
                 world_width, world_height = cam.width, cam.width / canvas_aspect
-            world_extent = (float(world_width / zoom), float(world_height / zoom))
+            world_extent = (float(world_width), float(world_height))
         else:
             world_extent = (0.0, 0.0)
         return ReslicingRequest(
@@ -723,7 +758,7 @@ class CanvasView:
         camera's side of the centre.  At a field of view of 0 the configured
         range ``(near, far)`` is therefore widened to ``(-far, far)``; above
         0 it is used as given.  The configured range is what
-        :meth:`capture_camera_state` reports, so a round trip through the
+        `capture_camera_state` reports, so a round trip through the
         camera model brings the same range back when the field of view
         changes.
 
@@ -747,8 +782,10 @@ class CanvasView:
     def set_depth_range(self, depth_range: tuple[float, float] | None) -> None:
         """Set the active camera near/far clip distances.
 
-        On the 3D camera this is the configured range, which is widened
-        while the field of view is 0; see :meth:`_sync_depth_range_3d`.
+        On the 3D camera this is the configured range.  While the field of
+        view is 0 the camera uses ``(min(near, -far), far)`` instead: pygfx
+        places such a camera at the centre of what it is fitted to, so a
+        positive near plane would cut away the half nearest the camera.
 
         Parameters
         ----------
@@ -764,7 +801,7 @@ class CanvasView:
     ) -> None:
         """Set the near/far clip distances on the 2D or 3D camera.
 
-        Unlike :meth:`set_depth_range`, this targets a specific camera
+        Unlike `set_depth_range`, this targets a specific camera
         regardless of which is currently active.  Both the 2D orthographic
         and 3D perspective cameras are created up front (see ``__init__``),
         so the reserve camera must have its depth range set independently —
@@ -801,32 +838,78 @@ class CanvasView:
         self._depth_range_3d = depth_range
         self._sync_depth_range_3d()
 
-    def show_object(self, scene: gfx.Scene) -> bool:
-        """Fit the camera to the scene bounding box, if there is one.
+    def fit_to_box(
+        self,
+        box: tuple[Sequence[float], Sequence[float]],
+        *,
+        far_box: tuple[Sequence[float], Sequence[float]] | None = None,
+        view_dir: Sequence[float] | None = None,
+        up: Sequence[float] | None = None,
+    ) -> None:
+        """Fit the active camera to *box* and, in 3D, grow far to keep it in view.
 
-        A scene with nothing in it has no bounding sphere, and pygfx raises
-        rather than guessing.  That happens for real: switching a scene's
-        displayed axes rebuilds its visuals' geometry and fits the camera
-        *before* the reslice that fills them has committed, so for one moment
-        the scene is empty.  Refusing to fit -- and, crucially, not marking
-        the dim as fitted -- lets the caller try again once data arrives.
+        The camera is fitted to the box's sphere (`fit_sphere`): its centre,
+        and half its diagonal as the radius.  The box comes from the stores
+        and models (``scene_world_bounds`` then ``project_bounds``), not
+        from the pygfx scene graph, so it exists before any data has loaded
+        and counts nothing but data.
+
+        In 3D the far plane then grows to `fitted_far` of *far_box* (see
+        `grow_far_3d`); near is never changed.
 
         Parameters
         ----------
-        scene : gfx.Scene
-            The scene to fit the camera to.
+        box : tuple[Sequence[float], Sequence[float]]
+            ``(low, high)`` on the displayed axes, in cellier displayed order.
+        far_box : tuple[Sequence[float], Sequence[float]] or None
+            The box the far plane must keep in view, in the same order.
+            ``None`` is *box*.
+        view_dir, up : Sequence[float] or None
+            The fit orientation, in rendered ``(x, y, z)`` order.  ``None``
+            is the canvas's own (`fit_orientation`).
+        """
+        centre, radius = fit_sphere(box)
+        fit_view_dir, fit_up = self.fit_orientation()
+        self._camera.show_object(
+            (*centre, radius),
+            view_dir=fit_view_dir if view_dir is None else tuple(view_dir),
+            up=fit_up if up is None else tuple(up),
+        )
+        self._fitted.add(self._dim)
+        if self._dim == "3d":
+            self.grow_far_3d(box if far_box is None else far_box)
+
+    def grow_far_3d(self, box: tuple[Sequence[float], Sequence[float]]) -> bool:
+        """Raise the 3D camera's far plane to keep *box* in view, if it is short.
+
+        The far plane the 3D camera would need had it just been fitted to
+        *box* with its fit orientation (`fitted_far`, margin
+        `FAR_MARGIN`).  Only far grows, and only when the configured range is
+        shorter; near, the camera and an automatic range are left alone.
+        Works whichever camera is active.
+
+        Parameters
+        ----------
+        box : tuple[Sequence[float], Sequence[float]]
+            ``(low, high)`` on the three displayed axes, in cellier displayed
+            order.
 
         Returns
         -------
         bool
-            ``True`` if the camera was fitted.  ``False`` if the scene had no
-            bounds yet, in which case nothing was changed.
+            Whether far grew.
         """
-        if scene.get_world_bounding_sphere() is None:
+        if len(box[0]) != 3:
             return False
-        view_dir, up = self.fit_orientation()
-        self._camera.show_object(scene, view_dir=view_dir, up=up)
-        self._fitted.add(self._dim)
+        self._sync_depth_range_3d()
+        current = self._depth_range_3d
+        grown = grow_far(
+            current,
+            fitted_far(box, float(self._camera_3d.fov), self._fit_view_dir_3d),
+        )
+        if grown == current:
+            return False
+        self.set_depth_range_for_dim("3d", grown)
         return True
 
     def fit_orientation(
@@ -838,7 +921,7 @@ class CanvasView:
         -------
         view_dir, up : tuple[float, float, float]
             In rendered ``(x, y, z)`` order.  The 2D camera's are fixed; the
-            3D camera's are set by :meth:`set_fit_orientation_3d`.
+            3D camera's are set by `set_fit_orientation_3d`.
         """
         if self._dim == "2d":
             return (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)
@@ -851,7 +934,8 @@ class CanvasView:
     ) -> None:
         """Set the orientation the 3D camera is fitted with.
 
-        Nothing moves: the next :meth:`show_object` in 3D uses it.
+        Nothing moves: the next `fit_to_box` in 3D uses it, and so does
+        `grow_far_3d`.
 
         Parameters
         ----------
@@ -997,6 +1081,19 @@ class CanvasView:
             )
         return float(target[0]), float(target[1]), float(target[2])
 
+    def orbit_distance(self) -> float | None:
+        """How far ahead of the 3D camera its orbit controller pivots.
+
+        Worked out from the 3D camera's field of view, width and height
+        (`cellier.scene.orbit_distance`), whether or not that camera is
+        shown.  ``None`` at a field of view of 0, where the controller
+        turns the camera about itself.
+        """
+        camera = self._camera_3d
+        return orbit_distance(
+            float(camera.fov), float(camera.width), float(camera.height)
+        )
+
     def plane_gizmo_object_ids(self) -> set[int]:
         """The pygfx ids of every element of this canvas's plane gizmos."""
         ids: set[int] = set()
@@ -1077,8 +1174,8 @@ class CanvasView:
 
         Call whenever the image that *should* be drawn changes, so the
         next frame is not an average with a picture that no longer
-        applies.  Cheap and idempotent: it sets a flag that
-        ``_draw_frame`` consumes, and the pass itself only zeroes a
+        applies.  Cheap and idempotent: it sets a flag that the next frame
+        consumes before it draws, and the pass itself only zeroes a
         counter.
 
         Every content change needs this, not just the conspicuous ones.
@@ -1104,7 +1201,7 @@ class CanvasView:
 
         For a frame whose content did not change: the next step of a camera
         controller's animation, or the still picture after a camera motion
-        ended.  :meth:`request_draw` is the one for content changes.
+        ended.  `request_draw` is the one for content changes.
         """
         if not self._closed:
             self._canvas.request_draw()
@@ -1139,12 +1236,29 @@ class CanvasView:
             ``True`` if the camera differs from the last reported state.
             ``False`` if nothing moved, in which case nothing is changed.
         """
+        self._adopt_camera_in_controllers()
         current = self.capture_camera_state()
         if current == self._last_camera_state:
             return False
         self._last_camera_state = current
         self.invalidate_accumulation()
         return True
+
+    def _adopt_camera_in_controllers(self) -> None:
+        """Give each pygfx controller with a running action the camera's state.
+
+        A controller with a running action works from the camera state it saw
+        when the action began, and writes it back on its next tick.  A click
+        leaves a finished drag that the next frame still ticks, so a camera
+        moved programmatically between the click and that frame went back to
+        where it was at the click.  Handing the controller the camera's state
+        makes the action carry on from the new pose (a drag held through the
+        move continues from it).  A controller with no action reads the camera
+        itself and needs nothing.
+        """
+        for controller in (self._controller_2d, self._controller_3d):
+            if controller._actions and controller._cameras:
+                controller._set_camera_state(controller._cameras[0][0].get_state())
 
     @property
     def last_camera_state(self) -> CameraState:
@@ -1155,11 +1269,13 @@ class CanvasView:
         """Apply a ``CameraState`` to the active pygfx camera.
 
         Only the fields of the active camera's kind are applied: a
-        perspective camera takes ``fov``, an orthographic one ``extent``.
-        A perspective camera with a ``fov`` of 0 takes ``extent`` as well,
-        where the state has one: it is what an orthographic zoom changes.
+        perspective camera takes ``fov``.  Both take ``extent``: on a
+        perspective camera it is the size of the view at the point the
+        orbit controller turns about, so it brings that point back.  A 3D
+        ``extent`` with a component of 0 or less (a state captured before
+        3D extents were recorded) keeps the camera's width and height.
         ``up`` is not applied: it is the up direction the rotation already
-        gives.  The caller reports the move; see :meth:`accept_camera_state`.
+        gives.  The caller reports the move; see `accept_camera_state`.
 
         Parameters
         ----------
@@ -1169,7 +1285,9 @@ class CanvasView:
         Raises
         ------
         ValueError
-            If *state* is for the other kind of camera than the active one.
+            If *state* is for the other kind of camera than the active one,
+            or its ``controller_state`` is for the other kind of
+            controller.
         """
         expected = "orthographic" if self._dim == "2d" else "perspective"
         if state.camera_type != expected:
@@ -1177,37 +1295,184 @@ class CanvasView:
                 f"Cannot apply a {state.camera_type!r} camera state to a "
                 f"canvas showing {self._dim}: its camera is {expected}."
             )
+        controller_state = state.controller_state
+        if controller_state is not None:
+            expected_controller = "pan_zoom" if self._dim == "2d" else "orbit"
+            if controller_state.controller_type != expected_controller:
+                raise ValueError(
+                    "Cannot apply a "
+                    f"{controller_state.controller_type!r} controller state to "
+                    f"a canvas showing {self._dim}: its camera controller is "
+                    f"{expected_controller!r}."
+                )
         camera = self._camera
         if self._dim == "2d":
             camera.width, camera.height = state.extent
         else:
             camera.fov = state.fov
-            # A state saved before the 3D extent was recorded has none.
-            if state.fov == 0 and state.extent[0] > 0 and state.extent[1] > 0:
+            # A state captured before the 3D extent was recorded has none.
+            if state.extent[0] > 0 and state.extent[1] > 0:
                 camera.width, camera.height = state.extent
         camera.world.position = state.position
         camera.world.rotation = state.rotation
-        camera.zoom = state.zoom
         self.set_depth_range_for_dim(self._dim, state.depth_range)
+
+    def set_camera_field(self, dim: str, name: str, value: object) -> None:
+        """Apply one camera-model field to the 2D or 3D pygfx camera.
+
+        Targets *dim*'s camera whether or not it is the one shown.  The
+        caller reports a move of the shown camera; see
+        `accept_camera_state`.
+
+        Parameters
+        ----------
+        dim : str
+            ``"2d"`` or ``"3d"``.
+        name : str
+            ``"position"``, ``"rotation"``, ``"width"``,
+            ``"height"``, ``"depth_range"`` (``(near, far)`` or ``None``),
+            and for the 3D camera ``"fov"`` and ``"up_direction"``.
+            On the 3D camera ``"width"`` and ``"height"`` are the size of
+            the view at the point the orbit controller turns about.
+            ``"up_direction"`` turns the camera about its view direction
+            so its up is as close to the vector as it goes, and makes the
+            vector the camera's reference up (the up the orbit controller
+            keeps); a zero vector is ignored.
+        value : object
+            The field's value, as the camera model holds it.
+
+        Raises
+        ------
+        ValueError
+            If *name* is not a field of *dim*'s camera.
+        """
+        camera = self._camera_2d if dim == "2d" else self._camera_3d
+        if name == "position":
+            camera.world.position = tuple(float(v) for v in value)
+        elif name == "rotation":
+            camera.world.rotation = tuple(float(v) for v in value)
+        elif name in ("width", "height"):
+            setattr(camera, name, float(value))
+        elif name == "depth_range":
+            self.set_depth_range_for_dim(dim, value)
+        elif name == "fov" and dim != "2d":
+            camera.fov = float(value)
+            self._sync_depth_range_3d()
+        elif name == "up_direction" and dim != "2d":
+            up = np.asarray(value, dtype=np.float64)
+            if not np.any(up):
+                return
+            forward = np.asarray(camera.world.forward, dtype=np.float64)
+            position = np.asarray(camera.world.position, dtype=np.float64)
+            camera.world.reference_up = tuple(up)
+            camera.look_at(tuple(position + forward))
+        else:
+            raise ValueError(f"{name!r} is not a field of the {dim} camera.")
+
+    def camera_frustum(self, dim: str | None = None) -> np.ndarray:
+        """Corners of *dim*'s camera frustum, shape (2, 4, 3), in world space.
+
+        Parameters
+        ----------
+        dim : str or None
+            ``"2d"`` or ``"3d"``; ``None`` is the dim shown.
+        """
+        dim = self._dim if dim is None else dim
+        camera = self._camera_2d if dim == "2d" else self._camera_3d
+        return np.asarray(camera.frustum, dtype=np.float32)
+
+    def mark_placed(self, dim: str) -> None:
+        """Record that *dim*'s camera was placed from its camera model.
+
+        It then counts as fitted, so the first switch to *dim* keeps it.
+        """
+        self._fitted.add(dim)
+        self._placed.add(dim)
+
+    def is_fitted(self, dim: str) -> bool:
+        """Whether *dim*'s camera has been fitted or placed from its model.
+
+        Parameters
+        ----------
+        dim : str
+            ``"2d"`` or ``"3d"``.
+        """
+        return dim in self._fitted
+
+    @property
+    def camera_placed(self) -> bool:
+        """Whether the camera shown was placed from its camera model."""
+        return self._dim in self._placed
 
     def set_event_bus(self, event_bus: EventBus) -> None:
         """Wire the EventBus after construction."""
         self._event_bus = event_bus
 
     def set_controller_enabled(self, enabled: bool) -> None:
-        """Enable or disable the active camera controller for this canvas.
+        """Enable or disable this canvas's camera controllers, 2D and 3D.
 
-        ``self._controller`` already points to the currently active
-        controller (``_controller_2d`` or ``_controller_3d`` depending on
-        the canvas dim), so this correctly targets whichever type is in use.
+        Sets both dims' controllers: the one shown at once, the other for
+        when the canvas switches to it.
 
         Parameters
         ----------
         enabled : bool
-            False disables the controller (paint mode active).
-            True restores normal camera interaction.
+            Whether the controllers take input.  While a paint session is
+            active they stay off regardless, and take this setting when it
+            ends.
         """
-        self._controller.enabled = enabled
+        for dim in ("2d", "3d"):
+            self.set_controller_enabled_for_dim(dim, enabled)
+
+    def set_controller_enabled_for_dim(self, dim: str, enabled: bool) -> None:
+        """Enable or disable *dim*'s camera controller.
+
+        Applied at once when *dim* is shown, and when the canvas switches to
+        it otherwise; the controller of the dim not shown is always off.
+
+        Parameters
+        ----------
+        dim : str
+            ``"2d"`` or ``"3d"``.
+        enabled : bool
+            Whether the controller takes input.
+        """
+        self._controller_enabled[dim] = bool(enabled)
+        if dim == self._dim:
+            self._controller.enabled = self._controller_takes_input(dim)
+
+    def _lock_input(self, owner) -> None:
+        """Hold both camera controllers off on behalf of *owner*.
+
+        For a paint session: the drag paints instead of moving the camera.
+        Kept apart from the per-dim enabled state (the camera models'
+        ``controller.enabled``), so the models keep the user's setting and
+        it comes back when the last lock is released.  Locking twice with
+        one owner is the same as once.
+
+        Parameters
+        ----------
+        owner : Hashable
+            Who holds the lock; ``_unlock_input`` with the same owner
+            releases it.
+        """
+        self._input_locks.add(owner)
+        self._controller.enabled = self._controller_takes_input(self._dim)
+
+    def _unlock_input(self, owner) -> None:
+        """Release *owner*'s lock from ``_lock_input``; no-op if none held.
+
+        Parameters
+        ----------
+        owner : Hashable
+            The owner passed to ``_lock_input``.
+        """
+        self._input_locks.discard(owner)
+        self._controller.enabled = self._controller_takes_input(self._dim)
+
+    def _controller_takes_input(self, dim: str) -> bool:
+        """*dim*'s controller is on: enabled for *dim* and not locked."""
+        return self._controller_enabled[dim] and not self._input_locks
 
     def switch_dim(self, new_dim: str) -> bool:
         """Switch the canvas between ``"2d"`` and ``"3d"`` rendering modes.
@@ -1224,7 +1489,7 @@ class CanvasView:
         -------
         bool
             ``True`` if this is the first time ``new_dim`` has been activated
-            on this canvas (caller should call ``show_object`` to fit the
+            on this canvas (caller should call ``fit_to_box`` to fit the
             camera).  ``False`` if the camera pose was already set by a
             previous visit.
         """
@@ -1242,7 +1507,7 @@ class CanvasView:
             self._camera = self._camera_3d
             self._controller = self._controller_3d
             self._accum_pass.enabled = True
-        self._controller.enabled = True
+        self._controller.enabled = self._controller_takes_input(new_dim)
         self._dim = new_dim
         self._apply_ssao_enabled()
         # Caching the state of the camera we just swapped *to* means the diff
@@ -1299,7 +1564,7 @@ class CanvasView:
 
         Safe to call repeatedly; it does nothing when the targets are
         already present, which is the common case.  **Not safe to call from
-        inside a draw callback** -- see :func:`ensure_extra_targets`.
+        inside a draw callback** -- see `ensure_extra_targets`.
 
         Parameters
         ----------
@@ -1331,7 +1596,7 @@ class CanvasView:
         self.request_draw()
 
     def set_scene_extent(self, diagonal: float) -> None:
-        """Forward the scene bounding box diagonal to the occlusion pass.
+        """Forward the diagonal of the scene's data box to the occlusion pass.
 
         Parameters
         ----------
@@ -1340,51 +1605,57 @@ class CanvasView:
         """
         self._ssao_pass.set_scene_extent(diagonal)
 
-    def capture_camera_state(self) -> CameraState:
+    def capture_camera_state(self, dim: str | None = None) -> CameraState:
         """Snapshot the current pygfx camera into a CameraState NamedTuple.
+
+        *dim* (``"2d"`` or ``"3d"``) picks the camera; ``None`` is the one
+        shown.
 
         ``depth_range`` is ``None`` where the camera's range is automatic,
         which the 2D camera's is until one is set.  For the 3D camera it is
         the configured range, not the one widened for a field of view of 0
-        (see :meth:`_sync_depth_range_3d`), and ``extent`` is the camera's
-        width and height at a field of view of 0 and ``(0.0, 0.0)`` above
-        it.
+        (see `set_depth_range`).  ``extent`` is the camera's width and
+        height; for the 3D camera, the size of the view at the point the
+        orbit controller turns about (`orbit_distance`).
+        ``controller_state`` is a `PanZoomControllerState` for the 2D camera
+        and an `OrbitControllerState` for the 3D one.
         """
-        cam = self._camera
-        if self._dim != "2d":
+        dim = self._dim if dim is None else dim
+        cam = self._camera_2d if dim == "2d" else self._camera_3d
+        if dim != "2d":
             self._sync_depth_range_3d()
         pos = cam.world.position
         rot = cam.world.rotation  # quaternion (x, y, z, w)
         dr = cam.depth_range
         depth_range = (float(dr[0]), float(dr[1])) if dr is not None else None
 
-        if self._dim == "2d":
+        if dim == "2d":
             return CameraState(
                 camera_type="orthographic",
                 position=(float(pos[0]), float(pos[1]), float(pos[2])),
                 rotation=(float(rot[0]), float(rot[1]), float(rot[2]), float(rot[3])),
                 up=(0.0, 1.0, 0.0),
                 fov=0.0,
-                zoom=float(cam.zoom),
                 extent=(float(cam.width), float(cam.height)),
                 depth_range=depth_range,
+                controller_state=PanZoomControllerState(),
             )
         else:
             up = cam.world.up
             fov = float(cam.fov)
             depth_range = self._depth_range_3d
-            # An orthographic zoom changes the width and height and nothing
-            # else, so they are part of the state there.
-            extent = (float(cam.width), float(cam.height)) if fov == 0 else (0.0, 0.0)
+            # The size of the view at the orbit point: a zoom changes it,
+            # and it places the point the controller turns the camera about.
+            extent = (float(cam.width), float(cam.height))
             return CameraState(
                 camera_type="perspective",
                 position=(float(pos[0]), float(pos[1]), float(pos[2])),
                 rotation=(float(rot[0]), float(rot[1]), float(rot[2]), float(rot[3])),
                 up=(float(up[0]), float(up[1]), float(up[2])),
                 fov=fov,
-                zoom=float(cam.zoom),
                 extent=extent,
                 depth_range=depth_range,
+                controller_state=OrbitControllerState(),
             )
 
     def hold_draws(self, seconds: float, waiting: Callable[[], bool]) -> None:

@@ -121,7 +121,7 @@ def brick_centre_data(
     scale: ArrayLike,
     translation: ArrayLike,
 ) -> np.ndarray:
-    """Data-space centre of level bricks: the midpoint of :func:`brick_box_data`.
+    """Data-space centre of level bricks: the midpoint of `brick_box_data`.
 
     ``s * ((b + 0.5) * bs - 0.5) + t``.
     """

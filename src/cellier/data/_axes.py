@@ -11,7 +11,7 @@ descending order of authority:
    defaulting -- the metadata had a slot for it and left it blank, which is a
    defect in the dataset.  A geff file's axes are read the same way, except
    that geff makes ``type`` optional, so an unset one takes the name rule of
-   :func:`axis_types_from_names`.
+   `axis_types_from_names`.
 2. **The caller says.**  A ``DataCoordinateSystem`` the caller built, passed
    as ``data_coordinate_systems=``.  Its axes carry their own types.
 3. **The scene says.**  A store added to a scene with no systems of its own
@@ -56,7 +56,7 @@ def axis_types_from_names(names: Sequence[str]) -> tuple[AxisType, ...]:
 
     ``t`` / ``time`` are time, ``c`` / ``channel`` are channel, everything
     else is space.  Case-insensitive.  This is used **only** where a type
-    slot is optional and left unset -- :func:`build_axes` called with
+    slot is optional and left unset -- `build_axes` called with
     ``types=None``, and a geff axis with no ``type``; it is a convenience for
     the conventional names, not a fallback for the general case.
 
@@ -87,7 +87,7 @@ def build_axes(
         Axis names, in data order.
     types : Sequence[AxisType] or None
         Axis types, one per name.  ``None`` applies
-        :func:`axis_types_from_names`.
+        `axis_types_from_names`.
     units : Sequence[str | None] or None
         Physical units, one per name.  ``None`` leaves every unit unset.
     sampling : AxisSampling or Sequence[AxisSampling]
@@ -188,7 +188,7 @@ def level_coordinate_systems(
     """Build one coordinate system per resolution level.
 
     The level-0 system is built from *axes*; the coarser levels follow from
-    it by :func:`level_systems`.
+    it by `level_systems`.
 
     Parameters
     ----------
@@ -573,7 +573,7 @@ def store_level_transforms(store: object) -> list[AffineTransform]:
     """The level ``k`` -> level ``0`` transforms of a store.
 
     A thin read.  The store holds one transform per coordinate system, built by
-    :func:`install_level_transforms` from its own ``level_scales`` and
+    `install_level_transforms` from its own ``level_scales`` and
     ``level_translations`` as soon as the systems exist.
 
     Parameters

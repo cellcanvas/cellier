@@ -36,7 +36,7 @@ _ACCEPTED_LABEL_DTYPES = {np.int8, np.int16, np.int32}
 class OMEZarrLabelDataStore(TensorStoreCacheMixin, BaseDataStore):
     """Multiscale OME-Zarr label store returning int32 bricks.
 
-    Use the :meth:`from_path` class method to construct from a URI that
+    Use the `from_path` class method to construct from a URI that
     points to an OME-NGFF label group (containing ``ome`` → ``multiscales``
     metadata).
 
@@ -71,13 +71,28 @@ class OMEZarrLabelDataStore(TensorStoreCacheMixin, BaseDataStore):
         ``data_coordinate_systems[0]`` when not given; otherwise generated.
     data_coordinate_systems : list[DataCoordinateSystem]
         One system per resolution level, finest first, and the store's only
-        record of its axis names, types and units.  :meth:`from_path` builds
+        record of its axis names, types and units.  `from_path` builds
         them from the NGFF axis metadata (every axis ``sampling="discrete"``)
         or from a caller's level-0 system.  Each system's ``datastore_id``
         must equal ``id``.
     level_transforms : list[AffineTransform]
         Level ``k`` voxels -> level ``0`` voxels, one per system, built from
         ``level_scales`` and ``level_translations``.  Not normally passed.
+    anonymous : bool
+        When True, read an ``s3://`` store without signing requests (for
+        public buckets).  Default False.
+    cache_pool_bytes : int
+        Chunk cache cap for this store, in bytes, shared by all of its
+        resolution levels.  ``0`` disables caching.
+    request_concurrency : int
+        Requests outstanding at once against a remote kvstore.  No effect on
+        a local store.
+    file_io_concurrency : int or None
+        Reads outstanding at once against the local filesystem.  ``None``
+        (the default) leaves tensorstore's default.  No effect on a remote
+        store.
+    recheck_cached_data : bool
+        Revalidate cached chunks on every read.  Default False.
     """
 
     store_type: Literal["ome_zarr_label"] = "ome_zarr_label"
@@ -137,8 +152,9 @@ class OMEZarrLabelDataStore(TensorStoreCacheMixin, BaseDataStore):
         Parameters
         ----------
         zarr_path : str
-            URI with a scheme prefix: ``file://``, ``s3://``, ``gs://``,
-            or ``https://``.  For local files use an absolute path, e.g.
+            URI with a scheme prefix: ``file://``, ``s3://``, ``gs://``
+            (or ``gcs://``), ``http://`` or ``https://``.  For local files use
+            an absolute path, e.g.
             ``file:///home/user/data/seg.ome.zarr/labels/cells``.
         multiscale_index : int
             Which ``multiscales[]`` entry to use. Defaults to 0.
@@ -278,7 +294,7 @@ class OMEZarrLabelDataStore(TensorStoreCacheMixin, BaseDataStore):
 
         The edge convention: an axis of ``size`` voxels spans
         ``[-0.5, size - 0.5]``.  See
-        :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
+        `axis_extents`.
         """
         return gridded_axis_extents(self.level_shapes[0])
 

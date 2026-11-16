@@ -1,7 +1,7 @@
 """Planner tails shared by the chunked multiscale visuals.
 
 Image and labels keep their own LOD selection, sort and cull, and change only
-their tail: the planned brick array becomes a :class:`DesiredSet` of packed
+their tail: the planned brick array becomes a `DesiredSet` of packed
 keys for the scheduler, instead of staged slots and store requests.  A
 planner never touches the atlas or the LUT (invariant 10).
 """
@@ -170,7 +170,7 @@ def _current_slice_ids(
 ) -> np.ndarray | None:
     """The slice id of every level at the plan's dims position, not interned.
 
-    What :attr:`ImageResidency2D.current_slice_ids` holds.  Every level and
+    What `ImageResidency2D.current_slice_ids` holds.  Every level and
     not only the planned ones: an earlier view may have loaded any of them.
     Looked up and never interned, so a level no plan has drawn at this
     position (-1) does not spend the atlas's table of selections.  ``None``
@@ -195,7 +195,7 @@ def max_target_bricks(
 ) -> int | None:
     """The most target bricks an atlas keeps beside its backstop and stages.
 
-    The limit :func:`desired_bricks` truncates the target to, for a planner
+    The limit `desired_bricks` truncates the target to, for a planner
     that would rather plan less than be truncated (an orthographic plane
     plan).
 
@@ -204,7 +204,7 @@ def max_target_bricks(
     bricks available after the backstop divided by ``4 ** offset``, the
     share a plane's stage is of its target where level ratios are 2, in 3D
     as well; summed, and limited by the stages' cap.  Where the estimate is
-    low, :func:`desired_bricks` drops the farthest target bricks, which the
+    low, `desired_bricks` drops the farthest target bricks, which the
     stage still covers.
 
     Parameters
@@ -260,7 +260,7 @@ def desired_bricks(
     3. a target key equal to a kept backstop or stage key keeps the higher
        class, so it appears once;
     4. the target is truncated to the room the backstop and stage bricks
-       actually kept leave in :func:`brick_budget`.
+       actually kept leave in `brick_budget`.
 
     Parameters
     ----------
@@ -397,7 +397,7 @@ def log_backstop_cap_once(owner: object, desired: list[DesiredSet]) -> None:
 def log_intermediate_cap_once(owner: object, desired: list[DesiredSet]) -> None:
     """Log, once per visual, that the stages' cap truncated a stage.
 
-    The counterpart of :func:`log_backstop_cap_once` for
+    The counterpart of `log_backstop_cap_once` for
     ``intermediate_max_slot_fraction``.
 
     Parameters

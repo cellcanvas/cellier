@@ -8,12 +8,12 @@ from cellier.scene.cameras import (
     OrthographicCamera,
     PanZoomCameraController,
     PerspectiveCamera,
+    orbit_distance,
 )
 from cellier.scene.canvas import Canvas
 from cellier.scene.dims import (
     AxisAlignedSelection,
     DimsManager,
-    resolve_displayed_axes,
     spatial_axes,
     world_coordinate_system,
 )
@@ -31,7 +31,7 @@ __all__ = [
     "PanZoomCameraController",
     "PerspectiveCamera",
     "Scene",
-    "resolve_displayed_axes",
+    "orbit_distance",
     "spatial_axes",
     "world_coordinate_system",
 ]

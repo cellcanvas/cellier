@@ -24,7 +24,7 @@ from cellier.render._config import SchedulerConfig
 from cellier.render.scheduling import PlanMode
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
 from cellier.scene.dims import spatial_axes
-from cellier.transform import (
+from cellier.transform._slice_plane import (
     DepthAlignment,
     classify_projection,
     ray_step,

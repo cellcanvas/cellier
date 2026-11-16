@@ -33,7 +33,7 @@ _SETTLED_FRAMES = 10
 class AnywidgetOutlineControls(AnywidgetRenderConfigPanel):
     """Screen-space outline settings for the notebook GUI.
 
-    See :class:`cellier.gui.qt.render.QtOutlineControls` for what the two
+    See `cellier.gui.qt.QtOutlineControls` for what the two
     layers are and why the selection layer has no colour control.
     """
 
@@ -46,7 +46,7 @@ class AnywidgetOutlineControls(AnywidgetRenderConfigPanel):
 class AnywidgetAmbientOcclusionControls(AnywidgetRenderConfigPanel):
     """Ambient occlusion settings for the notebook GUI.
 
-    See :class:`cellier.gui.qt.render.QtAmbientOcclusionControls` for what the radius
+    See `cellier.gui.qt.QtAmbientOcclusionControls` for what the radius
     means and why it is derived from the scene by default.
 
     Parameters
@@ -107,7 +107,7 @@ class AnywidgetAmbientOcclusionControls(AnywidgetRenderConfigPanel):
 class AnywidgetTemporalControls(AnywidgetRenderConfigPanel):
     """Temporal accumulation settings for the notebook GUI.
 
-    See :class:`cellier.gui.qt.render.QtTemporalControls` for what the pass
+    See `cellier.gui.qt.QtTemporalControls` for what the pass
     does and why the convergence readout is worth its space.
 
     Parameters

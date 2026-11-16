@@ -13,7 +13,7 @@ which are registered the same way and are **not** closed with their owner.
 Closing a viewer with a dozen controls therefore left a dozen ``Layout``
 widgets behind even when every control was closed correctly.
 
-Every cellier anywidget's ``close()`` goes through :func:`close_aux_widgets`
+Every cellier anywidget's ``close()`` goes through `close_aux_widgets`
 for that reason.  ``Widget.close()`` is idempotent (it no-ops once the comm is
 gone), so a widget reachable by more than one teardown path -- a control that
 is both a tracked leaf and a child of a container, say -- is safe to close

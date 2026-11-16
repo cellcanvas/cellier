@@ -87,6 +87,20 @@ def test_construction_3d_scene_builds_3d_node(controller, multiscale_labels_stor
     assert gfx._block_cache_3d is not None
 
 
+def test_the_appearance_defaults_like_the_other_add_methods(
+    controller, multiscale_labels_store
+):
+    """``appearance`` is optional, as on ``add_labels``/``add_image_multiscale``."""
+    scene = controller.add_scene(displayed_axes=("y", "x"), name="scene")
+    visual = controller.add_labels_multiscale(
+        data=multiscale_labels_store,
+        scene_id=scene.id,
+        render_config=MultiscaleLabelRenderConfig(**SMALL_BUDGETS),
+    )
+
+    assert visual.appearance == MultiscaleLabelsAppearance()
+
+
 def test_construction_with_a_broadcast_transform_does_not_misindex_the_store(
     controller, multiscale_labels_store
 ):

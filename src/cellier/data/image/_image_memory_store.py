@@ -23,7 +23,7 @@ class ImageMemoryStore(BaseDataStore):
     """In-memory image data store backed by a numpy array.
 
     Serves axis-aligned slices or full sub-volumes to the chunk scheduler.
-    The read itself is synchronous (:meth:`read_padded`); ``get_data`` runs
+    The read itself is synchronous (`read_padded`); ``get_data`` runs
     it in the event loop's default executor.
 
     Parameters
@@ -114,7 +114,7 @@ class ImageMemoryStore(BaseDataStore):
 
         The edge convention: an axis of ``size`` voxels spans
         ``[-0.5, size - 0.5]``.  See
-        :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
+        `axis_extents`.
         """
         return gridded_axis_extents(self.level_shapes[0])
 
@@ -148,7 +148,7 @@ class ImageMemoryStore(BaseDataStore):
     async def get_data(self, request: ChunkRequest) -> np.ndarray:
         """Return the requested sub-region as a float32 array.
 
-        Runs :meth:`read_padded` in the event loop's default executor, so a
+        Runs `read_padded` in the event loop's default executor, so a
         large slice never blocks the loop.
         """
         loop = asyncio.get_running_loop()
@@ -171,7 +171,7 @@ class ImageMemoryStore(BaseDataStore):
         Parameters
         ----------
         request : ChunkRequest
-            Built by ``GFXImageMemoryVisual.plan`` (or the brick route).
+            Built by the render layer from the current view.
             ``request.scale_index`` is always 0 (ignored).
             ``request.axis_selections`` has one entry per data axis.
 

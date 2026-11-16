@@ -201,7 +201,7 @@ class BaseImageVisual(BaseVisual):
     render_planes : tuple[RenderPlane, ...]
         The planes the visual draws its data on in a 3D view while its
         render mode is ``"plane"``; ignored in every other mode and in a 2D
-        view.  World space; see :class:`~cellier.visuals.RenderPlane`.  At
+        view.  World space; see `RenderPlane`.  At
         most four.  Assign a new tuple to change them: one assignment is one
         event.  Default empty, which in ``"plane"`` mode draws nothing.
     """

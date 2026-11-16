@@ -30,7 +30,7 @@ class SliceCoordinator:
 
     Given a ``ReslicingRequest``, it looks up the target ``SceneManager``,
     plans every targeted visual into desired sets and hands them to the
-    shared :class:`~cellier.render.scheduling.ChunkScheduler`, which never
+    shared chunk scheduler, which never
     cancels (every visual is a chunked visual).  The coordinator keeps the
     scheduler's cache registrations in step with each visual's caches,
     retires the caches of a visual that draws nothing (and those of the
@@ -45,8 +45,9 @@ class SliceCoordinator:
     ----------
     scenes : dict[UUID, SceneManager]
         Shared scene registry from ``RenderManager``.
-    data_stores : dict[UUID, MultiscaleZarrDataStore]
-        Mapping of ``visual_model_id`` to the data store for that visual.
+    data_stores : dict[UUID, BaseDataStore]
+        Mapping of ``visual_model_id`` to the data store for that visual,
+        of any store type.
     scheduler : ChunkScheduler
         The chunk scheduler every visual loads through.
     """

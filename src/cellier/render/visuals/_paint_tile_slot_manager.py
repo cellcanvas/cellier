@@ -39,7 +39,7 @@ class PaintTileSlotManager:
 
     "Tile grid coords" are 2-D ``(gy, gx)`` integers identifying a
     finest-level tile.  Each tile that gets painted on receives a slot.
-    Slots are released only by :meth:`clear` (called when the paint
+    Slots are released only by `clear` (called when the paint
     session commits or aborts).
 
     Parameters

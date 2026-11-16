@@ -213,14 +213,14 @@ def test_a_gesture_shares_its_id_and_hover_has_none():
     assert [p.gesture_id for p in picks] == [first] * 4 + [None, second]
 
 
-def test_unsubscribe_pick_stops_the_events_and_the_value_reads():
+def test_unsubscribe_stops_the_pick_events_and_the_value_reads():
     controller, scene = _scene(spatial_axes("z", "y", "x"), "3d")
     canvas_id = uuid4()
     received: list = []
     handle = controller.on_pick(
         canvas_id, PointsPickEvent, received.append, owner_id=uuid4()
     )
-    controller.unsubscribe_pick(handle)
+    handle.unsubscribe()
 
     controller._on_raw_pointer_event(
         _raw(canvas_id, scene.id, uuid4(), PointsPickInfo(point_index=0), camera="3d")
@@ -457,7 +457,7 @@ def test_viewer_on_pick_defaults_its_owner_to_the_canvas():
     counts = viewer.controller._pick_event_counts
     before = dict(counts)
     other = viewer.on_pick(canvas_id, PointsPickEvent, received.append)
-    viewer.unsubscribe_pick(other)
+    viewer.unsubscribe(other)
     assert counts == before
 
 
@@ -466,13 +466,13 @@ def test_ortho_viewer_on_pick_forwards_to_the_controller():
     stub = SimpleNamespace(
         _controller=SimpleNamespace(
             on_pick=lambda *args, **kwargs: calls.append((args, kwargs)),
-            unsubscribe_pick=lambda handle: calls.append(handle),
         )
     )
     canvas_id = uuid4()
+    handle = SimpleNamespace(unsubscribe=lambda: calls.append("handle"))
 
     OrthoViewer.on_pick(stub, canvas_id, MeshPickEvent, print)
-    OrthoViewer.unsubscribe_pick(stub, "handle")
+    OrthoViewer.unsubscribe(stub, handle)
 
     assert calls == [
         (

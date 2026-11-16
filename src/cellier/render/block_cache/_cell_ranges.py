@@ -18,10 +18,10 @@ LUT's shape:
 In an aligned 2D view the reach of a pixel is flat along the plane's
 normal, and the cells above and below the slice are not loaded, so the
 clearance is measured within each layer of cells across that axis
-(:attr:`CellRanges.layer_axis`); otherwise over the whole grid.
+(`CellRanges.layer_axis`); otherwise over the whole grid.
 
 The clearance depends on the threshold.  A threshold change zeroes it at once
-(no pixel then exits early, which is exact) and :meth:`CellRanges.refresh`
+(no pixel then exits early, which is exact) and `CellRanges.refresh`
 computes it again, once a frame.  An unloaded cell has no range and is never
 wholly on a side.
 """
@@ -143,7 +143,7 @@ class CellRanges:
         self._clearance()
 
     def set_threshold(self, threshold: float) -> None:
-        """Adopt a new threshold: the clearance is zeroed until :meth:`refresh`."""
+        """Adopt a new threshold: the clearance is zeroed until `refresh`."""
         threshold = float(threshold)
         if threshold == self.threshold:
             return

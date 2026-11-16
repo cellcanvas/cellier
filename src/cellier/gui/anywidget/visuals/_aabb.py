@@ -30,7 +30,7 @@ class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget):
     input, and a *color* swatch, sharing one UUID so a single subscription
     covers all three fields.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         aabb = AnywidgetAABBWidget(visual_id, initial_enabled=True, ...)
         controller.connect_widget(aabb, subscription_specs=aabb.subscription_specs())
@@ -58,10 +58,7 @@ class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget):
     DEFAULT_TITLE = "Bounding box"
     """Name shown when no ``title=`` is given.
 
-    The renderer passes the title from the shared control vocabulary; this is
-    what a directly-constructed widget calls itself, and
-    ``test_composite_default_titles_match_the_shared_vocabulary`` pins the two
-    together.
+    The same title the built-in viewers pass when they build this widget.
     """
 
     title = traitlets.Unicode(DEFAULT_TITLE).tag(sync=True)
@@ -106,8 +103,7 @@ class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget):
         """Unsubscribe from the bus and release the widget.
 
         ``closed`` tells the controller to drop this widget's subscriptions;
-        the rest actually releases the widget.  See
-        ``cellier.gui.anywidget._teardown`` for why both steps are needed --
+        the rest actually releases the widget.  Both are needed:
         ``ipywidgets`` holds every widget, and every widget's ``layout``, in a
         process-global table that only ``close()`` clears.
         """

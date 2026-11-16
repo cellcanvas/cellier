@@ -43,7 +43,7 @@ def round_world_to_voxel(raw: float, size: int) -> int:
     to the valid index range ``[0, size - 1]``.
 
     The arithmetic itself lives in
-    :func:`cellier._rounding.round_half_up_clamped`, shared with the
+    `cellier._rounding.round_half_up_clamped`, shared with the
     non-uniform axis transform's nearest-neighbour lookup so the two cannot
     drift apart.  This function keeps its name, its voxel-specific meaning
     and every call site.
@@ -80,7 +80,7 @@ def axis_selections_from_box(
       extent, ``(0, shape[axis])``, is fetched.  A displayed axis always looks
       like this, since the region does not crop to the viewport.
     * **collapsed** (``lo == hi``) -- one plane.  The position is snapped with
-      :func:`round_world_to_voxel`, the same half-up rule and the same
+      `round_world_to_voxel`, the same half-up rule and the same
       function as before this migration, and the axis is dropped from the
       returned array by ``get_data``.
     * **a real slab** -- the third branch, reached when a thickness is asked
@@ -161,7 +161,7 @@ def select_plane_within_slab(
     ``[position - half_thickness, position + half_thickness]``.  Among the
     candidates the one whose centre maps closest to ``position`` wins.  A tie
     goes to the higher data index, whatever the sign of the world scale,
-    which is how :func:`round_world_to_voxel` breaks it.  No candidate means
+    which is how `round_world_to_voxel` breaks it.  No candidate means
     the image draws nothing.
 
     Overlap and distance are measured in world units, so an axis whose samples
@@ -271,14 +271,14 @@ def image_plane_selection(
     Image visuals draw one plane per sliced axis and draw nothing when the
     slice misses the data; labels keep the clamping assembler.  For every world
     axis the region bounds and this visual's data maps to, the band's sample is
-    chosen with :func:`select_plane_within_slab`.  If any axis has no sample,
+    chosen with `select_plane_within_slab`.  If any axis has no sample,
     the visual draws nothing and ``None`` is returned.
 
     Otherwise the returned selection replaces each of those slabs with a plane
     at the slice position, read from the selection's translation and never
-    from the slab's bounds (:meth:`RegionSelection.with_planes_at_slice`: the
+    from the slab's bounds (`RegionSelection.with_planes_at_slice`: the
     midpoint of ``p - h`` and ``p + h`` can miss ``p`` by an ulp, and a plane
-    there selects nothing).  :func:`axis_selections_from_box` then rounds that
+    there selects nothing).  `axis_selections_from_box` then rounds that
     position to exactly the sample chosen here -- the nearest sample is the one
     that contains the position, or the end sample when the position lies
     past the data but within the band -- and a multiscale visual's coarser

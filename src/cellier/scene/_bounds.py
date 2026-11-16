@@ -85,8 +85,10 @@ def visual_world_bounds(
 def scene_world_bounds(
     scene: Scene,
     get_store: Callable[[UUID], object],
+    *,
+    only_visible: bool = False,
 ) -> tuple[np.ndarray, np.ndarray] | None:
-    """World AABB of every visual in *scene*, hidden ones included.
+    """World AABB of the visuals in *scene*, hidden ones included by default.
 
     Parameters
     ----------
@@ -95,13 +97,17 @@ def scene_world_bounds(
     get_store : Callable[[UUID], object]
         Looks a visual's data store up by id -- typically
         ``CellierController.get_data_store``.
+    only_visible : bool
+        Skip visuals whose ``appearance.visible`` is ``False``.  Default
+        ``False``: a hidden visual counts, so showing it later does not
+        change the box.
 
     Returns
     -------
     tuple[np.ndarray, np.ndarray] or None
         ``(low, high)`` per world axis, NaN on an axis no visual reaches; or
-        ``None`` when no visual has any extent (an empty scene, or only empty
-        stores).
+        ``None`` when no visual counted has any extent (an empty scene, only
+        empty stores, or with *only_visible* nothing shown).
     """
     world = scene.dims.world_coordinate_system
     low = np.full(world.ndim, np.nan)
@@ -110,6 +116,8 @@ def scene_world_bounds(
     for visual in scene.visuals:
         transform = getattr(visual, "transform", None)
         if transform is None:
+            continue
+        if only_visible and not visual.appearance.visible:
             continue
         store = get_store(UUID(str(visual.data_store_id)))
         extents = store.axis_extents

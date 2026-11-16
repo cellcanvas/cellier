@@ -11,7 +11,7 @@ from uuid import uuid4
 import numpy as np
 
 import cellier._qtasyncio_compat  # noqa: F401  (PySide6 task patches)
-from cellier.events._events import AABBChangedEvent, ViewRay, _CanvasRawPointerEvent
+from cellier.events._events import ViewRay, _CanvasRawPointerEvent
 from cellier.render._cancellable_reads import CancellableReads
 from cellier.render._clipping import expand_rendered_plane, reduce_clipping_planes
 from cellier.render._config import RenderManagerConfig
@@ -99,12 +99,19 @@ class _ImageDisplayedDataCoord(NamedTuple):
         visual has no channel slots or the node is not one of them.
     drawn_channels : tuple[int, ...]
         The channel indices the visual's last plan draws, ascending.
+    drawn_levels : tuple[tuple[int, int | None], ...]
+        ``(key, level)`` for each drawn channel (key 0 when the visual has no
+        channels or shows one at a time): the 1-based pyramid level drawn
+        at the hit, or ``None`` when it cannot be said (an in-memory visual,
+        a table that changed since the frame was drawn).  The controller reads
+        the value at that level.
     """
 
     displayed_data_coord: tuple[float, ...]
     collapsed_data_indices: tuple[tuple[int, int], ...] | None = None
     channel_index: int | None = None
     drawn_channels: tuple[int, ...] = ()
+    drawn_levels: tuple[tuple[int, int | None], ...] = ()
 
 
 class _LabelsDisplayedDataCoord(NamedTuple):
@@ -112,10 +119,24 @@ class _LabelsDisplayedDataCoord(NamedTuple):
 
     Same semantics as ``_ImageDisplayedDataCoord``; separate type so the
     controller can produce the correct public ``LabelsPickInfo``.
+
+    Parameters
+    ----------
+    displayed_data_coord : tuple[float, ...]
+        As on ``_ImageDisplayedDataCoord``.
+    collapsed_data_indices : tuple[tuple[int, int], ...] or None
+        As on ``_ImageDisplayedDataCoord``.
+    drawn_level : int or None
+        The 1-based pyramid level (1 is the finest) drawn at the hit, from
+        the brick (3D) or tile (2D) table.  The hit is on that level's
+        surface, so the controller reads the label there rather than at
+        level 0.  ``None`` when it cannot be said (an in-memory visual, a
+        table that changed since the frame was drawn), which reads level 0.
     """
 
     displayed_data_coord: tuple[float, ...]
     collapsed_data_indices: tuple[tuple[int, int], ...] | None = None
+    drawn_level: int | None = None
 
 
 #: Render modes that project along the ray instead of finding a surface.
@@ -168,11 +189,20 @@ class RenderManager:
     """Single top-level render-layer object.
 
     Owns the scene registry, canvas registry, chunk scheduler, pick-value
-    reader and slice coordinator.  Exposes three reslicing entry points that cover
-    the common triggers: all scenes, one scene, or one visual.
+    reader and slice coordinator.  Exposes two reslicing entry points:
+    `reslice_scene` and `reslice_visual`.  Reslicing every
+    scene is ``CellierController.reslice_all``.
 
-    Construction is parameter-free; scenes, canvases, and visuals are
-    registered via the ``add_*`` methods.
+    Scenes, canvases, and visuals are registered via the ``add_*``
+    methods.
+
+    Parameters
+    ----------
+    config : RenderManagerConfig or None
+        The render pipeline configuration (scheduler, camera, outline,
+        ambient occlusion, temporal accumulation).  ``None`` uses
+        ``RenderManagerConfig()``.  The object is kept and mutated by the
+        live setters, so it reflects the current state.
     """
 
     def __init__(self, config: RenderManagerConfig | None = None) -> None:
@@ -217,16 +247,6 @@ class RenderManager:
         self._event_bus = event_bus
         # Let the coordinator emit ResliceStartedEvent / ResliceCompletedEvent.
         self._slice_coordinator._event_bus = event_bus
-        # The ambient-occlusion radius is derived from the scene bounding
-        # box, so it has to be recomputed when that box moves.  Walking the
-        # scene graph per frame is not an option -- a multiscale visual is a
-        # gfx.Group with a child per brick -- so it happens here and on a
-        # camera fit, the only two moments the answer can change.
-        event_bus.subscribe(
-            AABBChangedEvent,
-            self._on_aabb_changed_for_ssao,
-            owner_id=self._id,
-        )
 
     @property
     def scheduler(self) -> ChunkScheduler:
@@ -482,47 +502,24 @@ class RenderManager:
         for canvas in self._canvases.values():
             canvas.apply_ambient_occlusion_config(self._config.ambient_occlusion)
 
-    def update_ssao_radius(self, scene_id: UUID) -> None:
-        """Recompute the auto occlusion radius for one scene.
+    def set_scene_extent(self, scene_id: UUID, diagonal: float) -> None:
+        """Give every canvas of a scene its box diagonal, for the occlusion radius.
 
-        Reads the scene's world bounding box once and hands its diagonal to
-        every canvas showing that scene.  An explicit ``ssao.radius``
-        overrides the result, so this is safe to call unconditionally.
+        The controller measures the box from the stores and models (every
+        visual, hidden ones included) and calls this after a camera fit and
+        whenever that box changes.  An explicit ``ambient_occlusion.radius``
+        overrides the derived radius, so this is safe to call unconditionally.
 
         Parameters
         ----------
         scene_id : UUID
-            The scene whose bounding box should be measured.  Unknown ids
-            are ignored.
+            The scene the box belongs to.
+        diagonal : float
+            Length of the scene box diagonal, in world units.
         """
-        scene_manager = self._scenes.get(scene_id)
-        if scene_manager is None:
-            return
-        canvases = [
-            canvas
-            for canvas_id, canvas in self._canvases.items()
-            if self._canvas_to_scene.get(canvas_id) == scene_id
-        ]
-        if not canvases:
-            return
-        try:
-            box = scene_manager.scene.get_world_bounding_box()
-        except (AttributeError, IndexError, TypeError, ValueError):
-            # An empty or half-built scene graph is not an error here:
-            # the previous radius stays in place until the next fit.
-            return
-        if box is None:
-            return
-        box = np.asarray(box, dtype=np.float64)
-        diagonal = float(np.linalg.norm(box[1] - box[0]))
-        for canvas in canvases:
-            canvas.set_scene_extent(diagonal)
-
-    def _on_aabb_changed_for_ssao(self, event: AABBChangedEvent) -> None:
-        """Re-derive the auto occlusion radius when a visual's box moves."""
-        scene_id = self._visual_to_scene.get(event.visual_id)
-        if scene_id is not None:
-            self.update_ssao_radius(scene_id)
+        for canvas_id, canvas in self._canvases.items():
+            if self._canvas_to_scene.get(canvas_id) == scene_id:
+                canvas.set_scene_extent(diagonal)
 
     # ------------------------------------------------------------------
     # Screen-space outlines
@@ -1018,7 +1015,8 @@ class RenderManager:
     ) -> CanvasView:
         """Create a ``CanvasView``, register it, and return it.
 
-        The caller embeds ``canvas_view.widget`` in their Qt layout.
+        The caller embeds ``canvas_view.widget`` in their layout: a Qt
+        layout for ``gui="qt"``, a notebook cell for ``gui="anywidget"``.
 
         Parameters
         ----------
@@ -1027,7 +1025,8 @@ class RenderManager:
         scene_id : UUID
             ID of the scene this canvas should render.
         parent : QWidget or None
-            Parent widget for the underlying ``QRenderWidget``.
+            Parent widget for the underlying ``QRenderWidget``.  Ignored by
+            the anywidget and offscreen backends.
         **canvas_view_kwargs
             Additional keyword arguments forwarded to ``CanvasView.__init__``
             (e.g. ``dim``, ``fov``, ``depth_range``, ``gui``, ``size``).
@@ -1247,12 +1246,12 @@ class RenderManager:
         if hit_object is not None:
             hit_visual_id = self._scenes[scene_id].get_visual_id_for_node(hit_object)
             # Gate the cheap per-type extraction on whether any picking
-            # subscriber exists for this canvas (Decision 4).  hit_visual_id
+            # subscriber exists for this canvas.  hit_visual_id
             # is always computed; it is already paid for upstream and is
             # needed for visual-level hits and misses.
             if self._pick_details_enabled.get(canvas_id, False):
                 pick_details = self._extract_pick_details(
-                    scene_id, hit_object, event.pick_info
+                    scene_id, hit_object, event.pick_info, canvas_id
                 )
 
         _ACTION = {
@@ -1356,8 +1355,9 @@ class RenderManager:
     ) -> UUID | None:
         """Read pick values, cancellable by the returned id.
 
-        Multiscale pick values are read at level 0, concurrently, as one
-        cancellable task.
+        Multiscale pick values are read at the pyramid level each request
+        names (the controller picks the level drawn at the hit, or level 0
+        when that cannot be said), concurrently, as one cancellable task.
 
         Parameters
         ----------
@@ -1373,7 +1373,7 @@ class RenderManager:
         Returns
         -------
         UUID or None
-            The read's id, for :meth:`cancel_pick_read`.
+            The read's id, for `cancel_pick_read`.
         """
         if not requests:
             return None
@@ -1410,7 +1410,8 @@ class RenderManager:
         canvas_id : UUID
             The canvas whose extraction state should change.
         enabled : bool
-            True to extract typed ``VisualPickDetails`` on each pointer event.
+            True to extract the typed per-visual pick details (the
+            ``*PickInfo`` types) on each pointer event.
         """
         self._pick_details_enabled[canvas_id] = enabled
 
@@ -1419,6 +1420,7 @@ class RenderManager:
         scene_id: UUID,
         hit_object: gfx.WorldObject,
         pick_info: dict,
+        canvas_id: UUID | None = None,
     ) -> (
         _ImageDisplayedDataCoord | _LabelsDisplayedDataCoord | VisualPickDetails | None
     ):
@@ -1445,6 +1447,10 @@ class RenderManager:
             The picked world object from the pick buffer.
         pick_info : dict
             The pygfx pick payload (``event.pick_info``).
+        canvas_id : UUID, optional
+            The canvas that was picked.  A labels visual that reads the drawn
+            level gives none if its brick table changed since this canvas
+            last drew.
 
         Returns
         -------
@@ -1518,12 +1524,25 @@ class RenderManager:
             tuple(sorted(collapsed.items())) if collapsed is not None else None
         )
         if isinstance(gfx_visual, _LABELS_TYPES):
+            drawn_level = getattr(gfx_visual, "pick_drawn_level", None)
             return _LabelsDisplayedDataCoord(
-                displayed_data_coord=coord, collapsed_data_indices=collapsed_pairs
+                displayed_data_coord=coord,
+                collapsed_data_indices=collapsed_pairs,
+                drawn_level=(
+                    None
+                    if drawn_level is None
+                    else drawn_level(hit_object, coord, canvas_id)
+                ),
             )
+        drawn_levels = getattr(gfx_visual, "pick_drawn_levels", None)
         return _ImageDisplayedDataCoord(
             displayed_data_coord=coord,
             collapsed_data_indices=collapsed_pairs,
+            drawn_levels=(
+                ()
+                if drawn_levels is None
+                else drawn_levels(hit_object, coord, canvas_id)
+            ),
             # The pick-buffer winner in composite mode; the controller
             # reads channel values from these.
             channel_index=gfx_visual.pick_channel_index(hit_object),
@@ -1554,7 +1573,7 @@ class RenderManager:
         """Remove a scene and all its visuals and canvases.
 
         Each visual and each canvas is closed explicitly: see
-        :meth:`SceneManager.close` and :meth:`CanvasView.close`, which dropping
+        `SceneManager.close` and `CanvasView.close`, which dropping
         references cannot substitute for.
 
         Parameters
@@ -1662,7 +1681,7 @@ class RenderManager:
         All three are counters rather than random draws, so rewinding them is
         what turns "draw N frames" into a reproducible picture.
 
-        Called before a capture (see ``cellier.render._capture``).  The visual
+        Called before a capture (``CellierController.screenshot``).  The visual
         counters are shared state -- the scene graph is shared across canvases
         -- so this also rewinds the jitter sequence any live canvas is drawing.
         That is harmless: the sequence is dither, not content.
@@ -1703,6 +1722,9 @@ class RenderManager:
             for vid in sm.visual_ids:
                 vis = sm.get_visual(vid)
                 vis.tick()
+                note_drawn = getattr(vis, "note_drawn", None)
+                if note_drawn is not None:
+                    note_drawn(canvas_id)
                 prepare_draw = getattr(vis, "prepare_draw", None)
                 if prepare_draw is not None:
                     # A capture canvas is never told of a scrub or of a
@@ -1803,39 +1825,6 @@ class RenderManager:
                 target_visual_ids=frozenset({visual_id}),
             )
             self._slice_coordinator.submit(request, {visual_id: cfg})
-
-    def look_at_visual(
-        self,
-        visual_id: UUID,
-        canvas_id: UUID,
-        view_direction: tuple[float, float, float] | None = None,
-        up: tuple[float, float, float] | None = None,
-    ) -> None:
-        """Fit a canvas camera to a visual's bounding box.
-
-        Parameters
-        ----------
-        visual_id : UUID
-            ID of the target visual.
-        canvas_id : UUID
-            ID of the canvas whose camera should be fitted.
-        view_direction : tuple[float, float, float] or None
-            Camera look direction vector, in rendered ``(x, y, z)`` order
-            (need not be normalized).  ``None`` is the canvas's own fit
-            orientation.
-        up : tuple[float, float, float] or None
-            Camera up vector, in rendered ``(x, y, z)`` order.  ``None`` is
-            the canvas's own fit orientation.
-        """
-        scene_id = self._visual_to_scene[visual_id]
-        gfx_scene = self.get_scene(scene_id)
-        canvas_view = self._canvases[canvas_id]
-        fit_view_direction, fit_up = canvas_view.fit_orientation()
-        canvas_view._camera.show_object(
-            gfx_scene,
-            view_dir=fit_view_direction if view_direction is None else view_direction,
-            up=fit_up if up is None else up,
-        )
 
     def set_dims_scrubbing(self, scene_id: UUID, scrubbing: bool) -> None:
         """Record whether a scene's dims are being scrubbed.
@@ -2017,7 +2006,7 @@ class RenderManager:
     ) -> tuple[np.ndarray, float]:
         """A rendered-space plane in a visual's level-0 data coordinates.
 
-        The inverse of :meth:`reduce_clipping_plane`.
+        The inverse of `reduce_clipping_plane`.
 
         Parameters
         ----------
@@ -2115,7 +2104,7 @@ class RenderManager:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """A rendered-space frame on three named world axes.
 
-        The inverse of :meth:`reduce_render_plane`: world to rendered is a
+        The inverse of `reduce_render_plane`: world to rendered is a
         reorder of the displayed axes.
 
         Raises

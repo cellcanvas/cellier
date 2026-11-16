@@ -24,12 +24,10 @@ from cellier.visuals._label_memory import BaseLabelsAppearance
 class QtLabelsRenderModeCombo(QtChoice):
     """How label voxels are rendered in 3D.
 
-    Distinct from the image render-mode control: the labels models spell
-    this field ``iso_categorical``/``flat_categorical`` where the image
-    models spell it ``mip``/``iso``/``minip``.  Pass
-    ``choices=literal_choices(appearance, 'render_mode')`` so the
-    in-memory and multiscale variants each offer their own set and
-    ``gradient_debug`` is excluded.
+    Offers the five labels render modes: ``iso_categorical``,
+    ``flat_categorical``, ``smooth_iso``, ``smooth_geometry`` and
+    ``plane``.  The in-memory and multiscale labels models both accept all
+    five.  Distinct from the image render-mode control, whose modes differ.
 
     Parameters
     ----------
@@ -46,6 +44,9 @@ class QtLabelsRenderModeCombo(QtChoice):
     _default_choices: ClassVar[tuple[str, ...]] = (
         "iso_categorical",
         "flat_categorical",
+        "smooth_iso",
+        "smooth_geometry",
+        "plane",
     )
 
 

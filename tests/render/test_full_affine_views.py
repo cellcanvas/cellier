@@ -500,11 +500,8 @@ async def test_painting_under_an_in_plane_rotation_lands_on_the_voxel():
             brush_value=7,
             brush_radius_voxels=0.0,
         )
-        # A pointer event carries the displayed axes in pygfx (x, y) order
-        # (``CellierController`` pointer bridge); the controller swaps back.
-        world = to_world(matrix, P0)
-        world[1], world[2] = world[2], world[1]
-        paint._apply_brush(world)
+        # A pointer event carries the world coordinate in world axis order.
+        paint._apply_brush(to_world(matrix, P0))
         painted = np.argwhere(store.data == 7)
         assert painted.tolist() == [P0.astype(int).tolist()]
     finally:

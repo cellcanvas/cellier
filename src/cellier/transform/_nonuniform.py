@@ -50,7 +50,7 @@ class AxisCoordinates(CellierModel):
     class is the same statement for an axis whose spacing is irregular.
 
     Keeping ``edges`` explicit is what lets a non-uniform axis answer the
-    question every store answers::
+    question every store answers:
 
         world extent on an axis = transform.map(store.axis_extents)
 
@@ -185,7 +185,7 @@ class NonUniformAxisTransform(BaseTransform):
     """A 1-D transform between data indices and an irregular world axis.
 
     Wraps ``Bijection(GridInterpolation, GridInterpolation)`` so the model
-    satisfies :class:`~cellier.transform._base.BaseTransform`'s
+    satisfies `BaseTransform`'s
     ``transform: Transform`` field and reports a ``1 -> 1`` dimensionality
     that ``validate_against`` can check.  The wrapped object is **not** what
     executes: the mapping is done here, because ``GridInterpolation.apply``
@@ -200,9 +200,9 @@ class NonUniformAxisTransform(BaseTransform):
     some of its points may be in range while others are not.
 
     **Point and interval queries differ deliberately.**
-    :meth:`map_coordinates` / :meth:`imap_coordinates` are point queries and
-    return ``nan`` outside the span.  :meth:`map_bounding_box` /
-    :meth:`imap_bounding_box` are interval queries and **intersect** with the
+    `map_coordinates` / `imap_coordinates` are point queries and
+    return ``nan`` outside the span.  `map_bounding_box` /
+    `imap_bounding_box` are interval queries and **intersect** with the
     span, so an interval that merely overhangs an end comes back clipped
     rather than empty.  Both are correct: a slice position outside the data
     selects nothing, while a trail window reaching back past the first frame
@@ -401,31 +401,87 @@ class NonUniformAxisTransform(BaseTransform):
     # -- the operations a non-affine axis cannot answer -----------------
 
     def map_direction(self, direction: np.ndarray) -> np.ndarray:
-        """Not answerable: the Jacobian varies along the axis."""
+        """Not answerable: the Jacobian varies along the axis.
+
+        Always raises.
+
+        Raises
+        ------
+        NonAffineTransformError
+            On every call.
+        """
         raise NonAffineTransformError(self._no_jacobian("map_direction"))
 
     def imap_direction(self, direction: np.ndarray) -> np.ndarray:
-        """Not answerable: the Jacobian varies along the axis."""
+        """Not answerable: the Jacobian varies along the axis.
+
+        Always raises.
+
+        Raises
+        ------
+        NonAffineTransformError
+            On every call.
+        """
         raise NonAffineTransformError(self._no_jacobian("imap_direction"))
 
     def map_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Not answerable: the Jacobian varies along the axis."""
+        """Not answerable: the Jacobian varies along the axis.
+
+        Always raises.
+
+        Raises
+        ------
+        NonAffineTransformError
+            On every call.
+        """
         raise NonAffineTransformError(self._no_jacobian("map_normal"))
 
     def imap_normal(self, normal: np.ndarray) -> np.ndarray:
-        """Not answerable: the Jacobian varies along the axis."""
+        """Not answerable: the Jacobian varies along the axis.
+
+        Always raises.
+
+        Raises
+        ------
+        NonAffineTransformError
+            On every call.
+        """
         raise NonAffineTransformError(self._no_jacobian("imap_normal"))
 
     def map_plane(self, plane):
-        """Not answerable: a plane needs a spatially constant Jacobian."""
+        """Not answerable: a plane needs a spatially constant Jacobian.
+
+        Always raises.
+
+        Raises
+        ------
+        NonAffineTransformError
+            On every call.
+        """
         raise NonAffineTransformError(self._no_jacobian("map_plane"))
 
     def imap_plane(self, plane):
-        """Not answerable: a plane needs a spatially constant Jacobian."""
+        """Not answerable: a plane needs a spatially constant Jacobian.
+
+        Always raises.
+
+        Raises
+        ------
+        NonAffineTransformError
+            On every call.
+        """
         raise NonAffineTransformError(self._no_jacobian("imap_plane"))
 
     def map_region(self, region: ConvexRegion) -> ConvexRegion:
-        """Not answerable: a half-space needs a constant normal."""
+        """Not answerable: a half-space needs a constant normal.
+
+        Always raises.
+
+        Raises
+        ------
+        NonAffineTransformError
+            On every call.
+        """
         raise NonAffineTransformError(self._no_jacobian("map_region"))
 
     def imap_region(
@@ -433,7 +489,15 @@ class NonUniformAxisTransform(BaseTransform):
         region: ConvexRegion,
         output_coordinate_system: CoordinateSystem,
     ) -> ConvexRegion:
-        """Not answerable: a half-space needs a constant normal."""
+        """Not answerable: a half-space needs a constant normal.
+
+        Always raises.
+
+        Raises
+        ------
+        NonAffineTransformError
+            On every call.
+        """
         raise NonAffineTransformError(self._no_jacobian("imap_region"))
 
     def _no_jacobian(self, operation: str) -> str:
@@ -489,7 +553,7 @@ class NonUniformAxisTransform(BaseTransform):
     def inverse(self) -> BaseTransform | None:
         """No inverse *as a transform of this class*.
 
-        The map is invertible -- :meth:`imap_coordinates` performs the
+        The map is invertible -- `imap_coordinates` performs the
         inversion -- but its inverse is not itself a table of world
         positions per data index, which is what this class models.  Rather
         than invent a second class nothing yet consumes, this returns
@@ -699,7 +763,7 @@ def _restore(values: np.ndarray, was_1d: bool) -> np.ndarray:
 def coordinates_from_sequence(
     values: Sequence[float], edges: tuple[float, float] | None = None
 ) -> AxisCoordinates:
-    """Build :class:`AxisCoordinates` from any sequence of positions.
+    """Build `AxisCoordinates` from any sequence of positions.
 
     Parameters
     ----------

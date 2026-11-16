@@ -6,7 +6,7 @@ import uuid
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from pydantic import UUID4, AfterValidator, Field
+from pydantic import UUID4, AfterValidator, ConfigDict, Field
 
 from cellier._model import CellierEventedModel
 
@@ -28,6 +28,8 @@ class CanvasOverlay(CellierEventedModel):
         Whether the overlay is rendered.  Default ``True``.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: UUID4 | Annotated[str, AfterValidator(lambda x: uuid.UUID(x, version=4))] = (
         Field(frozen=True, default_factory=lambda: uuid4())
     )
@@ -36,7 +38,7 @@ class CanvasOverlay(CellierEventedModel):
 
 
 class CenteredAxes2DAppearance(CellierEventedModel):
-    """Appearance model for a :class:`CenteredAxes2D` overlay.
+    """Appearance model for a `CenteredAxes2D` overlay.
 
     Parameters
     ----------
@@ -57,7 +59,8 @@ class CenteredAxes2DAppearance(CellierEventedModel):
         ``(x, y)`` offset in pixels from the anchor corner, where ``(0, 0)``
         is the corner itself.  The offset moves the origin inward (right for
         left corners, left for right corners; down for top corners, up for
-        bottom corners).  Default ``(20.0, 20.0)``.
+        bottom corners).  Ignored when *corner* is ``"center"``.  Default
+        ``(20.0, 20.0)``.
     show_labels : bool
         Whether to render text labels at the arrow tips.  Default ``True``.
     font_size_px : float
@@ -65,6 +68,8 @@ class CenteredAxes2DAppearance(CellierEventedModel):
     label_color : tuple[float, float, float, float]
         RGBA color for axis text labels.  Default white ``(1.0, 1.0, 1.0, 1.0)``.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     axis_a_color: tuple[float, float, float, float] = (0.23, 0.67, 0.23, 1.0)
     axis_b_color: tuple[float, float, float, float] = (0.80, 0.40, 0.00, 1.0)
@@ -80,14 +85,15 @@ class CenteredAxes2DAppearance(CellierEventedModel):
 
 
 class CenteredAxes2D(CanvasOverlay):
-    """2D axis indicator rendered in screen space as a corner overlay.
+    """2D axis indicator rendered in screen space.
 
-    Displays two line segments anchored to a fixed canvas corner, one for
-    each displayed axis.  The screen-space directions of the segments are
-    computed from the world-space direction vectors supplied here and the
-    live camera matrix, so the indicator correctly reflects any camera
-    orientation.  Geometry is recomputed only when the canvas resizes or
-    the camera matrix changes — never on pan or zoom.
+    Displays two line segments from one anchor point, one for each displayed
+    axis.  The anchor is the canvas centre by default, or a canvas corner
+    (`CenteredAxes2DAppearance.corner`).  The screen-space directions of the
+    segments are computed from the world-space direction vectors supplied
+    here and the live camera rotation, so the indicator follows any camera
+    orientation.  Geometry is recomputed only when the canvas resizes or the
+    camera rotates; panning and zooming leave it unchanged.
 
     Parameters
     ----------
@@ -127,7 +133,7 @@ class DrawStatusOverlay(CanvasOverlay):
     user is looking, one line per visual:
     ``Not shown: <name> (OBLIQUE)``.  It draws nothing while every
     visual draws.  The full reason is on
-    :meth:`~cellier.CellierController.draw_status`.
+    `draw_status`.
 
     The convenience viewers add one to every canvas by default
     (``draw_status_overlay=True``).

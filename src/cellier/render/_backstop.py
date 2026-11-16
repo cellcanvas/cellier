@@ -6,7 +6,7 @@ showing the previous slice -- while the target loads.  All four planners
 (image and labels, 2D and 3D) call these helpers, which work on the same
 level grids and sort / cull functions as their target planning.
 
-What the settings mean is :class:`~cellier.visuals.ProgressiveLoadingConfig`'s
+What the settings mean is `ProgressiveLoadingConfig`'s
 business; this module turns them into brick arrays in load order.
 """
 
@@ -60,14 +60,14 @@ def intermediate_bricks(
 
     For a target brick at level ``L`` its ancestors are the bricks of level
     ``L + offset`` that own one of its base cells, by the shared cell -> brick
-    rule (:mod:`cellier.render.lut_indirection._cell_brick_rule`), so the
+    rule (`cellier.render.lut_indirection._cell_brick_rule`), so the
     stage covers exactly what the lookup table will look up.  Where the
     coarser level's span is a whole multiple of the finer one's that is one
     brick; where the spans do not nest it is a range of up to a few along an
     axis, and all of them are taken.
 
     Arithmetic only: 2D and 3D, any level mix.  Keys another block of the
-    plan already holds are not removed; that is :func:`desired_bricks`' work.
+    plan already holds are not removed; that is `desired_bricks`' work.
 
     Parameters
     ----------
@@ -157,7 +157,7 @@ def backstop_bricks_3d(
     level_grids : list[dict]
         The planner's precomputed level grids (``build_level_grids``).
     level : int
-        1-based backstop level (:func:`backstop_level`).
+        1-based backstop level (`backstop_level`).
     camera_pos_data : np.ndarray
         Camera position in level-0 data space, shader order, as the target's
         distance sort takes it.
@@ -216,7 +216,7 @@ def backstop_tiles_2d(
     level_grids : list[dict]
         The planner's precomputed tile grids (``build_tile_grids_2d``).
     level : int
-        1-based backstop level (:func:`backstop_level`).
+        1-based backstop level (`backstop_level`).
     camera_pos : np.ndarray
         ``(x, y, 0)``: the canvas centre in level-0 data space.
     block_size : int

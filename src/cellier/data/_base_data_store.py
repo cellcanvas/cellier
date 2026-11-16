@@ -40,7 +40,7 @@ def gridded_axis_extents(shape: Sequence[int]) -> tuple[tuple[float, float], ...
     ``[i - 0.5, i + 0.5)``, so an axis of ``size`` voxels spans
     ``[-0.5, size - 0.5]`` -- half a voxel beyond the first and last
     centres.  This is the convention
-    :func:`~cellier.render.visuals._slicing.round_world_to_voxel` documents
+    `round_world_to_voxel` documents
     and the whole render layer already uses; returning the centres
     ``(0, size - 1)`` instead would understate every axis by half a voxel at
     each end.
@@ -123,8 +123,8 @@ class BaseDataStore(CellierEventedModel):
         not invent one, because ``Axis.axis_type`` has no honest default.
         Concrete stores that can say -- the OME-Zarr readers -- populate it at
         construction.  A store that reaches ``CellierController.add_visual``
-        still empty has one derived from the scene's world axes; see
-        ``CellierController._ensure_data_coordinate_systems``.
+        still empty has one derived from the scene's world axes when the
+        visual is added.
     level_scales : list[tuple[float, ...]]
         Per-level, per-axis scale of level ``k`` voxels in level ``0`` voxels.
         ``level_scales[0]`` is all ones.  Empty for a single-level store.
@@ -153,11 +153,13 @@ class BaseDataStore(CellierEventedModel):
     id : str
         The unique identifier for the data store.
     data_changed : Signal
-        Emits a :class:`~cellier.data._changes.StoreChange` whenever the
-        store's data changes: automatically when a data field is reassigned,
-        and on :meth:`notify_changed` after an in-place write.  A controller
-        that registers the store relays it to the event bus and reslices the
-        visuals reading the store.  Changes must happen on the main thread.
+        Emits a ``StoreChange`` named tuple, ``(kind, regions)`` with
+        ``kind`` ``"extent"`` or ``"contents"``, whenever the store's data
+        changes: automatically when a data field is reassigned, and on
+        `notify_changed` after an in-place write.  A controller that
+        registers the store relays it to the event bus (as
+        `DataStoreContentsChangedEvent`) and reslices the visuals reading
+        the store.  Changes must happen on the main thread.
     """
 
     data_changed: ClassVar[Signal] = Signal(object)
@@ -446,9 +448,9 @@ class BaseDataStore(CellierEventedModel):
         out-of-domain check that decides a visual has no data at a given
         slice position -- reads it through the visual's own transform:
 
-        .. code-block:: text
-
-            world extent on an axis = transform.map(store.axis_extents)
+        ```text
+        world extent on an axis = transform.map(store.axis_extents)
+        ```
 
         Stating it here, once, is what lets that rule have no special case:
         a gridded store and a point cloud answer the same question by
@@ -459,11 +461,10 @@ class BaseDataStore(CellierEventedModel):
         ``level_transforms``, and a per-level extent would be several ways
         to say one thing.
 
-        There are exactly two implementations.  Gridded stores use
-        :func:`gridded_axis_extents` -- the **edge** convention,
-        ``(-0.5, size - 0.5)``, because a voxel is centred on its index.
-        Geometry stores use :func:`geometry_axis_extents` -- the bounding
-        box of their vertices, with no padding, because a vertex is a point.
+        Gridded stores use the **edge** convention, ``(-0.5, size - 0.5)``,
+        because a voxel is centred on its index.  Geometry stores use the
+        bounding box of their vertices, with no padding, because a vertex is
+        a point.
 
         **Cached by geometry stores.**  Their extent is a pass over every
         vertex, so they compute it once and keep it until an ``"extent"``
@@ -474,8 +475,8 @@ class BaseDataStore(CellierEventedModel):
         Returns
         -------
         tuple[tuple[float, float], ...] or None
-            One ``(low, high)`` pair per data axis, or ``NO_EXTENT`` when
-            the store holds no data at all.
+            One ``(low, high)`` pair per data axis, or ``None`` when the
+            store holds no data at all.
 
         Raises
         ------

@@ -3,7 +3,7 @@
 A MaskedImage that loads only the bricks near its surface has to know where
 the surface is before it plans its target.  It learns that from the mask's
 backstop: every backstop brick the atlas writes is copied into a
-:class:`SurfaceMap`, the backstop level as one array per slice (the map
+`SurfaceMap`, the backstop level as one array per slice (the map
 *is* the coarse level, filled as its bricks land).  The plan then keeps
 
 - the mask's target bricks that touch a coarse cell crossing the threshold
@@ -298,7 +298,7 @@ def mask_bricks_near_surface(
     arr : np.ndarray
         ``(N, 4)`` planned bricks ``(level, g0, g1, g2)``, in plan order.
     crossing : np.ndarray
-        :func:`crossing_cells` of the coarse level.
+        `crossing_cells` of the coarse level.
     block_size : int
         Brick side in voxels.
     level_shapes : sequence of tuple
@@ -341,11 +341,11 @@ def value_bricks_near_surface(
     arr : np.ndarray
         ``(N, 4)`` planned value bricks ``(level, g0, g1, g2)``.
     crossing : np.ndarray
-        :func:`crossing_cells` of the mask's coarse level.
+        `crossing_cells` of the mask's coarse level.
     block_size : int
         The value's brick side in voxels.
     level_shapes, scales, translations
-        The value's levels, as for :func:`mask_bricks_near_surface`.
+        The value's levels, as for `mask_bricks_near_surface`.
     value_to_mask : np.ndarray
         ``(4, 4)``: value level-0 voxels to mask level-0 voxels over the
         fetched axes.

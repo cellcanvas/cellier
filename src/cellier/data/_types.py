@@ -31,3 +31,8 @@ DataStoreType = Annotated[
     ],
     Field(discriminator="store_type"),
 ]
+"""Any data store model, told apart by its ``store_type`` field.
+
+The type of the ``DataManager.stores`` values; a saved viewer file uses it to
+rebuild each store as the right class.
+"""

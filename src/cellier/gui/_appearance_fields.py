@@ -157,7 +157,7 @@ class VisualIdGroup:
     pinned for appearance and for AABB by
     ``tests/convenience/test_cleanup_assumptions.py``.
 
-    Mix in **before** the toolkit base so the plain-``object`` MRO stays first::
+    Mix in **before** the toolkit base so the plain-``object`` MRO stays first:
 
         class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget): ...
     """
@@ -228,12 +228,17 @@ allowlisting keeps the combo in sync with the model automatically: a new
 """
 
 
-def literal_choices(appearance: Any, field: str) -> tuple[str, ...]:
+def selectable_field_values(appearance: Any, field: str) -> tuple[str, ...]:
     """Return the values *field* admits on *appearance*'s model, user-facing only.
 
-    Reads the field's ``Literal`` annotation, so the in-memory and multiscale
-    variants of a field need no separate lists -- each model answers for
-    itself.  Debug-only values are dropped per :data:`DEBUG_FIELD_VALUES`.
+    Reads the field's ``Literal`` annotation and drops the debug-only values
+    in `DEBUG_FIELD_VALUES`.  For code that builds controls for any model
+    from a field name (the built-in layouts), where one field can admit
+    different values on different models: image ``render_mode`` is
+    ``mip``/``iso``/``minip``/``plane`` in memory and
+    ``iso``/``mip``/``smooth_iso``/``attenuated_mip``/``plane`` on the
+    multiscale model.  A hand-built choice widget writes its options out
+    instead.
 
     Returns an empty tuple when the field is not a ``Literal``.
     """

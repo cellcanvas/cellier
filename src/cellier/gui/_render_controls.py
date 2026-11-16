@@ -553,7 +553,7 @@ VISUAL_RENDER_TITLES: dict[str, str] = {
 }
 """What each per-visual group is called.
 
-Keyed by the same names as :data:`VISUAL_RENDER_CONTROLS` and as the
+Keyed by the same names as `VISUAL_RENDER_CONTROLS` and as the
 ``ControlSpec.kind`` the renderers dispatch on, so the vocabulary is one
 list rather than three that have to be kept level.  The layout layer's
 ``_CONTROL_TITLES`` reads these rather than restating them.

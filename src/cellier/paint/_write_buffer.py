@@ -1,9 +1,9 @@
 """Staged write buffer for the multiscale paint controller.
 
-The :class:`WriteBuffer` protocol lets paint controllers stage voxel
+The `WriteBuffer` protocol lets paint controllers stage voxel
 writes in memory and either flush them to durable storage (``commit``)
-or discard them (``abort``).  The default :class:`TensorStoreWriteBuffer`
-uses a :class:`tensorstore.Transaction` to provide read-your-writes
+or discard them (``abort``).  The default `TensorStoreWriteBuffer`
+uses a `tensorstore.Transaction` to provide read-your-writes
 semantics: any voxel staged via ``stage`` is observable via
 ``read_staged`` (and via any read on the wrapped store) until the
 transaction is committed or aborted.
@@ -72,7 +72,7 @@ class WriteBuffer(Protocol):
 
 
 class TensorStoreWriteBuffer:
-    """:class:`WriteBuffer` backed by a :class:`tensorstore.Transaction`.
+    """`WriteBuffer` backed by a `tensorstore.Transaction`.
 
     Wraps a single TensorStore handle (typically the level-0 store of a
     multiscale data store) in an isolated transaction.  All writes are

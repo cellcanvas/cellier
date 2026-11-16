@@ -19,7 +19,7 @@ only to subscribers that care about a specific object:
 | Event type | Entity | Entity field |
 |---|---|---|
 | `DimsChangedEvent`, `CameraChangedEvent`, `ResliceStartedEvent`, `VisualAddedEvent`, `VisualRemovedEvent`, `SceneAddedEvent`, `SceneRemovedEvent` | Scene | `scene_id` |
-| `AppearanceChangedEvent`, `ChannelAppearanceChangedEvent`, `PickWriteChangedEvent`, `AABBChangedEvent`, `VisualVisibilityChangedEvent`, `TransformChangedEvent`, `ResliceCompletedEvent`, `ResliceCancelledEvent` | Visual | `visual_id` |
+| `AppearanceChangedEvent`, `ChannelAppearanceChangedEvent`, `PickWriteChangedEvent`, `AABBChangedEvent`, `VisualVisibilityChangedEvent`, `TransformChangedEvent`, `ResliceCompletedEvent` | Visual | `visual_id` |
 | `FrameRenderedEvent` | Canvas | `canvas_id` |
 | `DataStoreMetadataChangedEvent`, `DataStoreContentsChangedEvent` | Data store | `data_store_id` |
 | `CanvasMousePress2DEvent`, `CanvasMouseMove2DEvent`, `CanvasMouseRelease2DEvent`, `CanvasMousePress3DEvent`, `CanvasMouseMove3DEvent`, `CanvasMouseRelease3DEvent` | Canvas (emitter) | `source_id` |
@@ -49,7 +49,7 @@ falls back to the controller's own `._id`.
 
 ---
 
-## Tool 1 — `EventBus.get_subscribers()`
+## Tool 1 — `CellierController.get_subscribers()`
 
 The primary inspection tool. Returns a list of `SubscriberInfo` objects
 describing every callback registered for a given event type.
@@ -57,7 +57,7 @@ describing every callback registered for a given event type.
 ```python
 from cellier.events import DimsChangedEvent, AppearanceChangedEvent
 
-subscribers = controller._outgoing_events.get_subscribers(DimsChangedEvent)
+subscribers = controller.get_subscribers(DimsChangedEvent)
 for info in subscribers:
     print(info.callback_qualname, info.owner_id, info.entity_id, info.is_alive)
 ```
@@ -78,9 +78,7 @@ include both subscriptions scoped to that entity **and** unscoped subscriptions
 
 ```python
 # Everything that fires when scene X's dims change.
-subscribers = controller._outgoing_events.get_subscribers(
-    DimsChangedEvent, entity_id=scene.id
-)
+subscribers = controller.get_subscribers(DimsChangedEvent, entity_id=scene.id)
 ```
 
 ### Inspecting the live subscriber object
@@ -89,7 +87,7 @@ subscribers = controller._outgoing_events.get_subscribers(
 Use this in a debugging session to inspect the subscriber directly:
 
 ```python
-for info in controller._outgoing_events.get_subscribers(AppearanceChangedEvent):
+for info in controller.get_subscribers(AppearanceChangedEvent):
     print(type(info.callback_instance).__name__, info.callback_qualname)
     # e.g. GFXMultiscaleImageVisual  on_appearance_changed
 ```
@@ -100,7 +98,7 @@ for info in controller._outgoing_events.get_subscribers(AppearanceChangedEvent):
 |---|---|---|
 | `callback_qualname` | `str` | Dotted name of the callback, e.g. `"QtDimsControl._on_dims_changed"`. `"(dead)"` if the weak reference was collected. |
 | `callback_instance` | `object` | The bound instance for a method callback; `None` for plain functions or dead weak refs. |
-| `owner_id` | `UUID or None` | UUID used to group this subscription for bulk removal via `unsubscribe_all`. |
+| `owner_id` | `UUID or None` | UUID used to group this subscription for bulk removal via `controller.unsubscribe_owner`. |
 | `entity_id` | `UUID or None` | Entity this subscription is scoped to, or `None` for unscoped. |
 | `is_weak` | `bool` | `True` when the bus holds a weak reference to the callback. |
 | `is_alive` | `bool` | `False` when a weak reference has been garbage-collected. |

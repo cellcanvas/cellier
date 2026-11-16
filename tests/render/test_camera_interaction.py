@@ -658,9 +658,7 @@ async def test_set_camera_state_round_trips(make_rig):
     controller = rig.controller
     await rig.settle_first_frames()
     state = controller.get_camera_state(rig.canvas_id)
-    target = state._replace(
-        position=(3.0, 4.0, state.position[2]), extent=(20.0, 10.0), zoom=2.0
-    )
+    target = state._replace(position=(3.0, 4.0, state.position[2]), extent=(20.0, 10.0))
     controller.set_camera_state(rig.canvas_id, target)
     assert controller.get_camera_state(rig.canvas_id) == target
     camera_model = rig.scene.canvases[rig.canvas_id].cameras["2d"]
@@ -688,7 +686,7 @@ async def test_on_ready_fires_once_when_a_jump_follows_the_reslice(make_rig):
     await rig.settle_first_frames()
     state = controller.get_camera_state(rig.canvas_id)
     fired: list[int] = []
-    controller.reslice_scene(rig.scene.id, on_ready=lambda: fired.append(1))
+    controller.on_scene_ready(rig.scene.id, lambda: fired.append(1))
     controller.set_camera_state(
         rig.canvas_id, state._replace(position=tuple(p + 5 for p in state.position))
     )
@@ -768,8 +766,9 @@ async def test_the_2d_3d_switch_cancels_and_its_reslice_sees_the_fitted_view(
 async def test_the_deferred_fit_is_a_jump_queued_on_the_loop(make_rig):
     """A scene empty at the toggle is fitted when it first has something to fit.
 
-    That happens on the way to a draw (a visual added, a commit round), where
-    planning must not run: the fit is a jump whose reslice is queued.
+    That is when its data box first exists: here, a visual is added.  The fit
+    is a jump whose reslice is queued, so it joins the reslice the same change
+    starts.
     """
     rig = make_rig(render_modes={"2d", "3d"}, with_image=False)
     controller = rig.controller
@@ -861,7 +860,8 @@ async def test_a_camera_reslice_during_a_scrub_plans_coarse(make_rig, how):
         else:
             state = controller.get_camera_state(rig.canvas_id)
             controller.set_camera_state(
-                rig.canvas_id, state._replace(zoom=state.zoom * 2)
+                rig.canvas_id,
+                state._replace(extent=tuple(0.5 * e for e in state.extent)),
             )
         (reslice,) = rig.camera_reslices()
         assert reslice["modes"][visual_id] == "BACKSTOP_ONLY"

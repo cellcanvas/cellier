@@ -2,7 +2,7 @@
 
 The anywidget path is covered by ``tests/v2/test_anywidget.py``; this covers
 ``build_ortho_grid_widget(gui="qt")`` -> ``_build_qt_ortho_grid``, the
-``OrthoCanvasWidgets`` teardown, and the gui-resolution ``ValueError`` guards.
+``OrthoCanvasGrid`` teardown, and the gui-resolution ``ValueError`` guards.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from cellier.convenience import (
     axis_values_from_ortho,
 )
 from cellier.convenience.gui import (
-    OrthoCanvasWidgets,
+    OrthoCanvasGrid,
     build_ortho_grid_widget,
 )
 from cellier.scene.dims import spatial_axes
@@ -43,7 +43,7 @@ def test_build_qt_ortho_grid_has_four_panels(qtbot, image_store):
 
     widgets = build_ortho_grid_widget(ortho, ranges, gui="qt")
 
-    assert isinstance(widgets, OrthoCanvasWidgets)
+    assert isinstance(widgets, OrthoCanvasGrid)
     assert set(widgets.canvases) == _PANELS
     assert widgets.widget is not None
 
@@ -54,7 +54,7 @@ def test_ortho_grid_defaults_gui_from_viewer(qtbot, image_store):
 
     # gui=None -> resolves to ortho.gui ("qt").
     widgets = build_ortho_grid_widget(ortho, ranges)
-    assert isinstance(widgets, OrthoCanvasWidgets)
+    assert isinstance(widgets, OrthoCanvasGrid)
 
 
 def test_ortho_canvas_widgets_close(qtbot, image_store):

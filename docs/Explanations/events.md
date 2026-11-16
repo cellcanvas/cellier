@@ -251,54 +251,49 @@ z_index   = event.dims_state.selection.slice_indices.get(0, 0)
 
 Numpy-free immutable snapshot suitable for event payloads, external callbacks, and
 serialization. Distinct from `ReslicingRequest`, which carries numpy arrays for the
-hot slicing path.
+hot slicing path. The same snapshot is what `get_camera_state` returns, what
+`set_camera_state` applies, what `CameraChangedEvent` carries and what the
+controller writes back into the canvas's camera model.
 
 ```python
 class CameraState(NamedTuple):
-    """Immutable snapshot of the active camera's logical state.
-
-    For perspective cameras: ``fov`` is populated; ``extent`` is
-    ``(0.0, 0.0)``.
-    For orthographic cameras: ``extent`` is populated; ``fov`` is
-    ``0.0``.
-    ``zoom`` applies to both types.
-
-    Parameters
-    ----------
-    camera_type :
-        ``"perspective"`` or ``"orthographic"``.
-    position :
-        World-space camera position ``(x, y, z)``.
-    rotation :
-        Camera orientation as a unit quaternion ``(x, y, z, w)``,
-        matching pygfx's convention.
-    up :
-        World-space up vector ``(x, y, z)``.
-    fov :
-        Vertical field of view in degrees.  Perspective cameras only;
-        ``0.0`` for orthographic.
-    zoom :
-        Unitless zoom multiplier.  Applies to both camera types.
-    extent :
-        ``(width, height)`` in world units.  Orthographic cameras only;
-        ``(0.0, 0.0)`` for perspective.
-    depth_range :
-        ``(near, far)`` clip distances, or ``None`` where the range is
-        automatic (a 2D camera's, until one is set).
-    """
-
     camera_type: Literal["perspective", "orthographic"]
-    position: tuple[float, float, float]
-    rotation: tuple[float, float, float, float]
+    position: tuple[float, float, float]        # renderer (x, y, z)
+    rotation: tuple[float, float, float, float] # quaternion (x, y, z, w)
     up: tuple[float, float, float]
-    fov: float
-    zoom: float
-    extent: tuple[float, float]
-    depth_range: tuple[float, float] | None
+    fov: float                                  # 0 for a 2D camera
+    extent: tuple[float, float]                 # (width, height); 3D: at the orbit point
+    depth_range: tuple[float, float] | None      # None = automatic
+    controller_state: OrbitControllerState | PanZoomControllerState | None = None
+
+
+class OrbitControllerState(NamedTuple):
+    controller_type: Literal["orbit"] = "orbit"
+
+
+class PanZoomControllerState(NamedTuple):
+    controller_type: Literal["pan_zoom"] = "pan_zoom"
 ```
 
-`CameraState` and `DimsState` are both defined in `src/cellier/v2/_state.py` and
-re-exported from `cellier.v2.events` so subscribers have a single import location.
+`extent` is filled for every camera. On a 3D camera it is the size of the
+view at the point the orbit controller turns the camera about: pygfx pivots
+`0.5 / tan(fov / 2) * mean(extent)` ahead of the camera
+(`cellier.scene.orbit_distance`), and at a field of view of 0 it turns the
+camera about itself and `extent` is the size of the whole view. A wheel zoom
+changes `extent`, so restoring a state restores the pivot as well as the
+view. A 3D `extent` with a component of 0 or less keeps the camera's size. The 3D camera model's `width` and `height` mirror it, and its
+`orbit_distance` property derives the distance.
+
+`controller_state` is a typed slot for the mouse controller's state, told
+apart by `controller_type`; both kinds hold nothing yet, and one of the wrong
+kind raises `ValueError`. Settings such as `controller.enabled` are not part
+of the snapshot: restoring a view never turns mouse input on or off. The
+per-frame check compares whole snapshots, so a change of `extent` alone is
+reported as a `CameraChangedEvent`.
+
+`CameraState`, `OrbitControllerState`, `PanZoomControllerState` and
+`DimsState` are defined in `src/cellier/_state.py` and re-exported from
+`cellier.events` so subscribers have a single import location.
 
 ---
 
@@ -999,23 +994,6 @@ class LodConfigChangedEvent(NamedTuple):
     visual_id: UUID
     lod: GeometryLodConfig
 
-
-class ResliceCancelledEvent(NamedTuple):
-    """Fired when an in-flight reslice task is cancelled.
-
-    Parameters
-    ----------
-    source_id :
-        Always the ``SliceCoordinator``'s ID.
-    scene_id :
-        The scene whose task was cancelled.
-    visual_id :
-        The visual whose task was cancelled.
-    """
-
-    source_id: UUID
-    scene_id: UUID
-    visual_id: UUID
 ```
 
 ### Render events
@@ -1115,7 +1093,7 @@ family, and all seven share the mouse event's context fields -- `source_id`
 
 Subscribe with `controller.on_pick(canvas_id, event_type, callback, *,
 owner_id, weak=False)` (mirrored on `Viewer` and `OrthoViewer`) and remove
-with `unsubscribe_pick`.  A pick event is emitted only for a hit, after the
+with the returned handle's `unsubscribe()`.  A pick event is emitted only for a hit, after the
 mouse event for the same pointer event, and carries its `gesture_id`: a press,
 its drag moves and its release share one id, and a hover move has `None`.
 
@@ -1123,9 +1101,9 @@ Timing:
 
 - Points, lines, mesh and graph events, and in-memory image and labels
   events, are synchronous: they arrive straight after the mouse event.
-- Multiscale image and labels values are read at level 0 as cancellable
-  pick reads (`CancellableReads`), so their events arrive when the read
-  completes.
+- Multiscale image and labels values are read as cancellable pick reads
+  (`CancellableReads`), at the pyramid level that was drawn at the hit, so
+  their events arrive when the read completes.
   A newer pointer event on the canvas cancels an in-flight `move` read;
   `press` and `release` reads always complete, and removing the visual
   cancels all of its reads.  Match events by `gesture_id` and `action`, not
@@ -1144,6 +1122,16 @@ mode reports its drawn channel; composite mode reports every drawn (visible)
 channel on a 2D canvas and only the pick-buffer winner's channel on a 3D
 canvas.  `LabelsPickInfo.value` is the label id at the picked voxel.
 
+For a multiscale image or labels visual, "the picked voxel" is the voxel of
+the pyramid level that was drawn at the hit, so the value agrees with the
+screen.  A hit on a coarse level is on that level's surface, a voxel or more
+from the level-0 one, and the level-0 voxel under it can be background.  The
+render layer names the level from the brick (3D) or tile (2D) table the shaders
+read, per channel in composite mode.  It cannot say when the table was rewritten
+after the frame that was picked was drawn, and then the value is read at level
+0, the data.  An in-memory visual has one level.  `data_coordinate` is always
+the level-0 position of the hit.  A MaskedImage reads level 0 (below).
+
 A MaskedImage emits `MaskedImagePickEvent` only.  Its `MaskedImagePickInfo`
 holds the hit in the mask's data coordinates and in the value's
 (`data_coordinate`, `value_coordinate`), the mask and the value there
@@ -1153,6 +1141,20 @@ the surface is coloured, and in 2D the value at the hit.  All are level-0
 nearest-voxel reads, in two passes (the mask and its normal, then the value),
 so a pick can differ slightly from a colour drawn from a coarse level or by
 linear interpolation.
+
+**Precision of 3D picks.**  A multiscale image, labels or MaskedImage visual
+drawn as a volume (a 3D canvas, or a tilted 2D view) writes the hit into 44
+bits of pygfx's pick buffer (the other 20 name the object).  The bits are
+shared between the three displayed axes by their lengths: an axis of `n`
+voxels first gets the `bit_length(n - 1)` bits that name each voxel, and the
+bits left over split a voxel into finer steps, so `floor(data_coordinate)` is
+the voxel hit whenever those bits add up to at most 44 and no displayed axis
+is longer than `2 ** 24` voxels.  A lightsheet volume of 2048 x 10000 x 40000
+voxels needs 11 + 14 + 16 = 41 bits, for example.  A larger volume resolves to
+steps of 2, 4 or more voxels on its longest axes; a `UserWarning` names the
+visual, the axes and the step when the visual's volume is built with that
+shape (once per visual and shape).  The events carry no precision field.  In
+the warning, `x`, `y` and `z` are the last, middle and first displayed axes.
 
 Detail extraction is **gated**: it runs only while a canvas has at least one
 `on_pick` subscriber (`RenderManager.set_pick_details_enabled`, driven by the
@@ -1304,7 +1306,6 @@ CellierEventTypes = (
     | RenderPlanesChangedEvent
     | PlaneInteractionEvent
     | PlaneGizmoChangedEvent
-    | ResliceCancelledEvent
     | FrameRenderedEvent
     | VisualAddedEvent
     | VisualRemovedEvent
@@ -1402,6 +1403,7 @@ is small (tens of entries) so this has no measurable cost.
         owner_id: UUID | None = None,
         weak: bool = False,
         entity_field: str | None = None,
+        on_remove: Callable[[], None] | None = None,
     ) -> SubscriptionHandle:
         """Register callback to be called when event_type is emitted.
 
@@ -1428,11 +1430,16 @@ is small (tens of entries) so this has no measurable cost.
             this subscription only.  ``None`` (the default) uses the
             event type's canonical field.  See "Filtering on a
             non-canonical field" below.
+        on_remove :
+            Cleanup run once when the subscription is removed, by any
+            route except ``clear()``.  See "Removing one subscription"
+            below.
 
         Returns
         -------
         SubscriptionHandle
-            Opaque token for individual removal via ``unsubscribe()``.
+            Removes this subscription on its own: ``handle.unsubscribe()``
+            or ``bus.unsubscribe(handle)``.
 
         Raises
         ------
@@ -1454,6 +1461,36 @@ is small (tens of entries) so this has no measurable cost.
         entity_id: UUID | None = None,
     ) -> list[SubscriberInfo]: ...
 ```
+
+**Removing one subscription.** A `SubscriptionHandle` holds its UUID and a
+weak reference to the bus that made it, so `handle.unsubscribe()` works
+without the bus at hand, `handle.active` says whether it is still registered,
+and a handle kept after the controller is gone neither keeps the bus alive
+nor fails (it reads as inactive).  Every route that removes a subscription
+-- `unsubscribe`, `unsubscribe_all`, and the lazy clean-up of a dead weak
+callback in `emit` -- goes through one private `_remove`, which marks the
+record removed and runs its `on_remove` cleanup exactly once.  An emission
+already in progress skips a record removed by an earlier subscriber.
+`clear()` is teardown and skips the cleanups.
+
+The controller relies on this for pick gating: `on_pick` passes a cleanup that
+uncounts the subscription, so the per-canvas and per-type pick counters stay
+right however the subscription ends, including `unsubscribe_owner` with a
+widget's id and a garbage-collected weak callback.  The one-shot helpers
+(`on_canvas_connected`, `on_canvas_first_frame`, `on_scene_ready`) return
+their handle too, so a pending callback can be cancelled.
+
+Two kinds of handle are not on the bus, and both are still a
+`SubscriptionHandle`, so every `on_*` method returns that one type:
+
+- The viewers' startup hooks (`on_ready`, `on_scene_ready`,
+  `on_startup_progress`, `on_startup_stalled`) keep their callbacks in plain
+  lists. Their handle removes the callback from its list. A one-shot callback
+  is removed just before it runs, so its handle reads as inactive from inside
+  the callback, as on the bus.
+- `OrthoViewer.on_reslice_progress` and `on_backstop_complete` subscribe once
+  per panel and return one handle for the group. Its `unsubscribe()` removes
+  every panel's subscription, and it reads as active while any one is left.
 
 ### Entity ID resolution
 
@@ -1484,7 +1521,6 @@ _ENTITY_FIELD: dict[type, str] = {
     RenderPlanesChangedEvent:          "visual_id",
     PlaneInteractionEvent:          "visual_id",
     PlaneGizmoChangedEvent:    "canvas_id",
-    ResliceCancelledEvent:             "visual_id",
     FrameRenderedEvent:                "canvas_id",
     VisualAddedEvent:                  "scene_id",
     VisualRemovedEvent:                "scene_id",
@@ -2303,7 +2339,6 @@ from cellier.events._events import (
     PickWriteChangedEvent,
     PointsPickEvent,
     PointsPickInfo,
-    ResliceCancelledEvent,
     ResliceCompletedEvent,
     ResliceProgressEvent,
     ResliceStartedEvent,
@@ -2342,7 +2377,8 @@ from cellier.events._update_events import (
   selection and annotation — e.g. a `SelectionChangedEvent` — are still to be
   designed once that interaction model is specified. They will follow the same
   NamedTuple / `source_id` pattern.
-- **Upstream pick-readback suppression.** The true Decision-4 perf win — stopping
-  pygfx from performing the GPU→CPU readback when no consumer needs it — is pending
-  a pygfx pick-configuration investigation. The current gate only skips our own
-  cheap dispatch.
+- **Upstream pick-readback suppression.** Pick details are extracted for a canvas
+  only while it has an `on_pick` subscriber, but that gate only skips cellier's own
+  cheap dispatch. The real saving -- stopping pygfx from performing the GPU-to-CPU
+  readback when no consumer needs it -- is pending a pygfx pick-configuration
+  investigation.

@@ -94,7 +94,7 @@ class TemporalAccumulationPass(EffectPass):
         average with what came before: a camera move, any content
         change, and re-enabling the pass after a spell switched off
         (while disabled the pass is skipped entirely, so both the
-        textures and ``_frame_count`` freeze -- without a reset the
+        textures and `frame_count` freeze -- without a reset the
         first frame back blends ``alpha`` of a picture of arbitrary
         age, with no warm-up).
         """

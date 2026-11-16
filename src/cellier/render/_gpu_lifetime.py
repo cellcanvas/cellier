@@ -7,13 +7,13 @@ each) alive past their use:
   owns (the residency's ``on_write``, a slot's data-ready listener).  Held
   strongly, each is a reference cycle, so a visual dropped without ``close()``
   lives until the cyclic garbage collector runs -- which a 1 GiB array does
-  little to trigger, as it is a single allocation.  :func:`weak_callback`
+  little to trigger, as it is a single allocation.  `weak_callback`
   holds the instance weakly instead.
 * **pygfx's bind-group cache.**  pygfx keeps bind groups in a process-global
   LRU (128 entries) that holds them strongly, and a bind group keeps its
   textures alive in wgpu.  A closed visual's textures therefore kept their GPU
   memory -- host RAM on lavapipe and Apple silicon -- until enough later bind
-  groups evicted them.  :func:`destroy_textures` frees that memory now.
+  groups evicted them.  `destroy_textures` frees that memory now.
 """
 
 from __future__ import annotations

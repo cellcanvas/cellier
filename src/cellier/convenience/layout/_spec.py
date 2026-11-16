@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Literal, get_args
 
 AppearancePresentation = Literal["selector", "collapsible_sections"]
-"""How an :class:`AppearanceControls` dock presents several visuals."""
+"""How an `AppearanceControls` dock presents several visuals."""
 
 DOCK_MIN_WIDTH: int = 260
 """The narrowest a left or right dock may be, in logical pixels, on both
@@ -26,8 +26,8 @@ class HStack:
 
     In ``Layout.center`` the items are canvas views or nested
     ``HStack``/``VStack``/``Grid`` containers.  In a dock the items are
-    dock specs (:class:`AppearanceControls`, :class:`OverlayControls`,
-    :class:`RenderControls`, :class:`OrthoClippingControls`) or nested
+    dock specs (`AppearanceControls`, `OverlayControls`,
+    `RenderControls`, `OrthoClippingControls`) or nested
     stacks; an item that builds nothing is dropped.
 
     Parameters
@@ -43,7 +43,7 @@ class HStack:
 class VStack:
     """Items one above the other, top to bottom.
 
-    Takes the same items as :class:`HStack`: canvas views or containers in
+    Takes the same items as `HStack`: canvas views or containers in
     ``Layout.center``, dock specs or stacks in a dock.
 
     Parameters
@@ -104,7 +104,7 @@ class OverlayControls:
     """Dock spec: appearance controls for the viewer's overlays.
 
     One target per overlay -- scene overlays and canvas overlays alike, in
-    the order :attr:`Viewer.overlays` lists them -- each titled with the
+    the order `Viewer.overlays` lists them -- each titled with the
     overlay's name.  The dock follows the viewer as overlays are added and
     removed through ``add_scene_overlay`` / ``add_canvas_overlay`` /
     ``remove_overlay``.
@@ -113,7 +113,7 @@ class OverlayControls:
     ----------
     presentation : "selector" or "collapsible_sections"
         How the dock presents several overlays; see
-        :class:`AppearanceControls`.  Defaults to ``"collapsible_sections"``:
+        `AppearanceControls`.  Defaults to ``"collapsible_sections"``:
         overlays have few controls each, so showing them all at once costs
         little.
     """
@@ -153,7 +153,7 @@ class OrthoClippingControls:
     left.  With no such visual it shows the selector and a placeholder.
 
     Only for an ``OrthoViewer``; on a ``Viewer`` the clipping planes control
-    is part of :class:`AppearanceControls`.  On an ``OrthoViewer`` this is
+    is part of `AppearanceControls`.  On an ``OrthoViewer`` this is
     the only place the clipping planes controls are shown, so a visual
     added with ``ClippingPlanesControl()`` needs this node in the layout.
     """
@@ -165,7 +165,7 @@ class RenderControls:
 
     Renders the Qt (``cellier.gui.qt.render``) or anywidget
     (``cellier.gui.anywidget.render``) panel for each named section, wired
-    to the viewer's controller.  Unlike :class:`AppearanceControls` this
+    to the viewer's controller.  Unlike `AppearanceControls` this
     needs no configured visual: render settings belong to the renderer, so
     the dock is available on any viewer.
 
@@ -184,8 +184,8 @@ class Layout:
     """Full layout specification (the model).
 
     Describes what goes in the center region and each optional dock.  Pass to
-    :func:`~cellier.convenience.display` (anywidget) or
-    :func:`~cellier.convenience.launch` / :func:`~cellier.convenience.show`
+    `display` (anywidget) or
+    `launch` / `show`
     (Qt) to render.
 
     Parameters
@@ -196,22 +196,22 @@ class Layout:
         The 2D/3D toggle is part of the dims control embedded in the canvas
         view, so it does not need a dock of its own.
     left_dock, right_dock, top_dock, bottom_dock :
-        Content for each dock region.  Accepts :class:`AppearanceControls`,
-        :class:`OverlayControls`, :class:`RenderControls`,
-        :class:`OrthoClippingControls` (ortho viewers), or a stack of those.
+        Content for each dock region.  Accepts `AppearanceControls`,
+        `OverlayControls`, `RenderControls`,
+        `OrthoClippingControls` (ortho viewers), or a stack of those.
         ``None`` hides the dock.
 
         The items of a visual's ``controls=`` list need the dock that shows
-        them: an :class:`AppearanceControls` dock, except that on an
+        them: an `AppearanceControls` dock, except that on an
         ``OrthoViewer`` ``ClippingPlanesControl()`` needs an
-        :class:`OrthoClippingControls` dock.  Rendering a layout without it
+        `OrthoClippingControls` dock.  Rendering a layout without it
         raises ``ValueError``, as does adding such a visual afterwards.  A
         dock with no visual to show is fine: it shows a placeholder.
     left_dock_min_width, right_dock_min_width : int or None
         The narrowest the left / right dock may be, in logical pixels, on both
-        toolkits.  Must be at least :data:`DOCK_MIN_WIDTH` (260 px); a smaller
+        toolkits.  Must be at least `DOCK_MIN_WIDTH` (260 px); a smaller
         value raises ``ValueError``.  ``None`` (default) uses
-        :data:`DOCK_MIN_WIDTH`.  It is a floor, not a fixed width: a dock is
+        `DOCK_MIN_WIDTH`.  It is a floor, not a fixed width: a dock is
         never narrower than its controls need, so content that needs more
         widens the dock, and on Qt the dock separator can still drag it wider.
         A width needs a dock on its side.  Top and bottom docks span the

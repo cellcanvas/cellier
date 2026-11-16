@@ -2,10 +2,10 @@
 
 The points, lines and graph visuals load their whole slice (one filtered
 result) through a single-level
-:class:`~cellier.render._level_residency.LevelResidency`:
+`LevelResidency`:
 
 - the request key is everything the read depends on except the store's
-  contents (:func:`freeze_request`); an unchanged request reads nothing;
+  contents (`freeze_request`); an unchanged request reads nothing;
 - at most two reads are in flight per visual, the newest plan wins, and the
   filter runs in the loop's executor (``MEMORY_GEOMETRY_POLICY``);
 - the previous result stays on screen while the next one loads when the two
@@ -65,7 +65,7 @@ def freeze_request(request: Any) -> tuple:
     """Every field of a geometry request a read depends on, hashable.
 
     The request is a ``NamedTuple``; the ids, the level and the displayed
-    axes are left out (:data:`_NOT_IN_KEY`).  A graph request's trail dicts
+    axes are left out (`_NOT_IN_KEY`).  A graph request's trail dicts
     and arrays are frozen by value.
     """
     return tuple(
@@ -95,8 +95,8 @@ class WholeItemGeometryMixin:
     The host provides ``_build_request(dims_state, selection)`` (which sets
     ``_request_world_frame``, ``_last_data_positions`` and ``_fold``),
     ``_update_node_matrix``, ``_commit(data, is_2d)``, ``_last_displayed_axes``,
-    ``_spaces``, ``_transform``, ``node`` and :meth:`_show_empty`.  It calls
-    :meth:`_init_whole_item` from its constructor.
+    ``_spaces``, ``_transform``, ``node`` and `_show_empty`.  It calls
+    `_init_whole_item` from its constructor.
     """
 
     #: Loads through the chunk scheduler (``is_chunked_visual``).

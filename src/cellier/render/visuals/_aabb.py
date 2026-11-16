@@ -72,7 +72,7 @@ def make_aabb_line(color: str, line_width: float) -> gfx.Line:
 
     pygfx rejects a zero-length buffer, so the placeholder is a real box at
     the origin rather than an empty geometry; it is never seen, because the
-    line stays invisible until :func:`refresh_aabb_line` has both real bounds
+    line stays invisible until `refresh_aabb_line` has both real bounds
     and an enabled flag.
     """
     line = gfx.Line(

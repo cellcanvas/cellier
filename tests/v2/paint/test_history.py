@@ -116,3 +116,29 @@ def test_active_stroke_concatenates_records():
     assert command.voxel_indices.shape == (3, 2)
     assert command.old_values.shape == (3,)
     assert command.new_values.shape == (3,)
+
+
+def test_active_stroke_keeps_the_store_dtype():
+    """Label ids above 2**24 survive a stroke: float32 would round them."""
+    big = 2**24 + 1
+    stroke = ActiveStroke(visual_id=uuid4(), data_store_id=uuid4(), dtype=np.int32)
+    stroke.record(
+        np.array([[0, 0]], dtype=np.int64),
+        np.array([big], dtype=np.int32),
+        np.array([big + 2], dtype=np.int32),
+    )
+
+    command = stroke.finalise()
+
+    assert command.old_values.dtype == np.int32
+    assert command.old_values[0] == big
+    assert command.new_values[0] == big + 2
+
+
+def test_an_empty_stroke_has_the_store_dtype():
+    stroke = ActiveStroke(visual_id=uuid4(), data_store_id=uuid4(), dtype=np.uint16)
+
+    command = stroke.finalise()
+
+    assert command.old_values.dtype == np.uint16
+    assert command.new_values.dtype == np.uint16

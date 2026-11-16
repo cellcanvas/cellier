@@ -75,7 +75,7 @@ class LabelMemoryStore(BaseDataStore):
         caller handing over an int64 array is told to narrow it deliberately
         rather than having it silently truncated.  That makes the dtype
         load-bearing on the way back in too, which is why the serialised form
-        carries it -- see :meth:`_serialize_data`.
+        carries it -- see `_serialize_data`.
 
         A payload's declared dtype is checked by the same rule as a live
         array's, so a hand-edited ``{"dtype": "int64", ...}`` is rejected with
@@ -159,7 +159,7 @@ class LabelMemoryStore(BaseDataStore):
 
         The edge convention: an axis of ``size`` voxels spans
         ``[-0.5, size - 0.5]``.  See
-        :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
+        `axis_extents`.
         """
         return gridded_axis_extents(self.level_shapes[0])
 
@@ -186,7 +186,7 @@ class LabelMemoryStore(BaseDataStore):
     async def get_data(self, request: ChunkRequest) -> np.ndarray:
         """Return the requested sub-region as an int32 array.
 
-        Runs :meth:`read_padded` in the event loop's default executor.
+        Runs `read_padded` in the event loop's default executor.
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.read_padded, request)

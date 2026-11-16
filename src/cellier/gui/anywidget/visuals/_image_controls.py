@@ -6,7 +6,7 @@ writes a whole dict back; the Python side diffs it against the previous value
 and emits one update event per changed field.
 
 Which rows show follows the same rule as Qt
-(:func:`cellier.gui._image_controls.row_visible`), applied in the front end
+(`cellier.gui._image_controls.row_visible`), applied in the front end
 from ``n_displayed_dimensions`` and the mode lists, which the Python side
 sets and the front end only reads.
 """
@@ -50,14 +50,45 @@ _STATIC = Path(__file__).parent / "static"
 class AnywidgetImageControls(VisualIdGroup, anywidget.AnyWidget):
     """Bidirectional image appearance control for the anywidget GUI.
 
+    One control per image visual (or per group of ``OrthoViewer`` panel
+    siblings).  From the top:
+
+    - a shared section: visibility, blending and interpolation;
+    - a "Composite channels" switch, shown only when the visual has a
+      channel axis;
+    - one page per mode: the single appearance's rows, or, when
+      compositing, one group of rows per channel.
+
+    Each page shows the rows its *values* ask for (colormap, contrast,
+    opacity, render mode, ...).  A row that only means something for some
+    render modes, or only in 3D, hides itself; *n_displayed_dimensions* and
+    *scene_ids* keep the 3D rule current.  A MaskedImage adds its surface
+    and 2D band rows to the single page.
+
+    Build the starting state with `cellier.gui.image_control_values`, then
+    wire to the controller after construction:
+
+        values = image_control_values(visual, fields=["color_map", "clim"])
+        control = AnywidgetImageControls(visual.id, values, scene_ids=[scene.id])
+        controller.connect_widget(
+            control, subscription_specs=control.subscription_specs()
+        )
+
     Parameters
     ----------
     visual_id :
         The visual, or an ``OrthoViewer``'s panel siblings, driven together.
     values :
-        The seed from :func:`cellier.gui._image_controls.image_control_values`.
+        The control's starting state: a dict of the visual's current
+        appearance values, page by page (``"shared"``, ``"single"`` and
+        ``"channels"``), the ``"fields"`` to show, and the widgets' ranges
+        and choices.  Its layout is internal.  The
+        convenience viewers build it when an ``ImageControl`` is in a
+        visual's ``controls=`` list; code that builds this widget directly
+        gets it from `cellier.gui.image_control_values` and passes it
+        through unchanged.
     title :
-        The heading.  Defaults to :data:`DEFAULT_TITLE`.
+        The heading.  Defaults to `DEFAULT_TITLE`.
     n_displayed_dimensions :
         How many dimensions the driven visuals' scenes display now, 2 or 3.
         Seeds the rows that are shown only in 3D.  Default 3, which shows

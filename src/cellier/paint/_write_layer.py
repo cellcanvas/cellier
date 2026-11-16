@@ -27,7 +27,7 @@ class WriteLayer:
     """Sparse in-memory tracker of dirty level-0 bricks for a paint session.
 
     Records *which* bricks have been touched; the painted voxel data
-    itself lives in the :class:`WriteBuffer`.  N-dim agnostic — used
+    itself lives in the `WriteBuffer`.  N-dim agnostic — used
     unchanged for 2-D and 3-D paint sessions.
 
     Parameters
@@ -66,7 +66,7 @@ class WriteLayer:
         self._dirty.clear()
 
     def voxel_to_brick_key(self, voxel_idx: np.ndarray) -> BrickKey:
-        """Map a level-0 voxel index to its enclosing level-0 :class:`BrickKey`.
+        """Map a level-0 voxel index to its enclosing level-0 `BrickKey`.
 
         Parameters
         ----------
@@ -85,7 +85,7 @@ class WriteLayer:
         )
 
     def voxels_to_brick_keys(self, voxel_indices: np.ndarray) -> set[BrickKey]:
-        """Vectorised :meth:`voxel_to_brick_key` over an ``(N, ndim)`` array.
+        """Vectorised `voxel_to_brick_key` over an ``(N, ndim)`` array.
 
         Returns the unique set of bricks the voxels fall into.
         """

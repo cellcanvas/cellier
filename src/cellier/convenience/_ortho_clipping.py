@@ -84,9 +84,9 @@ class OrthoClippingController:
     Attributes
     ----------
     mode_changed : psygnal.Signal
-        Emitted with the new mode after :attr:`mode` changed.
+        Emitted with the new mode after `mode` changed.
     groups_changed : psygnal.Signal
-        Emitted after :attr:`groups` changed: a dataset was added, or a
+        Emitted after `groups` changed: a dataset was added, or a
         visual was removed.
     """
 
@@ -128,7 +128,7 @@ class OrthoClippingController:
         it to a more linked mode makes the newly linked visuals agree: the
         3D view's planes are given to the others (it has the gizmo), or
         the xy panel's when only 2D panels are linked.  Those writes are
-        stamped with :attr:`id`.  A drag being forwarded is closed on the
+        stamped with `id`.  A drag being forwarded is closed on the
         linked visuals first; the newly linked visuals join at the next
         drag.  ``mode_changed`` is emitted once, after the writes.  Setting
         the current mode does nothing.
@@ -162,7 +162,7 @@ class OrthoClippingController:
         Parameters
         ----------
         group : Mapping[str, UUID]
-            Panel key -> visual id: one of :attr:`groups`.
+            Panel key -> visual id: one of `groups`.
 
         Returns
         -------
@@ -256,7 +256,7 @@ class OrthoClippingController:
         """Write *planes* to the *targets* that differ.
 
         There is no "mirroring in progress" flag.  The event of a visual
-        written here comes back to :meth:`_on_planes` and finds every tuple
+        written here comes back to `_on_planes` and finds every tuple
         of its link group equal, or written by the time this loop reaches
         it; that check is the only echo guard.  A flag would also drop the
         events of another dataset that user code changes from a handler.

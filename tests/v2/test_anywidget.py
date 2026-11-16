@@ -479,7 +479,7 @@ def test_build_ortho_grid_anywidget_returns_canvases():
 
     from cellier.convenience import OrthoViewer, axis_values_from_ortho
     from cellier.convenience._hosts import JupyterHost
-    from cellier.convenience.gui import OrthoAnywidgetCanvases, build_ortho_grid_widget
+    from cellier.convenience.gui import OrthoCanvasGrid, build_ortho_grid_widget
     from cellier.data.image._image_memory_store import ImageMemoryStore
     from cellier.gui.anywidget import AnywidgetBox
 
@@ -490,7 +490,7 @@ def test_build_ortho_grid_anywidget_returns_canvases():
     ranges = axis_values_from_ortho(viewer)
 
     grid = build_ortho_grid_widget(viewer, ranges, gui="anywidget")
-    assert isinstance(grid, OrthoAnywidgetCanvases)
+    assert isinstance(grid, OrthoCanvasGrid)
     assert set(grid.canvases) == {"xy", "xz", "yz", "vol"}
 
     composed = grid.compose(JupyterHost())

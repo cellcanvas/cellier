@@ -431,7 +431,8 @@ def test_both_toolkits_label_the_ortho_panels(qtbot):
     from qtpy.QtWidgets import QApplication, QLabel
 
     from cellier.convenience._hosts import JupyterHost, QtLayoutHost
-    from cellier.convenience.gui import PANEL_LAYOUT, build_ortho_grid_widget
+    from cellier.convenience.gui import build_ortho_grid_widget
+    from cellier.convenience.gui._ortho import PANEL_LAYOUT
 
     expected = sorted(header for _row, _col, _key, header in PANEL_LAYOUT)
 

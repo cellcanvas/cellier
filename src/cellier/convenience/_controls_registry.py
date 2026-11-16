@@ -43,10 +43,10 @@ class ControlsRegistryMixin:
     An item of a list says a control is shown; a dock node of the layout
     says where it goes.  ``_rendered_dock_nodes`` holds the names of the
     dock nodes of the layout the viewer was last rendered with (``None``
-    until it is rendered; :meth:`_record_rendered_layout`), and an item with
+    until it is rendered; `_record_rendered_layout`), and an item with
     no node for it is an error: when the layout is rendered
-    (:meth:`_check_rendered_layout`) and when a visual is added afterwards
-    (:meth:`_check_controls_docks`).  A node with no item is not an error:
+    (`_check_rendered_layout`) and when a visual is added afterwards
+    (`_check_controls_docks`).  A node with no item is not an error:
     the dock shows its placeholder.
     """
 
@@ -141,7 +141,7 @@ class ControlsRegistryMixin:
 
         Called by the layout walk before it builds anything, with the names
         of the layout's dock nodes.  It records nothing: the walk calls
-        :meth:`_record_rendered_layout` once the layout is built.
+        `_record_rendered_layout` once the layout is built.
 
         Raises
         ------

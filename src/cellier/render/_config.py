@@ -14,9 +14,11 @@ DEFAULT_CAMERA_SETTLE_THRESHOLD_S: float = 0.3
 class SchedulerConfig(CellierModel):
     """Configuration for the chunk scheduler that loads every visual.
 
-    Construction-time only: changing it after ``RenderManager`` is created
-    has no effect.  Every value is fixed; the
-    scheduler never tunes itself.
+    The scheduler keeps this object and reads each value when it uses it,
+    so assigning a field on ``render_manager.config.scheduler`` takes
+    effect from the next decision that reads it.  Replacing the whole
+    ``scheduler`` object after the ``RenderManager`` is created has no
+    effect.  The scheduler never tunes these values itself.
 
     Parameters
     ----------
@@ -77,7 +79,7 @@ class TemporalAccumulationConfig(CellierModel):
     blend_weight : float
         Minimum EMA weight given to the current frame. During warm-up
         the weight is ``1 / (frame_count + 1)``; once that falls below
-        ``alpha`` the weight clamps to ``blend_weight``. Lower values give
+        ``blend_weight`` the weight clamps to ``blend_weight``. Lower values give
         smoother steady-state but slower convergence after a camera
         move. Must be in ``(0, 1]``.
     """
@@ -106,7 +108,9 @@ class OutlineLayerConfig(CellierModel):
 
     Two layers run in the same fragment invocation and can both be active:
     ``boundaries`` draws every outlined region, ``selection`` draws only
-    regions with a nonzero LUT slot.  Precedence is selection > contrast
+    regions with a nonzero palette slot (a visual's ``outline.slot``, or
+    a label's entry in ``outline_selected_labels``).  Precedence is
+    selection > contrast
     band > boundaries > fill.
 
     Parameters
@@ -125,7 +129,7 @@ class OutlineLayerConfig(CellierModel):
         recompile behaviour.
     color : tuple[float, float, float, float]
         RGBA used by the **boundaries** layer.  The selection layer takes
-        its colour from the palette slot carried in the LUT, so this field
+        its colour from ``OutlineConfig.palette`` by slot, so this field
         is unused there.  Alpha below 1 blends over the fill instead of
         replacing it.  Values are in the renderer's linear working space,
         the same convention as pygfx material colours.
@@ -153,7 +157,7 @@ class OutlineConfig(CellierModel):
     ----------
     enabled : bool
         Master switch.  Defaults to ``False``; when off the pass is skipped
-        entirely by ``flush()`` and the frame is pixel-identical to one
+        entirely and the frame is pixel-identical to one
         rendered without the feature.
     boundaries : OutlineLayerConfig
         The every-region layer.  Thin and translucent by default.
@@ -168,9 +172,9 @@ class OutlineConfig(CellierModel):
         Contrast band colour.  Exists so a coloured outline stays legible
         against an arbitrary colormapped fill.
     palette : list[tuple[float, float, float, float]]
-        Selection palette.  LUT slot ``v`` uses ``palette[v - 1]``; slot 0
-        means "not selected".  At most ``MAX_OUTLINE_SLOT`` entries, the
-        limit of the LUT's 4-bit slot field.
+        Selection palette.  Slot ``v`` uses ``palette[v - 1]``; slot 0
+        means "not selected".  At most ``MAX_OUTLINE_SLOT`` (15) entries,
+        because a slot is stored in 4 bits.
 
     Examples
     --------
@@ -227,7 +231,7 @@ class AmbientOcclusionConfig(CellierModel):
     ----------
     enabled : bool
         Master switch.  Defaults to ``False``; when off the pass is skipped
-        entirely by ``flush()`` and the frame is pixel-identical to one
+        entirely and the frame is pixel-identical to one
         rendered without the feature.
     n_samples : int
         Hemisphere samples per pixel.  A shader template var: changing it

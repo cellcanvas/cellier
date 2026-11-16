@@ -38,7 +38,7 @@ axes than the pullback has dimensions.
 ``tau = COUPLING_TOLERANCE``.  Floating-point noise -- a 90 degree rotation
 built from ``cos`` and ``sin`` carries ``6e-17`` -- would otherwise turn an
 axis-aligned view oblique.  The snapped entries are zeroed in
-:attr:`ViewClassification.effective_transform`, which is what every consumer
+`ViewClassification.effective_transform`, which is what every consumer
 places and slices with, so the classification and the drawing agree; the
 user's transform is never modified.
 
@@ -71,19 +71,41 @@ __all__ = [
     "null_space_support",
 ]
 
-#: The relative size below which a matrix entry counts as zero.  Float32
-#: pipelines need at least ``1e-6``; a snapped genuine coupling moves a world
-#: axis by at most ``tau * extent`` voxels (0.1 voxel across 100k voxels).
 COUPLING_TOLERANCE = 1e-6
+"""The relative size below which a transform matrix entry counts as zero.
+
+An entry ``L[i, j]`` of the linear block counts as zero when
+``|L[i, j]| <= COUPLING_TOLERANCE * min(max|L[i, :]|, max|L[:, j]|)``, so
+floating-point noise (a 90 degree rotation built from ``cos`` and ``sin``
+carries ``6e-17``) does not turn an axis-aligned view oblique.  The snapped
+entries are zeroed only in the transform used for drawing; the user's
+transform is never modified.  Float32 pipelines need at least ``1e-6``; a
+snapped genuine coupling moves a world axis by at most
+``COUPLING_TOLERANCE * extent`` voxels (0.1 voxel across 100k voxels).
+"""
 
 
 class SliceAlignment(str, Enum):
-    """How one visual's data lines up with one view (module docstring)."""
+    """How one visual's data lines up with one view.
+
+    Decided from the linear block of the visual's ``data -> world``
+    transform, the view's displayed world axes and its sliced ones.  The
+    data axes a sliced world axis reads are *collapsed*; the others are
+    *retained*.  Entries smaller than `COUPLING_TOLERANCE` count as zero.
+    """
 
     AXIS_ALIGNED = "axis_aligned"
+    """The slice is a data-aligned plane, and the displayed world axes are a
+    scaled permutation of the retained data axes: no rotation in view."""
     IN_PLANE = "in_plane"
+    """The slice is a data-aligned plane, but the displayed world axes mix
+    the retained data axes (a rotation or shear within the view).  Only the
+    placement of the fetched slab changes."""
     SLICE_SHIFT = "slice_shift"
+    """The slice is a data-aligned plane, but a displayed world axis reads a
+    collapsed data axis, so moving the slice translates what is shown."""
     OBLIQUE = "oblique"
+    """The slice is a tilted plane through the data."""
 
 
 @dataclass(frozen=True)
@@ -295,7 +317,7 @@ def effective_transform(transform: BaseTransform | None) -> BaseTransform | None
     """*transform* with near-zero couplings set to exactly zero.
 
     What every render and slicing consumer places and slices with, so that
-    they agree with :func:`classify_view` -- a 90 degree rotation built from
+    they agree with `classify_view` -- a 90 degree rotation built from
     ``cos`` and ``sin`` carries ``6e-17`` where the classifier sees zero, and
     an axis-aligned path reading the raw matrix would see a rotation.  The
     view does not matter: the tolerance is relative to the whole matrix's

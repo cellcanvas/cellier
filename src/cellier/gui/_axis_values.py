@@ -6,14 +6,14 @@ while a channel axis only has a handful of valid values.  The two models here
 say which, per axis, and every dims front end reads the same mapping.
 
 Nothing here infers which kind an axis is.  The helpers that derive the
-values from the loaded data (:func:`cellier.convenience.axis_values_from_viewer`)
+values from the loaded data (`cellier.convenience.axis_values_from_viewer`)
 decide from the data's axis sampling: a channel or time axis that every
-store samples discretely gets a :class:`DiscreteAxisValues`, and everything
-else a :class:`ContinuousAxisValues`.  A caller can replace any entry.
+store samples discretely gets a `DiscreteAxisValues`, and everything
+else a `ContinuousAxisValues`.  A caller can replace any entry.
 
 A discrete axis draws no tick marks unless its ``draw_ticks`` is set.  Drawing
 one mark per value is only affordable on a short axis -- see
-:data:`TICK_WARNING_LIMIT`.
+`TICK_WARNING_LIMIT`.
 
 Toolkit-free on purpose: both the Qt and the anywidget dims panels import it.
 """
@@ -59,9 +59,10 @@ class ContinuousAxisValues(CellierModel):
     Parameters
     ----------
     min : float
-        Lowest world position the slider reaches.
+        Lowest world position the slider reaches.  Must be finite.
     max : float
-        Highest world position the slider reaches.  Must be ``>= min``.
+        Highest world position the slider reaches.  Must be finite and
+        ``>= min``.
     decimals : int
         Decimal places the slider's position readout shows.  Default 2.
         Display only: the slider stays continuous and the model receives the
@@ -99,24 +100,32 @@ class DiscreteAxisValues(CellierModel):
 
     The slider steps through ``values`` by position, so irregular spacing is
     fine.  A position set from elsewhere that falls between two values is
-    shown as the nearest one (see :func:`nearest_value_index`); it is not
-    written back, because the renderer resolves it with the same rule.
+    shown as the nearest one (a position exactly halfway between two values
+    goes to the higher one); it is not written back, because the renderer
+    resolves it with the same rule.
 
     Parameters
     ----------
     values : tuple[float, ...]
-        World positions, strictly increasing.  A tuple rather than an array
+        World positions: at least one, all finite, strictly increasing.
+        A tuple rather than an array
         so that equality stays total -- an ndarray field makes ``__eq__``
         return an array, which breaks every containing model's comparison.
     labels : tuple[str, ...] or None
-        Readout text for each value, e.g. channel names.  ``None`` shows the
-        value itself.
+        Readout text for each value, e.g. channel names; one entry per value.
+        ``None`` shows the value itself.
     draw_ticks : bool
         Whether the slider marks each value with a tick.  Default ``False``:
         one mark per value is only affordable on a short axis, and nothing
         turns it on by itself.  Set it on an axis that has few enough values
-        to be worth marking, such as a channel axis.  Warns above
-        :data:`TICK_WARNING_LIMIT` marks.
+        to be worth marking, such as a channel axis.  Warns (``UserWarning``)
+        above 50 marks, where dragging the slider becomes unresponsive.
+
+    Raises
+    ------
+    ValueError
+        When *values* is empty, not finite or not strictly increasing, or
+        *labels* does not have one entry per value.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -147,7 +156,7 @@ class DiscreteAxisValues(CellierModel):
 
         Advisory rather than fatal: the cost is per repaint and per mark, and
         how much it hurts depends on the toolkit style (see
-        :data:`TICK_WARNING_LIMIT`).  Only an explicit ``draw_ticks=True``
+        `TICK_WARNING_LIMIT`).  Only an explicit ``draw_ticks=True``
         reaches here, since the default is off.
         """
         if self.draw_ticks and len(self.values) > TICK_WARNING_LIMIT:
@@ -185,8 +194,8 @@ def coerce_axis_values(
 ) -> dict[int, ContinuousAxisValues | DiscreteAxisValues]:
     """Validate an axis-values mapping and normalise its keys to ``int``.
 
-    Entries must already be :class:`ContinuousAxisValues` or
-    :class:`DiscreteAxisValues`.  A dict in their serialised form (with a
+    Entries must already be `ContinuousAxisValues` or
+    `DiscreteAxisValues`.  A dict in their serialised form (with a
     ``kind`` key) is also accepted, which is what lets a mapping round-trip
     through ``model_dump``.  A bare ``(min, max)`` tuple is rejected with a
     message naming the replacement.
@@ -232,7 +241,7 @@ def nearest_value_index(values: Sequence[float], position: float) -> int:
 
     A position exactly halfway between two values goes to the higher one,
     and positions beyond either end clamp to it.  For evenly spaced integer
-    values that is ``round_half_up_clamped`` from :mod:`cellier._rounding`,
+    values that is ``round_half_up_clamped`` from `cellier._rounding`,
     so a discrete slider shows the same sample the renderer selects.
 
     Parameters

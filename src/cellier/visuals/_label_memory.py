@@ -10,7 +10,7 @@ from cellier.visuals._loading import ProgressiveLoadingConfig
 from cellier.visuals._render_plane import PLANE_RENDER_MODE, RenderPlane
 
 OutlineMode = Literal["per_label", "whole_object", "all_boundaries", "depth_threshold"]
-"""How a labels visual is outlined; see ``BaseLabelsVisual``."""
+"""How a labels visual is outlined; see ``LabelMemoryVisual.outline_mode``."""
 
 DEFAULT_OUTLINE_DEPTH_RANGE: tuple[float, float] = (0.01, 0.06)
 """The default ``outline_depth_range`` of a labels visual."""
@@ -167,7 +167,7 @@ class InMemoryLabelRenderConfig(CellierModel):
 class BaseLabelsVisual(BaseVisual):
     """Shared base for the in-memory and multiscale labels visuals.
 
-    Exists to declare :attr:`outline_selected_labels` once.  A labels visual
+    Exists to declare `outline_selected_labels` once.  A labels visual
     is outlined *per label* rather than as one silhouette, so it needs a
     second piece of state the other visual types do not have.
 
@@ -178,7 +178,7 @@ class BaseLabelsVisual(BaseVisual):
 
         ``"per_label"`` (the default) makes each label its own region: a
         band appears between touching labels, and the selection colour
-        comes from :attr:`outline_selected_labels` rather than from the
+        comes from `outline_selected_labels` rather than from the
         visual's own slot.
 
         ``"whole_object"`` treats the volume as one region, exactly as a
@@ -191,7 +191,7 @@ class BaseLabelsVisual(BaseVisual):
         ``"all_boundaries"`` bands every label, boundaries between touching
         labels included, all in the single colour of ``outline.slot``.  It
         is whole-volume's colour behaviour with per-label's boundaries, and
-        :attr:`outline_selected_labels` has no effect in it -- not merely no
+        `outline_selected_labels` has no effect in it -- not merely no
         colour effect: the selection is suppressed on the GPU, because a
         selected label's outline key *is* its slot number and two touching
         labels sharing a slot would then share a key and lose the boundary
@@ -202,12 +202,12 @@ class BaseLabelsVisual(BaseVisual):
         a band where one part of a label passes in front of another part of
         the *same* label, as where one branch of a tree crosses another.
         How large a jump in depth is drawn, and how strongly, is
-        :attr:`outline_depth_range`.  With ``outline.placement = "inward"``
+        `outline_depth_range`.  With ``outline.placement = "inward"``
         that band lies on the nearer surface, along its edge; with
         ``"outward"`` on the farther one, just outside the edge of the
         nearer.  It draws depth bands in a 3D view of a surface render mode
         only: in 2D and in ``"plane"`` mode there is no jump in depth, and
-        it is ``"all_boundaries"``.  :attr:`outline_selected_labels` has no
+        it is ``"all_boundaries"``.  `outline_selected_labels` has no
         effect in it either.
 
         With ``outline.placement = "outward"`` a boundary between two
@@ -237,7 +237,7 @@ class BaseLabelsVisual(BaseVisual):
         labels visual shows boundaries only.  The visual's own
         ``outline.slot`` makes it eligible for the boundaries layer; this is
         what puts a selection colour on individual labels.  Only meaningful
-        in ``"per_label"`` mode; see :attr:`outline_mode`.
+        in ``"per_label"`` mode; see `outline_mode`.
 
     Notes
     -----
@@ -255,11 +255,11 @@ class BaseLabelsVisual(BaseVisual):
     ==================  =============  ==========================
 
     ``depth_threshold`` has the kind of ``all_boundaries``; what sets it
-    apart is that its entry also carries :attr:`outline_depth_range`.
+    apart is that its entry also carries `outline_depth_range`.
 
     ``render_planes`` are the planes the visual draws its labels on in a 3D
     view while ``appearance.render_mode`` is ``"plane"``; ignored otherwise.
-    World space, at most four; see :class:`~cellier.visuals.RenderPlane`.
+    World space, at most four; see `RenderPlane`.
 
     ``outline_selected_labels`` is kept on the visual rather than pushed
     straight to the GPU because a labels material can be rebuilt underneath

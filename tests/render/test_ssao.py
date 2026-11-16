@@ -1053,7 +1053,7 @@ def test_the_canvas_carries_the_normal_target_when_enabled(ssao_controller):
 
 
 def test_the_auto_radius_follows_a_camera_fit(ssao_controller):
-    """``fit_camera`` already walks the scene, so it re-derives the radius."""
+    """A fit measures the store box, so it re-derives the radius from it."""
     controller, scene, _visual = ssao_controller
     canvas = next(iter(controller._render_manager._canvases.values()))
 
@@ -1061,10 +1061,23 @@ def test_the_auto_radius_follows_a_camera_fit(ssao_controller):
     assert canvas._ssao_pass.effective_radius == pytest.approx(0.02)
 
     controller.fit_camera(scene.id)
-    box = np.asarray(
-        controller._render_manager.get_scene(scene.id).get_world_bounding_box()
+    # The (16, 24, 32) volume's store box, edge to edge.
+    diagonal = float(np.linalg.norm([16.0, 24.0, 32.0]))
+    assert canvas._ssao_pass.effective_radius == pytest.approx(diagonal * 0.02)
+
+
+def test_the_auto_radius_follows_the_store_box_without_a_fit(ssao_controller):
+    """Adding a visual moves the box, and the radius follows it at once."""
+    from cellier.data.points._points_memory_store import PointsMemoryStore
+
+    controller, scene, _visual = ssao_controller
+    canvas = next(iter(controller._render_manager._canvases.values()))
+    controller.add_points(
+        PointsMemoryStore(positions=np.array([[0.0, 0.0, 400.0]], np.float32)),
+        scene.id,
     )
-    diagonal = float(np.linalg.norm(box[1] - box[0]))
+    # z and y from the volume (-0.5 .. 15.5, -0.5 .. 23.5), x out to 400.
+    diagonal = float(np.linalg.norm([16.0, 24.0, 400.5]))
     assert canvas._ssao_pass.effective_radius == pytest.approx(diagonal * 0.02)
 
 

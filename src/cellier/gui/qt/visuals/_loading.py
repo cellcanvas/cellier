@@ -22,11 +22,11 @@ class QtLoadingIndicator(VisualIdGroup):
 
     A bar of target chunks resident over needed, and a status line: the
     coarse overview (the backstop) first, then the detail, then ``"Loaded"``.
-    Both sit in a group titled :data:`DEFAULT_TITLE`, like the image and
+    Both sit in a group titled `DEFAULT_TITLE`, like the image and
     bounding-box controls.  Read-only: it listens to ``ResliceProgressEvent``
     and emits nothing.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         indicator = QtLoadingIndicator(
             visual_id, initial={visual_id: controller.loading_progress(visual_id)}
@@ -46,7 +46,7 @@ class QtLoadingIndicator(VisualIdGroup):
         The visuals are meshes: the status line names levels ("Loading
         coarse level"), not chunk counts.
     title :
-        The group's title.  Defaults to :data:`DEFAULT_TITLE`.
+        The group's title.  Defaults to `DEFAULT_TITLE`.
     parent :
         Optional Qt parent widget.
     """

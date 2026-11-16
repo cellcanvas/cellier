@@ -1,7 +1,7 @@
 """Config model for opening an anywidget viewer in a jupyterlab-sidecar tab.
 
 ``sidecar`` (https://github.com/jupyter-widgets/jupyterlab-sidecar) is an
-optional dependency: it is only imported inside :func:`resolve_sidecar`, so
+optional dependency: it is only imported inside `resolve_sidecar`, so
 importing this module -- or ``cellier.convenience`` at large -- never requires
 it to be installed.
 """
@@ -32,7 +32,7 @@ class SidecarOptions:
     """Config for opening an anywidget viewer in a ``jupyterlab-sidecar`` tab.
 
     Passed as the ``sidecar=`` argument to
-    :func:`~cellier.convenience.display`.  Mirrors the constructor of
+    `display`.  Mirrors the constructor of
     ``sidecar.Sidecar``.
 
     Parameters
@@ -46,7 +46,7 @@ class SidecarOptions:
         a new, freely re-arrangeable JupyterLab panel instead.
     ref : SidecarOptions, DisplayHandle, or None
         Anchor the new sidecar relative to another sidecar's panel instead of
-        the notebook.  Pass the :class:`~cellier.convenience.DisplayHandle`
+        the notebook.  Pass the `DisplayHandle`
         returned by a previous ``display(..., sidecar=...)`` call.
     """
 
@@ -61,7 +61,7 @@ def resolve_sidecar(sidecar: bool | SidecarOptions) -> Sidecar:
     Parameters
     ----------
     sidecar : True or SidecarOptions
-        ``True`` uses :class:`SidecarOptions` defaults.
+        ``True`` uses `SidecarOptions` defaults.
 
     Raises
     ------

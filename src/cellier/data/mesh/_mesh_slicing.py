@@ -1,7 +1,7 @@
 """Slicing one level of a mesh: the synchronous body of a mesh store's read.
 
-A mesh store's ``get_data`` runs :func:`slice_mesh` in an executor thread,
-on one level's arrays and that level's :class:`LevelCache`.  The function
+A mesh store's ``get_data`` runs `slice_mesh` in an executor thread,
+on one level's arrays and that level's `LevelCache`.  The function
 has no cancellation checkpoints: the scheduler never cancels a read, and a
 thread cannot be interrupted.
 
@@ -92,7 +92,7 @@ class LevelCache:
 
     Entries, by key:
 
-    - ``("index", axis)``: the :class:`AxisBoundsIndex` of a data axis;
+    - ``("index", axis)``: the `AxisBoundsIndex` of a data axis;
     - ``("projected", output_axes)``: the level's upload-ready positions and
       their bounds;
     - ``("normals", output_axes)``: the level's vertex normals.
@@ -350,7 +350,7 @@ def slice_mesh(
 ) -> MeshData | MeshSectionData:
     """Slice one level of a mesh for *request*; upload-ready.
 
-    A request with a ``section`` is cut (:func:`slice_section`); the rest of
+    A request with a ``section`` is cut (`slice_section`); the rest of
     this describes the whole-face read.
 
     Synchronous, and safe to run in an executor thread next to other reads
@@ -542,7 +542,7 @@ def slice_section(
     """Cut one level of a mesh with the request's plane or slab.
 
     The request's ``region`` is the filter on the axes the cut does not
-    replace (the whole-face rule, as in :func:`slice_mesh`); the faces that
+    replace (the whole-face rule, as in `slice_mesh`); the faces that
     pass it are then cut.  With an axis-aligned plane the candidates come
     from the level's bounds index, not from a pass over every face.
 
@@ -662,7 +662,7 @@ def slice_section(
 async def run_slice(
     arrays: MeshLevelArrays, request: MeshSliceRequest, cache: LevelCache | None
 ) -> MeshData | MeshSectionData:
-    """Run :func:`slice_mesh` off the event loop, in the loop's executor.
+    """Run `slice_mesh` off the event loop, in the loop's executor.
 
     How many of these run at once is the scheduler's business
     (``SchedulerConfig.compute_budget``), not the executor's.

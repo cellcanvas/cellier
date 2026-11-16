@@ -210,7 +210,7 @@ class TensorStoreCacheMixin(CellierModel):
     """Adds a per-store tensorstore chunk cache to a data store.
 
     Mixed in ahead of ``BaseDataStore``.  Supplies the ``cache_pool_bytes``
-    field and makes plain assignment to it rebuild the store's cache pool::
+    field and makes plain assignment to it rebuild the store's cache pool:
 
         store.cache_pool_bytes = 2 * 1024**3
 
@@ -220,22 +220,22 @@ class TensorStoreCacheMixin(CellierModel):
 
     It also manages the recheck policy described in the module docstring.
 
-    The subclass supplies :meth:`_open_ts_handles`, which opens one handle
+    The subclass supplies `_open_ts_handles`, which opens one handle
     per level against a given context and recheck policy, and calls
-    :meth:`_reopen_ts_stores` from its ``model_post_init``.
+    `_reopen_ts_stores` from its ``model_post_init``.
 
     Parameters
     ----------
     cache_pool_bytes : int
         Chunk cache cap for this store, in bytes.  Shared by all of its
         resolution levels.  ``0`` disables caching.  Defaults to
-        :data:`DEFAULT_CACHE_POOL_BYTES`.
+        `DEFAULT_CACHE_POOL_BYTES`.
     request_concurrency : int
         Requests this store keeps outstanding against a remote kvstore
         (``gs://``, ``s3://``, ``http(s)://``).  Raise it together with
         ``SchedulerConfig.max_in_flight``: the smaller of the two bounds the
         throughput of a remote store.  Has no effect on a local store.
-        Defaults to :data:`DEFAULT_REQUEST_CONCURRENCY`, tensorstore's own
+        Defaults to `DEFAULT_REQUEST_CONCURRENCY`, tensorstore's own
         default.
     file_io_concurrency : int or None
         Reads this store keeps outstanding against the local filesystem.
@@ -247,7 +247,7 @@ class TensorStoreCacheMixin(CellierModel):
         another process writes this data while it is open and cannot say
         when; otherwise a cached chunk is served as it was first read.  A
         writer that can say when calls ``notify_changed`` instead, which
-        revalidates once (:meth:`revalidate_cache`).  Defaults to
+        revalidates once (`revalidate_cache`).  Defaults to
         ``False``.  Assigning it reopens the handles on the same context,
         keeping the warm pool.
     """
@@ -336,7 +336,7 @@ class TensorStoreCacheMixin(CellierModel):
         self._sync_rechecks()
 
     def unregister_paint_writer(self) -> None:
-        """Forget the paint write buffer, undoing :meth:`register_paint_writer`.
+        """Forget the paint write buffer, undoing `register_paint_writer`.
 
         Reopens the handles with rechecks off again, unless
         ``recheck_cached_data`` keeps them on.
@@ -368,7 +368,7 @@ class TensorStoreCacheMixin(CellierModel):
             The context every level is opened on.
         recheck : bool or "open"
             Whether the handles revalidate cached data
-            (:func:`recheck_spec_options`).
+            (`recheck_spec_options`).
 
         Returns
         -------
@@ -381,7 +381,7 @@ class TensorStoreCacheMixin(CellierModel):
         """Whether the handles should revalidate cached data now.
 
         A registered writer whose buffer has been garbage collected still
-        counts: rechecks stay on until :meth:`unregister_paint_writer`,
+        counts: rechecks stay on until `unregister_paint_writer`,
         which is slower but never stale.
         """
         return self.recheck_cached_data or self._paint_writer_ref is not None
@@ -426,8 +426,8 @@ class TensorStoreCacheMixin(CellierModel):
         ``recheck_cached_data="open"``: chunks cached before now are checked
         against the kvstore when next read (unchanged ones cost a ``304``,
         changed ones are refetched), then trusted again.  Called for every
-        announced change (:meth:`_invalidate_caches`), so a store another
-        process writes to shows the new data after ``notify_changed``.
+        announced change, so a store another process writes to shows the
+        new data after ``notify_changed``.
 
         A no-op while rechecks are on, since every read revalidates then,
         and before the handles are opened.

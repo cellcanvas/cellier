@@ -19,7 +19,7 @@ from cellier.gui.qt._scene import QtDimsControl
 _AXIS = 1
 
 
-def _make_control(qtbot, *, initial=50.0, debounce_ms=None, step_size=2.0):
+def _make_control(qtbot, *, initial=50.0, throttle_ms=None, step_size=2.0):
     control = QtDimsControl(
         scene_id=uuid4(),
         axis_values={
@@ -29,7 +29,7 @@ def _make_control(qtbot, *, initial=50.0, debounce_ms=None, step_size=2.0):
         axis_labels={0: "c", _AXIS: "z"},
         initial_slice_indices={0: 0.0, _AXIS: initial},
         initial_displayed_axes=(),
-        debounce_ms=debounce_ms,
+        throttle_ms=throttle_ms,
     )
     qtbot.addWidget(control.widget)
     return control
@@ -92,7 +92,7 @@ def test_key_step_clamps_to_the_range(qtbot):
 
 def test_repeated_keys_go_through_the_rate_limit(qtbot):
     """Like a drag: the first step submits at once, the rest on the tick."""
-    control = _make_control(qtbot, debounce_ms=50)
+    control = _make_control(qtbot, throttle_ms=50)
     emitted = []
     control.changed.connect(emitted.append)
     target = _focus_target(control)

@@ -114,16 +114,16 @@ class DatasetInfo:
 
     Parameters
     ----------
-    sections : list[Section]
+    sections : list[RowSection | MatrixSection]
         The blocks, in display order.  Conventionally the first is an
-        unlabelled :class:`RowSection` carrying the store's identity.
+        unlabelled `RowSection` carrying the store's identity.
     """
 
-    sections: list[Section]
+    sections: list[RowSection | MatrixSection]
 
     @property
     def rows(self) -> list[tuple[str, str]]:
-        """Every row in every :class:`RowSection`, flattened.
+        """Every row in every `RowSection`, flattened.
 
         The lossy view, for a front end that can only draw a flat table.  A
         labelled section's rows are prefixed with the label so the flattening
@@ -275,7 +275,7 @@ def uri_file_name(uri: str) -> str:
 
 
 def ome_zarr_dataset_info(store: object, dtype: object) -> DatasetInfo:
-    """Build the :class:`DatasetInfo` shared by the two OME-Zarr stores.
+    """Build the `DatasetInfo` shared by the two OME-Zarr stores.
 
     The image and label stores carry the same metadata fields and differ
     only in what they call themselves and how they report their dtype, so

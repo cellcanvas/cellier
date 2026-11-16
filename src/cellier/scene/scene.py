@@ -78,7 +78,7 @@ class Scene(CellierEventedModel):
         Mutating its fields updates the render layer at runtime.
     overlays : list[SceneOverlayType]
         World-space overlays attached to this scene, such as a
-        :class:`~cellier.visuals.SceneBoundingBox`.  Drawn by the scene
+        `SceneBoundingBox`.  Drawn by the scene
         camera in the main pass.  Add and remove them through the controller
         (``add_scene_overlay`` / ``remove_overlay``) so the render layer
         follows; appending here directly only takes effect when the scene is

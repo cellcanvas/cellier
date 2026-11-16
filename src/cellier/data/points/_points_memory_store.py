@@ -31,7 +31,7 @@ class PointsMemoryStore(BaseDataStore):
     """In-memory point-cloud data store backed by numpy arrays.
 
     ``get_data`` runs the filter in the event loop's default executor, so
-    a large cloud does not stall the loop; :meth:`read` is the same
+    a large cloud does not stall the loop; `read` is the same
     filter, synchronous.
 
     Positions are stored in *data-axis order*: column 0 is axis 0 (z),
@@ -139,7 +139,7 @@ class PointsMemoryStore(BaseDataStore):
         The bounding box of the points, with no padding -- a vertex is a point,
         not a cell, so there is no half-voxel to add.  ``None`` when the
         store is empty.  See
-        :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
+        `axis_extents`.
         """
         return self._cached_axis_extents(lambda: geometry_axis_extents(self.positions))
 
@@ -191,14 +191,14 @@ class PointsMemoryStore(BaseDataStore):
     async def get_data(self, request: PointsSliceRequest) -> PointsData:
         """Return proximity-filtered point data for *request*.
 
-        The filter (:meth:`read`) runs in the loop's default executor.  A
+        The filter (`read`) runs in the loop's default executor.  A
         filter that raises because the store changed under it fails this
         read; the change's invalidation reads again.
 
         Parameters
         ----------
         request : PointsSliceRequest
-            Planned by ``GFXPointsMemoryVisual.plan``.
+            Planned by the render layer from the current view.
 
         Returns
         -------
@@ -210,12 +210,12 @@ class PointsMemoryStore(BaseDataStore):
         return await loop.run_in_executor(None, self.read, request)
 
     def read(self, request: PointsSliceRequest) -> PointsData:
-        """The filter of :meth:`get_data`, run on the calling thread.
+        """The filter of `get_data`, run on the calling thread.
 
         Parameters
         ----------
         request : PointsSliceRequest
-            Planned by ``GFXPointsMemoryVisual.plan``.
+            Planned by the render layer from the current view.
 
         Returns
         -------

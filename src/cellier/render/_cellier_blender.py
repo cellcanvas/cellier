@@ -136,7 +136,7 @@ class CellierBlender(Blender):
     Parameters
     ----------
     extra_targets : Iterable[str] or None
-        Names from :data:`EXTRA_TARGETS`.  ``None`` means all of them,
+        Names from `EXTRA_TARGETS`.  ``None`` means all of them,
         which is only useful in tests -- a real canvas asks for the
         targets its enabled features need and pays for nothing else.
     **kwargs
@@ -320,7 +320,7 @@ def ensure_extra_targets(
     renderer : gfx.WgpuRenderer
         The renderer whose blender should be replaced.
     extra_targets : Iterable[str]
-        Names from :data:`EXTRA_TARGETS`.  An empty iterable installs
+        Names from `EXTRA_TARGETS`.  An empty iterable installs
         nothing and returns ``False``.
 
     Returns
@@ -418,7 +418,7 @@ def get_extra_target_view(
     renderer : gfx.WgpuRenderer
         The renderer to fetch the view from.
     name : str
-        A key of :data:`EXTRA_TARGETS`.
+        A key of `EXTRA_TARGETS`.
 
     Returns
     -------

@@ -92,7 +92,7 @@ class RenderSettingsMixin:
 
         ``None`` derives it from the scene bounding box diagonal, which is
         the only default that means anything across cellier's coordinate
-        systems.  :attr:`ambient_occlusion_effective_radius` reports what that came to.
+        systems.  `ambient_occlusion_effective_radius` reports what that came to.
         """
         return self.controller.ambient_occlusion_radius
 

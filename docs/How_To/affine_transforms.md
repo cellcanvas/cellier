@@ -10,27 +10,43 @@ for.
 ## The short version
 
 ```python
+from uuid import uuid4
+
 import numpy as np
-from cellier.transform import AffineTransform
+from cellier.data import ImageMemoryStore
+from cellier.scene.dims import spatial_axes
+from cellier.transform import AffineTransform, DataCoordinateSystem
+
+# The store's own axes: the "data" end of the transform.
+data_system = DataCoordinateSystem(
+    name="volume", axes=spatial_axes("z", "y", "x"), datastore_id=uuid4()
+)
+store = ImageMemoryStore(data=volume, data_coordinate_systems=[data_system])
 
 # data (z, y, x) -> world (z, y, x): rotate the (y, x) plane by 30 degrees.
 theta = np.deg2rad(30)
 matrix = np.eye(4)
 matrix[1:3, 1:3] = [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]
 
-controller._ensure_data_coordinate_systems(scene.id, store)
 transform = AffineTransform.from_matrix(
-    matrix, store.data_coordinate_systems[0], scene.dims.world_coordinate_system
+    matrix, data_system, viewer.scene.dims.world_coordinate_system
 )
 viewer.add_image(store, transform=transform)
 ```
+
+The transform runs between two coordinate systems, so the store needs its
+own before it is added. A store built without `data_coordinate_systems`
+takes the scene's world axes only when it is added to a viewer, too late to
+build the transform passed to `add_image`. A multiscale store takes the
+level-0 system as `data_coordinate_system=` in
+`MultiscaleZarrDataStore.from_scale_and_translation`.
 
 The matrix is homogeneous, `(n_world + 1, n_data + 1)`, rows world axes and
 columns data axes, in the order of the coordinate systems (`z, y, x`, not
 pygfx's `x, y, z`). Assigning a new one later works the same way:
 `visual.transform = transform`.
 
-`examples/convenience/affine_transforms.py` is a complete example: a
+`examples/transform/affine_transforms.py` is a complete example: a
 rotated, anisotropic, drift-corrected time series with points tracking a
 blob in it.
 

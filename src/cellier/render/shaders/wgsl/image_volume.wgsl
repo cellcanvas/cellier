@@ -224,11 +224,24 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
         (u_stdinfo.cam_transform * plane_world).xyz);
     $$ endif
     $$ if write_pick
+    // The encode quantises each axis to 14 bits (steps of ``dim / 16383``
+    // voxels, the quantum), and a point near a voxel face could land in the
+    // neighbour.  Clamp the plane point one quantum inside the voxel it is in
+    // (at most to its centre) and round, as the surface pick below does.
+    let plane_quantum = max(max(sizef.x, sizef.y), sizef.z) / 16383.0;
+    let plane_room    = min(plane_quantum, 0.5);
+    let plane_voxel   = plane_coord * sizef;
+    let plane_cell    = clamp(floor(plane_voxel), vec3<f32>(0.0), sizef - vec3<f32>(1.0));
+    let plane_inside  = clamp(
+        plane_voxel,
+        plane_cell + vec3<f32>(plane_room),
+        plane_cell + vec3<f32>(1.0 - plane_room)
+    ) / sizef;
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
-        pick_pack(u32(clamp(plane_coord.x, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_coord.y, 0.0, 1.0) * 16383.0), 14) +
-        pick_pack(u32(clamp(plane_coord.z, 0.0, 1.0) * 16383.0), 14)
+        pick_pack(u32(clamp(plane_inside.x * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_inside.y * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(plane_inside.z * 16383.0 + 0.5, 0.0, 16383.0)), 14)
     );
     $$ endif
     return out;
@@ -271,12 +284,31 @@ fn fs_main(varyings: Varyings) -> FragmentOutput {
     $$ endif
 
     $$ if write_pick
+    // Report a point safely inside the voxel the hit is in, not on its face.
+    //
+    // An isosurface of linearly interpolated data can sit exactly on a voxel
+    // face (a 0/1 mask at threshold 0.5), and the encode below quantises each
+    // axis to 14 bits -- steps of ``dim / 16383`` voxels, the quantum.  Clamp
+    // the point to the interior of its voxel, one quantum from every face (at
+    // most the voxel's centre); the encode rounds to the nearest step, which
+    // moves the point by at most half a quantum, so it stays in the voxel for
+    // any axis shorter than 16383 voxels.  A point further in than that does
+    // not move.  Only the pick coordinate changes.
+    let pick_quantum = max(max(sizef.x, sizef.y), sizef.z) / 16383.0;
+    let pick_room    = min(pick_quantum, 0.5);
+    let pick_voxel   = render_out.coord * sizef;
+    let pick_cell    = min(floor(pick_voxel), sizef - vec3<f32>(1.0));
+    let pick_inside  = clamp(
+        pick_voxel,
+        pick_cell + vec3<f32>(pick_room),
+        pick_cell + vec3<f32>(1.0 - pick_room)
+    ) / sizef;
     // The wobject-id must be 20 bits. In total it must not exceed 64 bits.
     out.pick = (
         pick_pack(u32(u_wobject.global_id), 20) +
-        pick_pack(u32(render_out.coord.x * 16383.0), 14) +
-        pick_pack(u32(render_out.coord.y * 16383.0), 14) +
-        pick_pack(u32(render_out.coord.z * 16383.0), 14)
+        pick_pack(u32(clamp(pick_inside.x * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(pick_inside.y * 16383.0 + 0.5, 0.0, 16383.0)), 14) +
+        pick_pack(u32(clamp(pick_inside.z * 16383.0 + 0.5, 0.0, 16383.0)), 14)
     );
     $$ endif
     return out;

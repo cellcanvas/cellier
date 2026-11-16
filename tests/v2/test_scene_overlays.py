@@ -119,6 +119,32 @@ def test_bounds_take_the_union_of_every_visual_hidden_included(controller):
     np.testing.assert_allclose(high, (20.0, 5.5, 7.5))
 
 
+def test_only_visible_skips_hidden_visuals(controller):
+    scene = _scene(controller)
+    _image(controller, scene)
+    points = PointsMemoryStore(
+        positions=np.array([[-3.0, 1.0, 2.0], [20.0, 2.0, 3.0]], dtype=np.float32)
+    )
+    visual = controller.add_points(points, scene.id)
+    controller.set_visual_visible(visual.id, False)
+
+    low, high = scene_world_bounds(scene, controller.get_data_store, only_visible=True)
+
+    np.testing.assert_allclose(low, (-0.5, -0.5, -0.5))
+    np.testing.assert_allclose(high, (3.5, 5.5, 7.5))
+
+
+def test_only_visible_with_nothing_shown_is_none(controller):
+    scene = _scene(controller)
+    image = _image(controller, scene)
+    controller.set_visual_visible(image.id, False)
+
+    assert (
+        scene_world_bounds(scene, controller.get_data_store, only_visible=True) is None
+    )
+    assert scene_world_bounds(scene, controller.get_data_store) is not None
+
+
 def test_bounds_of_an_empty_scene_are_none(controller):
     scene = _scene(controller)
     assert scene_world_bounds(scene, controller.get_data_store) is None

@@ -39,13 +39,13 @@ class QtLevelOfDetailControls(VisualIdGroup):
     Drives ``settled_lod_bias``, ``coarsest_while_moving_3d`` and
     ``coarsest_while_moving_2d`` on a multiscale image or labels
     appearance.  The checkbox shows and edits the setting of the view the
-    control is in: the 3D one while :attr:`n_displayed_dimensions` is 3,
+    control is in: the 3D one while `n_displayed_dimensions` is 3,
     the 2D one otherwise.
 
     Changing ``settled_lod_bias`` reslices, so its ``AppearanceUpdateEvent``
     is emitted when the slider is released, not on every tick.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         control = QtLevelOfDetailControls(visual_id, values)
         controller.connect_widget(
@@ -58,19 +58,22 @@ class QtLevelOfDetailControls(VisualIdGroup):
         The visual the control drives.  A sequence drives every listed
         visual in lock-step (the ``OrthoViewer``'s panel siblings).
     values :
-        ``cellier.gui._level_of_detail.level_of_detail_values`` of the
-        visual's appearance.  Missing keys take the model's defaults.
+        The appearance's current values, keyed by field name:
+        ``settled_lod_bias`` (float), ``coarsest_while_moving_3d`` and
+        ``coarsest_while_moving_2d`` (bool), and ``has_moving_3d: False``
+        for an appearance without the 3D setting, which hides that
+        checkbox in 3D.  Missing keys take the model's defaults.
     n_displayed_dimensions :
         What the view displays now, 2 or 3.
     scene_ids :
         Scenes whose ``DimsChangedEvent`` the control follows to keep
-        :attr:`n_displayed_dimensions` current.
+        `n_displayed_dimensions` current.
     lod_range :
         ``(min, max)`` of the slider.
     decimals :
         Decimal places shown beside the slider.
     title :
-        The group's name.  Defaults to :data:`DEFAULT_TITLE`.
+        The group's name.  Defaults to `DEFAULT_TITLE`.
     parent :
         Optional Qt parent widget.
     """

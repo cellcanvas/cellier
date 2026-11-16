@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
+import math
+import zlib
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pygfx as gfx
+from pygfx.renderers.wgpu.engine.shared import get_shared
 
 from cellier.logging import _GPU_LOGGER
 from cellier.render.lut_indirection._cell_brick_rule import (
@@ -20,6 +24,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from cellier.render.lut_indirection._layout_3d import BlockLayout3D
+
+#: Hands out ``LutIndirectionManager3D.version``.  One counter for every
+#: manager, so a version never repeats, whichever manager wrote it.
+_VERSIONS = itertools.count(1)
 
 
 class LutIndirectionManager3D:
@@ -113,6 +121,13 @@ class LutIndirectionManager3D:
             ):
                 _GPU_LOGGER.warning("brick_rule_padding  3d  %s", issue.describe())
         self.lut_data, self.lut_tex = build_lut_texture(base_layout)
+        # Changes whenever a write changes ``lut_data``; a rewrite to the same
+        # table (every camera move repaints it) keeps it.  A reader of the CPU
+        # table that answers for a drawn frame compares it with the version it
+        # saw when that frame was drawn
+        # (``GFXMultiscaleLabelVisual.pick_drawn_level``).
+        self.version = next(_VERSIONS)
+        self._checksum = zlib.crc32(self.lut_data)
         self.brick_max_data, self.brick_max_tex = build_brick_max_texture(base_layout)
         # The one cell -> brick rule, shared with the shaders through the
         # block-scales buffer.  See _cell_brick_rule.
@@ -175,7 +190,7 @@ class LutIndirectionManager3D:
         phases : sequence of np.ndarray
             Index arrays into the bricks, in painting order.
         loop_below : int
-            See :func:`paint_lut`.
+            See `paint_lut`.
         """
         values = np.column_stack(
             [slot_grid_pos[:, 2], slot_grid_pos[:, 1], slot_grid_pos[:, 0], levels]
@@ -203,10 +218,19 @@ class LutIndirectionManager3D:
             )
         self.lut_tex.update_range((0, 0, 0), self.lut_tex.size)
         self.brick_max_tex.update_range((0, 0, 0), self.brick_max_tex.size)
+        checksum = zlib.crc32(self.lut_data)
+        if checksum != self._checksum:
+            self._checksum = checksum
+            self.version = next(_VERSIONS)
 
 
 def build_lut_texture(base_layout: BlockLayout3D) -> tuple[np.ndarray, gfx.Texture]:
     """Allocate the LUT texture (zeroed = all out-of-bounds).
+
+    The texture has one texel per level-0 brick, so the brick grid is bounded
+    by the device's 3D texture limit.  Its uint8 channels hold a cache slot
+    and a level, not a grid position, so the grid itself may be longer than
+    255 bricks.
 
     Notes
     -----
@@ -228,11 +252,48 @@ def build_lut_texture(base_layout: BlockLayout3D) -> tuple[np.ndarray, gfx.Textu
         Backing uint8 array of shape ``(gD, gH, gW, 4)``.
     lut_tex : gfx.Texture
         RGBA8UI 3D texture.
+
+    Raises
+    ------
+    ValueError
+        If the grid is longer on any axis than the device's
+        ``max-texture-dimension-3d`` (2048 under the default WebGPU limits).
+        Without this check pygfx would fail only at the first draw, with an
+        empty canvas.
     """
+    check_brick_grid_fits(base_layout)
     gd, gh, gw = base_layout.grid_dims
     lut_data = np.zeros((gd, gh, gw, 4), dtype=np.uint8)
     lut_tex = gfx.Texture(lut_data, dim=3, format="rgba8uint")
     return lut_data, lut_tex
+
+
+def check_brick_grid_fits(base_layout: BlockLayout3D) -> None:
+    """Raise if *base_layout*'s brick grid is longer than a 3D texture can be.
+
+    Parameters
+    ----------
+    base_layout : BlockLayout3D
+        Layout of the finest (level 1) resolution.
+
+    Raises
+    ------
+    ValueError
+        If any grid dimension exceeds the device's
+        ``max-texture-dimension-3d``.
+    """
+    limit = int(get_shared().device.limits["max-texture-dimension-3d"])
+    grid = base_layout.grid_dims
+    if max(grid) <= limit:
+        return
+    longest = max(base_layout.volume_shape)
+    raise ValueError(
+        f"The brick grid of {grid[0]} x {grid[1]} x {grid[2]} bricks (volume "
+        f"shape {tuple(base_layout.volume_shape)} at "
+        f"block_size={base_layout.block_size}) is longer than the device's 3D "
+        f"texture limit of {limit} bricks per axis. Increase block_size to at "
+        f"least {math.ceil(longest / limit)}."
+    )
 
 
 def build_brick_max_texture(

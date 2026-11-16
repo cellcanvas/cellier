@@ -6,7 +6,7 @@ mixin swaps the bus contract -- ``OverlayChangedEvent`` in,
 ``OverlayUpdateEvent`` out, keyed by overlay id -- and everything else is the
 appearance controls' own behaviour (``cellier.gui._overlay_fields``).
 
-Wire to the controller after construction::
+Wire to the controller after construction:
 
     toggle = QtOverlayVisibleToggle(overlay.id, initial_value=overlay.visible)
     controller.connect_widget(toggle, subscription_specs=toggle.subscription_specs())
@@ -42,7 +42,7 @@ class QtOverlayVisibleToggle(OverlayFieldMixin, QtToggle):
 
 
 class QtOverlayColorPicker(OverlayFieldMixin, QtColorPicker):
-    """Line colour of a :class:`~cellier.visuals.SceneBoundingBox`.
+    """Line colour of a `SceneBoundingBox`.
 
     Parameters
     ----------
@@ -58,7 +58,7 @@ class QtOverlayColorPicker(OverlayFieldMixin, QtColorPicker):
 
 
 class QtOverlayThicknessSpin(OverlayFieldMixin, QtFloatSpin):
-    """Line thickness of a :class:`~cellier.visuals.SceneBoundingBox`, in screen pixels.
+    """Line thickness of a `SceneBoundingBox`, in screen pixels.
 
     Parameters
     ----------
@@ -76,7 +76,7 @@ class QtOverlayThicknessSpin(OverlayFieldMixin, QtFloatSpin):
 
 
 class QtOverlayCornerCombo(OverlayFieldMixin, QtChoice):
-    """Canvas corner a :class:`~cellier.visuals.CenteredAxes2D` is anchored to.
+    """Canvas corner a `CenteredAxes2D` is anchored to.
 
     Parameters
     ----------
@@ -99,7 +99,7 @@ class QtOverlayCornerCombo(OverlayFieldMixin, QtChoice):
 
 
 class QtOverlayLengthSpin(OverlayFieldMixin, QtFloatSpin):
-    """Axis segment length of a :class:`~cellier.visuals.CenteredAxes2D`, in screen pixels.
+    """Axis segment length of a `CenteredAxes2D`, in screen pixels.
 
     Parameters
     ----------
@@ -117,7 +117,7 @@ class QtOverlayLengthSpin(OverlayFieldMixin, QtFloatSpin):
 
 
 class QtOverlayLineThicknessSpin(OverlayFieldMixin, QtFloatSpin):
-    """Axis line thickness of a :class:`~cellier.visuals.CenteredAxes2D`, in screen pixels.
+    """Axis line thickness of a `CenteredAxes2D`, in screen pixels.
 
     Parameters
     ----------
@@ -135,7 +135,7 @@ class QtOverlayLineThicknessSpin(OverlayFieldMixin, QtFloatSpin):
 
 
 class QtOverlayAxisAColorPicker(OverlayFieldMixin, QtColorPicker):
-    """Colour of a :class:`~cellier.visuals.CenteredAxes2D`'s first axis.
+    """Colour of a `CenteredAxes2D`'s first axis.
 
     Parameters
     ----------
@@ -156,7 +156,7 @@ class QtOverlayAxisAColorPicker(OverlayFieldMixin, QtColorPicker):
 
 
 class QtOverlayAxisBColorPicker(OverlayFieldMixin, QtColorPicker):
-    """Colour of a :class:`~cellier.visuals.CenteredAxes2D`'s second axis.
+    """Colour of a `CenteredAxes2D`'s second axis.
 
     Parameters
     ----------
@@ -177,7 +177,7 @@ class QtOverlayAxisBColorPicker(OverlayFieldMixin, QtColorPicker):
 
 
 class QtOverlayShowLabelsToggle(OverlayFieldMixin, QtToggle):
-    """Whether a :class:`~cellier.visuals.CenteredAxes2D` draws its axis labels.
+    """Whether a `CenteredAxes2D` draws its axis labels.
 
     Parameters
     ----------
@@ -193,7 +193,7 @@ class QtOverlayShowLabelsToggle(OverlayFieldMixin, QtToggle):
 
 
 class QtOverlayLabelColorPicker(OverlayFieldMixin, QtColorPicker):
-    """Text colour of a :class:`~cellier.visuals.CenteredAxes2D`'s labels.
+    """Text colour of a `CenteredAxes2D`'s labels.
 
     Parameters
     ----------
@@ -209,7 +209,7 @@ class QtOverlayLabelColorPicker(OverlayFieldMixin, QtColorPicker):
 
 
 class QtOverlayFontSizeSpin(OverlayFieldMixin, QtFloatSpin):
-    """Label font size of a :class:`~cellier.visuals.CenteredAxes2D`, in screen pixels.
+    """Label font size of a `CenteredAxes2D`, in screen pixels.
 
     Parameters
     ----------

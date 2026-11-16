@@ -169,7 +169,7 @@ class MaskedImageRenderConfig(MultiscaleImageRenderConfig):
 class MaskedImageVisual(MultiscaleImageVisual):
     """Model of a MaskedImage: a mask's isosurface coloured by a value image.
 
-    Build it with :meth:`cellier.controller.CellierController.add_masked_image`,
+    Build it with `cellier.controller.CellierController.add_masked_image`,
     which registers both stores and checks that they can be drawn together.
 
     Parameters

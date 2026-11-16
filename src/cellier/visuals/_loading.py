@@ -36,8 +36,8 @@ class ProgressiveLoadingConfig(CellierModel):
     ----------
     backstop_level : int or None
         1-based level of the backstop, like ``force_level`` (1 is the
-        finest).  Clamped to the pyramid.  ``None`` (the default) is the
-        coarsest level.
+        finest), so at least 1.  Clamped to the pyramid.  ``None`` (the
+        default) is the coarsest level.
     backstop_extent : {"full", "view"}
         ``"full"`` (default): the whole volume in 3D, so orbiting never
         exposes black, and the whole slice in 2D.  ``"view"``: frustum-culled
@@ -47,22 +47,24 @@ class ProgressiveLoadingConfig(CellierModel):
         nearest the camera (3D) or canvas centre (2D) first.  Only shallow
         pyramids reach it; when it truncates, one INFO line per visual on
         ``cellier.render.cache`` names the settings that would avoid it.
-        Default ``0.1``.
+        In ``(0, 0.5]``; default ``0.1``.
     intermediate_offsets : tuple of int
         One intermediate stage per offset, given **coarse to fine**: each
         offset at least 1 and smaller than the one before, so ``(4, 2)`` is
         accepted and ``(2, 4)`` and ``(2, 2)`` are refused.  Nothing is
         re-sorted.  An offset is a number of levels coarser than each target
         brick's own level; a stage brick at or beyond the backstop level is
-        dropped, so a stage may be empty for a view.  ``()`` (the default)
-        is no stage; ``(2,)`` is coarse, medium, fine.
+        dropped, so a stage may be empty for a view.  The first (largest)
+        offset may be at most 254.  ``()`` (the default) is no stage;
+        ``(2,)`` is coarse, medium, fine.
     intermediate_max_slot_fraction : float
         At most this share of an atlas's slots holds the bricks of all the
         stages together, filled coarsest stage first, each nearest the
         camera (3D) or canvas centre (2D) first.  When it truncates, one
         INFO line per visual on ``cellier.render.cache`` says so.  It sits
         beside ``backstop_max_slot_fraction``: the target gets what the
-        backstop and stage bricks actually use leave.  Default ``0.1``.
+        backstop and stage bricks actually use leave.  In ``(0, 0.5]``;
+        default ``0.1``.
     """
 
     model_config = ConfigDict(frozen=True)

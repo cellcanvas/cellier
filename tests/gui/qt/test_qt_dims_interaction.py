@@ -38,7 +38,7 @@ def _make_control(qtbot, *, scene_id=None, shown=True) -> QtDimsControl:
         initial_slice_indices={DISCRETE: 10.0, CONTINUOUS: 50.0},
         initial_displayed_axes=(),
         # A wide throttle, so a drag always leaves its last position pending.
-        debounce_ms=10_000,
+        throttle_ms=10_000,
     )
     qtbot.addWidget(control.widget)
     if shown:

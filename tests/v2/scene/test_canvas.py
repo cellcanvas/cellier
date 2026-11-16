@@ -30,3 +30,19 @@ def test_canvas_two_camera_roundtrip(tmp_path):
     path.write_text(original.model_dump_json())
     deserialized = Canvas.model_validate_json(path.read_text())
     assert original.model_dump_json() == deserialized.model_dump_json()
+
+
+def test_canvas_needs_a_camera():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Canvas(cameras={})
+
+
+def test_canvas_camera_keys_are_2d_or_3d():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Canvas(cameras={"4d": PerspectiveCamera(controller=OrbitCameraController())})

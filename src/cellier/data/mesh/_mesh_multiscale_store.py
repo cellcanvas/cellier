@@ -239,7 +239,7 @@ class MultiscaleMeshStore(BaseDataStore):
         """Per-axis ``(low, high)`` of the **finest level's** vertices.
 
         ``None`` when that level is empty.  See
-        :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
+        `axis_extents`.
         """
         return self._cached_axis_extents(
             lambda: geometry_axis_extents(self.levels[0].positions)
@@ -318,14 +318,14 @@ class MultiscaleMeshStore(BaseDataStore):
     async def get_data(self, request: MeshSliceRequest) -> MeshData | MeshSectionData:
         """Return one level, sliced and upload-ready.
 
-        The same read as :meth:`MeshMemoryStore.get_data`, on the level the
+        The same read as `MeshMemoryStore.get_data`, on the level the
         request names (``scale_index``, 0 the finest).  It runs in an
         executor thread, with no cancellation checkpoints.
 
         Parameters
         ----------
         request : MeshSliceRequest
-            Built by ``GFXMeshVisual``.
+            Built by the render layer from the current view.
 
         Returns
         -------

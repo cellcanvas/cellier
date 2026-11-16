@@ -30,3 +30,8 @@ VisualType = Annotated[
     ],
     Field(discriminator="visual_type"),
 ]
+"""Any visual model, told apart by its ``visual_type`` field.
+
+The type of ``Scene.visuals`` entries; a saved viewer file uses it to
+rebuild each visual as the right class.
+"""

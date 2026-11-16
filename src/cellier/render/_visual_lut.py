@@ -16,7 +16,7 @@ and derives the whole table from it.
 The table is a 1024x1024 ``rg16uint`` texture -- 4 MB -- indexed as
 ``(id & 1023, id >> 10)``.  It is deliberately *not* smaller: pygfx does
 not allocate ids with a counter, it draws them randomly over the full
-2^20 range::
+2^20 range:
 
     id = 0
     while id in self._ids_in_use:
@@ -58,7 +58,7 @@ its upper byte is not theirs.
 The depth range is the pair ``(start, solid)`` of a depth outline: a depth
 jump of ``start``, as a fraction of the distance from the camera, is where
 a line begins, and from ``solid`` up it is drawn in full.  See
-:func:`encode_depth_range`.
+`encode_depth_range`.
 
 Entry 0 is permanently inert: the pick target clears to zero and pygfx's
 ``IdProvider`` seeds ``_ids_in_use = {0}``, so no object is ever given id
@@ -157,7 +157,7 @@ def encode_entry(
         scene with no selection looks like.
     depth_start_code : int
         Start of the depth range as a code in ``[0, 65535]``, from
-        :func:`encode_depth_range`.  0 means the visual has no depth test.
+        `encode_depth_range`.  0 means the visual has no depth test.
     depth_ramp_code : int
         Ramp of the depth range as a code in ``[0, 255]``.  0 is a hard
         edge.
@@ -231,7 +231,7 @@ def encode_depth_range(depth_range: tuple[float, float]) -> tuple[int, int]:
     Returns
     -------
     tuple[int, int]
-        ``(depth_start_code, depth_ramp_code)`` for :func:`encode_entry`.
+        ``(depth_start_code, depth_ramp_code)`` for `encode_entry`.
         The start code is never 0, so a range that is given never encodes
         as "no depth test".  The ramp code is 0 exactly when ``solid ==
         start``, a hard edge.
@@ -351,7 +351,7 @@ class VisualLut:
         object_id : int
             The pygfx ``global_id`` to write.
         value : int
-            Packed entry, from :func:`encode_entry`.
+            Packed entry, from `encode_entry`.
 
         Returns
         -------

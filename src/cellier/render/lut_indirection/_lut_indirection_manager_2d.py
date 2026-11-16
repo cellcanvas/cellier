@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import itertools
+import zlib
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -17,6 +19,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from cellier.render.lut_indirection._layout_2d import BlockLayout2D
+
+#: Hands out ``LutIndirectionManager2D.version``: one counter for every
+#: manager, so a version never repeats.
+_VERSIONS = itertools.count(1)
 
 
 class LutIndirectionManager2D:
@@ -81,6 +87,11 @@ class LutIndirectionManager2D:
             ):
                 _GPU_LOGGER.warning("brick_rule_padding  2d  %s", issue.describe())
         self.lut_data, self.lut_tex = build_lut_texture_2d(base_layout.grid_dims)
+        # Changes whenever a write changes ``lut_data`` (a rewrite to the same
+        # table keeps it), so a reader that answers for a drawn frame can tell
+        # the table has moved on.  See ``cellier.render.visuals._drawn_level``.
+        self.version = next(_VERSIONS)
+        self._checksum = zlib.crc32(self.lut_data)
         # The one cell -> tile rule, shared with the shaders through the
         # block-scales buffer.  See _cell_brick_rule.
         self._spans = level_cell_spans(n_levels, 2, scale_vecs_data)
@@ -137,7 +148,7 @@ class LutIndirectionManager2D:
             tiles are clipped to the viewport so out-of-view stale data is
             not referenced.
         loop_below : int
-            See :func:`paint_lut`.
+            See `paint_lut`.
         """
         slot_grid_pos = np.asarray(slot_grid_pos, dtype=np.int64).reshape(-1, 2)
         levels = np.asarray(levels, dtype=np.int64)
@@ -161,6 +172,10 @@ class LutIndirectionManager2D:
             loop_below=loop_below,
         )
         self.lut_tex.update_range((0, 0, 0), self.lut_tex.size)
+        checksum = zlib.crc32(self.lut_data)
+        if checksum != self._checksum:
+            self._checksum = checksum
+            self.version = next(_VERSIONS)
 
 
 def build_lut_texture_2d(

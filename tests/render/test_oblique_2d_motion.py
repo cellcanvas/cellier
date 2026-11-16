@@ -25,7 +25,7 @@ from cellier.render.scheduling import PlanMode
 from cellier.render.visuals._image import GFXMultiscaleImageVisual
 from cellier.render.visuals._label_multiscale import GFXMultiscaleLabelVisual
 from cellier.scene.dims import spatial_axes
-from cellier.transform import AffineTransform, slice_footprint
+from cellier.transform._slice_plane import slice_footprint
 from cellier.visuals import (
     MultiscaleImageAppearance,
     MultiscaleImageRenderConfig,
@@ -51,6 +51,8 @@ from tests.render.test_oblique_2d_brick_route import _pixel_world, _random_volum
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from cellier.transform import AffineTransform
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +603,7 @@ def test_a_one_voxel_tick_rereads_few_bricks(tmp_path, monkeypatch):
 def _coverage(frame, camera, polygon) -> float:
     """Share of the footprint's pixels (one-pixel border excluded) drawn."""
     xy = _pixel_world(camera, frame.shape[0])
-    pixel = float(camera.width) / frame.shape[0] / float(camera.zoom)
+    pixel = float(camera.width) / frame.shape[0]
     inside = np.ones(xy.shape[:2], dtype=bool)
     for start, end in zip(polygon, np.roll(polygon, -1, axis=0), strict=True):
         edge = end - start

@@ -2,7 +2,7 @@
 
 A MaskedImage is two multiscale image visuals.  The **mask** side is this
 visual itself: its node is what the scene draws, and its slots build the mask
-material.  The **value** side is an inner :class:`GFXMultiscaleImageVisual`
+material.  The **value** side is an inner `GFXMultiscaleImageVisual`
 over the value store, whose node is never in the scene (a hidden child would
 still count toward the bounding box); it only plans and loads, and its atlas
 is bound into the mask's material.
@@ -139,7 +139,7 @@ _FLIP = np.eye(4)[[2, 1, 0, 3]]
 def value_to_mask_voxels(mask_slot, value_slot) -> np.ndarray:
     """Value level-0 voxels to mask level-0 voxels, fetch order, 4x4.
 
-    The inverse of :func:`mask_to_value` taken from mask voxels, so the
+    The inverse of `mask_to_value` taken from mask voxels, so the
     surface filter maps value bricks through the same matrix the shader
     reads the value with.
     """
@@ -195,6 +195,8 @@ class _ValueSlot(_MultiscaleImageSlot):
     """A value slot: paints only the current slice."""
 
     _current_slice_only = True
+    # Never drawn, so it writes no picks: the mask side picks, and warns.
+    _warns_pick_budget = False
 
 
 class _ValueImageVisual(GFXMultiscaleImageVisual):
@@ -462,7 +464,7 @@ class GFXMaskedImageVisual(GFXMultiscaleImageVisual):
 
         The coordinator reports the visual's target as deferred meanwhile,
         so its progress is not complete; the controller re-plans on the
-        visual's ``BackstopCompleteEvent`` (:meth:`settle_surface`).
+        visual's ``BackstopCompleteEvent`` (`settle_surface`).
         """
         return self._deferred_surface_selection is not None
 

@@ -1,7 +1,7 @@
 """The "2D section" controls of a mesh, decided once for both toolkits.
 
 A mesh in a 2D view is drawn as its cross-section
-(:class:`~cellier.visuals.MeshSectionConfig`): an outline and a fill, cut at
+(`MeshSectionConfig`): an outline and a fill, cut at
 the slice plane or through the scene's slab.  The Qt and anywidget controls
 (``QtMeshSectionControls``, ``AnywidgetMeshSectionControls``) draw one row
 per field; this module says which rows, and carries edits to the bus and
@@ -133,7 +133,7 @@ class SectionVisibility:
     ----------
     displayed : Mapping[UUID, int]
         Scene id to its number of displayed dimensions, from
-        :func:`section_display_seed`.
+        `section_display_seed`.
     apply : Callable[[bool], None]
         Shows or hides the widget.
     """

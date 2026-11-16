@@ -26,7 +26,7 @@ class _InteractionDriver:
     interaction.
 
     With no running event loop there is no timer: the caller ends the
-    interaction with :meth:`settle_without_loop` once it has acted on the
+    interaction with `settle_without_loop` once it has acted on the
     tick.
 
     Parameters

@@ -6,7 +6,7 @@ Three widgets, not one, because ``outline.slot`` means two different things:
   the colour, since the selection layer draws the region in
   ``palette[slot - 1]``;
 * on a labels visual it only decides whether the volume participates -- the
-  colour comes from :attr:`outline_selected_labels`, per label value.
+  colour comes from `outline_selected_labels`, per label value.
 
 A single widget covering both would have to disable half of itself, which is
 the shape of a widget that should be two.  Occlusion is a third because it is
@@ -72,7 +72,7 @@ class QtVisualRenderPanel:
         Optional Qt parent widget.
     """
 
-    #: Key into :data:`VISUAL_RENDER_CONTROLS`.
+    #: Key into `VISUAL_RENDER_CONTROLS`.
     section: ClassVar[str] = ""
 
     changed: Signal = Signal(object)

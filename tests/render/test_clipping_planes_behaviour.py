@@ -712,8 +712,7 @@ async def test_the_brush_writes_only_what_is_drawn(controller):
         brush_radius_voxels=3.0,
     )
     assert canvas_id is not None
-    # The pointer's world coordinate: z, then pygfx (x, y) on the two
-    # displayed axes.  Centred on the plane.
+    # The pointer's world coordinate (z, y, x), centred on the plane.
     paint._apply_brush(np.array([8.0, 8.0, 8.0]))
     painted = np.argwhere(store.data == 5)
     assert len(painted) > 10

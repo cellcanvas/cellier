@@ -30,8 +30,8 @@ from cellier.gui._appearance_fields import (
     as_rgba,
     field_bounds,
     hex_to_rgba,
-    literal_choices,
     rgba_to_hex,
+    selectable_field_values,
 )
 
 pytest.importorskip("qtpy")
@@ -383,18 +383,78 @@ def test_a_float_spin_range_is_overridable_at_construction(qtbot):
     assert _any("SizeSpin")(visual_id)._default_range == (0.1, 100.0)
 
 
-def test_choices_come_from_the_models_literal_not_a_restated_list(qtbot):
-    """Each labels model offers its own Literal's render modes.
-
-    The multiscale Literal is wider (``gradient_debug``), but that mode is
-    hidden from the control, so both offer the same choices.
-    """
+def _choice_models():
+    """Choice-widget stem -> (field, every model that field lives on)."""
+    from cellier.visuals._canvas_overlay import CenteredAxes2DAppearance
+    from cellier.visuals._graph_memory import GraphAppearance
     from cellier.visuals._label_memory import InMemoryLabelsAppearance
     from cellier.visuals._labels import MultiscaleLabelsAppearance
+    from cellier.visuals._lines_memory import LinesMemoryAppearance
+    from cellier.visuals._mesh_memory import MeshFlatAppearance, MeshPhongAppearance
+    from cellier.visuals._points_memory import PointsMarkerAppearance
 
-    in_memory = literal_choices(InMemoryLabelsAppearance(), "render_mode")
-    multiscale = literal_choices(MultiscaleLabelsAppearance(), "render_mode")
+    return {
+        "LabelsRenderModeCombo": (
+            "render_mode",
+            (InMemoryLabelsAppearance, MultiscaleLabelsAppearance),
+        ),
+        "SideCombo": ("side", (MeshFlatAppearance, MeshPhongAppearance)),
+        "SizeSpaceCombo": ("size_space", (PointsMarkerAppearance,)),
+        "ThicknessSpaceCombo": ("thickness_space", (LinesMemoryAppearance,)),
+        "NodeSizeSpaceCombo": ("node_size_space", (GraphAppearance,)),
+        "EdgeThicknessSpaceCombo": ("edge_thickness_space", (GraphAppearance,)),
+        "OverlayCornerCombo": ("corner", (CenteredAxes2DAppearance,)),
+    }
 
+
+def _all_subclasses(cls):
+    found = set()
+    for sub in cls.__subclasses__():
+        found.add(sub)
+        found |= _all_subclasses(sub)
+    return found
+
+
+def test_every_choice_widget_is_in_the_model_table():
+    """A new choice widget must be added to `_choice_models`, or it is unchecked."""
+    import cellier.gui.anywidget.overlays
+    import cellier.gui.qt.overlays  # noqa: F401
+    from cellier.gui.anywidget.visuals._base import AnywidgetChoice
+    from cellier.gui.qt.visuals._base import QtChoice
+
+    qt = {c.__name__.removeprefix("Qt") for c in _all_subclasses(QtChoice)}
+    anyw = {
+        c.__name__.removeprefix("Anywidget") for c in _all_subclasses(AnywidgetChoice)
+    }
+    assert qt == anyw == set(_choice_models())
+
+
+@pytest.mark.parametrize("stem", sorted(_choice_models()))
+def test_every_choice_widget_lists_exactly_its_models_values(stem):
+    """Written-out options must match the model, in the model's order.
+
+    The lists are written out in each widget so they read plainly; this test
+    is what stops them going stale when a model gains a value.  The labels
+    list once offered 2 of 5 render modes for that reason.  Debug-only
+    values (``gradient_debug``) are excluded on both sides.
+    """
+    import cellier.gui.anywidget.overlays as anywidget_overlays
+    import cellier.gui.qt.overlays as qt_overlays
+
+    field, models = _choice_models()[stem]
+    qt_cls = getattr(qt_visuals, f"Qt{stem}", None) or getattr(qt_overlays, f"Qt{stem}")
+    any_cls = getattr(anywidget_visuals, f"Anywidget{stem}", None) or getattr(
+        anywidget_overlays, f"Anywidget{stem}"
+    )
+    for model in models:
+        expected = selectable_field_values(model.model_construct(), field)
+        assert expected, (model.__name__, field)
+        assert qt_cls._default_choices == expected, model.__name__
+        assert any_cls._default_choices == expected, model.__name__
+
+
+def test_a_bare_labels_combo_offers_every_render_mode(qtbot):
+    """Built with no ``choices=``, the combo offers all five labels modes."""
     expected = (
         "iso_categorical",
         "flat_categorical",
@@ -402,15 +462,9 @@ def test_choices_come_from_the_models_literal_not_a_restated_list(qtbot):
         "smooth_geometry",
         "plane",
     )
-    assert in_memory == expected
-    assert multiscale == expected
-
     visual_id = uuid4()
-    widget = _qt("LabelsRenderModeCombo")(visual_id, choices=multiscale)
-    assert widget.choices == multiscale
-    assert _any("LabelsRenderModeCombo")(visual_id, choices=multiscale).choices == list(
-        multiscale
-    )
+    assert _qt("LabelsRenderModeCombo")(visual_id).choices == expected
+    assert _any("LabelsRenderModeCombo")(visual_id).choices == list(expected)
 
 
 def test_the_debug_render_mode_never_reaches_a_control():
@@ -421,7 +475,7 @@ def test_the_debug_render_mode_never_reaches_a_control():
     """
     from cellier.visuals._labels import MultiscaleLabelsAppearance
 
-    assert "gradient_debug" not in literal_choices(
+    assert "gradient_debug" not in selectable_field_values(
         MultiscaleLabelsAppearance(), "render_mode"
     )
     # ...and it really is on the model, so this is a filter and not a typo.

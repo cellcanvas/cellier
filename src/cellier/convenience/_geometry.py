@@ -42,7 +42,7 @@ def _axis_values_from_scene(
     world space and returns the per-axis union.
 
     Every store contributes, gridded or geometry alike, because every store
-    answers :attr:`~cellier.data._base_data_store.BaseDataStore.axis_extents`.
+    answers `axis_extents`.
     That was not true before: this function used to read ``level_shapes``,
     which only image and label stores have, so a scene built solely from
     points, graph, mesh or lines visuals raised rather than returning a
@@ -50,7 +50,7 @@ def _axis_values_from_scene(
 
     The extents use the **edge** convention -- a gridded axis of ``size``
     voxels spans ``[-0.5, size - 0.5]`` -- matching
-    :func:`~cellier.render.visuals._slicing.round_world_to_voxel` and the
+    `round_world_to_voxel` and the
     rest of the render layer.  Reading the corner *centres* ``(0, size - 1)``,
     as this function used to, understated every gridded axis by half a voxel
     at each end.
@@ -60,14 +60,14 @@ def _axis_values_from_scene(
     cover both.
 
     **Discrete axes.**  A world axis that is not a ``"space"`` axis gets a
-    :class:`DiscreteAxisValues` when every visual reaching it maps a
+    `DiscreteAxisValues` when every visual reaching it maps a
     ``sampling="discrete"`` data axis onto it -- an OME-Zarr channel or time
     axis, or a tracking graph's frame column.  Its values are the union of
     those samples' world positions, so an irregular time axis steps through
     the frames it has.  When every store that names its channels agrees on a
     position's name (``OMEZarrImageDataStore.channel_labels``), the values are
     labelled with them.  One continuous contributor, or more than
-    :data:`MAX_DISCRETE_VALUES` samples, keeps the axis continuous.  Space
+    `MAX_DISCRETE_VALUES` samples, keeps the axis continuous.  Space
     axes are always continuous: every voxel grid is discrete, and a z slider
     that stepped voxel by voxel through a volume is not what anyone wants.
 
@@ -207,7 +207,7 @@ def _discrete_values(
 ) -> DiscreteAxisValues | None:
     """Merge sample positions into slider values, labelled when names agree.
 
-    Positions within :data:`_SAME_POSITION_TOLERANCE` of each other are one
+    Positions within `_SAME_POSITION_TOLERANCE` of each other are one
     value -- two stores sharing a transform put the same frame in the same
     place.  Labels are used only when every value has exactly one name.
     """
@@ -303,7 +303,7 @@ def _resolve_step_sizes(
 ) -> dict[int, float]:
     """Resolve the ``step_size`` axis names to world axis indices.
 
-    Checked before any extent is measured, like :func:`_resolve_tick_axes`,
+    Checked before any extent is measured, like `_resolve_tick_axes`,
     and keyed by name for the same reason.
     """
     if not isinstance(step_size, Mapping):
@@ -346,7 +346,7 @@ def _apply_step_sizes(
 
     A discrete slider steps through its listed values and has no step size,
     so naming one raises rather than being skipped, as in
-    :func:`_apply_ticks`.
+    `_apply_ticks`.
     """
     for axis, step in steps.items():
         entry = values[axis]
@@ -370,11 +370,16 @@ def axis_values_from_viewer(
     """Compute every world axis's slider values from the viewer's visuals.
 
     Transforms each visual's data extent into world space and takes the union
-    per world axis.  A non-space axis that every visual reaching it samples
-    discretely -- an OME-Zarr channel or time axis, say -- gets a
-    :class:`DiscreteAxisValues` stepping through those samples, labelled with
-    the channel names when the stores provide them.  See
-    :func:`_axis_values_from_scene` for the exact rule.
+    per world axis, so the slider covers every visual.  Extents run to the
+    voxel edges: a gridded axis of ``n`` voxels spans ``[-0.5, n - 0.5]``.
+
+    A non-space axis gets a `DiscreteAxisValues` when every visual reaching
+    it maps a discretely sampled data axis onto it -- an OME-Zarr channel or
+    time axis, or a tracking graph's frame column.  Its values are the union
+    of those samples' world positions, labelled with the channel names when
+    every store that names its channels agrees on them.  One continuous
+    contributor, or more than 10,000 samples, keeps the axis continuous.
+    Space axes are always continuous.
 
     Parameters
     ----------
@@ -385,8 +390,8 @@ def axis_values_from_viewer(
         Names of world axes whose sliders mark each value with a tick, e.g.
         ``["c"]``.  Empty (default) draws none.  Each named axis must come out
         discrete.  Ticks cost per mark on every repaint, so name short axes
-        such as a channel axis; see
-        :data:`~cellier.gui._axis_values.TICK_WARNING_LIMIT`.
+        such as a channel axis: ticks on an axis of more than 50 values
+        raise a ``UserWarning``.
     step_size : Mapping[str, float] or None
         World axis name to the world distance one arrow key or wheel notch
         moves that axis's slider, e.g. ``{"z": 2.0}`` for 2.0 world units
@@ -426,7 +431,7 @@ def axis_values_from_ortho(
     draw_ticks: Iterable[str] = (),
     step_size: Mapping[str, float] | None = None,
 ) -> dict[int, ContinuousAxisValues | DiscreteAxisValues]:
-    """Compute every world axis's slider values for an :class:`OrthoViewer`.
+    """Compute every world axis's slider values for an `OrthoViewer`.
 
     The four panels share their data stores, so the values are identical
     across panels.  The first panel that has visuals with data is used.
@@ -438,10 +443,10 @@ def axis_values_from_ortho(
         store holds data on some panel.
     draw_ticks : Iterable[str]
         Names of world axes whose sliders mark each value with a tick.  See
-        :func:`axis_values_from_viewer`.
+        `axis_values_from_viewer`.
     step_size : Mapping[str, float] or None
         World axis name to that axis's slider step, in world units.  See
-        :func:`axis_values_from_viewer`.
+        `axis_values_from_viewer`.
 
     Returns
     -------
@@ -452,7 +457,7 @@ def axis_values_from_ortho(
     ------
     ValueError
         If no panel has a visual with data, or for a bad *draw_ticks* or
-        *step_size* entry as in :func:`axis_values_from_viewer`.
+        *step_size* entry as in `axis_values_from_viewer`.
     TypeError
         If *draw_ticks* is a single string or holds something other than
         axis names, or if *step_size* is not a mapping of axis names to

@@ -2,7 +2,7 @@
 
 Every frame this module produces comes from a **dedicated offscreen canvas**,
 never from the canvas a user is looking at.  That is the whole design, and it
-is what buys the contract :func:`capture_scene` states: two captures of the
+is what buys the contract `capture_scene` states: two captures of the
 same viewer state produce byte-identical arrays.
 
 A live canvas cannot deliver that.  It is scheduler-driven (nothing can make
@@ -103,6 +103,7 @@ def capture_scene(
     depth_range: tuple[float, float] | None = None,
     max_frames: int = DEFAULT_MAX_FRAMES,
     residual: float = DEFAULT_RESIDUAL,
+    fit_box: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Render *scene_id* to an offscreen canvas and return the frame.
 
@@ -116,7 +117,7 @@ def capture_scene(
         Canvas whose camera, dimensionality and depth range the capture
         should copy.  This selects a **viewpoint, not a surface**: the pixels
         always come from a fresh offscreen canvas.  When ``None`` the capture
-        canvas fits the camera to the scene itself.
+        canvas fits its camera to *fit_box*.
     size : tuple[int, int] or None
         ``(width, height)`` before *scale*.  Defaults to the seed canvas's
         physical size, so an unqualified capture reproduces the on-screen
@@ -135,13 +136,20 @@ def capture_scene(
     fov : float
         Vertical field of view for the 3D camera.
     depth_range : tuple[float, float] or None
-        Near/far clip distances.  Defaults to the seed canvas's.
+        Near/far clip distances.  Defaults to the seed canvas's, or
+        ``(1.0, 8000.0)`` with no seed canvas; a 3D fit to *fit_box* raises
+        far when the box needs more.
     max_frames : int
         Frame ceiling for ``frames="converged"``.  A scene whose accumulator
         would need more raises rather than returning an unsettled frame.
     residual : float
         How much of the accumulator's error may remain when
-        ``frames="converged"`` stops.  See :func:`frames_to_settle`.
+        ``frames="converged"`` stops.  See `frames_to_settle`.
+    fit_box : tuple[np.ndarray, np.ndarray] or None
+        The scene's data box on its displayed axes, in cellier displayed
+        order, that a capture with no seed canvas is fitted to (the
+        controller measures it from the stores).  ``None`` leaves that
+        camera unfitted.  Ignored with a seed canvas.
 
     Returns
     -------
@@ -190,7 +198,7 @@ def capture_scene(
     # answers with a camera reslice.  Taking a screenshot must not reload the
     # scene under the window the user is looking at.
     try:
-        _seed_camera(canvas_view, seed, render_manager, scene_id)
+        _seed_camera(canvas_view, seed, fit_box)
         if seed is not None:
             # The seed's screen-space overlays draw over the capture too.
             # They are shared, not copied: each re-lays itself out for the
@@ -235,20 +243,20 @@ def _resolve_size(
 def _seed_camera(
     canvas_view: CanvasView,
     seed: CanvasView | None,
-    render_manager: RenderManager,
-    scene_id: UUID,
+    fit_box: tuple[np.ndarray, np.ndarray] | None,
 ) -> None:
-    """Point the capture canvas at what *seed* is looking at, or fit the scene."""
+    """Point the capture canvas at what *seed* is looking at, or fit *fit_box*."""
     if seed is None:
-        # No canvas to copy -- fit the scene, which is what makes
+        # No canvas to copy -- fit the scene's box, which is what makes
         # ``screenshot()`` work on a viewer that never built a canvas at all.
-        canvas_view.show_object(render_manager.get_scene(scene_id))
+        if fit_box is not None:
+            canvas_view.fit_to_box(fit_box)
         return
 
     # pygfx's own ``get_state``/``set_state`` rather than cellier's
     # ``CameraState``: the latter is a *logical* snapshot for the model layer
-    # and drops what a faithful copy needs (the orthographic extent, the
-    # reference up, ``maintain_aspect``).  Camera to camera, the pygfx pair is
+    # and drops what a faithful copy needs (the reference up,
+    # ``maintain_aspect``).  Camera to camera, the pygfx pair is
     # the lossless one.
     #
     # The guard keeps the setters from reading as a user camera move, which
@@ -314,7 +322,7 @@ def write_png(path: str | Path, image: np.ndarray) -> None:
         Destination file.
     image : np.ndarray
         ``(height, width, 4)`` uint8 array, as returned by
-        :func:`capture_scene`.
+        `capture_scene`.
 
     Raises
     ------

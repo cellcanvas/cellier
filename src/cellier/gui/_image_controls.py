@@ -238,10 +238,10 @@ def row_visible(
     -------
     bool
         ``render_mode`` rows are shown in 3D; ``iso_threshold`` rows in 3D for
-        a mode in :data:`THRESHOLD_MODES`, and in both on a MaskedImage;
-        ``attenuation`` rows in 3D for a mode in :data:`ATTENUATION_MODES`.
-        On a MaskedImage the :data:`MASKED_THREE_D_FIELDS` rows are shown in
-        3D and the :data:`MASKED_TWO_D_FIELDS` rows in 2D.  Every other row
+        a mode in `THRESHOLD_MODES`, and in both on a MaskedImage;
+        ``attenuation`` rows in 3D for a mode in `ATTENUATION_MODES`.
+        On a MaskedImage the `MASKED_THREE_D_FIELDS` rows are shown in
+        3D and the `MASKED_TWO_D_FIELDS` rows in 2D.  Every other row
         is always shown.
     """
     if masked:
@@ -370,7 +370,7 @@ def image_update_event(
     field : str
         The field name.
     value : Any
-        The control's value; converted with :func:`to_model_value`.
+        The control's value; converted with `to_model_value`.
     channel : int or None
         The channel index, for ``page="channel"``.
 
@@ -395,7 +395,7 @@ def image_update_event(
 def mode_values(appearance: Any) -> dict[str, Any]:
     """A single or channel appearance, in control terms.
 
-    Only the :data:`MODE_FIELDS` the appearance carries: the surface and band
+    Only the `MODE_FIELDS` the appearance carries: the surface and band
     fields are a MaskedImage's alone.
     """
     values = {
@@ -422,6 +422,12 @@ def image_control_values(
 ) -> dict[str, Any]:
     """Everything either front end needs to build the image control.
 
+    The result is the *values* argument of `QtImageControls` and of the
+    anywidget image control.  The convenience viewers call this for every
+    ``ImageControl`` in a ``controls=`` list; call it yourself only when
+    building the widget directly.  The dict's layout is internal: pass it
+    through unchanged.
+
     Parameters
     ----------
     visual : BaseImageVisual
@@ -446,7 +452,7 @@ def image_control_values(
         Iso-threshold slider bounds.  ``None``: the contrast slider's on an
         image, whose threshold is in the same units; on a MaskedImage, whose
         threshold is in the mask's units, a window of ``max(1, |t|)`` either
-        side of the threshold ``t`` (:func:`default_threshold_range`).
+        side of the threshold ``t``.
     thickness_range : tuple[float, float] or None
         A MaskedImage's thickness slider bounds, world units.  ``None``:
         ``(0, max(10, 4 * thickness))``.  Ignored for other images.
@@ -461,7 +467,7 @@ def image_control_values(
         colormap; a toolkit that needs the real thing reads it from there,
         while the page dicts keep the JSON-safe name.
     """
-    from cellier.gui._appearance_fields import literal_choices
+    from cellier.gui._appearance_fields import selectable_field_values
 
     appearance = visual.appearance
     # In-memory appearances carry the brick route's LOD fields too; only
@@ -505,7 +511,7 @@ def image_control_values(
             _masked_values(visual.single, clim_range, threshold_range, thickness_range)
         )
         extra["choices"]["target_bricks"] = list(
-            literal_choices(appearance, "target_bricks")
+            selectable_field_values(appearance, "target_bricks")
         )
     elif threshold_range is not None:
         extra["threshold_range"] = [
@@ -528,7 +534,7 @@ def image_control_values(
         "single": mode_values(visual.single),
         "channels": channels,
         "channel_labels": {k: labels.get(k, f"Channel {k}") for k in channels},
-        "render_modes": list(literal_choices(visual.single, "render_mode")),
+        "render_modes": list(selectable_field_values(visual.single, "render_mode")),
         "transparency_modes": list(TRANSPARENCY_CHOICES),
         "interpolations": list(INTERPOLATION_CHOICES),
         "colormap_names": list(colormap_names)
@@ -578,7 +584,7 @@ def _masked_values(
     ``masked`` switches the row rule, ``labels`` names each slider's units,
     and the ranges and choices build the surface and band rows.
     """
-    from cellier.gui._appearance_fields import literal_choices
+    from cellier.gui._appearance_fields import selectable_field_values
 
     if threshold_range is None:
         threshold_range = default_threshold_range(single.iso_threshold)
@@ -592,7 +598,7 @@ def _masked_values(
         "min_width_range": list(MIN_WIDTH_RANGE),
         "int_ranges": {k: list(v) for k, v in INT_FIELD_RANGES.items()},
         "choices": {
-            field: list(literal_choices(single, field))
+            field: list(selectable_field_values(single, field))
             for field in ("surface_placement", "surface_projection")
         },
     }

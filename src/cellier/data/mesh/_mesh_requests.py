@@ -80,7 +80,7 @@ class MeshSliceRequest(NamedTuple):
     section : MeshSectionRequest or None
         ``None`` reads whole faces (a 3D view, or a 2D view of a mesh with
         no extent across the slice).  Otherwise the read returns a
-        :class:`MeshSectionData`: the mesh cut by the plane or slab, and
+        `MeshSectionData`: the mesh cut by the plane or slab, and
         ``region`` holds only the constraints the cut does not replace
         (a ``t`` filter, say).
     """

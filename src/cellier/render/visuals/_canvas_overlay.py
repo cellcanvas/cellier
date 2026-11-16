@@ -18,7 +18,7 @@ class GFXCanvasOverlay(ABC):
     """Base class for render-layer canvas overlays.
 
     Each overlay owns its own ``gfx.Scene`` and ``gfx.Camera``.
-    ``CanvasView._draw_frame`` calls :meth:`on_frame` every frame so the
+    ``CanvasView._draw_frame`` calls `on_frame` every frame so the
     overlay can react to camera or canvas changes.
 
     Subclasses are responsible for building ``overlay_scene`` and
@@ -47,7 +47,7 @@ class GFXCanvasOverlay(ABC):
     @property
     @abstractmethod
     def overlay_camera(self) -> gfx.Camera:
-        """The camera used to render :attr:`overlay_scene`."""
+        """The camera used to render `overlay_scene`."""
         ...
 
     @abstractmethod
@@ -131,7 +131,7 @@ def _compute_screen_dir(
 
 
 class GFXCenteredAxes2D(GFXCanvasOverlay):
-    """Render-layer implementation of :class:`CenteredAxes2D`.
+    """Render-layer implementation of `CenteredAxes2D`.
 
     Uses ``gfx.ScreenCoordsCamera(invert_y=True)`` so pixel coordinates
     match the Qt convention: origin top-left, y increasing downward.
@@ -144,7 +144,7 @@ class GFXCenteredAxes2D(GFXCanvasOverlay):
         The model-layer overlay description.
     camera : gfx.Camera
         The main scene camera.  A live reference is kept so that
-        :meth:`on_frame` always reads the current camera matrix.
+        `on_frame` always reads the current camera matrix.
     """
 
     def __init__(
@@ -261,7 +261,7 @@ class GFXCenteredAxes2D(GFXCanvasOverlay):
         Colours, thickness and label styling are written straight to the
         materials.  Anything that moves the geometry -- the anchor corner,
         offset and length, or an axis direction -- invalidates the cached
-        canvas size so the next :meth:`on_frame` rebuilds it.
+        canvas size so the next `on_frame` rebuilds it.
 
         Parameters
         ----------
@@ -369,7 +369,7 @@ class GFXCenteredAxes2D(GFXCanvasOverlay):
         self._line.geometry.colors.update_full()
 
     def _invalidate_geometry(self) -> None:
-        """Force the next :meth:`on_frame` to rebuild positions."""
+        """Force the next `on_frame` to rebuild positions."""
         self._last_size = (-1.0, -1.0)
 
     # ------------------------------------------------------------------
@@ -454,7 +454,7 @@ class GFXCenteredAxes2D(GFXCanvasOverlay):
 
 
 class GFXDrawStatusOverlay(GFXCanvasOverlay):
-    """Render-layer implementation of :class:`DrawStatusOverlay`.
+    """Render-layer implementation of `DrawStatusOverlay`.
 
     Screen-space text in the top-left corner, one line per visual the
     canvas's view does not draw.  The lines come from *lines*, a callable

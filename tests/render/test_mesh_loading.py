@@ -242,7 +242,7 @@ async def test_a_static_mesh_is_not_reread_on_an_unrelated_axis(rig, reads):
         rig.set_t(t)
         # Never hidden: the plan's key is the one it holds.
         assert rig.drawn(static) == [0, 1, 2, 3]
-    rig.controller.reslice_scene(rig.scene.id, on_ready=lambda: ready.append(1))
+    rig.controller.on_scene_ready(rig.scene.id, lambda: ready.append(1))
     await rig.settle()
 
     assert reads.count("static") == 1
@@ -395,8 +395,8 @@ async def test_on_ready_during_a_scrub_fires_once_with_the_final_position(rig, r
     for t in (1, 2, 3):
         rig.set_t(t)
         await rig.turns()
-    rig.controller.reslice_scene(
-        rig.scene.id, on_ready=lambda: ready.append(_drawn_now(rig.gfx(series)))
+    rig.controller.on_scene_ready(
+        rig.scene.id, lambda: ready.append(_drawn_now(rig.gfx(series)))
     )
     await rig.turns()
     assert ready == []
@@ -538,7 +538,7 @@ async def test_a_failing_read_is_attempted_once_per_key(rig, reads, caplog):
     reads.fail = RuntimeError("the kernel raised")
     ready: list[int] = []
     with caplog.at_level(logging.WARNING, logger="cellier"):
-        rig.controller.reslice_scene(rig.scene.id, on_ready=lambda: ready.append(1))
+        rig.controller.on_scene_ready(rig.scene.id, lambda: ready.append(1))
         await rig.settle()
         # Later reslices of the same position do not run it again.
         for _ in range(3):

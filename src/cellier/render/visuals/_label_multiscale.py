@@ -32,6 +32,7 @@ from cellier.render._level_of_detail_2d import (
     viewport_cull_2d,
 )
 from cellier.render._node_transform import set_node_matrix
+from cellier.render._pick_layout import warn_if_pick_over_budget
 from cellier.render._plane_planning import (
     PlanePlanning,
     build_plane_planning,
@@ -85,6 +86,7 @@ from cellier.render.visuals._chunked import (
     viewport_2d,
     viewport_prism,
 )
+from cellier.render.visuals._drawn_level import DrawnLevels
 from cellier.render.visuals._image import (
     MultiscaleBrickLayout3D,
     MultiscaleRegionPlanner,
@@ -187,6 +189,9 @@ class GFXMultiscaleLabelVisual(
         Maximum GPU memory for the 3D brick cache.
     gpu_budget_bytes_2d : int
         Maximum GPU memory for the 2D tile cache.
+    visual_name : str
+        The visual's name, for the warning given when the 3D volume is too
+        large for a pick to name every voxel.
     """
 
     #: Clipped bricks and tiles are not fetched, so a change of planes
@@ -225,8 +230,11 @@ class GFXMultiscaleLabelVisual(
         render_order: int = 0,
         pick_write: bool = True,
         paint_max_tiles: int = 512,
+        visual_name: str = "",
     ) -> None:
         self.visual_model_id = visual_model_id
+        # Named in the warning for a volume too large to pick exactly.
+        self._visual_name = visual_name
 
         if full_level_shapes is not None:
             self._ndim = len(full_level_shapes[0])
@@ -332,6 +340,8 @@ class GFXMultiscaleLabelVisual(
         # ── 3D GPU resources ──────────────────────────────────────────────
         self._block_cache_3d: BlockCache3D | None = None
         self._lut_manager_3d: LutIndirectionManager3D | None = None
+        # Which table version each canvas last drew with (pick_drawn_level).
+        self._drawn_levels = DrawnLevels()
         if volume_geometry is not None:
             # overlap=2 matches the shader BORDER=2 constant
             cache_parameters_3d = compute_block_cache_parameters_3d(
@@ -417,6 +427,9 @@ class GFXMultiscaleLabelVisual(
                 dataset_size=self._dataset_size,
                 base_layout=volume_geometry.base_layout,
                 cache_info=self._block_cache_3d.info,
+            )
+            warn_if_pick_over_budget(
+                self._dataset_size, self.visual_model_id, self._visual_name
             )
             self._brick_scales_buffer = build_brick_scales_buffer(
                 volume_geometry._scale_vecs_data,
@@ -525,6 +538,7 @@ class GFXMultiscaleLabelVisual(
         app = model.appearance
         instance = cls(
             visual_model_id=model.id,
+            visual_name=model.name,
             volume_geometry=volume_geometry,
             image_geometry_2d=image_geometry_2d,
             render_modes=render_modes,
@@ -680,7 +694,7 @@ class GFXMultiscaleLabelVisual(
     def prepare_slice_route(self, axes: tuple[int, int, int]) -> None:
         """Build the slice node's resources and put its atlas on the GPU now.
 
-        See :meth:`GFXMultiscaleImageVisual.prepare_slice_route`.
+        See `GFXMultiscaleImageVisual.prepare_slice_route`.
         """
         axes = tuple(int(axis) for axis in axes)
         if "3d" not in self.render_modes:
@@ -696,7 +710,7 @@ class GFXMultiscaleLabelVisual(
     def set_slice_footprint(self, polygon: np.ndarray) -> None:
         """Adopt the slice's footprint: the node's bounds and its outline.
 
-        See :meth:`GFXMultiscaleImageVisual.set_slice_footprint`.
+        See `GFXMultiscaleImageVisual.set_slice_footprint`.
         """
         points = _footprint_points(polygon)
         bounds = None
@@ -810,7 +824,9 @@ class GFXMultiscaleLabelVisual(
         A change of the fetch axes replaces the geometry, because the scale
         and translation vectors are projected onto those axes when it is
         constructed.  A change of the shapes alone (a mutated store) keeps
-        the geometry and updates its grids.
+        the geometry and updates its grids.  Either way the dataset size,
+        the proxy box and the params buffer (with its pick layout) follow
+        the new level-0 shape.
         """
         fetch_3d = _geometry_fetch_axes(
             self._transform, displayed_axes, len(self._full_level_shapes[0])
@@ -824,11 +840,12 @@ class GFXMultiscaleLabelVisual(
                 block_size=geo.block_size,
                 fetch_axes=fetch_3d,
             )
-            self._set_volume_params(displayed_axes)
-            self._rebuild_3d_resources()
         elif shapes_3d != geo.level_shapes:
             geo.update(shapes_3d)
-            self._rebuild_3d_resources()
+        else:
+            return
+        self._set_volume_params(displayed_axes)
+        self._rebuild_3d_resources()
 
     def _sync_geometry_2d(
         self,
@@ -837,7 +854,7 @@ class GFXMultiscaleLabelVisual(
     ) -> None:
         """Bring the built 2D geometry in line with *displayed_axes*.
 
-        See :meth:`_sync_geometry_3d`.
+        See `_sync_geometry_3d`.
         """
         fetch_2d = _geometry_fetch_axes(
             self._transform, displayed_axes, len(self._full_level_shapes[0])
@@ -874,6 +891,9 @@ class GFXMultiscaleLabelVisual(
             dataset_size=self._dataset_size,
             base_layout=geo.base_layout,
             cache_info=self._block_cache_3d.info,
+        )
+        warn_if_pick_over_budget(
+            self._dataset_size, self.visual_model_id, self._visual_name
         )
 
     def _rebuild_3d_resources(self) -> None:
@@ -1163,7 +1183,7 @@ class GFXMultiscaleLabelVisual(
                 f"3D planning expects 3D display, got "
                 f"displayed_axes={self._last_displayed_axes}"
             )
-        # Design 3.11 C: reverse once, by name, then map in one step.
+        # Reverse once, by name, then map in one step.
         camera_pos_data = self._to_level0_displayed(
             np.asarray(camera_pos_world).reshape(1, -1)
         ).flatten()
@@ -1543,7 +1563,7 @@ class GFXMultiscaleLabelVisual(
         config: VisualRenderConfig,
         mode: PlanMode = PlanMode.FULL,
     ) -> list[DesiredSet]:
-        """Plan the 2D atlas's tiles; the 2D half of :meth:`plan`."""
+        """Plan the 2D atlas's tiles; the 2D half of `plan`."""
         if self._image_geometry_2d is None or self._block_cache_2d is None:
             return []
         view_min_world, view_max_world = viewport_2d(request)
@@ -1906,16 +1926,12 @@ class GFXMultiscaleLabelVisual(
     ) -> tuple[float, ...] | None:
         """Level-0 data coordinate of a pick on this visual (displayed axes).
 
-        Same decode as the multiscale image: 3-D bricks via ``norm_pos`` and the
+        Same decode as the multiscale image: 3-D bricks via ``voxel_pos`` and the
         2-D tile proxy via rescaled ``index``.  ``floor`` of the displayed-axis
         components indexes the label array.
         """
         if isinstance(hit_object, NormSizedVolume):
-            if self._norm_size is None or self._dataset_size is None:
-                return None
-            return multiscale_volume_data_coordinate(
-                pick_info, self._norm_size, self._dataset_size
-            )
+            return multiscale_volume_data_coordinate(pick_info)
         if isinstance(hit_object, gfx.Image):
             if self._image_geometry_2d is None:
                 return None
@@ -1925,6 +1941,55 @@ class GFXMultiscaleLabelVisual(
                 self._image_geometry_2d.base_layout.grid_dims,
             )
         return None
+
+    def note_drawn(self, canvas_id) -> None:
+        """Record the tables a frame of *canvas_id* is about to draw with.
+
+        Called in the frame, just before it renders, after the commit round
+        that writes them.  `pick_drawn_level` compares against it.
+        """
+        self._drawn_levels.note(canvas_id, self._lut_manager_3d, self._lut_manager_2d)
+
+    def pick_drawn_level(self, hit_object, coordinate, canvas_id=None) -> int | None:
+        """The pyramid level drawn at a pick, 1-based (1 is the finest).
+
+        Reads the brick or tile table the shader reads: the level of the brick
+        (3D) or tile (2D) that holds the hit.  A hit on a coarse level is on
+        that level's surface, which can sit up to a voxel of that level away
+        from the level-0 one, so the label under the cursor is the one in that
+        level, not necessarily the one in level 0.
+
+        The pick buffer is the last frame that was drawn, and the table can
+        have been rewritten since (a commit round whose frame has not been
+        drawn yet).  Then it no longer says what that frame drew, and the
+        answer is ``None``: a wrong level reads a wrong label, where level 0
+        reads the data.
+
+        Parameters
+        ----------
+        hit_object : gfx.WorldObject
+            The picked node.
+        coordinate : sequence of float
+            The decoded hit on the drawn axes, as `pick_data_coordinate`
+            returns it.
+        canvas_id : UUID, optional
+            The canvas whose frame was picked.  Given, the answer is ``None``
+            unless the table is the one that canvas last drew with.  Omitted,
+            the table is read as it is.
+
+        Returns
+        -------
+        int or None
+            ``None`` when no brick or tile covers the hit, or when the table
+            has changed since the frame was drawn.
+        """
+        return self._drawn_levels.level(
+            hit_object,
+            coordinate,
+            canvas_id,
+            self._lut_manager_3d,
+            self._lut_manager_2d,
+        )
 
     def on_pick_write_changed(self, event: PickWriteChangedEvent) -> None:
         """Update pick_write on all active materials."""
@@ -2216,7 +2281,8 @@ class GFXMultiscaleLabelVisual(
         geometry = gfx.Geometry(grid=proxy_tex)
         # dataset_size is what lets NormSizedVolume report the voxel extent;
         # without it the bounding box falls back to the 2x2x2 proxy texture,
-        # which throws off the camera fit and the auto occlusion radius.
+        # and the node's bounds (which the clipping-plane gizmo is placed in)
+        # are wrong.
         vol = NormSizedVolume(
             geometry,
             material,

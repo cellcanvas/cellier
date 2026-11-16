@@ -40,7 +40,7 @@ def reduce_clipping_planes(
 ) -> list[tuple[float, float, float, float]]:
     """Reduce data-space clipping planes to one view's rendered space.
 
-    Takes the same ``constants`` as :func:`~cellier.render._spaces.node_matrix`
+    Takes the same ``constants`` as `node_matrix`
     and must be given the same values: the plane is cut by the slice the
     node is drawn at.
 
@@ -66,7 +66,7 @@ def reduce_clipping_planes(
     -------
     list[tuple[float, float, float, float]]
         One ``(a, b, c, d)`` per plane, in pygfx ``(x, y, z)`` order.  A
-        disabled plane gives :data:`KEEP_EVERYTHING`.  A plane parallel to
+        disabled plane gives `KEEP_EVERYTHING`.  A plane parallel to
         the slice gives ``(0, 0, 0, d')``: everything or nothing.
     """
     if not planes:
@@ -105,7 +105,7 @@ def expand_rendered_plane(
 ) -> tuple[np.ndarray, float]:
     """Turn a plane of a 3D view's rendered space into a data-space plane.
 
-    The inverse of :func:`reduce_clipping_planes` for one plane, for a pose
+    The inverse of `reduce_clipping_planes` for one plane, for a pose
     a gizmo reports: the plane through *point* that keeps the side *normal*
     points to.  With ``r = L x + tau``: ``n_retained = L^T n'`` and
     ``d = n' . point - n' . tau``.  The components on the collapsed axes
@@ -123,7 +123,7 @@ def expand_rendered_plane(
         The visual's own transform.
     constants : Mapping[int, float]
         ``{collapsed data axis: data position}``, as for
-        :func:`reduce_clipping_planes`.
+        `reduce_clipping_planes`.
     point : Sequence[float]
         A point on the plane, in rendered space, pygfx ``(x, y, z)`` order.
     normal : Sequence[float]
@@ -246,8 +246,8 @@ class ClippingPlanesMixin:
     material that is created or swapped in later must be given them.  A
     host class:
 
-    - implements :meth:`_clip_targets`;
-    - calls :meth:`_apply_clipping_planes` wherever it places its node (the
+    - implements `_clip_targets`;
+    - calls `_apply_clipping_planes` wherever it places its node (the
       slice the node is drawn at may have moved) and wherever it creates or
       assigns a material.
 
@@ -282,8 +282,8 @@ class ClippingPlanesMixin:
         -------
         tuple or None
             ``(spaces, data_to_world, constants)`` as
-            :func:`reduce_clipping_planes` takes them, with the constants of
-            the first group :meth:`_clip_targets` yields.  ``None`` for a
+            `reduce_clipping_planes` takes them, with the constants of
+            the first group `_clip_targets` yields.  ``None`` for a
             visual that has not been placed.
         """
         spaces = getattr(self, "_spaces", None)
@@ -298,7 +298,7 @@ class ClippingPlanesMixin:
         """The visual's data box in level-0 data coordinates, if it has one.
 
         ``(low, high)`` over the retained data axes, as
-        :func:`~cellier.render._plane_outline.box_frame` takes them.  The
+        `box_frame` takes them.  The
         volume visuals give the voxel-edge box their shaders cut with.
         """
         return None
@@ -371,7 +371,7 @@ class GeometryClippingMixin(ClippingPlanesMixin):
     that coordinate, so the read clips it instead, by its true position,
     and the shader does not.
 
-    A host calls :meth:`_begin_request_clipping` when it builds a request.
+    A host calls `_begin_request_clipping` when it builds a request.
     """
 
     #: Whether the last request was clipped in the read.

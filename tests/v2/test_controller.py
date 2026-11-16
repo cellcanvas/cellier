@@ -677,7 +677,6 @@ def _make_camera_state() -> CameraState:
         rotation=(0.0, 0.0, 0.0, 1.0),
         up=(0.0, 1.0, 0.0),
         fov=70.0,
-        zoom=1.0,
         extent=(0.0, 0.0),
         depth_range=(1.0, 8000.0),
     )
@@ -861,7 +860,6 @@ def test_on_camera_changed_updates_orthographic_camera_model():
         rotation=(0.0, 0.0, 0.0, 1.0),
         up=(0.0, 1.0, 0.0),
         fov=0.0,
-        zoom=1.5,
         extent=(320.0, 240.0),
         depth_range=(-500.0, 500.0),
     )
@@ -877,7 +875,6 @@ def test_on_camera_changed_updates_orthographic_camera_model():
     assert isinstance(updated, OrthographicCamera)
     assert updated.width == pytest.approx(320.0)
     assert updated.height == pytest.approx(240.0)
-    assert updated.zoom == pytest.approx(1.5)
     assert updated.near_clipping_plane == pytest.approx(-500.0)
     assert updated.far_clipping_plane == pytest.approx(500.0)
     assert updated.position == pytest.approx(np.array([5.0, 10.0, 0.0]))

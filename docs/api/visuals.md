@@ -10,7 +10,9 @@ the data axis channels lie along; `composite` picks the mode.  The shared
 appearance applies to both modes, `single` to single mode, and `channels`
 to composite mode (one appearance per channel index).
 
+::: cellier.visuals.BaseImageVisual
 ::: cellier.visuals.BaseImageAppearance
+::: cellier.visuals.BaseImageSingleAppearance
 ::: cellier.visuals.effective_transparency_mode
 
 ### In-memory image
@@ -19,6 +21,7 @@ to composite mode (one appearance per channel index).
 ::: cellier.visuals.InMemoryImageAppearance
 ::: cellier.visuals.InMemoryImageSingleAppearance
 ::: cellier.visuals.InMemoryImageChannelAppearance
+::: cellier.visuals.InMemoryImageRenderConfig
 
 ### Multiscale image
 
@@ -30,11 +33,23 @@ to composite mode (one appearance per channel index).
 ::: cellier.visuals.ProgressiveLoadingConfig
 ::: cellier.visuals.GeometryLodConfig
 
+### Masked image
+
+The isosurface of a multiscale mask, coloured by a second (value) image.
+Build it with `Viewer.add_masked_image`.
+
+::: cellier.visuals.MaskedImageVisual
+::: cellier.visuals.MaskedImageAppearance
+::: cellier.visuals.MaskedImageSingleAppearance
+::: cellier.visuals.MaskedImageRenderConfig
+
 ## In-memory labels
 
 ::: cellier.visuals.LabelMemoryVisual
 ::: cellier.visuals.BaseLabelsAppearance
 ::: cellier.visuals.InMemoryLabelsAppearance
+::: cellier.visuals.InMemoryLabelRenderConfig
+::: cellier.visuals.OutlineMode
 
 ## Multiscale labels
 
@@ -52,6 +67,16 @@ to composite mode (one appearance per channel index).
 ::: cellier.visuals.LinesVisual
 ::: cellier.visuals.LinesMemoryAppearance
 
+## Graphs
+
+A spatial graph from a `GraphMemoryStore`: nodes drawn as points and
+edges as lines.  `TrailConfig` widens the slab on one sliced axis, for
+example to show a time window.
+
+::: cellier.visuals.GraphVisual
+::: cellier.visuals.GraphAppearance
+::: cellier.visuals.TrailConfig
+
 ## Meshes
 
 ::: cellier.visuals.MeshVisual
@@ -63,10 +88,24 @@ to composite mode (one appearance per channel index).
 
 ## Overlays
 
+### Canvas overlays
+
+Drawn in screen space, on top of one canvas.
+
 ::: cellier.visuals.CanvasOverlay
 ::: cellier.visuals.CenteredAxes2D
 ::: cellier.visuals.CenteredAxes2DAppearance
+::: cellier.visuals.DrawStatusOverlay
 ::: cellier.visuals.CanvasOverlayType
+
+### Scene overlays
+
+Drawn in world space, in every canvas that shows the scene.
+
+::: cellier.visuals.SceneOverlay
+::: cellier.visuals.SceneBoundingBox
+::: cellier.visuals.SceneBoundingBoxAppearance
+::: cellier.visuals.SceneOverlayType
 
 ## Clipping planes
 
@@ -83,6 +122,7 @@ its `render_planes` tuple in a 3D view, instead of as a volume.  A render
 plane is in the scene's world space.
 
 ::: cellier.visuals.RenderPlane
+::: cellier.visuals.MAX_RENDER_PLANES
 
 ## Plane outlines
 
@@ -94,4 +134,5 @@ the polygon the plane makes in its visual, in a 3D view.
 ## Common
 
 ::: cellier.visuals.AABBParams
+::: cellier.visuals.VisualOutline
 ::: cellier.visuals.VisualType

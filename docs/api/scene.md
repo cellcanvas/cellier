@@ -8,6 +8,7 @@ define what is rendered and how it is viewed.
 ::: cellier.scene.CameraType
 ::: cellier.scene.OrthographicCamera
 ::: cellier.scene.PerspectiveCamera
+::: cellier.scene.orbit_distance
 
 ## Camera controllers
 
@@ -29,3 +30,4 @@ define what is rendered and how it is viewed.
 ## Scene
 
 ::: cellier.scene.Scene
+::: cellier.scene.BackgroundAppearance

@@ -15,6 +15,7 @@ in the tests.
 from __future__ import annotations
 
 import base64
+import itertools
 import json
 import zlib
 from pathlib import Path
@@ -134,7 +135,41 @@ def build(
     load(viewer, slice_z=SLICE, size=(SIZE, SIZE))
     camera = canvas_view(viewer).camera
     camera.width = camera.height = SIZE * ZOOM
+    # The truth was frozen with the camera centred on the cut the slice makes
+    # through the data.  A fit centres on the data's whole box, which for a
+    # tilted volume is wider than the cut, so the camera is placed here.
+    x, y = cut_centre(tilt)
+    camera.local.position = (x, y, 0.0)
     return viewer, model
+
+
+def cut_centre(
+    tilt: float, side: int = SIDE, slice_z: float = SLICE
+) -> tuple[float, float]:
+    """Centre of the box of the slice ``z = slice_z`` through the tilted data.
+
+    The data's voxel box is mapped by `data_matrix`; each of its 12 edges
+    that crosses the slice plane gives a point of the cut.  Returns the
+    centre of the cut's box in pygfx ``(x, y)``.
+    """
+    matrix = data_matrix(tilt, side)
+    corners = np.array(list(itertools.product((-0.5, side - 0.5), repeat=3)))
+    world = corners @ matrix[:3, :3].T + matrix[:3, 3]
+    points = []
+    for i, j in itertools.combinations(range(len(corners)), 2):
+        if np.count_nonzero(corners[i] != corners[j]) != 1:
+            continue  # not an edge
+        a, b = world[i], world[j]
+        if a[0] == b[0]:
+            if a[0] == slice_z:
+                points += [a, b]
+            continue
+        t = (slice_z - a[0]) / (b[0] - a[0])
+        if 0.0 <= t <= 1.0:
+            points.append(a + t * (b - a))
+    zyx = np.array(points)
+    centre = (zyx[:, 1:].min(axis=0) + zyx[:, 1:].max(axis=0)) / 2.0
+    return float(centre[1]), float(centre[0])
 
 
 def placement(band: tuple[float, float]) -> str:

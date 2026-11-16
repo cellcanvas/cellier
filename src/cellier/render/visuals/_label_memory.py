@@ -249,8 +249,8 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
         self._apply_visibility()
 
         # The placeholders above are one or two voxels: pin the boxes to the
-        # data's footprint so a camera fit before the first slice lands (the
-        # first visit to 3D fits at once) frames the data, not a corner.
+        # data's footprint so the nodes report the data's bounds before the
+        # first slice lands, not a corner.
         store_shape = tuple(data_store.shape)
         _pin_footprint(self._inner_node_2d, store_shape[-2:], 2)
         _pin_footprint(self._inner_node_3d, store_shape[-3:], 3)
@@ -689,9 +689,9 @@ class _GFXLabelMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
 class GFXLabelMemoryVisual(BrickRouteHost, _GFXLabelMemoryCore):
     """Render-layer visual for an in-memory labels visual.
 
-    The planar path and 3D views (:class:`_GFXLabelMemoryCore`), and the brick
+    The planar path and 3D views (`_GFXLabelMemoryCore`), and the brick
     route for a tilted 2D view
-    (:class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
+    (`BrickRouteHost`).
     """
 
     def _build_inner(self, model, axes):

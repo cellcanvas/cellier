@@ -2,7 +2,7 @@
 
 The notebook twin of ``cellier.gui.qt.render._base``.  Both front ends draw
 their controls from the same spec
-(:data:`cellier.gui._render_controls.RENDER_CONTROLS`), so the labels,
+(`cellier.gui._render_controls.RENDER_CONTROLS`), so the labels,
 ranges and explanations exist once and neither toolkit can quietly grow a
 control the other lacks.
 
@@ -82,15 +82,30 @@ def _read_dotted(model: Any, field: str) -> Any:
 class AnywidgetRenderConfigPanel(anywidget.AnyWidget):
     """Base for a notebook panel driving one section of the render config.
 
-    Subclasses set :attr:`section` and pass the live config section to
+    Subclasses set `section` and pass the live config section to
     ``super().__init__``.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         panel = AnywidgetAmbientOcclusionControls(
             controller.render_config.ambient_occlusion
         )
         controller.connect_widget(panel, subscription_specs=panel.subscription_specs())
+
+    Parameters
+    ----------
+    config :
+        The live config section this panel drives (for example
+        ``controller.render_config.outline``).  The panel's controls start
+        from its current values.
+    title :
+        Heading drawn above the panel.  Empty (the default) draws none.
+    slot_usage :
+        Zero-argument callable returning ``{slot: how many visuals use it}``,
+        annotating the outline palette swatches.  ``None`` (the default)
+        draws no annotation.  Only the outline panel uses it.
+    **kwargs :
+        Passed to ``anywidget.AnyWidget``.
     """
 
     #: Which render-config section this panel drives.
@@ -198,7 +213,7 @@ class AnywidgetRenderConfigPanel(anywidget.AnyWidget):
         return 0
 
     def _add_readout(self, label: str, read) -> None:
-        """Register a read-only line, refreshed by :meth:`refresh_readouts`."""
+        """Register a read-only line, refreshed by `refresh_readouts`."""
         self._readout_sources.append((label, read))
         self.refresh_readouts()
 
@@ -215,8 +230,9 @@ class AnywidgetRenderConfigPanel(anywidget.AnyWidget):
         """Unsubscribe from the bus and release the widget.
 
         ``closed`` tells the controller to drop this widget's
-        subscriptions; the rest actually releases the widget.  See
-        ``cellier.gui.anywidget._teardown`` for why both steps are needed.
+        subscriptions; the rest actually releases the widget.  Both are
+        needed: ``ipywidgets`` holds every widget, and every widget's
+        ``layout``, in a process-global table that only ``close()`` clears.
         """
         self.closed.emit()
         close_aux_widgets(self)

@@ -25,7 +25,7 @@ class QtLodConfigControls(VisualIdGroup):
     in a 3D view.  Each is ``coarse`` or ``full``.  An edit is sent as
     ``LodConfigUpdateEvent`` and applies in the next frame; nothing is read.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         controls = QtLodConfigControls(visual.id, lod=visual.lod.model_dump())
         controller.connect_widget(
@@ -40,7 +40,7 @@ class QtLodConfigControls(VisualIdGroup):
     lod :
         The current config, as ``GeometryLodConfig.model_dump()``.
     title :
-        The group's name.  Defaults to :data:`DEFAULT_TITLE`.
+        The group's name.  Defaults to `DEFAULT_TITLE`.
     parent :
         Optional Qt parent widget.
     """

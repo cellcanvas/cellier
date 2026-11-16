@@ -1,7 +1,7 @@
 """The Qt "Clipping planes" control of a visual.
 
 One row per plane, described and edited by
-:class:`cellier.gui._clipping_planes.ClippingPlanesEditor`.
+`cellier.gui._clipping_planes.ClippingPlanesEditor`.
 """
 
 from __future__ import annotations
@@ -253,7 +253,7 @@ class QtClippingPlanesControls(VisualIdGroup):
     whole new tuple.  A moved plane updates its row in place, so a slider is
     not destroyed while it is dragged.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         data = get_clipping_planes_data_from_visual(visual, store)
         controls = QtClippingPlanesControls(visual.id, **data)
@@ -273,7 +273,11 @@ class QtClippingPlanesControls(VisualIdGroup):
     bounds :
         ``(low, high)`` of the data on each axis.
     planes :
-        The current rows (``rows_from_planes(visual.clipping_planes)``).
+        One row per plane of ``visual.clipping_planes``, in order: a dict
+        with ``"id"`` (the plane's id as a string), ``"enabled"``,
+        ``"normal"`` (a list of floats), ``"position"`` (the plane's offset
+        divided by the normal's length) and ``"outline"`` (its outline
+        settings).
     data_store_id :
         The store the visuals read.
     bounds_source :
@@ -287,7 +291,7 @@ class QtClippingPlanesControls(VisualIdGroup):
         The target's visual must be one of *visual_id*.  Without
         *gizmo_target* the rows have no gizmo toggle.
     title :
-        The group's name.  Defaults to :data:`DEFAULT_TITLE`.
+        The group's name.  Defaults to `DEFAULT_TITLE`.
     parent :
         Optional Qt parent widget.
     """
@@ -382,8 +386,8 @@ class QtClippingPlanesControls(VisualIdGroup):
         """The reason the last edit was refused, or ""."""
         return self._error.text()
 
-    def row(self, index: int) -> _PlaneRow:
-        """The widgets of plane *index* (for tests and scripting)."""
+    def _row(self, index: int) -> _PlaneRow:
+        """The widgets of plane *index* (for tests)."""
         return self._rows[index]
 
     def close(self) -> None:

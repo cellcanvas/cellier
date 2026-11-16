@@ -27,9 +27,8 @@ class AnywidgetOpacitySlider(AnywidgetBoundedSlider):
 
     Applies to every visual type -- ``opacity`` is on
     ``BaseAppearance``.  It is also the **only** appearance field
-    carrying ``ge``/``le``, which is why it is the only
-    ``BoundedSlider``: the range is read off the model rather than
-    picked.
+    carrying ``ge``/``le``, which is why it is the only bounded
+    slider: the range is read off the model rather than picked.
 
     Parameters
     ----------

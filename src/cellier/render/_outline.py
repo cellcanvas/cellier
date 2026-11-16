@@ -5,7 +5,7 @@ per-pixel outline key, tests four neighbouring taps at the configured
 thickness, and composites a coloured outline over the rendered image.
 
 It follows the structure of
-:class:`~cellier.render._temporal_accumulation.TemporalAccumulationPass` --
+`TemporalAccumulationPass` --
 a custom ``render()`` driving an inner full-quad pass -- but owns no
 private textures: it composites straight into the effect-chain target.
 

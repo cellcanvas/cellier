@@ -271,7 +271,10 @@ def test_a_stall_timeout_of_none_arms_no_timer():
         _id=uuid4(),
         camera_reslice_enabled=True,
         get_canvas_ids=lambda scene_id: [],
-        reslice_scene=lambda scene_id, on_ready=None: on_ready and on_ready(),
+        on_scene_ready=lambda scene_id, callback: callback(),
+        on_scene_removed=lambda scene_id, callback, owner_id: SimpleNamespace(
+            unsubscribe=lambda: None
+        ),
     )
     viewer = SimpleNamespace(
         controller=controller, scene=SimpleNamespace(id=uuid4()), _ready_callbacks=[]
@@ -280,3 +283,161 @@ def test_a_stall_timeout_of_none_arms_no_timer():
     tracker = _init_view(viewer, fit="none", stall_timeout=None)
 
     assert tracker.state is StartupState.READY
+
+
+# ---------------------------------------------------------------------------
+# Cancelling a startup hook
+# ---------------------------------------------------------------------------
+
+
+def test_a_scene_ready_handle_cancels_the_callback():
+    tracker = _tracker("scene")
+    fired: list[int] = []
+    handle = tracker.on_scene_ready("scene", lambda: fired.append(1))
+
+    handle.unsubscribe()
+    tracker.advance("scene", StartupState.READY)
+
+    assert fired == []
+    assert not handle.active
+
+
+def test_a_scene_ready_handle_goes_inactive_when_it_fires():
+    tracker = _tracker("scene")
+    handle = tracker.on_scene_ready("scene", lambda: None)
+    assert handle.active
+
+    tracker.advance("scene", StartupState.READY)
+
+    assert not handle.active
+
+
+def test_a_scene_ready_handle_is_inactive_when_the_scene_was_ready():
+    tracker = _tracker("scene")
+    tracker.advance("scene", StartupState.READY)
+
+    assert not tracker.on_scene_ready("scene", lambda: None).active
+
+
+def test_progress_and_stall_handles_stay_active_until_cancelled():
+    tracker = _tracker("a", "b")
+    seen: list = []
+    progress = tracker.on_progress(lambda done, total: seen.append(done))
+    stalled = tracker.on_stalled(seen.append)
+
+    tracker.advance("a", StartupState.READY)
+    assert progress.active  # fires more than once, so it stays
+    progress.unsubscribe()
+    stalled.unsubscribe()
+    tracker.mark_stalled()
+    tracker.advance("b", StartupState.READY)
+
+    assert seen == [1]
+    assert not progress.active
+    assert not stalled.active
+
+
+# ---------------------------------------------------------------------------
+# A scene removed during startup
+# ---------------------------------------------------------------------------
+
+
+def test_forgetting_a_scene_leaves_the_others_to_decide_the_state():
+    tracker = _tracker("a", "b")
+    seen: list = []
+    tracker.on_progress(lambda done, total: seen.append((done, total)))
+    fired: list[int] = []
+    handle = tracker.on_scene_ready("a", lambda: fired.append(1))
+    tracker.advance("b", StartupState.READY)
+    tracker.mark_stalled()
+
+    tracker.forget("a")
+
+    assert tracker.state is StartupState.READY
+    assert tracker.scene_states == {"b": StartupState.READY}
+    assert tracker.stalled_at == {}
+    assert seen == [(1, 2), (1, 1)]
+    # The removed scene's callback is dropped unfired, and says so.
+    assert fired == []
+    assert not handle.active
+
+
+def _two_scene_viewer(controller):
+    """A stand-in viewer with two scenes: "a" never starts, "b" is ready.
+
+    "a" has a canvas that is never shown, so it waits for its canvas for
+    good; "b" has none, so it has nothing to wait for and is ready at once.
+    """
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from cellier.data.image._image_memory_store import ImageMemoryStore
+    from cellier.visuals import InMemoryImageAppearance
+
+    scenes = {}
+    for key in ("a", "b"):
+        scene = controller.add_scene(displayed_axes=("z", "y", "x"), name=key)
+        controller.add_image(
+            data=ImageMemoryStore(data=np.random.rand(8, 8, 8).astype(np.float32)),
+            scene_id=scene.id,
+            appearance=InMemoryImageAppearance(),
+            single=InMemoryImageSingleAppearance(color_map="viridis"),
+        )
+        scenes[key] = scene
+    controller.add_canvas(scene_id=scenes["a"].id)
+    return SimpleNamespace(controller=controller, scenes=scenes, _ready_callbacks=[])
+
+
+def _start():
+    from cellier.controller import CellierController
+    from cellier.convenience._launch import _init_view
+    from cellier.convenience._startup import on_viewer_ready
+
+    controller = CellierController()
+    viewer = _two_scene_viewer(controller)
+    fired: list[int] = []
+    on_viewer_ready(viewer, lambda: fired.append(1))
+    tracker = _init_view(viewer, fit="none", stall_timeout=None)
+    assert tracker.scene_states == {
+        "a": StartupState.WAITING_FOR_CANVAS,
+        "b": StartupState.READY,
+    }
+    assert not controller.camera_reslice_enabled
+    return controller, viewer, tracker, fired
+
+
+def test_a_scene_removed_mid_startup_counts_as_done(qtbot):
+    """The remaining scenes finish startup; reslicing comes back on.
+
+    Removing a scene cancels its readiness callback, so before the fix the
+    launcher waited for it for good: no ``on_ready``, the state stuck short
+    of ``READY``, and camera reslicing left off for every scene.
+    """
+    controller, viewer, tracker, fired = _start()
+
+    controller.remove_scene(viewer.scenes["a"].id)
+
+    assert fired == [1]
+    assert tracker.state is StartupState.READY
+    assert tracker.scene_states == {"b": StartupState.READY}
+    assert controller.camera_reslice_enabled
+    controller.close()
+
+
+def test_removing_a_ready_scene_does_not_count_it_twice(qtbot):
+    """A scene already counted as ready must not also count as removed."""
+    controller, viewer, tracker, fired = _start()
+
+    controller.remove_scene(viewer.scenes["b"].id)
+
+    assert fired == []
+    assert tracker.state is StartupState.WAITING_FOR_CANVAS
+    assert not controller.camera_reslice_enabled
+
+    controller.remove_scene(viewer.scenes["a"].id)
+
+    assert fired == [1]
+    assert tracker.state is StartupState.READY
+    assert controller.camera_reslice_enabled
+    controller.close()

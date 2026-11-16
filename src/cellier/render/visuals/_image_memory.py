@@ -124,11 +124,12 @@ def _pin_bounding_box(node, box_min: list[float], box_max: list[float]) -> None:
 
     The in-memory image/volume nodes start with a tiny placeholder texture
     (replaced on the first upload), so the standard pygfx bounding
-    box -- derived from the texture size -- would be 1- or 2-voxel and break
-    camera fitting before any data is loaded.  Pinning the box to the full data
-    footprint in local voxel space (``[-0.5, N-0.5]`` per axis) lets
-    ``fit_camera`` frame the data correctly from the start, with no large
-    upfront GPU allocation.
+    box -- derived from the texture size -- would be 1- or 2-voxel until data
+    is loaded.  Pinning the box to the full data footprint in local voxel
+    space (``[-0.5, N-0.5]`` per axis) gives the node its real bounds from the
+    start (the clipping-plane gizmo places itself inside them), with no large
+    upfront GPU allocation.  The camera fit does not read them: it measures
+    the stores.
 
     The override is applied to the instance (rather than via a subclass) so the
     node is still built from the current ``gfx.Image`` / ``gfx.Volume`` symbol,
@@ -233,7 +234,7 @@ def _make_aabb_line(
 def _fit_aabb_line(line, sizes, n_axes: int) -> None:
     """Size an outline wireframe to a texture of *sizes* voxels.
 
-    *sizes* are in fetch order, as for :func:`_pin_footprint`.  A hidden line
+    *sizes* are in fetch order, as for `_pin_footprint`.  A hidden line
     still counts toward its group's bounding box, so the wireframe follows
     the view like the pinned box does; the geometry is replaced only when
     the box changes.
@@ -412,7 +413,7 @@ class _ImageMemorySlot:
     shape : tuple[int, ...]
         The store's shape.  The trailing two (2D) or three (3D) entries pin
         each node's bounding box to the full data footprint before any data
-        arrives, so ``fit_camera`` frames the data from the start; the
+        arrives, so the node reports the data's bounds from the start; the
         visual pins again from the view's retained axes once it has them.
     pick_write : bool
         Whether the materials write to the pick buffer.
@@ -536,12 +537,12 @@ class _ImageMemorySlot:
 
 
 class _GFXImageMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
-    """:class:`GFXImageMemoryVisual` without the brick route: whole-slice textures.
+    """`GFXImageMemoryVisual` without the brick route: whole-slice textures.
 
     Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
     Draws the image single-channel or composited from a pool of
-    :class:`_ImageMemorySlot`.  The pool holds one slot when the visual has
+    `_ImageMemorySlot`.  The pool holds one slot when the visual has
     no ``channel_axis`` and ``max_channels`` slots when it does, keyed by
     channel index: single mode on index ``k`` reuses ``k``'s slot, and a full
     pool reassigns the least recently drawn slot the current mode does not
@@ -1204,7 +1205,7 @@ class _GFXImageMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
 
         Every slot's texture holds a whole slice or volume, so pygfx's
         ``index`` is already the data index; see
-        :func:`cellier.render.visuals._pick.memory_image_data_coordinate`.
+        `cellier.render.visuals._pick.memory_image_data_coordinate`.
         """
         ndim = 3 if isinstance(hit_object, gfx.Volume) else 2
         return memory_image_data_coordinate(pick_info, ndim)
@@ -1242,9 +1243,9 @@ class _GFXImageMemoryCore(RenderPlanesMixin, ClippingPlanesMixin):
 class GFXImageMemoryVisual(BrickRouteHost, _GFXImageMemoryCore):
     """Render-layer visual for one ``ImageVisual`` backed by ``ImageMemoryStore``.
 
-    The planar path and 3D views (:class:`_GFXImageMemoryCore`), and the brick
+    The planar path and 3D views (`_GFXImageMemoryCore`), and the brick
     route for a tilted 2D view
-    (:class:`~cellier.render.visuals._brick_route_host.BrickRouteHost`).
+    (`BrickRouteHost`).
     """
 
     def _build_inner(self, model, axes):

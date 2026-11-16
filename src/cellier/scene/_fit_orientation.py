@@ -6,7 +6,7 @@ axis order to get wrong: the caller names the axes and cellier places the
 components.  An axis left out has component 0.
 
 The vectors are stored on world axes but a fit happens in a 3D view of three
-*displayed* axes, which can change at run time.  :func:`resolve_fit_orientation`
+*displayed* axes, which can change at run time.  `resolve_fit_orientation`
 turns the stored vectors into ones on the displayed axes and falls back to the
 default orientation when a vector cannot be expressed on them.
 """
@@ -96,7 +96,7 @@ def check_not_parallel(
     Parameters
     ----------
     view_direction, up : dict[UUID, float] or None
-        Vectors from :func:`normalize_axis_vector`.  Nothing is checked
+        Vectors from `normalize_axis_vector`.  Nothing is checked
         unless both are given.
 
     Raises

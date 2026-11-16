@@ -79,5 +79,7 @@ async def test_set_depth_range_round_trips_on_a_2d_camera(controller, gradient_i
     state = controller.get_camera_state(canvas_id)
     assert state.depth_range == (-250.0, 250.0)
 
-    controller.set_camera_state(canvas_id, state._replace(zoom=2.0 * state.zoom))
+    controller.set_camera_state(
+        canvas_id, state._replace(extent=tuple(0.5 * e for e in state.extent))
+    )
     assert tuple(view.camera.depth_range) == (-250.0, 250.0)

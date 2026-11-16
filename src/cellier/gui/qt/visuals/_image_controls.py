@@ -6,7 +6,7 @@ axis, and a page per mode -- the single appearance, or one group per channel.
 An empty channel list is a valid composite page.
 
 Rows that only mean something for some render modes, or only in 3D, hide
-themselves (:func:`cellier.gui._image_controls.row_visible`).  A multiscale
+themselves (`cellier.gui._image_controls.row_visible`).  A multiscale
 image's attenuation is one shared value, so it sits under the render mode on
 the single page and once, below the channels, on the composite page.
 
@@ -53,21 +53,52 @@ if TYPE_CHECKING:
 class QtImageControls(VisualIdGroup):
     """Bidirectional image appearance control on the cellier bus.
 
+    One control per image visual (or per group of ``OrthoViewer`` panel
+    siblings).  From the top:
+
+    - a shared section: visibility, blending and interpolation;
+    - a "Composite channels" switch, shown only when the visual has a
+      channel axis;
+    - one page per mode: the single appearance's rows, or, when
+      compositing, one group of rows per channel.
+
+    Each page shows the rows its *values* ask for (colormap, contrast,
+    opacity, render mode, ...).  A row that only means something for some
+    render modes, or only in 3D, hides itself; *n_displayed_dimensions* and
+    *scene_ids* keep the 3D rule current.  A MaskedImage adds its surface
+    and 2D band rows to the single page.
+
+    Build the starting state with `cellier.gui.image_control_values`, then
+    wire to the controller after construction:
+
+        values = image_control_values(visual, fields=["color_map", "clim"])
+        control = QtImageControls(visual.id, values, scene_ids=[scene.id])
+        controller.connect_widget(
+            control, subscription_specs=control.subscription_specs()
+        )
+
     Parameters
     ----------
     visual_id :
         The visual, or an ``OrthoViewer``'s panel siblings, driven together.
     values :
-        The seed from :func:`cellier.gui._image_controls.image_control_values`.
+        The control's starting state: a dict of the visual's current
+        appearance values, page by page (``"shared"``, ``"single"`` and
+        ``"channels"``), the ``"fields"`` to show, and the widgets' ranges
+        and choices.  Its layout is internal.  The
+        convenience viewers build it when an ``ImageControl`` is in a
+        visual's ``controls=`` list; code that builds this widget directly
+        gets it from `cellier.gui.image_control_values` and passes it
+        through unchanged.
     title :
-        The group frame's title.  Defaults to :data:`DEFAULT_TITLE`.
+        The group frame's title.  Defaults to `DEFAULT_TITLE`.
     n_displayed_dimensions :
         How many dimensions the driven visuals' scenes display now, 2 or 3.
         Seeds the rows that are shown only in 3D.  Default 3, which shows
         them.
     scene_ids :
         The scenes to follow: after construction the control takes
-        :attr:`n_displayed_dimensions` from their ``DimsChangedEvent``.  The
+        `n_displayed_dimensions` from their ``DimsChangedEvent``.  The
         visuals are assumed to share one display dimensionality; if they do
         not, the last change wins.
     parent :
@@ -604,7 +635,7 @@ def _value_applier(control, convert=float):
 
 
 def _set_min_track_width(control) -> None:
-    """Keep a labelled slider's track at least :data:`MIN_TRACK_WIDTH_PX` wide.
+    """Keep a labelled slider's track at least `MIN_TRACK_WIDTH_PX` wide.
 
     The floor goes on the inner slider, not the whole control: the number
     labels beside it already take their own width, and a floor on the control

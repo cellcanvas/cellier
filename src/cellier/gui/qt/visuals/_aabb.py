@@ -25,7 +25,7 @@ class QtAABBWidget(VisualIdGroup):
     widget, source-ID echo filtering, and signal blocking when applying
     model-driven updates.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         aabb = QtAABBWidget(visual_id, initial_enabled=True, ...)
         controller.connect_widget(aabb, subscription_specs=aabb.subscription_specs())
@@ -44,7 +44,7 @@ class QtAABBWidget(VisualIdGroup):
         Starting CSS color string for the color swatch (e.g. ``"#ff00ff"``).
     title :
         The name shown on the group frame.  Defaults to
-        :data:`DEFAULT_TITLE`.
+        `DEFAULT_TITLE`.
     parent :
         Optional Qt parent widget.
     """
@@ -52,10 +52,7 @@ class QtAABBWidget(VisualIdGroup):
     DEFAULT_TITLE = "Bounding box"
     """Name shown when no ``title=`` is given.
 
-    The renderer passes the title from the shared control vocabulary; this
-    is what a directly-constructed widget calls itself, and
-    ``test_composite_default_titles_match_the_shared_vocabulary`` pins the
-    two together.
+    The same title the built-in viewers pass when they build this widget.
     """
 
     changed: Signal = Signal(object)
@@ -142,7 +139,7 @@ class QtAABBWidget(VisualIdGroup):
         """The titled group to insert into a layout.
 
         The rows inside only mean something together, so the group names
-        them; reach for :attr:`control` for the bare rows.
+        them; reach for `control` for the bare rows.
         """
         return self._group
 

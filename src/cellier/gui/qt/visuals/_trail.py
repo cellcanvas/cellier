@@ -36,7 +36,7 @@ class QtTrailControls(VisualIdGroup):
     and whether it fades.  Switching an axis off removes its window from
     ``GraphVisual.trail``; switching it back on restores the window it had.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         trail = QtTrailControls(visual_id, [(0, "t")], visual.trail)
         controller.connect_widget(trail, subscription_specs=trail.subscription_specs())
@@ -51,7 +51,7 @@ class QtTrailControls(VisualIdGroup):
     trail :
         The visual's current ``{axis: TrailConfig}``.  Read, never held.
     title :
-        The name shown on the group frame.  Defaults to :data:`DEFAULT_TITLE`.
+        The name shown on the group frame.  Defaults to `DEFAULT_TITLE`.
     parent :
         Optional Qt parent widget.
     """
@@ -59,8 +59,7 @@ class QtTrailControls(VisualIdGroup):
     DEFAULT_TITLE = TRAIL_TITLE
     """Name shown when no ``title=`` is given.
 
-    ``test_composite_default_titles_match_the_shared_vocabulary`` pins it to
-    the title the renderers pass in.
+    The same title the built-in viewers pass when they build this widget.
     """
 
     changed: Signal = Signal(object)

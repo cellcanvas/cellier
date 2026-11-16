@@ -3,7 +3,7 @@
 Every visual loads through the chunk scheduler, which never cancels; the
 only reads left that a caller cancels are the pick-value reads of a
 non-memory store (a pointer moved on before the values arrived).
-:class:`CancellableReads` runs each as one asyncio task, named by a read id.
+`CancellableReads` runs each as one asyncio task, named by a read id.
 """
 
 from __future__ import annotations

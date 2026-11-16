@@ -1,12 +1,12 @@
 """Dataset metadata for display, shared by the Qt and anywidget front ends.
 
-The section vocabulary a widget draws -- :class:`DatasetInfo`,
-:class:`RowSection`, :class:`MatrixSection` -- is defined in
+The section vocabulary a widget draws -- `DatasetInfo`,
+`RowSection`, `MatrixSection` -- is defined in
 ``cellier.data._dataset_info`` and re-exported here: a data store has to be
 able to describe itself without importing a GUI, so the types live beside the
 stores and the widgets import them from this module.
 
-What remains here is :func:`dataset_info_from_path`, which builds the same
+What remains here is `dataset_info_from_path`, which builds the same
 description for an OME-Zarr URI when there is no store object to ask.  A
 store you already hold is better asked directly -- ``store.dataset_info()``
 reads metadata it has parsed already, where this re-opens the group.

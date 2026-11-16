@@ -37,16 +37,6 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 
-class _UnsetType:
-    """Sentinel distinguishing "no initial value given" from ``None``."""
-
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return "UNSET"
-
-
-_UNSET = _UnsetType()
-
-
 class QtAppearanceField:
     """Bidirectional control for **one** appearance field on one or more visuals.
 
@@ -61,7 +51,7 @@ class QtAppearanceField:
     pattern the per-channel list established for the ``OrthoViewer``'s four
     sibling visuals.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         toggle = QtVisibleToggle(visual_id, initial_value=True)
         controller.connect_widget(
@@ -75,7 +65,8 @@ class QtAppearanceField:
         UUIDs to drive as one group.
     initial_value :
         Starting value -- typically read off the visual's appearance model.
-        Defaults to the control type's ``_default_value``.
+        ``None`` (the default) starts the control at its type's default
+        (``_default_value``).
     parent :
         Optional Qt parent widget.
     """
@@ -91,14 +82,14 @@ class QtAppearanceField:
         self,
         visual_id: UUID | Sequence[UUID],
         *,
-        initial_value: Any = _UNSET,
+        initial_value: Any = None,
         parent=None,
     ) -> None:
         self._id = uuid4()
         self._visual_ids = normalize_visual_ids(visual_id)
         self._spec = self._make_spec()
 
-        value = self._default_value if initial_value is _UNSET else initial_value
+        value = self._default_value if initial_value is None else initial_value
         self._control = self._build(value, parent)
         # ``_build`` is left alone: layer 2 keeps building exactly the control
         # it always did and knows nothing about being labelled.
@@ -112,7 +103,7 @@ class QtAppearanceField:
 
         This is the whole control, name included -- what a caller wants in
         every case except reaching for the input itself, which is
-        :attr:`control`.
+        `control`.
         """
         return self._row
 
@@ -120,8 +111,7 @@ class QtAppearanceField:
     def control(self):
         """The bare input inside the row -- the checkbox, slider or combo.
 
-        For tests and for callers driving the input directly.  Layer 2's
-        ``_read`` / ``_apply`` use ``self._control`` and never go through here.
+        For tests and for callers driving the input directly.
         """
         return self._control
 
@@ -145,8 +135,8 @@ class QtAppearanceField:
 
         Assigning to it behaves like a user edit -- the control moves *and* the
         change reaches the bus -- which is also what assigning to the anywidget
-        trait does.  To push a value in without emitting (an inbound bus
-        write), use ``_apply``.
+        trait does.  Changes arriving from the bus move the control without
+        emitting.
         """
         return self._read()
 
@@ -250,8 +240,7 @@ class QtBoundedSlider(QtAppearanceField):
     The range comes from the field's ``ge``/``le`` metadata and there is
     deliberately no keyword to widen it: a wider slider would build a control
     that emits values pydantic then rejects. Layer 3 binds ``_default_range``
-    by calling ``cellier.gui._appearance_fields.field_bounds`` on the model,
-    so the two cannot drift.
+    by reading those bounds off the model, so the two cannot drift.
 
     One documented exception: ``QtIsoThresholdSlider``.  ``iso_threshold``
     carries no ``ge``/``le`` -- a threshold is bounded relative to the data's
@@ -267,7 +256,7 @@ class QtBoundedSlider(QtAppearanceField):
         self,
         visual_id: UUID | Sequence[UUID],
         *,
-        initial_value: Any = _UNSET,
+        initial_value: Any = None,
         decimals: int | None = None,
         parent=None,
     ) -> None:
@@ -316,7 +305,7 @@ class QtFloatSpin(QtAppearanceField):
         self,
         visual_id: UUID | Sequence[UUID],
         *,
-        initial_value: Any = _UNSET,
+        initial_value: Any = None,
         value_range: tuple[float, float] | None = None,
         step: float | None = None,
         decimals: int | None = None,
@@ -364,7 +353,7 @@ class QtIntSpin(QtAppearanceField):
         self,
         visual_id: UUID | Sequence[UUID],
         *,
-        initial_value: Any = _UNSET,
+        initial_value: Any = None,
         value_range: tuple[int, int] | None = None,
         step: int | None = None,
         parent=None,
@@ -411,12 +400,9 @@ class QtIntSpin(QtAppearanceField):
 class QtChoice(QtAppearanceField):
     """Layer 2: a combo box for a ``Literal`` field.
 
-    Options come from the model's own annotation rather than a list restated
-    here, so a mode added to a model appears automatically and the in-memory
-    and multiscale variants of a field need no separate lists.  Pass
-    ``choices=`` when constructing from a model instance
-    (``literal_choices(appearance, field)``); ``_default_choices`` is the
-    fallback for a widget built without one.
+    Each subclass writes its options out in ``_default_choices``; a test
+    checks every list against its model's ``Literal`` so the two cannot
+    drift.  ``choices=`` replaces the list for one widget.
     """
 
     _default_value: ClassVar[Any] = ""
@@ -426,7 +412,7 @@ class QtChoice(QtAppearanceField):
         self,
         visual_id: UUID | Sequence[UUID],
         *,
-        initial_value: Any = _UNSET,
+        initial_value: Any = None,
         choices: Sequence[str] | None = None,
         parent=None,
     ) -> None:

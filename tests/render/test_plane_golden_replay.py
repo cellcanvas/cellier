@@ -15,6 +15,13 @@ again when the 2D tile sort became stable.  They held the same keys in the tie
 order of the machine that wrote them (256 tiles at 32 distinct distances), an
 order no other platform reproduced.
 
+A second exception: the six ``3d_ortho/*::0_keys`` arrays were captured again
+when the camera fit moved from pygfx's scene sphere to the box of the stores.
+Each holds the same keys in another order, with the same ``_cls`` and
+``_trunc``: the two radii differ by about 1e-7 (float32 against float64),
+which changes the orthographic width by 9e-5 and the order of tied bricks.
+Only those six arrays were written.
+
 The ``*_cls`` arrays hold the backstop's class as 1; it is 255 now.  They
 are compared through ``_recorded_class`` until they are captured again.
 """
@@ -207,7 +214,8 @@ def _cases(controller, pyramid_root):
             ]
             view.camera.fov = 0.0
             controller.fit_camera(scene.id)
-            view.camera.zoom = view.camera.zoom * zoom
+            view.camera.width = view.camera.width / zoom
+            view.camera.height = view.camera.height / zoom
             yield f"3d_ortho/{clip}/zoom{zoom}", _plan(controller, scene, visual)
             controller.remove_scene(scene.id)
     # 2D slices.

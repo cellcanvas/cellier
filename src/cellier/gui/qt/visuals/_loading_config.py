@@ -32,7 +32,7 @@ class QtLoadingConfigControls(VisualIdGroup):
     An invalid value is refused by the controller: the rows show the settings again and the
     reason below them; nothing is corrected.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         controls = QtLoadingConfigControls(visual_id, loading=config.model_dump())
         controller.connect_widget(
@@ -49,7 +49,7 @@ class QtLoadingConfigControls(VisualIdGroup):
     n_levels :
         The visual's level count, the most "Backstop level" offers.
     title :
-        The group's name.  Defaults to :data:`DEFAULT_TITLE`.
+        The group's name.  Defaults to `DEFAULT_TITLE`.
     parent :
         Optional Qt parent widget.
     """

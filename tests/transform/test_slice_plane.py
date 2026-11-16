@@ -22,21 +22,23 @@ from cellier.transform import (
     ConvexRegion,
     CoordinateSystem,
     DataCoordinateSystem,
-    DepthAlignment,
     HalfSpace,
     NonAffineTransformError,
     NonUniformAxisTransform,
-    ProjectionRefusal,
-    ProjectionRefusalReason,
     RegionSelection,
     RenderedCoordinateSystem,
-    RouteRefusalReason,
     SliceAlignment,
-    SliceRoute,
     WorldCoordinateSystem,
+    classify_view,
+)
+from cellier.transform._slice_plane import (
+    DepthAlignment,
+    ProjectionRefusal,
+    ProjectionRefusalReason,
+    RouteRefusalReason,
+    SliceRoute,
     choose_slice_route,
     classify_projection,
-    classify_view,
     projection_axis,
     ray_step,
     slice_footprint,
@@ -233,7 +235,7 @@ def test_a_tilted_2d_store_pulls_back_to_a_line():
     assert classification.pullback_dim == 1
     decision = choose_slice_route(classification)
     assert decision.route is SliceRoute.NONE
-    assert decision.reason is RouteRefusalReason.PULLBACK_NOT_2D
+    assert decision.reason is RouteRefusalReason.PULLBACK_WRONG_DIMENSION
     assert decision.dimension == 1
     with pytest.raises(ValueError, match="plane"):
         slice_plane_frame(classification, np.zeros(3))
@@ -264,7 +266,7 @@ def test_every_slice_along_a_line_is_refused(linear, view, alignment):
     assert classification.pullback_dim == 1
     decision = choose_slice_route(classification)
     assert decision.route is SliceRoute.NONE
-    assert decision.reason is RouteRefusalReason.PULLBACK_NOT_2D
+    assert decision.reason is RouteRefusalReason.PULLBACK_WRONG_DIMENSION
     assert decision.dimension == 1
 
 
@@ -289,7 +291,7 @@ def test_a_projecting_tilted_2d_store_is_refused():
     geometry = classify_projection(transform, (1, 2), 0)
     decision = choose_slice_route(classify_view(transform, (1, 2)), geometry)
     assert decision.route is SliceRoute.NONE
-    assert decision.reason is RouteRefusalReason.PULLBACK_NOT_2D
+    assert decision.reason is RouteRefusalReason.PULLBACK_WRONG_DIMENSION
 
 
 def test_a_volume_broadcast_into_a_channel_world():
@@ -655,7 +657,7 @@ def test_a_slice_through_four_data_axes_draws_nothing():
     assert classification.pullback_dim == 2
     decision = choose_slice_route(classification)
     assert decision.route is SliceRoute.NONE
-    assert decision.reason is RouteRefusalReason.TOO_MANY_VARYING_AXES
+    assert decision.reason is RouteRefusalReason.VARYING_AXES_NOT_THREE
     assert decision.dimension == 4
 
 
@@ -666,7 +668,7 @@ def test_a_slab_through_four_data_axes_draws_nothing():
     geometry = classify_projection(transform, (2, 3), 1)
     decision = choose_slice_route(classify_view(transform, (2, 3)), geometry)
     assert decision.route is SliceRoute.NONE
-    assert decision.reason is RouteRefusalReason.TOO_MANY_VARYING_AXES
+    assert decision.reason is RouteRefusalReason.VARYING_AXES_NOT_THREE
 
 
 # -- the footprint -----------------------------------------------------------

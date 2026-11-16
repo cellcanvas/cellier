@@ -153,7 +153,7 @@ class CoordinateSystem(CellierModel):
         return self.index_of(self.axis_by_name(axis).id)
 
     def resolve_axis(self, axis: AxisRef) -> Axis:
-        """Resolve an axis reference to the :class:`Axis` itself.
+        """Resolve an axis reference to the `Axis` itself.
 
         Parameters
         ----------
@@ -206,7 +206,7 @@ class VisualCoordinateSystem(CoordinateSystem):
     exists as a CPU-side transform, and modelling one per brick would
     produce objects no consumer reads.
 
-    Unlike :class:`RenderedCoordinateSystem` there is no rank check.  A
+    Unlike `RenderedCoordinateSystem` there is no rank check.  A
     rendered system is 2D or 3D because that is what a camera draws; a
     visual system is whatever rank the request retained.
 
@@ -234,7 +234,7 @@ class VisualCoordinateSystem(CoordinateSystem):
     ) -> Self:
         """Build a visual system from the data axes a request retains.
 
-        Mirrors :meth:`RenderedCoordinateSystem.from_world` exactly: each
+        Mirrors `RenderedCoordinateSystem.from_world` exactly: each
         visual axis corresponds to one data axis, so ``name``,
         ``axis_type`` and ``unit`` are inherited from it rather than
         re-specified, and the axis ids are **fresh** because these are

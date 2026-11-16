@@ -1,9 +1,9 @@
 """The render-layer mesh visual: level children loaded by the chunk scheduler.
 
 ``GFXMeshVisual`` loads through ``ChunkScheduler`` (``chunked = True``): a
-plan is a :class:`~cellier.render.scheduling.DesiredSet` of whole levels, the
+plan is a `DesiredSet` of whole levels, the
 read runs in an executor (``MeshMemoryStore.get_data``), and
-:class:`~cellier.render._level_residency.LevelResidency` decides what is
+`LevelResidency` decides what is
 uploaded and what may be drawn.
 
 One display rule holds everywhere: **the mesh never draws a position other
@@ -155,9 +155,9 @@ def _build_material_outline(appearance, width: float) -> gfx.LineSegmentMaterial
 def _placeholder_geometry(corner: np.ndarray) -> gfx.Geometry:
     """A degenerate triangle at *corner*: what a level that holds nothing has.
 
-    pygfx's scene bounding box counts hidden nodes, so the placeholder sits
+    pygfx's bounding boxes count hidden nodes, so the placeholder sits
     inside the store's extent and not at the origin, where it would stretch
-    a camera fit.
+    the node's bounds.
     """
     return gfx.Geometry(
         positions=np.tile(np.asarray(corner, dtype=np.float32), (3, 1)),
@@ -171,7 +171,7 @@ def _set_known_bounds(node: gfx.WorldObject, bounds: np.ndarray | None) -> None:
 
     pygfx caches a world object's geometry bounds against the positions
     buffer's revision, and computes them with a pass over every vertex on the
-    UI thread (a camera fit, the ambient occlusion radius).  Filling the
+    UI thread whenever something asks for the node's bounds.  Filling the
     cache skips that pass.  It is private pygfx state: when the attributes
     are not there, pygfx computes the bounds itself, as before.
     """
@@ -317,7 +317,7 @@ class _LevelNodes:
 class GFXMeshVisual(GeometryClippingMixin):
     """Render-layer visual for a mesh, loaded by the chunk scheduler.
 
-    The scene graph::
+    The scene graph:
 
         node_3d (gfx.Group)            node_2d (gfx.Group)
           level mesh_3d (gfx.Mesh)       level group_2d (gfx.Group)
@@ -344,8 +344,8 @@ class GFXMeshVisual(GeometryClippingMixin):
         Data-to-world transform. Must cover all data axes.
     axis_extents : Sequence[tuple[float, float]] or None
         The store's level-0 extent per data axis.  It sizes the bounding
-        box and places the placeholders, so a camera fit frames the store's
-        whole extent whether or not the mesh is loaded.  ``None`` when the
+        box and places the placeholders, so the nodes' bounds cover the
+        store's whole extent whether or not the mesh is loaded.  ``None`` when the
         store is empty.
     coarse_level : int or None
         The store level (0-based) kept resident beside the fine level, for a
@@ -1244,8 +1244,8 @@ class GFXMeshVisual(GeometryClippingMixin):
         """Size the bounding boxes and seat the placeholders from the extent.
 
         From the **store's level-0 extent**, not from the committed faces:
-        the box does not blink with the mesh, and a camera fit frames the
-        same box whether the mesh is hidden, empty or shown.
+        the box does not blink with the mesh, and it is the same box whether
+        the mesh is hidden, empty or shown.
         """
         box = self._local_extent()
         corner = np.zeros(3) if box is None else box[0]

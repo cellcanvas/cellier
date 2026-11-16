@@ -26,6 +26,10 @@ _STATIC = Path(__file__).parent / "static"
 class AnywidgetBox(anywidget.AnyWidget):
     """A flexbox container that mounts child widget views via the manager.
 
+    Jupyter only: the children are mounted through the Jupyter widget
+    manager, which marimo does not have.  On marimo use `AnywidgetSlot`,
+    or marimo's own ``mo.vstack`` / ``mo.hstack``.
+
     Parameters
     ----------
     children : list of ipywidgets.DOMWidget
@@ -42,32 +46,36 @@ class AnywidgetBox(anywidget.AnyWidget):
     gap : int
         Spacing between children in pixels.  Defaults to ``4``, tuned for
         macro layout blocks (canvas/dims/docks).  Pass a smaller value to
-        tightly group sibling controls that used to live inside one widget
-        (see ``LayoutHost.dock_panel``).
+        group closely related sibling controls.
     padding : int
-        Inner padding in pixels, on all four sides.  Defaults to ``0``.  Used
-        by :class:`~cellier.convenience._hosts.JupyterHost` to keep the
-        outermost box from touching the notebook cell / sidecar tab edges;
-        nested boxes leave this at ``0`` so only the outer border shows.
+        Inner padding in pixels, on all four sides.  Defaults to ``0``.  The
+        built-in Jupyter layout pads only the outermost box, to keep it off
+        the notebook cell / sidecar tab edges; nested boxes leave this at
+        ``0`` so only the outer border shows.
     title : str
         A heading drawn above the children, naming what the box holds.  Empty
-        (the default) draws nothing.  The anywidget answer to Qt's
-        ``titled_group``: the render dock uses it to say whose settings these
-        are, since "Outline" beside "Outlines" is not a distinction a reader
-        should have to make.
+        (the default) draws nothing.  The anywidget counterpart of
+        `cellier.gui.qt.visuals.titled_group`.
     scroll : bool
         Scroll the children vertically within the height of the row the box
         sits in, instead of making that row as tall as the children.  For a
         side dock: the canvas column beside it sets the height, and a long
         controls column scrolls rather than stretching the output (or the
         sidecar) past the canvas.  The box keeps its content width, and never
-        gets shorter than ``SCROLL_MIN_HEIGHT`` pixels.  Only meaningful for a
+        gets shorter than ``scroll_min_height`` pixels (default
+        `SCROLL_MIN_HEIGHT`).  Only meaningful for a
         box that is an item in a horizontal box.
+    scroll_min_height : int
+        The least height of a scrolling box, in pixels.  Defaults to
+        `SCROLL_MIN_HEIGHT`.
     """
 
-    #: The least height a scrolling box takes, so a small canvas does not
-    #: squeeze a dock to a sliver; a shorter row grows to it.
     SCROLL_MIN_HEIGHT = 300
+    """The least height a scrolling box takes, in pixels.
+
+    Keeps a small canvas from squeezing a dock to a sliver; a shorter row
+    grows to it.
+    """
 
     _esm = _STATIC / "container.js"
     _css = _STATIC / "container.css"
@@ -89,12 +97,13 @@ class AnywidgetBox(anywidget.AnyWidget):
 
         A container is the only thing holding the composed tree, so closing it
         has to close the children too or the whole panel stays registered with
-        ``ipywidgets`` (see ``cellier.gui.anywidget._teardown``).  ``children``
-        is cleared first so the box does not keep them reachable afterwards.
+        ``ipywidgets``, which holds every widget in a process-global table
+        that only ``close()`` clears.  ``children`` is cleared first so the
+        box does not keep them reachable afterwards.
 
         ``Widget.close()`` no-ops once the comm is gone, so a child that is
-        also closed through another path -- a control tracked as a leaf by
-        ``_RenderView`` -- is safe to reach twice.
+        also closed some other way (by the layout that displayed it, say) is
+        safe to reach twice.
         """
         for child in list(self.children):
             child.close()

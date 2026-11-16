@@ -24,9 +24,10 @@ class PaintStrokeCommand:
         Shape ``(N, ndim)``, int64.  Each row is one voxel index in
         data-array order (e.g. ``(z, y, x)`` for a 3-D store).
     old_values : np.ndarray
-        Shape ``(N,)``, float32.  Value at each voxel before the stroke.
+        Shape ``(N,)``, in the store's dtype.  Value at each voxel before
+        the stroke.
     new_values : np.ndarray
-        Shape ``(N,)``, float32.  Value written by the stroke.
+        Shape ``(N,)``, in the store's dtype.  Value written by the stroke.
     """
 
     visual_id: UUID
@@ -37,12 +38,26 @@ class PaintStrokeCommand:
 
 
 class ActiveStroke:
-    """Accumulator that builds a :class:`PaintStrokeCommand` during a drag.
+    """Accumulator that builds a `PaintStrokeCommand` during a drag.
 
     ``record`` is called once per brush application.  Successive calls
     concatenate their voxel arrays.  ``finalise`` constructs the
-    immutable :class:`PaintStrokeCommand`.  After ``finalise``, no further
+    immutable `PaintStrokeCommand`.  After ``finalise``, no further
     ``record`` calls are permitted.
+
+    Parameters
+    ----------
+    visual_id : UUID
+        The painted visual.
+    data_store_id : UUID
+        The store the stroke writes to.
+    gesture_id : UUID or None
+        The gesture this stroke belongs to, if known.
+    dtype : numpy dtype or None
+        The dtype the values are kept in; pass the store's, so undo writes
+        back exactly what was there (label ids above 2**24 do not survive
+        a float32 round trip).  None keeps each ``record`` call's own
+        dtype, and float32 for a stroke with no voxels.
     """
 
     def __init__(
@@ -50,10 +65,12 @@ class ActiveStroke:
         visual_id: UUID,
         data_store_id: UUID,
         gesture_id: UUID | None = None,
+        dtype: np.typing.DTypeLike | None = None,
     ) -> None:
         self._visual_id = visual_id
         self._data_store_id = data_store_id
         self._gesture_id = gesture_id
+        self._dtype = None if dtype is None else np.dtype(dtype)
         self._voxel_chunks: list[np.ndarray] = []
         self._old_chunks: list[np.ndarray] = []
         self._new_chunks: list[np.ndarray] = []
@@ -74,8 +91,8 @@ class ActiveStroke:
         if self._finalised:
             raise RuntimeError("Cannot record on a finalised ActiveStroke.")
         self._voxel_chunks.append(np.asarray(voxel_indices, dtype=np.int64))
-        self._old_chunks.append(np.asarray(old_values, dtype=np.float32))
-        self._new_chunks.append(np.asarray(new_values, dtype=np.float32))
+        self._old_chunks.append(np.asarray(old_values, dtype=self._dtype))
+        self._new_chunks.append(np.asarray(new_values, dtype=self._dtype))
 
     def finalise(self) -> PaintStrokeCommand:
         """Return the completed command. Do not call ``record`` after this.
@@ -99,8 +116,9 @@ class ActiveStroke:
             new_values = new_values_all[first_idx]
         else:
             voxel_indices = np.zeros((0, 0), dtype=np.int64)
-            old_values = np.zeros((0,), dtype=np.float32)
-            new_values = np.zeros((0,), dtype=np.float32)
+            empty_dtype = np.float32 if self._dtype is None else self._dtype
+            old_values = np.zeros((0,), dtype=empty_dtype)
+            new_values = np.zeros((0,), dtype=empty_dtype)
         return PaintStrokeCommand(
             visual_id=self._visual_id,
             data_store_id=self._data_store_id,
@@ -111,7 +129,7 @@ class ActiveStroke:
 
 
 class CommandHistory:
-    """Bounded deque of :class:`PaintStrokeCommand` with undo/redo pointers.
+    """Bounded deque of `PaintStrokeCommand` with undo/redo pointers.
 
     Only the undo stack is bounded by ``max_depth``; the redo stack is
     unbounded because it is cleared by ``push`` before it can grow

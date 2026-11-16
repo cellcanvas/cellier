@@ -22,15 +22,15 @@ positions that may fall anywhere.
 
 The distinction decides how a position between samples is resolved, and the
 two answers are genuinely different operations rather than one being an
-approximation of the other.  See :class:`Axis` for why that matters.
+approximation of the other.  See `Axis` for why that matters.
 """
 
 AxisRef = str | UUID4
 """A reference to an axis, either by name or by id.
 
-A ``str`` resolves through :meth:`CoordinateSystem.axis_by_name`, which
+A ``str`` resolves through `CoordinateSystem.axis_by_name`, which
 raises when the name is ambiguous within its system.  A ``UUID4``
-resolves through :meth:`CoordinateSystem.index_of` and is never
+resolves through `CoordinateSystem.index_of` and is never
 ambiguous.
 """
 

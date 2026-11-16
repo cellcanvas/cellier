@@ -1,14 +1,13 @@
 """The chunk scheduler on asyncio.
 
-:class:`ChunkScheduler` wraps :class:`~cellier.render.scheduling._core.
-SchedulerCore` with the parts that need an event loop:
+`ChunkScheduler` wraps `SchedulerCore` with the parts that need an event loop:
 
-- passes are coalesced: every :meth:`~ChunkScheduler.pass_` in one loop
+- passes are coalesced: every `pass_` in one loop
   iteration is applied by a single ``call_soon`` callback;
 - each issued read is a task awaiting ``store.get_data(request)``.  Reads
-  are never cancelled, except by :meth:`~ChunkScheduler.close`;
+  are never cancelled, except by `close`;
 - a failed read is retried from a timer;
-- arrivals are committed by :meth:`~ChunkScheduler.commit_round`, which a
+- arrivals are committed by `commit_round`, which a
   canvas's ``before_draw`` hook calls with its scene (wired in by the render
   manager), or by a fallback timer once an arrival has waited
   ``commit_fallback_s`` with no round.
@@ -309,7 +308,7 @@ class ChunkScheduler:
         return self._process_handle is None and self.core.idle()
 
     async def drain(self, timeout_s: float = 30.0, *, commit: bool = False) -> None:
-        """Wait until :meth:`idle` (reads land, commit rounds run).
+        """Wait until `idle` (reads land, commit rounds run).
 
         Parameters
         ----------

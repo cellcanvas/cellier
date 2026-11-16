@@ -133,7 +133,7 @@ def _act(widget, action, index=None, value=None) -> None:
     if action == "add":
         widget._add.click()
         return
-    row = widget.row(index)
+    row = widget._row(index)
     if action == "remove":
         row.remove.click()
     elif action == "flip":
@@ -179,7 +179,7 @@ def _outline_shown(widget, index) -> tuple[bool, str]:
     if hasattr(widget, "comm"):
         row = widget.rows[index]
         return bool(row["outline"]["enabled"]), row["outline_hex"]
-    row = widget.row(index)
+    row = widget._row(index)
     return row.outline.enabled.isChecked(), row.outline.hex
 
 
@@ -508,14 +508,14 @@ def test_the_extents_and_their_unbounded_boxes(controller, toolkit):
     assert "min < max" in widget.error
     assert widget.editor.rows[0]["extent_0"] == [-10.0, 4.0]
     if toolkit == "qt":
-        assert widget.row(0).sides[(0, 0)].value() == -10.0
+        assert widget._row(0).sides[(0, 0)].value() == -10.0
 
     # Ticking the box clears the side.
     _act(widget, "bounded", 0, [0, 0, False])
     assert visual.render_planes[0].extent_0 == (None, 4.0)
     assert widget.error == ""
     if toolkit == "qt":
-        row = widget.row(0)
+        row = widget._row(0)
         assert row.unbounded[(0, 0)].isChecked()
         assert not row.sides[(0, 0)].isEnabled()
         assert row.sides[(0, 1)].isEnabled()
@@ -570,7 +570,7 @@ def test_a_refused_edit_shows_the_last_rows_and_the_error(controller, toolkit):
     assert widget.editor.rows == before
     assert len(visual.render_planes) == 1
     if toolkit == "qt":
-        assert widget.row(0).components[0].value() == 1.0
+        assert widget._row(0).components[0].value() == 1.0
     _act(widget, "position", 0, 3.0)  # the next good edit clears it
     assert widget.error == ""
 
@@ -580,7 +580,7 @@ def _qt(controller):
     scene, visual = _add_image(controller)
     visual.render_planes = (_plane(controller, scene),)
     widget = _make("qt", controller, visual)
-    return visual, widget, widget.row(0)
+    return visual, widget, widget._row(0)
 
 
 def test_the_qt_slider_runs_from_one_face_of_the_box_to_the_other(controller):
@@ -658,7 +658,7 @@ def test_the_qt_row_names_the_planes_own_axes(controller):
     # A new plane is on the three axes the view displays: z, y, x, not t.
     world = _world(controller, scene)
     assert visual.render_planes[0].axes == tuple(axis.id for axis in world.axes[1:])
-    assert [button.text() for button in widget.row(0).facing.values()] == [
+    assert [button.text() for button in widget._row(0).facing.values()] == [
         "+z",
         "-z",
         "+y",
@@ -666,21 +666,21 @@ def test_the_qt_row_names_the_planes_own_axes(controller):
         "+x",
         "-x",
     ]
-    assert widget.row(0).facing[(0, 1)].isChecked()
+    assert widget._row(0).facing[(0, 1)].isChecked()
 
 
 def test_a_moved_plane_keeps_its_row_widgets(controller):
     _scene, visual = _add_image(controller)
     widget = _make("qt", controller, visual)
     _act(widget, "add")
-    row = widget.row(0)
+    row = widget._row(0)
     slider = row.slider
     _act(widget, "position", 0, 3.0)
     visual.render_planes = (
         visual.render_planes[0].model_copy(update={"origin": (6.0, 0.0, 0.0)}),
     )
-    assert widget.row(0) is row
-    assert widget.row(0).slider is slider
+    assert widget._row(0) is row
+    assert widget._row(0).slider is slider
     # The number is the depth: z == 6 is 6.5 into a box from z == -0.5.
     assert row.position.value() == 6.5
 
@@ -891,7 +891,7 @@ def test_a_control_given_no_gizmo_target_draws_no_toggle(controller, toolkit):
     _act(widget, "add")
     assert not widget.editor.has_gizmo
     if toolkit == "qt":
-        assert widget.row(0).gizmo.isHidden()
+        assert widget._row(0).gizmo.isHidden()
     else:
         assert "gizmo" not in widget.rows[0]
         _act(widget, "gizmo", 0, True)  # ignored
@@ -955,7 +955,7 @@ async def test_the_radio_runs_across_clipping_and_render_plane_controls(
 
     def press(widget, on):
         if toolkit == "qt":
-            widget.row(0).gizmo.click()
+            widget._row(0).gizmo.click()
         else:
             widget.edit = {
                 "action": "gizmo",
@@ -1008,7 +1008,7 @@ async def test_the_extent_fields_follow_a_gizmo_scale_drag(controller, toolkit):
         session._assign({"extent_0": (-6.0, 9.0)})
         assert widget.editor.rows[0]["extent_0"] == [-6.0, 9.0]
         if toolkit == "qt":
-            assert widget.row(0).sides[(0, 1)].value() == 9.0
+            assert widget._row(0).sides[(0, 1)].value() == 9.0
 
 
 # -- 9.1: "Plane" in the render-mode combos -------------------------------------

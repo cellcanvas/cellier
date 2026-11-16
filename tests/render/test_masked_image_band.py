@@ -307,6 +307,13 @@ def _memory_or_lazy(tmp_path, kind: str, view: str) -> np.ndarray:
         load(viewer, slice_z=band.SLICE + 0.3, size=(band.SIZE, band.SIZE))
         camera = band.canvas_view(viewer).camera
         camera.width = camera.height = band.SIZE * band.ZOOM
+        # Centred on the cut, not on the fitted box (wider for the tilted
+        # view): the two stores' frames agree there, while at the box's centre
+        # a lazy read rounds the other way in about half the runs.
+        x, y = band.cut_centre(band.VIEWS[view][1], slice_z=band.SLICE + 0.3)
+        camera.local.position = (x, y, 0.0)
+        controller.reslice_all()
+        asyncio.run(_wait_until_loaded(controller))
         return _frame(viewer)
     finally:
         viewer.controller.close()

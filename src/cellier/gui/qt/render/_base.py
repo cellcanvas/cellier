@@ -45,11 +45,11 @@ if TYPE_CHECKING:
 class QtRenderConfigPanel:
     """Base for a Qt panel driving one section of the render config.
 
-    Subclasses set :attr:`section` and build their controls in ``_build``,
-    registering each one with :meth:`_register` so the inbound handler can
+    Subclasses set `section` and build their controls in ``_build``,
+    registering each one with `_register` so the inbound handler can
     push a change back into it.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         panel = QtAmbientOcclusionControls(controller.render_config.ambient_occlusion)
         controller.connect_widget(panel, subscription_specs=panel.subscription_specs())
@@ -113,7 +113,7 @@ class QtRenderConfigPanel:
     def widget(self):
         """The Qt widget to embed in a layout -- the panel inside its own title.
 
-        The bare content is :attr:`content`, for a caller that wants to place
+        The bare content is `content`, for a caller that wants to place
         the rows itself.
         """
         return self._titled
@@ -206,7 +206,7 @@ class QtRenderConfigPanel:
         """Draw every control the shared spec lists for this section.
 
         Labels, ranges and tooltips come from
-        :data:`cellier.gui._render_controls.RENDER_CONTROLS` rather than
+        `cellier.gui._render_controls.RENDER_CONTROLS` rather than
         from here, so the notebook panels say the same things without
         anyone keeping two lists in step.
 

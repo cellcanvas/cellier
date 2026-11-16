@@ -24,6 +24,8 @@ class AABBParams(CellierEventedModel):
         Line thickness in screen pixels. Default ``2.0``.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     enabled: bool = False
     color: str = "#ffffff"
     line_width: float = 2.0
@@ -76,7 +78,7 @@ class VisualOutline(CellierEventedModel):
 class BaseDrawAppearance(CellierEventedModel):
     """How any visual is drawn, apart from its opacity.
 
-    Split out of :class:`BaseAppearance` so an image, whose opacity is per
+    Split out of `BaseAppearance` so an image, whose opacity is per
     channel, does not inherit a visual-level ``opacity`` that would mean
     nothing.
 
@@ -96,6 +98,8 @@ class BaseDrawAppearance(CellierEventedModel):
     transparency_mode : str
         The pygfx alpha mode.  Default ``"blend"``.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     visible: bool = True
     render_order: int = 0
@@ -153,7 +157,7 @@ class BaseVisual(CellierEventedModel):
     clipping_planes : tuple[ClippingPlane, ...]
         The visual is drawn only on the kept side of every enabled plane
         (their intersection).  The planes are in the visual's level-0 data
-        coordinates; see :class:`~cellier.visuals.ClippingPlane`.  Assign a
+        coordinates; see `ClippingPlane`.  Assign a
         new tuple to change them: one assignment is one event.  Default
         empty.
     id : UUID4
@@ -165,6 +169,8 @@ class BaseVisual(CellierEventedModel):
     Image visuals also carry a ``single`` appearance and per-channel
     ``channels`` appearances.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name: str
     data_store_id: str

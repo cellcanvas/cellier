@@ -14,6 +14,36 @@ comment can be reworded without touching the baseline.  The record first
 hashed the full text; its digests were converted once, while the full text
 still matched ``7e1b683f`` byte for byte, so they are the comment-free hashes
 of that commit's code.
+
+Deliberate exceptions, all for the B12 pick fixes in
+``multiscale_volume_brick.wgsl``.  The digests of the ``iso_nearest`` and
+``smooth_iso_linear`` scenes were replaced by hand four times, on 2026-11-10,
+twice on 2026-11-11 and on 2026-11-13 (first so the iso pick coordinate sits
+inside its voxel, then to clamp one quantum in and round the 14-bit encode,
+which holds on long axes, then to resume a brick a fraction of a voxel on
+instead of a fixed ``1e-4`` and to choose the voxel along the gradient, then to
+start the bisection at the crossing sample itself and reset ``prev_t`` past a
+skipped brick, so a pick no longer depends on the far plane).  The digests of the
+``mip_linear`` and ``attenuated_mip_linear`` scenes were replaced by hand once,
+on 2026-11-11, when the MIP pick got the same clamp and rounding.  The digests
+of the ``plane_linear``, ``slice_linear``, ``slab_mip``, ``slab_mean`` and
+``slab_minip`` scenes were replaced by hand once, on 2026-11-14, when the
+render-plane and slab picks got the same clamp and rounding.  All nine
+digests were replaced by hand once more, on 2026-11-15, when the fixed
+``MAX_BRICK_ITERS = 512`` loop guard became ``max_brick_iters()``, the sum of
+the LUT's sides: the fixed guard stopped a ray at its 512th cell and dropped
+what lay past it.  Before that replacement, reverting only the guard in the
+current source reproduced every previous digest.  All nine were replaced by
+hand again later on 2026-11-15, when the pick position moved from three
+14-bit fields to fields sized by the axis lengths (the
+``cellier.pick_encoding.wgsl`` include, ``pick_step_voxels`` in the clamp
+and ``pick_pack_voxel`` in the encode, at the plane, MIP and iso sites);
+reverting only those edits in the current source reproduced every previous
+digest first.  The recorded ``bindings_code`` predates the two pick rows of
+``u_vol_params``, so the hashed text declares a struct without them; the
+hash is of the text alone and is not compiled.  Only those nine digests
+changed (``iso_linear`` and ``slice_nearest`` record no entries), and the
+shader text is otherwise the text of ``7e1b683f``.
 """
 
 from __future__ import annotations

@@ -1,8 +1,10 @@
 """Shared helpers translating pygfx pick payloads to data coordinates.
 
-All functions return continuous **level-0 data-array** coordinates in pygfx
-``(x, y[, z])`` order, which equals displayed-axis order (pygfx local axis ``k``
-maps to ``displayed_axes[k]``).  ``floor`` of each component yields the integer
+All functions return continuous **level-0 data-array** coordinates in the
+pygfx ``(x, y[, z])`` order of the visual's texture: its drawn data axes
+ascending, last first, whatever the display order (the node matrix applies the
+display permutation; the controller maps the result back onto the data axes).
+``floor`` of each component yields the integer
 voxel index: coordinates use the ``[i, i + 1)`` convention where voxel ``i``
 spans ``[i, i + 1)`` and its center is ``i + 0.5``.
 
@@ -44,35 +46,25 @@ def memory_image_data_coordinate(
     return tuple(float(index[k]) + float(frac[k]) + 0.5 for k in range(ndim))
 
 
-def multiscale_volume_data_coordinate(
-    pick_info: dict, norm_size, dataset_size
-) -> tuple[float, ...] | None:
+def multiscale_volume_data_coordinate(pick_info: dict) -> tuple[float, ...] | None:
     """Data coordinate for a multiscale volume node (``NormSizedVolume``).
 
-    The brick shader writes the surface hit as a centred-normalised position;
-    ``NormSizedVolume._wgpu_get_pick_info`` decodes it to ``norm_pos``.  Map
-    that back to level-0 voxels via the dataset's normalised half-extent
-    (``norm_size``) and full voxel count (``dataset_size``), both in pygfx
-    ``(x, y, z)`` order.
+    The brick shader writes the hit as a level-0 voxel position, and
+    ``NormSizedVolume._wgpu_get_pick_info`` decodes it to ``voxel_pos`` with
+    the hit node's own pick layout, inside that node's dataset size.  Nothing
+    here reads the visual's current sizes: a pick of a frame drawn before the
+    dataset size changed (a node since rebuilt) keeps the coordinate it was
+    drawn at.
 
     Parameters
     ----------
     pick_info : dict
-        The pygfx pick payload; must contain ``norm_pos``.
-    norm_size, dataset_size : sequence of float
-        Per-axis (x, y, z) normalised half-extent and level-0 voxel counts.
+        The pygfx pick payload; ``None`` is returned without ``voxel_pos``.
     """
-    norm_pos = pick_info.get("norm_pos")
-    if norm_pos is None:
+    voxel = pick_info.get("voxel_pos")
+    if voxel is None:
         return None
-    out = []
-    for k in range(3):
-        # norm_pos = (n - 0.5) * norm_size, with n the [0, 1] texture coord;
-        # n * dataset_size is the continuous voxel position (center at i + 0.5).
-        n = float(norm_pos[k]) / float(norm_size[k]) + 0.5
-        size = float(dataset_size[k])
-        out.append(min(max(n * size, 0.0), size - _EDGE_EPS))
-    return tuple(out)
+    return tuple(float(v) for v in voxel)
 
 
 def multiscale_image_data_coordinate(
@@ -85,8 +77,8 @@ def multiscale_image_data_coordinate(
     continuous proxy-texel position (``index`` + ``pixel_coord``) and scale by
     ``level0 / grid`` (data pixels per proxy texel) to recover level-0 pixels in
     the ``[i, i + 1)`` convention (voxel ``i`` spans ``[i, i + 1)``, center
-    ``i + 0.5``) — identical to :func:`memory_image_data_coordinate` and
-    :func:`multiscale_volume_data_coordinate`.  The 2-D proxy node is placed
+    ``i + 0.5``) — identical to `memory_image_data_coordinate` and
+    `multiscale_volume_data_coordinate`.  The 2-D proxy node is placed
     center-at-integer (see ``_build_2d_node``), so a consumer converts this to a
     world position with a uniform ``- 0.5``, just like every other node.
 
