@@ -50,7 +50,7 @@ class AxisCoordinates(CellierModel):
     class is the same statement for an axis whose spacing is irregular.
 
     Keeping ``edges`` explicit is what lets a non-uniform axis answer the
-    question every store answers::
+    question every store answers:
 
         world extent on an axis = transform.map(store.axis_extents)
 

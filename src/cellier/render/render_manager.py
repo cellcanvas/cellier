@@ -127,10 +127,11 @@ class _LabelsDisplayedDataCoord(NamedTuple):
     collapsed_data_indices : tuple[tuple[int, int], ...] or None
         As on ``_ImageDisplayedDataCoord``.
     drawn_level : int or None
-        The 1-based pyramid level (1 is the finest) drawn at a 3D hit.  The
-        hit is on that level's surface, so the controller reads the label
-        there rather than at level 0.  ``None`` for a 2D hit or an in-memory
-        visual, which read level 0.
+        The 1-based pyramid level (1 is the finest) drawn at the hit, from
+        the brick (3D) or tile (2D) table.  The hit is on that level's
+        surface, so the controller reads the label there rather than at
+        level 0.  ``None`` when it cannot be said (an in-memory visual, a
+        table that changed since the frame was drawn), which reads level 0.
     """
 
     displayed_data_coord: tuple[float, ...]
@@ -1245,7 +1246,7 @@ class RenderManager:
         if hit_object is not None:
             hit_visual_id = self._scenes[scene_id].get_visual_id_for_node(hit_object)
             # Gate the cheap per-type extraction on whether any picking
-            # subscriber exists for this canvas (Decision 4).  hit_visual_id
+            # subscriber exists for this canvas.  hit_visual_id
             # is always computed; it is already paid for upstream and is
             # needed for visual-level hits and misses.
             if self._pick_details_enabled.get(canvas_id, False):
@@ -1354,8 +1355,9 @@ class RenderManager:
     ) -> UUID | None:
         """Read pick values, cancellable by the returned id.
 
-        Multiscale pick values are read at level 0, concurrently, as one
-        cancellable task.
+        Multiscale pick values are read at the pyramid level each request
+        names (the controller picks the level drawn at the hit, or level 0
+        when that cannot be said), concurrently, as one cancellable task.
 
         Parameters
         ----------

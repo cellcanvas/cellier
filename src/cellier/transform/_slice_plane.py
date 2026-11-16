@@ -14,8 +14,9 @@ world axes, ``S`` the sliced ones and ``s`` the slice position:
   ray, the Euclidean voxel length (never the max-norm);
 * the **footprint** (`slice_footprint`) is the data box cut by the
   slice or the slab, as a convex polygon in the displayed world axes;
-* `projection_axis` and `choose_slice_route` are the rules of
-  4.2 and 5.2.2, as pure functions.
+* `projection_axis` (the world axis a visual projects along) and
+  `choose_slice_route` (which path draws a raster visual in a view) are
+  pure functions.
 
 Everything is float64 and reads ``classification.effective_transform``, so
 it agrees with `classify_view` about what is

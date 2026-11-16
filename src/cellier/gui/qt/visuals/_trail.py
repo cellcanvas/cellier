@@ -36,7 +36,7 @@ class QtTrailControls(VisualIdGroup):
     and whether it fades.  Switching an axis off removes its window from
     ``GraphVisual.trail``; switching it back on restores the window it had.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         trail = QtTrailControls(visual_id, [(0, "t")], visual.trail)
         controller.connect_widget(trail, subscription_specs=trail.subscription_specs())

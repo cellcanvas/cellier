@@ -45,7 +45,7 @@ class QtLevelOfDetailControls(VisualIdGroup):
     Changing ``settled_lod_bias`` reslices, so its ``AppearanceUpdateEvent``
     is emitted when the slider is released, not on every tick.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         control = QtLevelOfDetailControls(visual_id, values)
         controller.connect_widget(

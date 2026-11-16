@@ -66,7 +66,7 @@ class AnywidgetImageControls(VisualIdGroup, anywidget.AnyWidget):
     and 2D band rows to the single page.
 
     Build the starting state with `cellier.gui.image_control_values`, then
-    wire to the controller after construction::
+    wire to the controller after construction:
 
         values = image_control_values(visual, fields=["color_map", "clim"])
         control = AnywidgetImageControls(visual.id, values, scene_ids=[scene.id])

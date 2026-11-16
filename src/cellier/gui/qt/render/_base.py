@@ -49,7 +49,7 @@ class QtRenderConfigPanel:
     registering each one with `_register` so the inbound handler can
     push a change back into it.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         panel = QtAmbientOcclusionControls(controller.render_config.ambient_occlusion)
         controller.connect_widget(panel, subscription_specs=panel.subscription_specs())

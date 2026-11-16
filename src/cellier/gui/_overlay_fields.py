@@ -71,7 +71,7 @@ class OverlayFieldSpec:
 class OverlayFieldMixin:
     """Mixin: make a layer-2 appearance control drive an overlay field.
 
-    Mix in **before** the layer-2 base so its ``_make_spec`` wins::
+    Mix in **before** the layer-2 base so its ``_make_spec`` wins:
 
         class QtOverlayVisibleToggle(OverlayFieldMixin, QtToggle):
             _field = "visible"

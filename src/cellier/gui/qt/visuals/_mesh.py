@@ -142,7 +142,7 @@ class QtMeshSectionControls(VisualIdGroup):
     The settings act only in a 2D view, so the group is hidden while none of
     the scenes in ``displayed_dimensions`` displays two dimensions.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         controls = QtMeshSectionControls(visual.id, section=visual.section.model_dump())
         controller.connect_widget(

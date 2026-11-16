@@ -51,7 +51,7 @@ class QtAppearanceField:
     pattern the per-channel list established for the ``OrthoViewer``'s four
     sibling visuals.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         toggle = QtVisibleToggle(visual_id, initial_value=True)
         controller.connect_widget(

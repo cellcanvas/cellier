@@ -838,7 +838,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Its ``mode`` (``"all"``, ``"2d"`` or ``None``) says which panels of
         one ``add_*`` call carry one tuple of planes, and can be set at any
-        time::
+        time:
 
             ortho.clipping_controller.mode = "2d"
         """
@@ -851,7 +851,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Its ``mode`` is ``None`` (the default: no link) or ``"slices"``:
         every image and labels visual of the 3D panel then carries three
         render planes, one per 2D panel, at that panel's slice position, and
-        a 2D slider moves its plane::
+        a 2D slider moves its plane:
 
             ortho.add_image_multiscale(
                 store, single=MultiscaleImageSingleAppearance(render_mode="plane")
@@ -1092,7 +1092,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Every slice-position move inside the block is a scrub tick on every
         panel it changes, so a player loads coarse while it runs and in full
-        when the block exits::
+        when the block exits:
 
             with viewer.dims_interaction():
                 for t in range(n_frames):
@@ -1113,7 +1113,7 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         copy of the visual, so each panel plans coarse while the transform
         changes (when its view's moving setting is on) and in full when the
         block exits, and a tilted 2D panel switches onto the brick route with
-        about a one-frame gap::
+        about a one-frame gap:
 
             with viewer.transform_interaction(visuals):
                 for angle in angles:
@@ -1187,8 +1187,9 @@ class OrthoViewer(ControlsRegistryMixin, RenderSettingsMixin):
         Raises
         ------
         ValueError
-            If *panel* is not a panel key, the panel has no canvas yet, or
-            *state* is for the other kind of camera.
+            If *panel* is not a panel key, the panel has no canvas yet,
+            *state* is for the other kind of camera, or its
+            ``controller_state`` is for the other kind of controller.
         """
         self._controller.set_camera_state(
             self._panel_canvas(panel), state, interactive=interactive

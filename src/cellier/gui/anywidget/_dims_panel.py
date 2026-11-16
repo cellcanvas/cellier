@@ -50,7 +50,7 @@ class AnywidgetDimsPanel(anywidget.AnyWidget):
     *axes_2d*/*axes_3d* (see `from_scene`), e.g. omitted for a scene
     with fewer than 3 axes.
 
-    Construct via `from_scene`, then wire with::
+    Construct via `from_scene`, then wire with:
 
         dims = AnywidgetDimsPanel.from_scene(scene, axis_values)
         controller.connect_widget(dims, subscription_specs=dims.subscription_specs())

@@ -11,7 +11,7 @@ A `Viewer` holds one scene; an `OrthoViewer` holds four that share one world coo
 
 ## Launching and display
 
-Use run as the entry point for launching a configured viewer. It picks the host from the viewer’s `gui=` argument, constructs the GUI, and launches the application.
+Use `run` as the entry point for launching a configured viewer. It picks the host from the viewer's `gui=` argument, constructs the GUI, and launches the application.
 
 ::: cellier.convenience.run
 ::: cellier.convenience.launch

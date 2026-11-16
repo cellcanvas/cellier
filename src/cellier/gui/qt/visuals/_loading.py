@@ -26,7 +26,7 @@ class QtLoadingIndicator(VisualIdGroup):
     bounding-box controls.  Read-only: it listens to ``ResliceProgressEvent``
     and emits nothing.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         indicator = QtLoadingIndicator(
             visual_id, initial={visual_id: controller.loading_progress(visual_id)}

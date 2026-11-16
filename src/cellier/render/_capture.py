@@ -255,8 +255,8 @@ def _seed_camera(
 
     # pygfx's own ``get_state``/``set_state`` rather than cellier's
     # ``CameraState``: the latter is a *logical* snapshot for the model layer
-    # and drops what a faithful copy needs (the orthographic extent, the
-    # reference up, ``maintain_aspect``).  Camera to camera, the pygfx pair is
+    # and drops what a faithful copy needs (the reference up,
+    # ``maintain_aspect``).  Camera to camera, the pygfx pair is
     # the lossless one.
     #
     # The guard keeps the setters from reading as a user camera move, which

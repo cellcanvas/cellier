@@ -47,7 +47,7 @@ class AnywidgetAppearanceField(anywidget.AnyWidget):
     Mirrors ``QtAppearanceField``: same constructor keyword, same
     ``visual_id`` fan-out, same echo filtering, same outgoing event.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         toggle = AnywidgetVisibleToggle(visual_id, initial_value=True)
         controller.connect_widget(

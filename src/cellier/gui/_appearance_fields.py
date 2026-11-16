@@ -157,7 +157,7 @@ class VisualIdGroup:
     pinned for appearance and for AABB by
     ``tests/convenience/test_cleanup_assumptions.py``.
 
-    Mix in **before** the toolkit base so the plain-``object`` MRO stays first::
+    Mix in **before** the toolkit base so the plain-``object`` MRO stays first:
 
         class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget): ...
     """

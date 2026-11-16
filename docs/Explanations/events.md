@@ -262,7 +262,7 @@ class CameraState(NamedTuple):
     rotation: tuple[float, float, float, float] # quaternion (x, y, z, w)
     up: tuple[float, float, float]
     fov: float                                  # 0 for a 2D camera
-    extent: tuple[float, float]  # (width, height): 2D, or 3D at fov 0
+    extent: tuple[float, float]                 # (width, height); 3D: at the orbit point
     depth_range: tuple[float, float] | None      # None = automatic
     controller_state: OrbitControllerState | PanZoomControllerState | None = None
 
@@ -280,10 +280,8 @@ view at the point the orbit controller turns the camera about: pygfx pivots
 `0.5 / tan(fov / 2) * mean(extent)` ahead of the camera
 (`cellier.scene.orbit_distance`), and at a field of view of 0 it turns the
 camera about itself and `extent` is the size of the whole view. A wheel zoom
-changes `extent`, so restoring a state restores the pivot; before 3D extents
-were recorded a restored view pivoted far from the data and the next click
-swung the camera away. A 3D `extent` with a component of 0 or less keeps the
-camera's size. The 3D camera model's `width` and `height` mirror it, and its
+changes `extent`, so restoring a state restores the pivot as well as the
+view. A 3D `extent` with a component of 0 or less keeps the camera's size. The 3D camera model's `width` and `height` mirror it, and its
 `orbit_distance` property derives the distance.
 
 `controller_state` is a typed slot for the mouse controller's state, told
@@ -2379,7 +2377,8 @@ from cellier.events._update_events import (
   selection and annotation — e.g. a `SelectionChangedEvent` — are still to be
   designed once that interaction model is specified. They will follow the same
   NamedTuple / `source_id` pattern.
-- **Upstream pick-readback suppression.** The true Decision-4 perf win — stopping
-  pygfx from performing the GPU→CPU readback when no consumer needs it — is pending
-  a pygfx pick-configuration investigation. The current gate only skips our own
-  cheap dispatch.
+- **Upstream pick-readback suppression.** Pick details are extracted for a canvas
+  only while it has an `on_pick` subscriber, but that gate only skips cellier's own
+  cheap dispatch. The real saving -- stopping pygfx from performing the GPU-to-CPU
+  readback when no consumer needs it -- is pending a pygfx pick-configuration
+  investigation.

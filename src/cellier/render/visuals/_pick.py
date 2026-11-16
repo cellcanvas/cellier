@@ -1,8 +1,10 @@
 """Shared helpers translating pygfx pick payloads to data coordinates.
 
-All functions return continuous **level-0 data-array** coordinates in pygfx
-``(x, y[, z])`` order, which equals displayed-axis order (pygfx local axis ``k``
-maps to ``displayed_axes[k]``).  ``floor`` of each component yields the integer
+All functions return continuous **level-0 data-array** coordinates in the
+pygfx ``(x, y[, z])`` order of the visual's texture: its drawn data axes
+ascending, last first, whatever the display order (the node matrix applies the
+display permutation; the controller maps the result back onto the data axes).
+``floor`` of each component yields the integer
 voxel index: coordinates use the ``[i, i + 1)`` convention where voxel ``i``
 spans ``[i, i + 1)`` and its center is ``i + 0.5``.
 

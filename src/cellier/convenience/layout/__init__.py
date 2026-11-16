@@ -5,7 +5,7 @@ viewer layout without any rendering logic.  Pass a `Layout` instance to
 `display`, `launch`, or
 `show` to render it.
 
-Quick start::
+Quick start:
 
     from cellier.convenience import display
     from cellier.convenience.layout import AppearanceControls, Layout

@@ -253,7 +253,7 @@ class QtClippingPlanesControls(VisualIdGroup):
     whole new tuple.  A moved plane updates its row in place, so a slider is
     not destroyed while it is dragged.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         data = get_clipping_planes_data_from_visual(visual, store)
         controls = QtClippingPlanesControls(visual.id, **data)

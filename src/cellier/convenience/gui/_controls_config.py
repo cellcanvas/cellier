@@ -3,7 +3,7 @@
 ``controls=`` on every ``Viewer`` / ``OrthoViewer`` ``add_*`` method is a
 list of the models in this module, or ``None`` for no controls.  An item in
 the list means its control is shown, its position is its place in the dock,
-and its options are its own fields::
+and its options are its own fields:
 
     viewer.add_image_multiscale(
         store,

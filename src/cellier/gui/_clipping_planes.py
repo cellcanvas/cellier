@@ -17,7 +17,7 @@ controller says which plane has it (``PlaneGizmoChangedEvent``) and
 each control draws that.
 
 A row is plain data, so the anywidget control syncs the whole list in one
-trait and constructs nothing when a plane is added::
+trait and constructs nothing when a plane is added:
 
     {"id": "0f6c...", "enabled": True, "normal": [0.0, 0.0, 1.0], "position": 12.0}
 

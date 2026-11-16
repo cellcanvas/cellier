@@ -32,7 +32,7 @@ class QtLoadingConfigControls(VisualIdGroup):
     An invalid value is refused by the controller: the rows show the settings again and the
     reason below them; nothing is corrected.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         controls = QtLoadingConfigControls(visual_id, loading=config.model_dump())
         controller.connect_widget(

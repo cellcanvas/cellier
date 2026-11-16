@@ -236,7 +236,7 @@ class QtDimsControl:
       for the echoed ``DimsChangedEvent``, same as the sliders, so there is a
       single source of truth for "what is currently displayed."
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         control = QtDimsControl(scene_id, axis_values=..., axis_labels=...)
         controller.connect_widget(

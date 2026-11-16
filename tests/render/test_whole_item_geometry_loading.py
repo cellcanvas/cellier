@@ -70,12 +70,19 @@ class Kind:
         for t in range(N_T):
             positions += [[t, 0, 1, 1 + t], [t, 0, 5, 1 + t]]
             edges.append([2 * t, 2 * t + 1])
-        return GraphMemoryStore(
+        store = GraphMemoryStore(
             positions=np.array(positions, np.float32),
             edges=np.array(edges, np.int64),
             slice_strategy=self.slice_strategy,
             name="series",
         )
+        if self.slice_strategy == "roi":
+            # Build the spatial index now, outside every timed wait. The first
+            # build in a process compiles spatial-graph's C++ modules unless
+            # witty's disk cache already holds them, which takes 30 to 50 s on
+            # a CI runner with a cold cache and would expire settle()'s timeout.
+            store.graph  # noqa: B018
+        return store
 
     def add(self, controller, scene_id, store):
         if self.name == "points":

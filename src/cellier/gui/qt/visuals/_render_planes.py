@@ -355,7 +355,7 @@ class QtRenderPlanesControls(VisualIdGroup):
     is disabled at four.  While the planes are not drawn (the visual is not
     in plane mode, or the view is 2D) the control is disabled and says why.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         data = get_render_planes_data_from_visual(controller, visual.id)
         controls = QtRenderPlanesControls(visual.id, **data)

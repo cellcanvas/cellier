@@ -1596,7 +1596,7 @@ class CanvasView:
         self.request_draw()
 
     def set_scene_extent(self, diagonal: float) -> None:
-        """Forward the scene bounding box diagonal to the occlusion pass.
+        """Forward the diagonal of the scene's data box to the occlusion pass.
 
         Parameters
         ----------

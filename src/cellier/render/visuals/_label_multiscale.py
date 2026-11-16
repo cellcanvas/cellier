@@ -1183,7 +1183,7 @@ class GFXMultiscaleLabelVisual(
                 f"3D planning expects 3D display, got "
                 f"displayed_axes={self._last_displayed_axes}"
             )
-        # Design 3.11 C: reverse once, by name, then map in one step.
+        # Reverse once, by name, then map in one step.
         camera_pos_data = self._to_level0_displayed(
             np.asarray(camera_pos_world).reshape(1, -1)
         ).flatten()
@@ -2281,7 +2281,8 @@ class GFXMultiscaleLabelVisual(
         geometry = gfx.Geometry(grid=proxy_tex)
         # dataset_size is what lets NormSizedVolume report the voxel extent;
         # without it the bounding box falls back to the 2x2x2 proxy texture,
-        # which throws off the camera fit and the auto occlusion radius.
+        # and the node's bounds (which the clipping-plane gizmo is placed in)
+        # are wrong.
         vol = NormSizedVolume(
             geometry,
             material,

@@ -6538,7 +6538,7 @@ class CellierController:
         A projection's route follows the thickness (crossing zero) and the
         appearance's projection fields.  The visual is placed again if its
         route changed; a slice node is re-placed either way (its embedding
-        carries the slice, 5.3.2) and given its slab.
+        carries the slice) and given its slab.
 
         Returns
         -------
@@ -9078,7 +9078,7 @@ class CellierController:
 
         Every `update_slice_indices` inside the block is a scrub tick,
         so a player or a scripted sweep loads coarse while it runs and in
-        full when the block exits::
+        full when the block exits:
 
             with controller.dims_interaction(scene_id):
                 for t in frames:
@@ -10505,7 +10505,7 @@ class CellierController:
         """Drag a visual's planes for the length of a ``with`` block.
 
         Every change of ``clipping_planes`` or ``render_planes`` inside the
-        block belongs to one drag::
+        block belongs to one drag:
 
             with controller.plane_interaction(visual.id):
                 for offset in offsets:
@@ -10572,7 +10572,7 @@ class CellierController:
     def _on_transform_transition(self, visual_id: UUID, transition: Transition) -> None:
         """Announce a transform drag's start or end; at the end, settle it.
 
-        A drag's end re-chooses the visual's route (a sticky route, 5.2.3,
+        A drag's end re-chooses the visual's route (a sticky route
         is let go) and, by release or stillness, plans the target of a
         visual the drag planned coarse or held.  An end by a jump or a
         cancel plans nothing here: the change that caused it does.
@@ -10668,7 +10668,7 @@ class CellierController:
         """Drag a visual's transform for the length of a ``with`` block.
 
         Every assignment of the visual's ``transform`` inside the block
-        belongs to one drag::
+        belongs to one drag:
 
             with controller.transform_interaction(visual.id):
                 for angle in angles:
@@ -11878,7 +11878,7 @@ class CellierController:
 
         Every programmatic move inside the block is a tick of a motion, so a
         fly-through reslices once, when the block exits, instead of at every
-        pose::
+        pose:
 
             with controller.camera_interaction(canvas_id):
                 for pose in path:
@@ -11938,7 +11938,8 @@ class CellierController:
         KeyError
             If *canvas_id* is not registered.
         ValueError
-            If *state* is for the other kind of camera.
+            If *state* is for the other kind of camera, or its
+            ``controller_state`` is for the other kind of controller.
         """
         self.get_canvas_view(canvas_id).set_camera_state(state)
         self._after_programmatic_camera_move(canvas_id, interactive=interactive)
@@ -14805,9 +14806,11 @@ class CellierController:
 
         Unlike `on_reslice_completed` (which fires per-visual on every
         cycle), this is a scene-level, one-shot readiness signal — the right
-        hook for fitting the camera or hiding a startup spinner once a mixed
+        hook for a screenshot or for hiding a startup spinner once a mixed
         scene of multiscale images, in-memory images, and geometry has fully
-        loaded.
+        loaded.  A camera fit does not need to wait for it: `fit_camera`
+        measures the stores, so fit first and the reslice this starts
+        plans from the fitted view.
 
         Parameters
         ----------

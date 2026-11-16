@@ -128,7 +128,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         determines the dimensionality of the scene.  Axis types are stated,
         never inferred from the name -- ``spatial_axes("z", "y", "x")`` is the
         shorthand for an all-spatial world, and a mixed one spells the rest
-        out::
+        out:
 
             Viewer(
                 [("t", "time"), *spatial_axes("z", "y", "x")],
@@ -136,7 +136,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
             )
     displayed_axes : tuple of str or UUID
         The axes the scene displays first, in display order.  Required.  Two
-        entries start the viewer in 2D and three start it in 3D::
+        entries start the viewer in 2D and three start it in 3D:
 
             Viewer(spatial_axes("x", "y", "z"), displayed_axes=("x", "y"))
 
@@ -231,7 +231,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Uniform black by default (a scene built directly with ``add_scene``
         keeps the gray gradient of ``BackgroundAppearance``).  Mutate its
-        fields to update the canvas at runtime::
+        fields to update the canvas at runtime:
 
             viewer.background.color = (1.0, 1.0, 1.0, 1.0)
             viewer.background.mode = "vertical_gradient"
@@ -302,7 +302,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         A scene overlay is drawn in the scene's world by the scene camera and
         follows the scene's contents -- see
         `add_scene_overlay`.
-        Its fields are live afterwards::
+        Its fields are live afterwards:
 
             box = viewer.add_scene_overlay(SceneBoundingBox(name="box"))
             box.appearance.color = (1.0, 0.0, 0.0, 1.0)
@@ -1263,7 +1263,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Every slice-position move inside the block is a scrub tick, so a
         player or a scripted sweep loads coarse while it runs and in full
-        when the block exits::
+        when the block exits:
 
             with viewer.dims_interaction():
                 for t in range(n_frames):
@@ -1282,7 +1282,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         """Drag a visual's transform for the length of a ``with`` block.
 
         Every assignment of the visual's ``transform`` inside the block is a
-        tick of one drag (``CellierController.transform_interaction``)::
+        tick of one drag (``CellierController.transform_interaction``):
 
             with viewer.transform_interaction(visual):
                 for angle in angles:
@@ -1368,7 +1368,8 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
         ------
         ValueError
             If the canvas cannot be resolved (see `get_camera_state`),
-            or *state* is for the other kind of camera.
+            *state* is for the other kind of camera, or its
+            ``controller_state`` is for the other kind of controller.
         """
         self._controller.set_camera_state(
             self._camera_canvas(canvas), state, interactive=interactive
@@ -1420,7 +1421,7 @@ class Viewer(ControlsRegistryMixin, RenderSettingsMixin):
 
         Every camera move inside the block is a tick of a motion, so a
         fly-through reslices once, when the block exits, instead of at every
-        pose::
+        pose:
 
             with viewer.camera_interaction():
                 for pose in path:

@@ -16,7 +16,7 @@ and derives the whole table from it.
 The table is a 1024x1024 ``rg16uint`` texture -- 4 MB -- indexed as
 ``(id & 1023, id >> 10)``.  It is deliberately *not* smaller: pygfx does
 not allocate ids with a counter, it draws them randomly over the full
-2^20 range::
+2^20 range:
 
     id = 0
     while id in self._ids_in_use:

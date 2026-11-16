@@ -6,7 +6,7 @@ looks at a rendered frame -- so a change to a shader, a colormap, a transform
 or a render pass could only be judged by a human running a demo.  This script
 turns "run it and look" into one command that writes a file.
 
-Usage::
+Usage:
 
     .venv/bin/python -m cellier.convenience.capture <target> --out picture.png
 
@@ -16,7 +16,7 @@ where ``<target>`` is either
   ``OrthoViewer`` (already populated; it must not call ``launch``/``show``), or
 * a **viewer file** written by ``Viewer.to_file`` / ``OrthoViewer.to_file``.
 
-Examples::
+For example:
 
     .venv/bin/python -m cellier.convenience.capture demos/volume.py \
         --size 900x700 --frames converged --out /tmp/volume.png
@@ -183,10 +183,11 @@ async def _load_data(viewer: object) -> None:
     was never requested.  In-memory images load a whole slice and cannot
     show this.
 
-    A fit before the load can do nothing: ``fit_camera`` skips a scene that
-    has no bounds yet, and some visuals only get bounds once data lands.  So
-    the cameras are fitted again after the load, and if that moved any of
-    them, everything is resliced for the new view and loaded again.
+    The fit uses the box measured from the stores, so it frames the data
+    before any of it has loaded.  The cameras are fitted again after the
+    load all the same, in case a store's extent changed while it loaded,
+    and if that moved any of them, everything is resliced for the new view
+    and loaded again.
     """
     controller = viewer.controller
     _fit_cameras(controller)

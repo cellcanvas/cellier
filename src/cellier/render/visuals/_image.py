@@ -166,8 +166,8 @@ class NormSizedVolume(gfx.Volume):
     """gfx.Volume subclass with a norm_size-aware bounding box.
 
     The standard gfx.Volume derives its local bounding box from the proxy
-    texture dimensions, which for a 2x2x2 dummy produces an asymmetric box
-    that offsets the orbit center by half the scene size.  This subclass
+    texture dimensions, which for a 2x2x2 dummy produces a box that has
+    nothing to do with the data.  This subclass
     overrides get_bounding_box() to return the full voxel-extent box in
     normalized local space, i.e. the box that maps (via the node's
     norm->world matrix) to data ``[-0.5, N-0.5]`` so the corners sit on the
@@ -1113,7 +1113,7 @@ class MultiscaleRegionPlanner:
     def _begin_plane_planning(self, selection, exempt_data_axes=()) -> None:
         """Start a planning call, applying the one-plane slicing rule first.
 
-        Design 3.2, decided on **level 0**: each sliced axis draws its nearest
+        The rule is decided on **level 0**: each sliced axis draws its nearest
         level-0 sample within the thickness, and if any sliced axis has none
         the visual draws nothing -- ``_slice_empty`` is set and the inner data
         nodes are hidden until a later plan lands in the data.
@@ -3343,7 +3343,7 @@ class _SliceBoundsGroup(gfx.Group):
 
     In a 2D view on the brick route the 3D node draws one slice of the
     volume: its bounds are that slice's footprint, not the volume's box,
-    so camera fit and ``look_at_visual`` frame what is drawn.  A hidden
+    so the node reports the bounds of what it draws.  A hidden
     child still counts toward a group's bounding box, which is why the
     box is replaced here rather than its children hidden.
     """
@@ -3795,7 +3795,7 @@ class GFXMultiscaleImageVisual(RenderPlanesMixin, ClippingPlanesMixin):
             # costs linear programs when the view is tilted.
             planned = (slot.pick_collapsed_indices() or {}) if collapsed else {}
             constants = {axis: float(planned.get(axis, 0.0)) for axis in collapsed}
-            # The slot plans with the same planes (fetch culling, 5.1).
+            # The slot plans with the same planes, so it culls its fetches too.
             slot._clipping_planes = self._clipping_planes
             slot._clip_channel = None
             if self._channel_axis in constants and index in channel_of:

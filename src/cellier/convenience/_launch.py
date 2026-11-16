@@ -60,9 +60,11 @@ def launch(
         window.
     fit : "ready", "immediate", "none" or None
         Camera-fit policy applied at startup.  ``"ready"`` fits the camera
-        on the first frame and again once the data has loaded (a geometry
-        visual's bounds are known only then); ``"immediate"`` fits on the
-        first frame only; ``"none"`` never fits.
+        on the first frame and again once the startup data has loaded;
+        ``"immediate"`` fits on the first frame only; ``"none"`` never
+        fits.  Both fit to the box measured from the stores (see
+        ``CellierController.fit_camera``), so they differ only when that
+        box changes while the data loads.
         ``None`` (the default) is ``"ready"``, except for a scene whose
         cameras were all placed from their models (a viewer loaded with
         ``from_file``), which keeps its view.
@@ -113,9 +115,11 @@ def show(
         window.
     fit : "ready", "immediate", "none" or None
         Camera-fit policy applied at startup.  ``"ready"`` fits the camera
-        on the first frame and again once the data has loaded (a geometry
-        visual's bounds are known only then); ``"immediate"`` fits on the
-        first frame only; ``"none"`` never fits.
+        on the first frame and again once the startup data has loaded;
+        ``"immediate"`` fits on the first frame only; ``"none"`` never
+        fits.  Both fit to the box measured from the stores (see
+        ``CellierController.fit_camera``), so they differ only when that
+        box changes while the data loads.
         ``None`` (the default) is ``"ready"``, except for a scene whose
         cameras were all placed from their models (a viewer loaded with
         ``from_file``), which keeps its view.
@@ -218,9 +222,11 @@ def display(
         its preset (``Layout.single``).
     fit : "ready", "immediate", "none" or None
         Camera-fit policy applied at startup.  ``"ready"`` fits the camera
-        on the first frame and again once the data has loaded (a geometry
-        visual's bounds are known only then); ``"immediate"`` fits on the
-        first frame only; ``"none"`` never fits.
+        on the first frame and again once the startup data has loaded;
+        ``"immediate"`` fits on the first frame only; ``"none"`` never
+        fits.  Both fit to the box measured from the stores (see
+        ``CellierController.fit_camera``), so they differ only when that
+        box changes while the data loads.
         ``None`` (the default) is ``"ready"``, except for a scene whose
         cameras were all placed from their models (a viewer loaded with
         ``from_file``), which keeps its view.
@@ -372,11 +378,10 @@ def _init_view(
 
     The fit policy controls how the camera is framed:
 
-    * ``"ready"`` (default) — fit on the first frame, then **re-fit** once the
-      scene's data has committed to the GPU.  The re-fit is what makes geometry
-      visuals (mesh, points, lines) frame correctly, since their bounding box
-      is only known after their data loads.  For image visuals the re-fit is a
-      no-op (their bounds are pinned at construction).
+    * ``"ready"`` -- fit on the first frame, then **re-fit** once the
+      scene's data has committed to the GPU.  Both fits use the box measured
+      from the stores, so the re-fit moves the camera only when that box
+      changed while the data loaded.
     * ``"immediate"`` — fit on the first frame only; no re-fit after load.
     * ``"none"`` — never fit; just trigger the initial data load.
     * ``None`` (default) — ``"none"`` for a scene whose canvases all show a

@@ -2,7 +2,7 @@
 
 Importing this package registers a ``cellier`` WGSL include loader with
 pygfx, so cellier shaders can pull in shared snippets the same way they
-already pull in pygfx's::
+already pull in pygfx's:
 
     {$ include 'cellier.label_outline_key.wgsl' $}
 

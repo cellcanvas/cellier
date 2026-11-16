@@ -210,7 +210,7 @@ class TensorStoreCacheMixin(CellierModel):
     """Adds a per-store tensorstore chunk cache to a data store.
 
     Mixed in ahead of ``BaseDataStore``.  Supplies the ``cache_pool_bytes``
-    field and makes plain assignment to it rebuild the store's cache pool::
+    field and makes plain assignment to it rebuild the store's cache pool:
 
         store.cache_pool_bytes = 2 * 1024**3
 

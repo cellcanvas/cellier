@@ -6,7 +6,7 @@ mixin swaps the bus contract -- ``OverlayChangedEvent`` in,
 ``OverlayUpdateEvent`` out, keyed by overlay id -- and everything else is the
 appearance controls' own behaviour (``cellier.gui._overlay_fields``).
 
-Wire to the controller after construction::
+Wire to the controller after construction:
 
     toggle = QtOverlayVisibleToggle(overlay.id, initial_value=overlay.visible)
     controller.connect_widget(toggle, subscription_specs=toggle.subscription_specs())

@@ -9,7 +9,7 @@ result back.  `ChunkScheduler` is that
 caller on asyncio; the property test drives the core directly with a
 simulated clock.
 
-The order of ``RECENT`` records, most important first::
+The order of ``RECENT`` records, most important first:
 
     (cls == BACKSTOP desc, wanted_gen desc, cls desc, rank asc)
 

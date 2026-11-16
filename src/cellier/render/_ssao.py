@@ -1,7 +1,7 @@
 """Screen-space ambient occlusion effect pass.
 
 One ``EffectPass`` driving three inner full-quad passes over two private
-single-channel textures::
+single-channel textures:
 
     _AOComputePass    depthTex (+ normalTex, pickTex, lutTex)  -> _ao_tex
     _AOBlurPass       _ao_tex                                  -> _ao_blur_tex
@@ -502,18 +502,17 @@ class SSAOPass(EffectPass):
     def set_scene_extent(self, diagonal: float) -> None:
         """Record the scene bounding box diagonal for the auto radius.
 
-        Called when the answer can change -- a camera fit, or an
-        ``AABBChangedEvent`` -- rather than per frame, because
-        ``scene.get_world_bounding_box()`` walks the whole scene graph and
-        a multiscale visual is a ``gfx.Group`` with many brick children.
+        The controller measures the scene's data box from the stores and
+        calls this after a camera fit and whenever that box changes, not per
+        frame.
 
         Parameters
         ----------
         diagonal : float
             Length of the scene bounding box diagonal, in scene units.
             Non-finite or non-positive values are ignored, so a degenerate
-            box (an empty scene, or one fitted before the first reslice
-            completed) leaves the previous radius in place.
+            box (a scene whose data is a single point) leaves the previous
+            radius in place.
         """
         diagonal = float(diagonal)
         if not np.isfinite(diagonal) or diagonal <= 0.0:

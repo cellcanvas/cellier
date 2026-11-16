@@ -52,7 +52,7 @@ class AnywidgetClippingPlanesControls(VisualIdGroup, anywidget.AnyWidget):
     side only; a value a host writes into them is put back.  An update is sent only when the planes differ from
     the ones held, so a host that delivers one edit twice sends one.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         data = get_clipping_planes_data_from_visual(visual, store)
         controls = AnywidgetClippingPlanesControls(visual.id, **data)

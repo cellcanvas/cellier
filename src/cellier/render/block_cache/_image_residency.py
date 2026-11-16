@@ -10,7 +10,7 @@ requests.
 
 Keys
 -----------------
-A key is a packed ``int64``::
+A key is a packed ``int64``:
 
     level:4 | slice id:16 | g0:12 | g1:12 | g2:12
 

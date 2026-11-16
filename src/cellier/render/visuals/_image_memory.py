@@ -124,11 +124,12 @@ def _pin_bounding_box(node, box_min: list[float], box_max: list[float]) -> None:
 
     The in-memory image/volume nodes start with a tiny placeholder texture
     (replaced on the first upload), so the standard pygfx bounding
-    box -- derived from the texture size -- would be 1- or 2-voxel and break
-    camera fitting before any data is loaded.  Pinning the box to the full data
-    footprint in local voxel space (``[-0.5, N-0.5]`` per axis) lets
-    ``fit_camera`` frame the data correctly from the start, with no large
-    upfront GPU allocation.
+    box -- derived from the texture size -- would be 1- or 2-voxel until data
+    is loaded.  Pinning the box to the full data footprint in local voxel
+    space (``[-0.5, N-0.5]`` per axis) gives the node its real bounds from the
+    start (the clipping-plane gizmo places itself inside them), with no large
+    upfront GPU allocation.  The camera fit does not read them: it measures
+    the stores.
 
     The override is applied to the instance (rather than via a subclass) so the
     node is still built from the current ``gfx.Image`` / ``gfx.Volume`` symbol,
@@ -412,7 +413,7 @@ class _ImageMemorySlot:
     shape : tuple[int, ...]
         The store's shape.  The trailing two (2D) or three (3D) entries pin
         each node's bounding box to the full data footprint before any data
-        arrives, so ``fit_camera`` frames the data from the start; the
+        arrives, so the node reports the data's bounds from the start; the
         visual pins again from the view's retained axes once it has them.
     pick_write : bool
         Whether the materials write to the pick buffer.

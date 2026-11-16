@@ -55,7 +55,7 @@ class AnywidgetRenderPlanesControls(VisualIdGroup, anywidget.AnyWidget):
     model refuses is shown as an error and the rows keep their previous
     values.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         data = get_render_planes_data_from_visual(controller, visual.id)
         controls = AnywidgetRenderPlanesControls(visual.id, **data)

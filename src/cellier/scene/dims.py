@@ -49,7 +49,7 @@ def spatial_axes(*names: str) -> tuple[Axis, ...]:
 
     The shorthand for the common all-spatial world -- ``spatial_axes("z", "y",
     "x")`` -- where writing ``("z", "space")`` three times says nothing extra.
-    Mixed worlds spell the non-spatial axes out::
+    Mixed worlds spell the non-spatial axes out:
 
         axes = [("t", "time"), ("c", "channel"), *spatial_axes("z", "y", "x")]
 

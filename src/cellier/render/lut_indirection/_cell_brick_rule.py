@@ -5,7 +5,7 @@ tile, in 2D).  Coarser levels are written into it, and a shader reads it back.
 Both sides must agree on which level-k brick owns each base cell.  On a
 pyramid whose level ratio is not an integer -- 389 voxels halved to 194 is a
 ratio of 2.005 -- no whole number of base cells matches a level-k brick
-exactly, so the answer has to be *chosen*, once, and used everywhere::
+exactly, so the answer has to be *chosen*, once, and used everywhere:
 
     span = max(1, round_half_up(scale))  # base cells per level-k brick
     bricks = ceil(level_shape / block_size)  # level-k brick count

@@ -15,14 +15,14 @@ Each axis ``a`` of ``n_a`` voxels gets a field of ``w_a`` bits:
 
 A pick at continuous voxel position ``v`` (voxel ``j`` spans ``[j, j + 1)``) is
 stored as ``q = floor(v * 2 ** f_a)`` and read back as the centre of its step,
-``(q + 0.5) * 2 ** -f_a`` (:meth:`PickBitLayout.decode`).  The steps are powers
+``(q + 0.5) * 2 ** -f_a`` (`PickBitLayout.decode`).  The steps are powers
 of two, so with ``f_a >= 0`` each step lies inside one voxel and the decoded
 point floors to the voxel the pick hit.  When the voxels need more than 44
 bits, ``f_a`` goes negative on the widest field: a step is then ``2 ** -f_a``
 voxels and the decoded voxel can be off by up to ``2 ** -f_a - 1``.
 
 The shader that writes the field and the decoder that reads it both take
-their layout from :func:`pick_bit_layout`, so they cannot disagree.
+their layout from `pick_bit_layout`, so they cannot disagree.
 """
 
 from __future__ import annotations
@@ -174,7 +174,7 @@ def warn_if_pick_over_budget(
     """The pick layout of *dataset_size*, warning once if it is over budget.
 
     An over-budget volume cannot name every voxel in a pick: on some axes a
-    step spans several voxels (:attr:`PickBitLayout.over_budget`).  The
+    step spans several voxels (`PickBitLayout.over_budget`).  The
     warning (a ``UserWarning``) names the visual, the axes and the step, and
     is given once per visual and 3D shape: a multichannel image has one slot
     per channel, all with the same id, and a 3D view that returns to a shape

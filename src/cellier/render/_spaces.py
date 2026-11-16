@@ -918,7 +918,7 @@ def window_half_extents(
     """Pull a world-unit window's endpoints back into data-unit half-extents.
 
     With ``w`` the slice position in world units and ``p`` the same position
-    already pulled back (which ``data_slice_positions`` supplies)::
+    already pulled back (which ``data_slice_positions`` supplies):
 
         before_data = p - imap(w - before)
         after_data = imap(w + after) - p

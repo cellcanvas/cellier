@@ -368,7 +368,7 @@ def compose_world_transform(
     """Return the 4x4 matrix mapping normalized space -> world space.
 
     The vertex shader emits proxy-box positions in normalized space.
-    ``u_wobject.world_transform`` must go normalized -> world, i.e.::
+    ``u_wobject.world_transform`` must go normalized -> world, i.e.:
 
         world_transform = data_to_world @ norm_to_data
 

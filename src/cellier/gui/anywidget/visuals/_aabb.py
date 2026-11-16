@@ -30,7 +30,7 @@ class AnywidgetAABBWidget(VisualIdGroup, anywidget.AnyWidget):
     input, and a *color* swatch, sharing one UUID so a single subscription
     covers all three fields.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         aabb = AnywidgetAABBWidget(visual_id, initial_enabled=True, ...)
         controller.connect_widget(aabb, subscription_specs=aabb.subscription_specs())

@@ -12,7 +12,7 @@ the extents, four fields with an "unbounded" box each.  An add button
 appends a plane.
 
 A row is plain data, so the anywidget control syncs the whole list in one
-trait and constructs nothing when a plane is added::
+trait and constructs nothing when a plane is added:
 
     {
         "id": "0f6c...",

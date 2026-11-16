@@ -124,11 +124,14 @@ controller.add_image(data=store, scene_id=scene.id, appearance=appearance)
 # never loads anything and every capture of it is a picture of emptiness.
 controller.add_canvas(scene_id=scene.id, canvas_size=(400, 300))
 
+# Fit before the load: the fit is measured from the stores, and a multiscale
+# visual loads what the fitted camera sees.
+controller.fit_camera(scene.id)
+
 # on_scene_ready is the supported wait; the convenience on_ready wraps it.
 ready = asyncio.Event()
 controller.on_scene_ready(scene.id, ready.set)
 await ready.wait()
-controller.fit_camera(scene.id)
 
 canvas_id = controller.get_canvas_ids(scene.id)[0]
 frame = controller.screenshot(canvas_id, size=(400, 300))   # (300, 400, 4) uint8

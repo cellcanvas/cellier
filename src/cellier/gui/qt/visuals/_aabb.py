@@ -25,7 +25,7 @@ class QtAABBWidget(VisualIdGroup):
     widget, source-ID echo filtering, and signal blocking when applying
     model-driven updates.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         aabb = QtAABBWidget(visual_id, initial_enabled=True, ...)
         controller.connect_widget(aabb, subscription_specs=aabb.subscription_specs())

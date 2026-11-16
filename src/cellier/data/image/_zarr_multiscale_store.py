@@ -7,7 +7,7 @@ ready before ``QtAsyncio.run()`` starts the event loop.
 Placement note
 --------------
 Place this file adjacent to (or in the same package as) ``chunk_request.py``
-and adjust the import below to match::
+and adjust the import below to match:
 
     from <your_package>.chunk_request import ChunkRequest
 

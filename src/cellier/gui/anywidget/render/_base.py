@@ -85,7 +85,7 @@ class AnywidgetRenderConfigPanel(anywidget.AnyWidget):
     Subclasses set `section` and pass the live config section to
     ``super().__init__``.
 
-    Wire to the controller after construction::
+    Wire to the controller after construction:
 
         panel = AnywidgetAmbientOcclusionControls(
             controller.render_config.ambient_occlusion

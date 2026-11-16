@@ -105,8 +105,10 @@ class CameraState(NamedTuple):
         turns the camera about, which is ``cellier.scene.orbit_distance``
         ahead of it, so a zoom changes it and restoring it restores that
         point; at a field of view of 0 it is the size of the whole view.
-        A component of 0 or less, as in states captured before 3D extents
-        were recorded, keeps the camera's current width and height.
+        Applying a perspective state with a component of 0 or less, as in
+        states captured before 3D extents were recorded, keeps the 3D
+        camera's current width and height.  A 2D state's extent is always
+        applied.
     depth_range : tuple[float, float] or None
         The ``(near, far)`` clipping distances, or ``None`` when the range
         is automatic (worked out from what the camera is fitted to).
