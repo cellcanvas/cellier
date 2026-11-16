@@ -22,6 +22,7 @@ from cellier.visuals import (
     MultiscaleImageRenderConfig,
     MultiscaleLabelRenderConfig,
 )
+from tests._gpu_budget import SMALL_BUDGETS
 from tests.render._affine import bind, multiscale_store
 from tests.render.test_labels_pick_face import _viewer
 
@@ -53,19 +54,41 @@ def test_a_grid_past_the_texture_limit_raises(limit):
 
 @pytest.mark.parametrize("family", ["image", "labels"])
 def test_adding_a_volume_past_the_limit_raises(tmp_path, limit, family):
-    """The error reaches the caller that adds the visual, not the first draw."""
+    """The error reaches the caller that adds the visual, not the first draw.
+
+    The refused add leaves its store unregistered, and the same store and
+    transform can be added again with bricks large enough.
+    """
     data = np.zeros((2, 2, 2 * limit + 2), dtype=np.int32)
     store = multiscale_store(tmp_path, "long", data)
     viewer = _viewer(("z", "y", "x"))
+    controller = viewer.controller
     try:
         transform = bind(viewer, store, np.eye(4))
         if family == "labels":
-            config = MultiscaleLabelRenderConfig(block_size=2)
+            config_type = MultiscaleLabelRenderConfig
             add = viewer.add_labels_multiscale
         else:
-            config = MultiscaleImageRenderConfig(block_size=2)
+            config_type = MultiscaleImageRenderConfig
             add = viewer.add_image_multiscale
         with pytest.raises(ValueError, match="3D texture limit"):
-            add(store, render_config=config, transform=transform)
+            add(
+                store,
+                render_config=config_type(**SMALL_BUDGETS, block_size=2),
+                transform=transform,
+            )
+        assert store.id not in controller._model.data.stores
+        assert store.id not in controller._store_psygnal_handlers
+        assert viewer.scene.visuals == []
+        # bind() registered the store's systems before the add: they stay.
+        assert store.data_coordinate_systems[0].id in controller._coordinate_systems
+
+        visual = add(
+            store,
+            render_config=config_type(**SMALL_BUDGETS, block_size=3),
+            transform=transform,
+        )
+        assert viewer.scene.visuals == [visual]
+        assert store.id in controller._model.data.stores
     finally:
-        viewer.controller.close()
+        controller.close()

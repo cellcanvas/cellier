@@ -6,6 +6,7 @@ import asyncio
 import contextvars
 import dataclasses
 import difflib
+import functools
 import logging
 import warnings
 import weakref
@@ -1087,6 +1088,20 @@ _LABELS_ONLY_RENDER_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def _atomic_add(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Make an ``add_*`` method leave no registration behind when it raises.
+
+    See `CellierController._undo_registrations_on_failure`.
+    """
+
+    @functools.wraps(method)
+    def add(self: CellierController, *args: Any, **kwargs: Any) -> Any:
+        with self._undo_registrations_on_failure():
+            return method(self, *args, **kwargs)
+
+    return add
+
+
 def _render_mode_for(displayed_axes: Sequence[int]) -> str:
     """The render mode a displayed-axes tuple selects: 3 axes is 3D, 2 is 2D."""
     return "3d" if len(displayed_axes) == 3 else "2d"
@@ -1904,6 +1919,57 @@ class CellierController:
             _on_data_changed,
         )
 
+    @contextmanager
+    def _undo_registrations_on_failure(self) -> Generator[None, None, None]:
+        """Unregister the stores and coordinate systems a failed add registered.
+
+        An add registers its store and the store's coordinate systems before
+        it checks the visual and builds its render objects, so any of those
+        can refuse the visual after the store is in.  If the body raises,
+        every store it registered is removed again (as `remove_data_store`
+        would), unless a visual already reads it, and every coordinate system
+        it registered is forgotten, unless it belongs to a store that stays
+        registered.  Stores and systems registered before the body ran stay.
+        The store object keeps the coordinate systems it was given, so a
+        transform built against them still works when the add is retried.
+        """
+        stores_before = set(self._model.data.stores)
+        systems_before = set(self._coordinate_systems)
+        try:
+            yield
+        except BaseException:
+            read = {
+                store_id
+                for scene in self._model.scenes.values()
+                for visual in scene.visuals
+                for store_id in visual_store_ids(visual)
+            }
+            added = [
+                store_id
+                for store_id in self._model.data.stores
+                if store_id not in stores_before and store_id not in read
+            ]
+            for store_id in added:
+                self._model.data.stores.pop(store_id)
+                connection = self._store_psygnal_handlers.pop(store_id, None)
+                if connection is not None:
+                    connection[0].disconnect(connection[1])
+            # A registered store keeps its systems registered, including
+            # ones the body gave it (a bare store has none until added).
+            kept = systems_before | {
+                system.id
+                for store in self._model.data.stores.values()
+                for system in store.data_coordinate_systems
+            }
+            self._forget_coordinate_systems(
+                *(
+                    system
+                    for system_id, system in list(self._coordinate_systems.items())
+                    if system_id not in kept
+                )
+            )
+            raise
+
     def _store_readers(self, store_id: UUID) -> list[tuple[UUID, Any]]:
         """``(scene_id, visual)`` for every placed visual reading *store_id*."""
         return [
@@ -2142,6 +2208,7 @@ class CellierController:
     # Visual management — public API
     # ------------------------------------------------------------------
 
+    @_atomic_add
     def add_visual(
         self,
         scene_id: UUID,
@@ -2166,7 +2233,8 @@ class CellierController:
             If provided, register the store first (no-op if already present),
             then use it. If ``None``, the store is looked up by
             ``visual_model.data_store_id``; a ``KeyError`` is raised if not
-            found.
+            found.  If the add raises, a store it registered is unregistered
+            again: a refused visual leaves nothing behind.
 
         Returns
         -------
@@ -2207,6 +2275,8 @@ class CellierController:
             self._check_render_planes(
                 visual_model, visual_model.render_planes, scene_id=scene_id
             )
+        if isinstance(visual_model, BaseImageVisual):
+            self._check_image_axes(scene_id, visual_model)
 
         # Before the multiscale branch: a MaskedImage is a multiscale image.
         if isinstance(visual_model, MaskedImageVisual):
@@ -2233,6 +2303,7 @@ class CellierController:
                 "Register a handler in add_visual."
             )
 
+    @_atomic_add
     def add_image(
         self,
         data: ImageMemoryStore,
@@ -2347,6 +2418,7 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
+    @_atomic_add
     def add_labels(
         self,
         data: LabelMemoryStore,
@@ -2464,6 +2536,7 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
+    @_atomic_add
     def add_mesh(
         self,
         data: MeshMemoryStore,
@@ -2545,6 +2618,7 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
+    @_atomic_add
     def add_multiscale_mesh(
         self,
         data: MultiscaleMeshStore,
@@ -2634,6 +2708,7 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
+    @_atomic_add
     def add_points(
         self,
         data: PointsMemoryStore,
@@ -2709,6 +2784,7 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
+    @_atomic_add
     def add_lines(
         self,
         data: LinesMemoryStore,
@@ -2784,6 +2860,7 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
+    @_atomic_add
     def add_graph(
         self,
         data: GraphMemoryStore,
@@ -2887,6 +2964,7 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
+    @_atomic_add
     def add_image_multiscale(
         self,
         data: BaseDataStore,
@@ -2997,6 +3075,7 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=data)
 
+    @_atomic_add
     def add_masked_image(
         self,
         mask: BaseDataStore,
@@ -3105,6 +3184,7 @@ class CellierController:
         )
         return self.add_visual(scene_id, visual_model, data_store=mask)
 
+    @_atomic_add
     def add_labels_multiscale(
         self,
         data: BaseDataStore,
@@ -3425,7 +3505,6 @@ class CellierController:
         if hasattr(visual_model, "appearance"):
             self._wire_appearance(visual_model)
         if isinstance(visual_model, BaseImageVisual):
-            self._check_image_axes(scene_id, visual_model)
             self._wire_image(visual_model)
         if isinstance(visual_model, GraphVisual):
             self._wire_trail(visual_model)

@@ -2014,7 +2014,9 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
         A change of the fetch axes replaces the geometry, because the scale
         and translation vectors are projected onto those axes when it is
         constructed.  A change of the shapes alone (a mutated store) keeps
-        the geometry and updates its grids.
+        the geometry and updates its grids.  Either way the dataset size,
+        the proxy box and the params buffer (with its pick layout) follow
+        the new level-0 shape.
         """
         fetch_3d = _geometry_fetch_axes(
             self._transform, displayed_axes, len(self._full_level_shapes[0])
@@ -2028,11 +2030,12 @@ class _MultiscaleImageSlot(MultiscaleRegionPlanner):
                 block_size=geo.block_size,
                 fetch_axes=fetch_3d,
             )
-            self._set_volume_params(displayed_axes)
-            self._rebuild_3d_resources()
         elif shapes_3d != geo.level_shapes:
             geo.update(shapes_3d)
-            self._rebuild_3d_resources()
+        else:
+            return
+        self._set_volume_params(displayed_axes)
+        self._rebuild_3d_resources()
 
     def _sync_geometry_2d(
         self,
